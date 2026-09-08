@@ -994,6 +994,7 @@ fn split_definitions(input: &str) -> Vec<String> {
 fn validate_identifier(value: &str) -> Result<(), ParseError> {
     let valid = value.chars().enumerate().all(|(index, character)| {
         character == '_'
+            || (index > 0 && character == '-')
             || character.is_ascii_alphanumeric() && (index > 0 || !character.is_ascii_digit())
     });
     if value.is_empty() || !valid {
@@ -1078,6 +1079,15 @@ fn rust_constant(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hyphenated_css_attributes_preserve_their_webidl_names() {
+        let definitions = parse_definitions("[Exposed=Window] interface CSSPageDescriptors { attribute DOMString margin-top; attribute DOMString page-orientation; };").unwrap();
+        let generated = emit_binding_registry(&definitions).unwrap();
+        assert!(generated.contains("name: \"margin-top\""));
+        assert!(generated.contains("name: \"page-orientation\""));
+        assert!(parse_definitions("interface -Invalid { };").is_err());
+    }
 
     #[test]
     fn named_getters_are_distinct_from_indexed_getters() {

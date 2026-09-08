@@ -1,5 +1,7 @@
 //! CSSOM declaration operations backed by the same Stylo parser as layout.
+mod media_lists;
 mod rule_mutations;
+pub use media_lists::{MediaListEdit, MediaListMutation, mutate_media_list};
 pub use rule_mutations::{RuleListEdit, RuleMutationError, mutate_rule_list};
 use style::{
     context::QuirksMode,
@@ -76,6 +78,7 @@ pub struct RuleView {
     pub children: Vec<RuleView>,
     pub properties: std::collections::BTreeMap<String, String>,
     pub conditions: Vec<(String, String)>,
+    pub media_queries: Vec<String>,
 }
 
 pub fn read_stylesheet(
@@ -164,12 +167,21 @@ fn rule_view(
             view.declaration_text = Some(declaration(rule.block.read_with(guard))?);
         }
         CssRule::Media(rule) => {
+            view.media_queries = rule
+                .media_queries
+                .read_with(guard)
+                .media_queries
+                .iter()
+                .map(|query| query.to_css_string())
+                .collect();
             view.properties.insert(
                 "conditionText".into(),
                 rule.media_queries.read_with(guard).to_css_string(),
             );
         }
         CssRule::Supports(rule) => {
+            view.properties
+                .insert("matches".into(), rule.enabled.to_string());
             view.properties
                 .insert("conditionText".into(), rule.condition.to_css_string());
         }

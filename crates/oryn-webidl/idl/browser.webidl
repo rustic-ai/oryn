@@ -1118,11 +1118,74 @@ interface CSSNamespaceRule : CSSRule {
 };
 
 [Exposed=Window]
-interface CSSStyleRule : CSSRule {
+interface CSSGroupingRule : CSSRule {
+  [SameObject] readonly attribute CSSRuleList cssRules;
+  unsigned long insertRule(DOMString rule, optional unsigned long index = 0);
+  undefined deleteRule(unsigned long index);
 };
 
 [Exposed=Window]
-interface CSSMediaRule : CSSRule {
+interface CSSConditionRule : CSSGroupingRule {
+  readonly attribute DOMString conditionText;
+};
+
+[Exposed=Window]
+interface CSSSupportsRule : CSSConditionRule {
+  readonly attribute boolean matches;
+};
+
+dictionary CSSContainerCondition {
+  required DOMString name;
+  required DOMString query;
+};
+
+[Exposed=Window]
+interface CSSContainerRule : CSSConditionRule {
+  readonly attribute DOMString containerName;
+  readonly attribute DOMString containerQuery;
+  readonly attribute FrozenArray<CSSContainerCondition> conditions;
+};
+
+[Exposed=Window]
+interface CSSLayerBlockRule : CSSGroupingRule {
+  readonly attribute DOMString name;
+};
+
+[Exposed=Window]
+interface CSSScopeRule : CSSGroupingRule {
+  readonly attribute DOMString? start;
+  readonly attribute DOMString? end;
+};
+
+[Exposed=Window]
+interface CSSStartingStyleRule : CSSGroupingRule {
+};
+
+[Exposed=Window]
+interface CSSPageRule : CSSGroupingRule {
+  attribute DOMString selectorText;
+  [SameObject, PutForwards=cssText] readonly attribute CSSPageDescriptors style;
+};
+
+[Exposed=Window]
+interface CSSStyleRule : CSSGroupingRule {
+  attribute DOMString selectorText;
+  [SameObject, PutForwards=cssText] readonly attribute CSSStyleProperties style;
+};
+
+[Exposed=Window]
+interface CSSMediaRule : CSSConditionRule {
+  [SameObject, PutForwards=mediaText] readonly attribute MediaList media;
+};
+
+[Exposed=Window]
+interface MediaList {
+  [LegacyNullToEmptyString] attribute DOMString mediaText;
+  readonly attribute unsigned long length;
+  getter DOMString? item(unsigned long index);
+  undefined appendMedium(DOMString medium);
+  undefined deleteMedium(DOMString medium);
+  DOMString toString();
 };
 
 [Exposed=Window]
@@ -1136,6 +1199,29 @@ interface CSSStyleSheet {
   undefined removeRule(optional unsigned long index = 0);
   undefined replaceSync(DOMString text);
   Promise<CSSStyleSheet> replace(DOMString text);
+};
+
+[Exposed=Window]
+interface CSSStyleProperties : CSSStyleDeclaration {
+  attribute DOMString cssFloat;
+};
+
+[Exposed=Window]
+interface CSSPageDescriptors : CSSStyleDeclaration {
+  attribute DOMString margin;
+  attribute DOMString marginTop;
+  attribute DOMString marginRight;
+  attribute DOMString marginBottom;
+  attribute DOMString marginLeft;
+  attribute DOMString margin-top;
+  attribute DOMString margin-right;
+  attribute DOMString margin-bottom;
+  attribute DOMString margin-left;
+  attribute DOMString size;
+  attribute DOMString pageOrientation;
+  attribute DOMString page-orientation;
+  attribute DOMString marks;
+  attribute DOMString bleed;
 };
 
 [Exposed=Window]

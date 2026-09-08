@@ -47,15 +47,14 @@ fn entries<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     object: v8::Local<v8::Object>,
 ) -> Result<Option<Vec<v8::Local<'s, v8::Value>>>, V8BindingError> {
-    let Some(sheet) = sheet(scope, object) else {
+    if let Some(sheet) = sheet(scope, object) {
+        let state = binding_state_for_receiver(scope, object).ok_or_else(invalid)?;
+        let owner = resolve_receiver(scope, &state, sheet, "CSSStyleSheet")?;
+        // Refresh only the retained stylesheet identity, not its DOM owner.
+        get_attribute_value(scope, &state, owner, "CSSStyleSheet", "cssRules")?;
+    } else if private(scope, object, "oryn.css.rule.list.parent").is_none() {
         return Ok(None);
-    };
-    let state = binding_state_for_receiver(scope, object).ok_or_else(invalid)?;
-    let owner = resolve_receiver(scope, &state, sheet, "CSSStyleSheet")?;
-    // Refresh only this stylesheet identity. Replacing the owner element's
-    // text creates a different sheet and must not change this retained list.
-    // Refresh reads the private backing array, never this indexed wrapper.
-    get_attribute_value(scope, &state, owner, "CSSStyleSheet", "cssRules")?;
+    }
     let array = private(scope, object, "oryn.css.rule.list.array")
         .and_then(|v| v8::Local::<v8::Array>::try_from(v).ok())
         .ok_or_else(invalid)?;
@@ -83,7 +82,11 @@ pub(super) fn item<'s>(
     object: v8::Local<v8::Object>,
     input: v8::Local<v8::Value>,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    sheet(scope, object).ok_or_else(invalid)?;
+    if sheet(scope, object).is_none()
+        && private(scope, object, "oryn.css.rule.list.parent").is_none()
+    {
+        return Err(invalid());
+    }
     let index = input
         .uint32_value(scope)
         .ok_or(V8BindingError::JavaScriptException)? as usize;
@@ -122,6 +125,39 @@ pub(super) fn wrap<'s>(
     let node = wrap_node(scope, state, owner)?;
     set_private(scope, list, "oryn.associated.owner", node.into())?;
     set_private(scope, sheet, "oryn.css.rule.list", list.into())?;
+    Ok(list)
+}
+
+/// A grouping rule retains its list, and the list retains the rule through
+/// private JavaScript edges. Native records remain weak, so the cycle is traced
+/// and collected by V8 rather than rooted by Rust globals.
+pub(super) fn wrap_rule<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    owner: NodeId,
+    rule: v8::Local<v8::Object>,
+    array: v8::Local<v8::Array>,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    if let Some(list) = private(scope, rule, "oryn.css.rule.list")
+        .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
+    {
+        return Ok(list);
+    }
+    let template = state
+        .instance_templates
+        .borrow()
+        .get("CSSRuleList")
+        .cloned()
+        .ok_or(V8BindingError::MissingInterface("CSSRuleList"))?;
+    let template = v8::Local::new(scope, template);
+    let list = template
+        .new_instance(scope)
+        .ok_or(V8BindingError::Allocation("CSSRuleList instance"))?;
+    set_private(scope, list, "oryn.css.rule.list.parent", rule.into())?;
+    set_private(scope, list, "oryn.css.rule.list.array", array.into())?;
+    let node = wrap_node(scope, state, owner)?;
+    set_private(scope, list, "oryn.associated.owner", node.into())?;
+    set_private(scope, rule, "oryn.css.rule.list", list.into())?;
     Ok(list)
 }
 

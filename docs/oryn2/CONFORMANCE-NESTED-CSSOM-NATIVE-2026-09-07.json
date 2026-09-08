@@ -1,0 +1,85 @@
+{
+  "scope": "Native validation of nested CSSOM implementation; no full-inventory score claim.",
+  "base_commit": "6140f2ccb3132fa11fb0354cb2f9a114367919a4",
+  "source_files_sha256": {
+    "crates/oryn-js/src/generated/browser.rs": "19ea86e004b0fcc82ed64bc44138dfda75a8f1b2eb78cd54136e42b2630c2796",
+    "crates/oryn-js/src/v8_bindings.rs": "1f5af1b2b41559008946ec05a6b459ebd4b52a9f314846b1571084f9966ffe5d",
+    "crates/oryn-js/src/v8_bindings/css_rule_lists.rs": "7b9429a4effda23fd15d9e62848f78e04aa113b652dc17822a9f8b0ee9ff0d96",
+    "crates/oryn-js/src/v8_bindings/page_rules.rs": "cd7dda961bb60fd564dfc581b62a931108326a9b5379d6392833bf3dfbd382a0",
+    "crates/oryn-layout/src/cssom.rs": "c0bf021930e5cc759679a7f739dfa2e36fb76c4aa6d0567554f7c5cbcbeb3f94",
+    "crates/oryn-native/src/rust_executable.rs": "f31e75f5ce3ae2d2b410f8f5cdae07da265827bb4f311c96095e160c876c2ed2",
+    "crates/oryn-webidl/idl/browser.webidl": "b3313af86887fae5a2743327424bc23dc686d446f851d6d4238af732af88bb37",
+    "crates/oryn-webidl/src/lib.rs": "862545cfae824d1fa3a96f2d51163f4db55ff658237c82a30cdd93c97ce00e29",
+    "crates/oryn-js/src/v8_bindings/page_rules/tree.rs": "92164f6a7b63d5efc8393ccae91b77d5f2c8d26c8e1e41c2f19e790396ed4dbe",
+    "crates/oryn-js/src/v8_bindings/page_rules/media_lists.rs": "8c944f88d56bdb9519afa69ba152fdf98d11cf47bfcfcc2636e242a8d0635d1a",
+    "crates/oryn-layout/src/cssom/media_lists.rs": "9fe929006c90cbdd85cd6bb560bbd1f18dae7327908c626cbc9df9d151888924"
+  },
+  "checks": {
+    "native_cssom": {
+      "passed": 32,
+      "failed": 0
+    },
+    "layout": {
+      "passed": 63,
+      "failed": 0
+    },
+    "js_bindings": {
+      "passed": 131,
+      "failed": 0,
+      "existing_ignored": 2,
+      "other_filtered": 18
+    },
+    "webidl": {
+      "passed": 9,
+      "failed": 0
+    },
+    "canonical_generated_check": "passed",
+    "strict_native_clippy_including_js": "passed",
+    "source_unchanged_during_retention": true
+  },
+  "earlier_attempt": {
+    "passed": 31,
+    "failed": 1,
+    "cause": "CSSMediaRule absent from native generated getter dispatch allowlist",
+    "resolution": "Added the interface to native dispatch; reran the unchanged 32-test suite successfully."
+  },
+  "implementation": [
+    "Native nested rule graph with traced parent ownership and live readonly child lists",
+    "Whole-sheet Stylo mutation paths preserve namespace and detached contexts",
+    "Generated grouping, condition, style/page declaration subtype, supports and container interfaces",
+    "Live rule-owned MediaList backed by native Stylo parsing and mutation"
+  ],
+  "remaining_scope": [
+    "CSSMediaRule.matches and native media environment evaluation",
+    "StyleSheet and CSSImportRule media ownership",
+    "Inline/computed CSSStyleProperties migration and full declaration catalogue placement",
+    "Other inventory failures and tracked assertion gaps",
+    "Signed full-inventory measurement and final qualification gates"
+  ],
+  "evidence_files": [
+    {
+      "path": "artifacts/upstream-conformance/native-nested-cssom/oryn-media-cssom-native-v1.log",
+      "sha256": "e646e4ef2f4ef27ee33f54cd0ae2536683d3806f6bc31c768b4214c796aef36c"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-nested-cssom/oryn-media-cssom-native-v2.log",
+      "sha256": "ac90eee795d5f5c2fa67be1fefdd25bf5d38f661627a734cbce6ea9991324566"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-nested-cssom/oryn-nested-cssom-retention-v1.log",
+      "sha256": "080b233967153444e9bd48ecf79335b72879cc5ebd9be7050e5c6fba3a3205a6"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-nested-cssom/oryn-test-nested-cssom.py",
+      "sha256": "7ad6b5cbde1b30387851bf8fe8a99f02af0089cc62bf99eb3b0d4c030e71177b"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-nested-cssom/oryn-test-nested-cssom-retention.py",
+      "sha256": "24e5f2630b3053013ff71f82c1bfa96fb3dce13316fb9ecc15b8b8aeb00676fa"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-nested-cssom/oryn-nested-cssom-candidate-source-hashes.json",
+      "sha256": "4de84c123962126c36ca969d4fb7d14679e113a0e89f61614340bd4d06ce828c"
+    }
+  ]
+}

@@ -1,13 +1,19 @@
 //! Native CSS rule state; JavaScript objects carry only opaque identity.
 use super::*;
 
+pub(super) mod media_lists;
+mod tree;
+
 pub(super) struct Record {
     view: BindingRuleView,
     parent: Option<NodeId>,
+    parent_rule: Option<u64>,
+    owner: NodeId,
     base_url: String,
     quirks: bool,
     source: Rc<str>,
     index: usize,
+    detached_path: Option<Vec<usize>>,
     _wrapper: v8::Weak<v8::Object>,
 }
 
@@ -23,18 +29,26 @@ fn id(scope: &mut v8::PinScope, object: v8::Local<v8::Object>) -> Option<u64> {
 
 pub(super) fn detach(
     scope: &mut v8::PinScope,
-    state: &V8BindingState,
+    state: &Rc<V8BindingState>,
     object: v8::Local<v8::Object>,
-) {
-    if let Some(id) = id(scope, object)
-        && let Some(record) = state.page_rules.borrow_mut().get_mut(&id)
-    {
+) -> Result<(), V8BindingError> {
+    let Some(identity) = id(scope, object) else {
+        return Ok(());
+    };
+    let (source, path) = mutation_context(scope, state, identity)?;
+    if let Some(record) = state.page_rules.borrow_mut().get_mut(&identity) {
+        record.source = Rc::from(source);
+        record.detached_path = Some(path);
         record.parent = None;
-        if let Some(name) = v8::String::new(scope, "oryn.css.rule.sheet") {
-            let key = v8::Private::for_api(scope, Some(name));
-            object.delete_private(scope, key);
-        }
+        record.parent_rule = None;
     }
+    for label in ["oryn.css.rule.sheet", "oryn.css.rule.parent"] {
+        let name = v8::String::new(scope, label)
+            .ok_or(V8BindingError::Allocation("CSS detached rule key"))?;
+        let key = v8::Private::for_api(scope, Some(name));
+        object.delete_private(scope, key);
+    }
+    Ok(())
 }
 
 pub(super) fn create<'s>(
@@ -52,6 +66,12 @@ pub(super) fn create<'s>(
         4 => "CSSMediaRule",
         6 => "CSSPageRule",
         10 => "CSSNamespaceRule",
+        12 => "CSSSupportsRule",
+        18 => "CSSContainerRule",
+        13 | 26 => "CSSGroupingRule",
+        16 => "CSSLayerBlockRule",
+        21 => "CSSScopeRule",
+        22 => "CSSStartingStyleRule",
         _ => "CSSRule",
     };
     if let Some(template) = state.instance_templates.borrow().get(interface) {
@@ -78,45 +98,6 @@ pub(super) fn create<'s>(
         .ok_or(V8BindingError::Allocation("CSS rule parent"))?;
     let key = v8::Private::for_api(scope, Some(name));
     object.set_private(scope, key, sheet);
-    for name in if view.rule_type == 1 {
-        &["selectorText", "style"][..]
-    } else if view.rule_type != 6 {
-        &[][..]
-    } else {
-        &[
-            "cssText",
-            "type",
-            "selectorText",
-            "parentStyleSheet",
-            "parentRule",
-            "style",
-        ][..]
-    } {
-        let name = *name;
-        let key =
-            v8::String::new(scope, name).ok_or(V8BindingError::Allocation("page property"))?;
-        let get = v8::Function::builder(getter)
-            .data(key.into())
-            .build(scope)
-            .ok_or(V8BindingError::Allocation("page getter"))?;
-        let set: v8::Local<v8::Value> = if name == "style" {
-            v8::Function::builder(forward_style)
-                .build(scope)
-                .ok_or(V8BindingError::Allocation("page style setter"))?
-                .into()
-        } else if name == "selectorText" {
-            v8::Function::builder(setter)
-                .build(scope)
-                .ok_or(V8BindingError::Allocation("page setter"))?
-                .into()
-        } else {
-            v8::undefined(scope).into()
-        };
-        let mut descriptor = v8::PropertyDescriptor::new_from_get_set(get.into(), set);
-        descriptor.set_enumerable(true);
-        descriptor.set_configurable(true);
-        object.define_property(scope, key.into(), &descriptor);
-    }
     let weak_state = Rc::downgrade(state);
     let wrapper = v8::Weak::with_finalizer(
         scope,
@@ -132,14 +113,53 @@ pub(super) fn create<'s>(
         Record {
             view,
             parent: Some(owner),
+            parent_rule: None,
+            owner,
             base_url,
             quirks,
             source: stylesheet_ownership::source_snapshot(state, owner)?,
             index,
+            detached_path: None,
             _wrapper: wrapper,
         },
     );
     Ok(object)
+}
+
+pub(super) fn is_rule_interface(interface: &str) -> bool {
+    matches!(
+        interface,
+        "CSSMediaRule"
+            | "CSSStyleRule"
+            | "CSSPageRule"
+            | "CSSRule"
+            | "CSSNamespaceRule"
+            | "CSSGroupingRule"
+            | "CSSConditionRule"
+            | "CSSSupportsRule"
+            | "CSSContainerRule"
+            | "CSSLayerBlockRule"
+            | "CSSScopeRule"
+            | "CSSStartingStyleRule"
+    )
+}
+
+fn supports_interface(kind: u16, interface: &str) -> bool {
+    match interface {
+        "CSSRule" => true,
+        "CSSStyleRule" => kind == 1,
+        "CSSPageRule" => kind == 6,
+        "CSSMediaRule" => kind == 4,
+        "CSSNamespaceRule" => kind == 10,
+        "CSSGroupingRule" => matches!(kind, 1 | 4 | 6 | 12 | 13 | 16 | 18 | 21 | 22 | 26),
+        "CSSConditionRule" => matches!(kind, 4 | 12 | 18),
+        "CSSSupportsRule" => kind == 12,
+        "CSSContainerRule" => kind == 18,
+        "CSSLayerBlockRule" => kind == 16,
+        "CSSScopeRule" => kind == 21,
+        "CSSStartingStyleRule" => kind == 22,
+        _ => false,
+    }
 }
 
 /// Generated prototype accessors validate the opaque native receiver, never
@@ -159,12 +179,51 @@ pub(super) fn attribute<'s>(
     let (view, parent) = {
         let records = state.page_rules.borrow();
         let record = records.get(&identity).ok_or_else(invalid)?;
-        if interface == "CSSNamespaceRule" && record.view.rule_type != 10 {
+        if !supports_interface(record.view.rule_type, interface) {
             return Err(invalid());
         }
-        (record.view.clone(), record.parent)
+        (record.view.clone(), tree::stylesheet_owner(state, identity))
     };
     match member {
+        "media" => Ok(media_lists::wrap(scope, state, object)?.into()),
+        "matches" => Ok(v8::Boolean::new(
+            scope,
+            view.properties
+                .get("matches")
+                .is_some_and(|value| value == "true"),
+        )
+        .into()),
+        "conditions" => {
+            let mut values = Vec::with_capacity(view.conditions.len());
+            for (name, query) in &view.conditions {
+                let condition = v8::Object::new(scope);
+                for (key, value) in [("name", name), ("query", query)] {
+                    let key = v8::String::new(scope, key)
+                        .ok_or(V8BindingError::Allocation("CSS condition key"))?;
+                    let value = v8_string(scope, value)?;
+                    condition
+                        .create_data_property(scope, key.into(), value)
+                        .ok_or(V8BindingError::JavaScriptException)?;
+                }
+                values.push(condition.into());
+            }
+            let array = v8::Array::new_with_elements(scope, &values);
+            array
+                .set_integrity_level(scope, v8::IntegrityLevel::Frozen)
+                .ok_or(V8BindingError::JavaScriptException)?;
+            Ok(array.into())
+        }
+        "style" => Ok(style_object(scope, state, object)?.into()),
+        "selectorText" => v8_string(scope, view.selector_text.as_deref().unwrap_or("")),
+        "cssRules" => Ok(tree::children(scope, state, object)?.into()),
+        "conditionText" | "name" | "containerName" | "containerQuery" => v8_string(
+            scope,
+            view.properties.get(member).map_or("", String::as_str),
+        ),
+        "start" | "end" => match view.properties.get(member) {
+            Some(value) => v8_string(scope, value),
+            None => Ok(v8::null(scope).into()),
+        },
         "cssText" => v8_string(scope, &view.css_text),
         "type" => Ok(v8::Integer::new(
             scope,
@@ -175,7 +234,7 @@ pub(super) fn attribute<'s>(
             },
         )
         .into()),
-        "parentRule" => Ok(v8::null(scope).into()),
+        "parentRule" => tree::parent_rule(scope, object),
         "parentStyleSheet" => match parent {
             Some(owner) => associated_wrapper(scope, state, owner, "CSSStyleSheet"),
             None => Ok(v8::null(scope).into()),
@@ -188,18 +247,89 @@ pub(super) fn attribute<'s>(
     }
 }
 
+pub(super) fn group_operation<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    args: &v8::FunctionCallbackArguments,
+    member: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let identity = id(scope, args.this()).ok_or_else(|| V8BindingError::Unsupported {
+        interface: "CSSGroupingRule".into(),
+        member: "incompatible receiver".into(),
+    })?;
+    let kind = state
+        .page_rules
+        .borrow()
+        .get(&identity)
+        .map(|record| record.view.rule_type)
+        .ok_or(V8BindingError::Allocation("CSS grouping rule record"))?;
+    if !supports_interface(kind, "CSSGroupingRule") {
+        return Err(V8BindingError::Unsupported {
+            interface: "CSSGroupingRule".into(),
+            member: "incompatible receiver".into(),
+        });
+    }
+    // WebIDL conversion can execute author code and mutate the same list.
+    // Obtain the native context only after all argument conversions finish.
+    let text = if member == "insertRule" {
+        cssom_string(scope, args.get(0), false)?
+    } else {
+        String::new()
+    };
+    let input = if member == "insertRule" {
+        args.get(1)
+    } else {
+        args.get(0)
+    };
+    let index = if input.is_undefined() {
+        0
+    } else {
+        input
+            .uint32_value(scope)
+            .ok_or(V8BindingError::JavaScriptException)? as usize
+    };
+    let edit = match member {
+        "insertRule" => BindingRuleListEdit::Insert { index, text: &text },
+        "deleteRule" => BindingRuleListEdit::Delete { index },
+        _ => {
+            return Err(V8BindingError::Unsupported {
+                interface: "CSSGroupingRule".into(),
+                member: member.into(),
+            });
+        }
+    };
+    tree::edit(scope, state, args.this(), identity, edit)?;
+    Ok(if member == "insertRule" {
+        v8::Integer::new_from_unsigned(scope, index as u32).into()
+    } else {
+        v8::undefined(scope).into()
+    })
+}
+
 fn mutation_context(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     identity: u64,
-) -> Result<(String, usize), V8BindingError> {
-    let (parent, source, index) = {
+) -> Result<(String, Vec<usize>), V8BindingError> {
+    let (parent, parent_rule, source, index, detached_path) = {
         let records = state.page_rules.borrow();
         let record = records
             .get(&identity)
             .ok_or(V8BindingError::Allocation("CSS rule record"))?;
-        (record.parent, record.source.to_string(), record.index)
+        (
+            record.parent,
+            record.parent_rule,
+            record.source.to_string(),
+            record.index,
+            record.detached_path.clone(),
+        )
     };
+    if let Some(parent_rule) = parent_rule {
+        let (source, mut path) = mutation_context(scope, state, parent_rule)?;
+        let index = tree::child_index(scope, state, parent_rule, identity)?.unwrap_or(index);
+        path.push(index);
+        return Ok((source, path));
+    }
     if let Some(owner) = parent {
         let cached = state
             .stylesheet_rule_lists
@@ -216,125 +346,105 @@ fn mutation_context(
                 {
                     return Ok((
                         state.dom.borrow().arena().stylesheet_text(owner)?,
-                        index as usize,
+                        vec![index as usize],
                     ));
                 }
             }
         }
     }
-    Ok((source, index))
+    Ok((source, detached_path.unwrap_or_else(|| vec![index])))
 }
 
-fn getter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let result = (|| {
-        let state = binding_state_for_receiver(scope, args.this())
-            .ok_or(V8BindingError::Allocation("page rule state"))?;
-        let identity =
-            id(scope, args.this()).ok_or(V8BindingError::Allocation("page rule receiver"))?;
-        let (view, parent) = {
-            let records = state.page_rules.borrow();
-            let record = records
-                .get(&identity)
-                .ok_or(V8BindingError::Allocation("page rule record"))?;
-            (record.view.clone(), record.parent)
-        };
-        let name = args.data().to_rust_string_lossy(scope);
-        match name.as_str() {
-            "style" => Ok(style_object(scope, &state, args.this())?.into()),
-            "cssText" => v8_string(scope, &view.css_text),
-            "selectorText" => v8_string(scope, view.selector_text.as_deref().unwrap_or("")),
-            "type" => Ok(v8::Integer::new(scope, 6).into()),
-            "parentStyleSheet" => match parent {
-                Some(owner) => associated_wrapper(scope, &state, owner, "CSSStyleSheet"),
-                None => Ok(v8::null(scope).into()),
-            },
-            _ => Ok(v8::null(scope).into()),
-        }
-    })();
-    match result {
-        Ok(value) => rv.set(value),
-        Err(error) => throw_binding_error(scope, &error),
+pub(super) fn set_attribute(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    object: v8::Local<v8::Object>,
+    interface: &str,
+    member: &str,
+    input: v8::Local<v8::Value>,
+) -> Result<(), V8BindingError> {
+    // Validate the native subtype before allowing conversion to execute script.
+    let identity = id(scope, object).ok_or_else(|| V8BindingError::Unsupported {
+        interface: interface.into(),
+        member: "incompatible receiver".into(),
+    })?;
+    let kind = state
+        .page_rules
+        .borrow()
+        .get(&identity)
+        .map(|r| r.view.rule_type)
+        .ok_or(V8BindingError::Allocation("CSS rule record"))?;
+    if !supports_interface(kind, interface) {
+        return Err(V8BindingError::Unsupported {
+            interface: interface.into(),
+            member: "incompatible receiver".into(),
+        });
     }
-}
-
-fn setter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::ReturnValue) {
-    let result = (|| {
-        let selector = cssom_string(scope, args.get(0), false)?;
-        let state = binding_state_for_receiver(scope, args.this())
-            .ok_or(V8BindingError::Allocation("page rule state"))?;
-        let identity =
-            id(scope, args.this()).ok_or(V8BindingError::Allocation("page rule receiver"))?;
-        let (source, parent, base_url, quirks) = {
-            let records = state.page_rules.borrow();
-            let record = records
-                .get(&identity)
-                .ok_or(V8BindingError::Allocation("page rule record"))?;
-            (
-                record.view.css_text.clone(),
-                record.parent,
-                record.base_url.clone(),
-                record.quirks,
-            )
-        };
-        let kind = state
-            .page_rules
-            .borrow()
+    if member == "media" {
+        let list = media_lists::wrap(scope, state, object)?;
+        return media_lists::set_text(scope, state, list, input);
+    }
+    if member == "style" {
+        let declaration = style_object(scope, state, object)?;
+        return set_declaration_attribute(scope, declaration, "cssText", input);
+    }
+    let selector = cssom_string(scope, input, false)?;
+    let (base_url, quirks) = {
+        let records = state.page_rules.borrow();
+        let record = records
             .get(&identity)
-            .map(|r| r.view.rule_type);
-        if matches!(kind, Some(1 | 6)) {
-            let (source, index) = mutation_context(scope, &state, identity)?;
-            let provider = state.layout_provider.borrow().clone();
-            if let Some(result) = provider.and_then(|p| {
-                if kind == Some(6) {
-                    p.set_page_rule_selector(&source, &[index], &selector, &base_url, quirks)
-                } else {
-                    p.set_style_rule_selector(&source, &[index], &selector, &base_url, quirks)
-                }
-            }) && let Some(rules) = result.map_err(V8BindingError::EventCallback)?
-            {
-                publish_rule_transaction(scope, &state, identity, parent, index, rules)?;
-            }
-            return Ok(());
+            .ok_or(V8BindingError::Allocation("CSS rule record"))?;
+        (record.base_url.clone(), record.quirks)
+    };
+    let (source, path) = mutation_context(scope, state, identity)?;
+    let provider = state.layout_provider.borrow().clone();
+    if let Some(result) = provider.and_then(|provider| {
+        if kind == 6 {
+            provider.set_page_rule_selector(&source, &path, &selector, &base_url, quirks)
+        } else {
+            provider.set_style_rule_selector(&source, &path, &selector, &base_url, quirks)
         }
-        let provider = state.layout_provider.borrow().clone();
-        let Some(result) =
-            provider.and_then(|p| p.set_page_selector(&source, &selector, &base_url, quirks))
-        else {
-            return Ok(());
-        };
-        let Some(view) = result.map_err(V8BindingError::EventCallback)? else {
-            return Ok(());
-        };
-        publish_view(scope, &state, identity, parent, view)?;
-        Ok(())
-    })();
-    if let Err(error) = result {
-        throw_binding_error(scope, &error);
+    }) && let Some(rules) = result.map_err(V8BindingError::EventCallback)?
+    {
+        publish_rule_transaction(
+            scope,
+            state,
+            identity,
+            tree::stylesheet_owner(state, identity),
+            path,
+            rules,
+        )?;
     }
+    Ok(())
 }
 
 fn publish_rule_transaction(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     identity: u64,
-    parent: Option<NodeId>,
-    index: usize,
+    _parent: Option<NodeId>,
+    path: Vec<usize>,
     rules: Vec<BindingRuleView>,
 ) -> Result<(), V8BindingError> {
-    let view = rules
-        .get(index)
+    let root = tree::root_identity(state, identity)?;
+    let index = *path
+        .first()
+        .ok_or(V8BindingError::Allocation("CSS rule transaction path"))?;
+    let root_path = mutation_context(scope, state, root)?.1;
+    let view = tree::view_at(&rules, &root_path)
         .cloned()
         .ok_or(V8BindingError::Allocation("CSS rule transaction result"))?;
-    let source = rules
-        .iter()
-        .map(|r| r.css_text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    publish_view(scope, state, identity, parent, view)?;
-    if let Some(record) = state.page_rules.borrow_mut().get_mut(&identity) {
-        record.source = Rc::from(source);
-        record.index = index;
+    let source: Rc<str> = Rc::from(
+        rules
+            .iter()
+            .map(|r| r.css_text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    if let Some(owner) = tree::stylesheet_owner(state, root) {
+        publish_stylesheet_source(state, owner, source.to_string())?;
     }
+    tree::refresh_subtree(scope, state, root, view, source, index)?;
     Ok(())
 }
 
@@ -478,7 +588,7 @@ fn mutate_style(
         .get(&identity)
         .map(|r| r.view.rule_type);
     if matches!(kind, Some(1 | 6)) {
-        let (source, index) = mutation_context(scope, &state, identity)?;
+        let (source, path) = mutation_context(scope, &state, identity)?;
         let mutation = provider
             .mutate_rule_declaration(
                 &BindingDeclarationRequest {
@@ -489,13 +599,13 @@ fn mutate_style(
                     base_url: &base_url,
                     quirks,
                 },
-                &[index],
+                &path,
                 replace,
             )
             .ok_or(V8BindingError::Allocation("CSS declaration mutation"))?
             .map_err(V8BindingError::EventCallback)?;
         if let Some(rules) = mutation.rules {
-            publish_rule_transaction(scope, &state, identity, parent, index, rules)?;
+            publish_rule_transaction(scope, &state, identity, parent, path, rules)?;
         }
         return Ok(mutation.previous_value);
     }
@@ -521,6 +631,32 @@ fn mutate_style(
 
 pub(super) fn is_declaration(scope: &mut v8::PinScope, object: v8::Local<v8::Object>) -> bool {
     !object.is_proxy() && declaration_rule(scope, object).is_ok()
+}
+
+pub(super) fn validate_declaration_interface(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    object: v8::Local<v8::Object>,
+    interface: &str,
+) -> Result<(), V8BindingError> {
+    let rule = declaration_rule(scope, object)?;
+    let identity = id(scope, rule).ok_or(V8BindingError::Allocation("CSS declaration identity"))?;
+    let kind = state
+        .page_rules
+        .borrow()
+        .get(&identity)
+        .map(|record| record.view.rule_type);
+    if matches!(
+        (interface, kind),
+        ("CSSStyleProperties", Some(1)) | ("CSSPageDescriptors", Some(6))
+    ) {
+        Ok(())
+    } else {
+        Err(V8BindingError::Unsupported {
+            interface: interface.into(),
+            member: "incompatible receiver".into(),
+        })
+    }
 }
 
 pub(super) fn declaration_attribute<'s>(
@@ -614,10 +750,24 @@ fn style_object<'s>(
     if let Ok(style) = private_object(scope, rule, "oryn.page.declaration") {
         return Ok(style);
     }
+    let identity = id(scope, rule).ok_or(V8BindingError::Allocation("CSS declaration rule"))?;
+    let kind = state
+        .page_rules
+        .borrow()
+        .get(&identity)
+        .map(|record| record.view.rule_type)
+        .ok_or(V8BindingError::Allocation("CSS declaration rule record"))?;
+    let interface = if kind == 1 {
+        "CSSStyleProperties"
+    } else if kind == 6 {
+        "CSSPageDescriptors"
+    } else {
+        "CSSStyleDeclaration"
+    };
     let template = state
         .instance_templates
         .borrow()
-        .get("CSSStyleDeclaration")
+        .get(interface)
         .cloned()
         .ok_or(V8BindingError::MissingInterface("CSSStyleDeclaration"))?;
     let template = v8::Local::new(scope, template);
@@ -644,22 +794,4 @@ pub(super) fn declaration_names(
         return Ok(None);
     }
     Ok(Some(read_style(scope, object, "")?.names))
-}
-
-fn forward_style(
-    scope: &mut v8::PinScope,
-    args: v8::FunctionCallbackArguments,
-    _rv: v8::ReturnValue,
-) {
-    let result = (|| {
-        let value = cssom_string(scope, args.get(0), false)?;
-        let state = binding_state_for_receiver(scope, args.this())
-            .ok_or(V8BindingError::Allocation("page rule state"))?;
-        let style = style_object(scope, &state, args.this())?;
-        mutate_style(scope, style, "", &value, "", true)?;
-        Ok(())
-    })();
-    if let Err(error) = result {
-        throw_binding_error(scope, &error);
-    }
 }

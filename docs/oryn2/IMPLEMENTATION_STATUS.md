@@ -4,6 +4,13 @@
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
 > Latest full measurement: **2,915/4,022 (72.5%)**, **1,107 remaining**.
 
+The next CSSOM batch has passed native validation: **32 CSSOM**, **63 layout**,
+**131 JavaScript binding** tests (two existing ignores), **9 WebIDL** tests,
+canonical generation, and strict Clippy. It adds live nested rule ownership,
+full-context mutations, generated grouping/declaration interfaces, and rule-owned
+media lists. [Native evidence](CONFORMANCE-NESTED-CSSOM-NATIVE-2026-09-07.json).
+Signed full-inventory measurement is pending; this does not change the overall score.
+
 The latest complete signed-worker run at `8844fd5` measures **2,915/4,022 (72.5%)**,
 with **1,107 failing executions**. Compared with `c43d732`, it gains **10 whole-test
 passes** and loses **1**, for a net gain of **9**. CSS gains five executions; DOM gains

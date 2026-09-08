@@ -1,6 +1,11 @@
 # Complete conformance execution plan
 
 Current full-run evidence: signed candidate `8844fd5`, measured on 2026-09-07.
+The nested CSSOM batch has passed native, layout, binding, generated-interface and
+strict Clippy checks. The next action is to freeze and sign this candidate, run the
+full 4,022-case inventory, and audit against `8844fd5`, retaining all historical
+assertion gaps. Native evidence: [nested CSSOM](CONFORMANCE-NESTED-CSSOM-NATIVE-2026-09-07.json).
+
 This is the active forward plan. Earlier batch sections in the runtime action plan remain history.
 
 ## Objective and definition of done

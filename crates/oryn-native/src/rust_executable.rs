@@ -51,6 +51,33 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         )
     }
 
+    fn mutate_media_list(
+        &self,
+        source: &str,
+        path: &[usize],
+        edit: oryn_js::v8_bindings::BindingMediaListEdit<'_>,
+        base_url: &str,
+        quirks: bool,
+    ) -> Option<Result<oryn_js::v8_bindings::BindingMediaListMutation, String>> {
+        use oryn_js::v8_bindings::{BindingMediaListEdit, BindingMediaListMutation};
+        use oryn_layout::cssom::MediaListEdit;
+        let edit = match edit {
+            BindingMediaListEdit::Replace(text) => MediaListEdit::Replace(text),
+            BindingMediaListEdit::Append(text) => MediaListEdit::Append(text),
+            BindingMediaListEdit::Delete(text) => MediaListEdit::Delete(text),
+        };
+        Some(
+            oryn_layout::cssom::mutate_media_list(source, path, edit, base_url, quirks).map(
+                |result| BindingMediaListMutation {
+                    rules: result
+                        .rules
+                        .map(|rules| rules.into_iter().map(binding_rule_view).collect()),
+                    not_found: result.not_found,
+                },
+            ),
+        )
+    }
+
     fn mutate_rule_list(
         &self,
         source: &str,
@@ -5905,6 +5932,168 @@ mod tests {
     }
 
     #[test]
+    fn cssom_media_lists_are_live_native_objects_with_retained_rules() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><style>@media screen { a { color: red; } }</style>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0], rule = sheet.cssRules[0], media = rule.media, child = rule.cssRules[0];
+            const checks = [media instanceof MediaList, media === rule.media, media.length === 1,
+                media[0] === 'screen', media.item(1) === null, media[1] === undefined, String(media) === 'screen'];
+            media.appendMedium('print');
+            checks.push(media.length === 2, media[1] === 'print', rule.conditionText === 'screen, print', rule.cssRules[0] === child);
+            media.deleteMedium('screen');
+            checks.push(media.mediaText === 'print', media.length === 1, rule.cssText.includes('@media print'));
+            try { media.deleteMedium('screen'); checks.push(false); } catch(e) { checks.push(e.name === 'NotFoundError'); }
+            media.appendMedium('screen, print');
+            checks.push(media.mediaText === 'print');
+            rule.media = 'all';
+            checks.push(media.mediaText === 'all', rule.media === media);
+            media.mediaText = null;
+            checks.push(media.length === 0, String(media) === '');
+            media.mediaText = '???';
+            checks.push(media[0] === 'not all');
+            sheet.deleteRule(0);
+            media.mediaText = 'screen';
+            checks.push(rule.parentStyleSheet === null, rule.conditionText === 'screen',
+                rule.cssRules[0] === child, child.parentRule === rule, child.parentStyleSheet === null);
+            const getter = Object.getOwnPropertyDescriptor(MediaList.prototype, 'mediaText').get;
+            for (const value of [{}, Object.create(MediaList.prototype), new Proxy(media, {})]) {
+                try { getter.call(value); checks.push(false); } catch(e) { checks.push(e.name === 'TypeError'); }
+            }
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
+    fn cssom_conditional_rule_interfaces_expose_native_conditions() {
+        let mut page = RustExecutableDocument::load("<!doctype html><style>@supports (color: red) { a {} } @supports (oryn-unknown: yes) { b {} } @container card (width > 1px) { c {} }</style>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const rules = document.styleSheets[0].cssRules, yes = rules[0], no = rules[1], container = rules[2];
+            const checks = [yes instanceof CSSSupportsRule, yes instanceof CSSConditionRule,
+                yes.matches === true, no.matches === false, yes.cssRules[0].parentRule === yes,
+                container instanceof CSSContainerRule, container instanceof CSSGroupingRule,
+                container.containerName === 'card', container.containerQuery === '(width > 1px)'];
+            const conditions = container.conditions;
+            checks.push(Object.isFrozen(conditions), conditions.length === 1,
+                conditions[0].name === 'card', conditions[0].query === container.containerQuery);
+            conditions[0].name = 'changed';
+            checks.push(container.conditions[0].name === 'card');
+            const matches = Object.getOwnPropertyDescriptor(CSSSupportsRule.prototype, 'matches').get;
+            try { matches.call(container); checks.push(false); } catch(e) { checks.push(e.name === 'TypeError'); }
+            const name = Object.getOwnPropertyDescriptor(CSSContainerRule.prototype, 'containerName').get;
+            try { name.call(yes); checks.push(false); } catch(e) { checks.push(e.name === 'TypeError'); }
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
+    fn cssom_rule_declaration_subtypes_use_generated_prototype_accessors() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><style>a { color: red; } @page named { margin-top: 2px; }</style>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0], style = sheet.cssRules[0], page = sheet.cssRules[1];
+            const checks = [style instanceof CSSStyleRule, page instanceof CSSPageRule,
+                style.style instanceof CSSStyleProperties, page.style instanceof CSSPageDescriptors,
+                style.style instanceof CSSStyleDeclaration, page.style instanceof CSSStyleDeclaration];
+            for (const rule of [style, page]) {
+                checks.push(!Object.hasOwn(rule, 'style'), !Object.hasOwn(rule, 'selectorText'), rule.style === rule.style);
+            }
+            style.style = 'color: green; float: left;';
+            checks.push(style.style.color === 'green', style.style.cssFloat === 'left', style.style[0] === 'color');
+            page.style.marginTop = '5px';
+            checks.push(page.style['margin-top'] === '5px');
+            page.style['margin-top'] = '7px';
+            checks.push(page.style.marginTop === '7px');
+            CSSStyleDeclaration.prototype.setProperty.call(page.style, 'margin-bottom', '3px');
+            checks.push(page.style.marginBottom === '3px');
+            const selector = Object.getOwnPropertyDescriptor(CSSStyleRule.prototype, 'selectorText');
+            const pageMargin = Object.getOwnPropertyDescriptor(CSSPageDescriptors.prototype, 'marginTop');
+            selector.set.call(style, 'b');
+            checks.push(selector.get.call(style) === 'b');
+            for (const callback of [() => selector.get.call(page), () => selector.set.call(page, 'c'),
+                () => pageMargin.get.call(style.style), () => pageMargin.set.call(style.style, '1px')]) {
+                try { callback(); checks.push(false); } catch(e) { checks.push(e.name === 'TypeError'); }
+            }
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
+    fn cssom_nested_rules_preserve_live_identity_and_detached_context() {
+        let mut page = RustExecutableDocument::load(r#"<!doctype html><style>@namespace svg url(http://www.w3.org/2000/svg); @media all { @layer theme { svg|rect { color: red; } } } aside { color: blue; }</style>"#).unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0], media = sheet.cssRules[1];
+            const layer = media.cssRules[0], list = layer.cssRules, rule = list[0];
+            const checks = [];
+            checks.push(media instanceof CSSGroupingRule, media instanceof CSSConditionRule,
+                media.conditionText === 'all', layer instanceof CSSLayerBlockRule,
+                layer.name === 'theme', list instanceof CSSRuleList,
+                list === layer.cssRules, list.item(0) === rule,
+                rule.parentRule === layer, layer.parentRule === media,
+                media.parentRule === null, rule.parentStyleSheet === sheet);
+            layer.insertRule('svg|circle { color: green; }', 0);
+            checks.push(list.length === 2, list[1] === rule);
+            rule.style.color = 'purple';
+            rule.selectorText = 'svg|path';
+            checks.push(list[1] === rule, rule.style.color === 'purple',
+                media.cssText.includes('svg|path'), sheet.cssRules[2].selectorText === 'aside');
+            layer.deleteRule(0);
+            checks.push(list[0] === rule, list.length === 1);
+            sheet.insertRule('div {}', 1);
+            checks.push(sheet.cssRules[2] === media);
+            sheet.deleteRule(2);
+            checks.push(media.parentStyleSheet === null, layer.parentRule === media,
+                rule.parentStyleSheet === null, rule.parentRule === layer);
+            rule.selectorText = 'svg|circle';
+            rule.style.color = 'orange';
+            checks.push(rule.selectorText === 'svg|circle', media.cssText.includes('orange'));
+            layer.deleteRule(0);
+            checks.push(rule.parentRule === null, rule.parentStyleSheet === null, list.length === 0);
+            rule.selectorText = 'svg|rect';
+            rule.style.color = 'green';
+            checks.push(rule.selectorText === 'svg|rect', rule.style.color === 'green',
+                list.length === 0, sheet.cssRules.length === 3);
+            layer.insertRule('svg|path {}');
+            checks.push(list.length === 1, list[0].parentRule === layer,
+                list[0].parentStyleSheet === null);
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
+    fn cssom_grouping_mutations_validate_brands_and_conversion_order() {
+        let mut page =
+            RustExecutableDocument::load("<!doctype html><style>@media all { a {} b {} }</style>")
+                .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const group = document.styleSheets[0].cssRules[0], list = group.cssRules;
+            const checks = [], insert = CSSGroupingRule.prototype.insertRule;
+            const getter = Object.getOwnPropertyDescriptor(CSSGroupingRule.prototype, 'cssRules').get;
+            for (const value of [{}, Object.create(CSSGroupingRule.prototype), new Proxy(group, {})]) {
+                try { getter.call(value); checks.push(false); } catch(e) { checks.push(e.name === 'TypeError'); }
+                try { insert.call(value, 'c {}'); checks.push(false); } catch(e) { checks.push(e.name === 'TypeError'); }
+            }
+            const sentinel = {};
+            try { group.insertRule('c {}', {valueOf() {throw sentinel;}}); checks.push(false); }
+            catch(e) { checks.push(e === sentinel); }
+            checks.push(list.length === 2);
+            try { group.insertRule('???', {valueOf() {group.deleteRule(1); return 2;}}); checks.push(false); }
+            catch(e) { checks.push(e.name === 'IndexSizeError'); }
+            checks.push(list.length === 1);
+            const original = list[0];
+            for (const [text, name] of [['???', 'SyntaxError'], ['@import url(x.css);', 'HierarchyRequestError']]) {
+                try { group.insertRule(text); checks.push(false); } catch(e) { checks.push(e.name === name); }
+                checks.push(list.length === 1, list[0] === original);
+            }
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
     fn cssom_stylesheet_mutations_use_native_hierarchy_and_preserve_rule_identity() {
         let mut page = RustExecutableDocument::load(r#"<!doctype html><style>@namespace svg url(http://www.w3.org/2000/svg); svg|rect { color: red; }</style>"#).unwrap();
         assert_eq!(
@@ -7252,5 +7441,6 @@ fn binding_rule_view(rule: oryn_layout::cssom::RuleView) -> oryn_js::v8_bindings
         children: rule.children.into_iter().map(binding_rule_view).collect(),
         properties: rule.properties,
         conditions: rule.conditions,
+        media_queries: rule.media_queries,
     }
 }

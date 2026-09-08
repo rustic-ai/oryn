@@ -774,11 +774,24 @@ pub struct BindingRuleView {
     pub children: Vec<BindingRuleView>,
     pub properties: BTreeMap<String, String>,
     pub conditions: Vec<(String, String)>,
+    pub media_queries: Vec<String>,
 }
 
 pub struct BindingRuleDeclarationMutation {
     pub previous_value: String,
     pub rules: Option<Vec<BindingRuleView>>,
+}
+
+#[derive(Clone, Copy)]
+pub enum BindingMediaListEdit<'a> {
+    Replace(&'a str),
+    Append(&'a str),
+    Delete(&'a str),
+}
+
+pub struct BindingMediaListMutation {
+    pub rules: Option<Vec<BindingRuleView>>,
+    pub not_found: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -814,6 +827,17 @@ pub trait BindingLayoutProvider {
         _base_url: &str,
         _quirks: bool,
     ) -> Option<Result<Option<Vec<BindingRuleView>>, String>> {
+        None
+    }
+
+    fn mutate_media_list(
+        &self,
+        _source: &str,
+        _path: &[usize],
+        _edit: BindingMediaListEdit<'_>,
+        _base_url: &str,
+        _quirks: bool,
+    ) -> Option<Result<BindingMediaListMutation, String>> {
         None
     }
 
@@ -3116,8 +3140,14 @@ pub fn install_generated_bindings_with_root_for_global(
             if matches!(interface.name, "NodeList" | "HTMLCollection") {
                 node_lists::configure(instance);
             }
-            if interface.name == "CSSStyleDeclaration" {
+            if matches!(
+                interface.name,
+                "CSSStyleDeclaration" | "CSSStyleProperties" | "CSSPageDescriptors"
+            ) {
                 inline_styles::configure(instance);
+            }
+            if interface.name == "MediaList" {
+                page_rules::media_lists::configure(instance);
             }
             if interface.name == "CSSRuleList" {
                 css_rule_lists::configure(instance);
@@ -8136,6 +8166,13 @@ fn generated_attribute_getter(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "MediaList" {
+        match page_rules::media_lists::attribute(scope, &state, args.this(), member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if interface == "CSSRuleList" && member == "length" {
         match css_rule_lists::length(scope, args.this()) {
             Ok(value) => return_value.set(value),
@@ -8143,7 +8180,7 @@ fn generated_attribute_getter(
         }
         return;
     }
-    if matches!(interface, "CSSRule" | "CSSNamespaceRule") {
+    if page_rules::is_rule_interface(interface) {
         match page_rules::attribute(scope, &state, args.this(), interface, member) {
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
@@ -8153,6 +8190,16 @@ fn generated_attribute_getter(
     if matches!(interface, "NodeList" | "HTMLCollection") && member == "length" {
         let result = node_lists::length(scope, &state, args.this(), interface);
         node_lists::account_memory(scope, &state);
+        match result {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if matches!(interface, "CSSStyleProperties" | "CSSPageDescriptors") {
+        let result =
+            page_rules::validate_declaration_interface(scope, &state, args.this(), interface)
+                .and_then(|()| page_rules::declaration_attribute(scope, args.this(), member));
         match result {
             Ok(value) => return_value.set(value),
             Err(error) => throw_binding_error(scope, &error),
@@ -8270,6 +8317,33 @@ fn generated_attribute_setter_impl(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if matches!(interface, "CSSMediaRule" | "CSSStyleRule" | "CSSPageRule") {
+        if let Err(error) =
+            page_rules::set_attribute(scope, &state, args.this(), interface, member, args.get(0))
+        {
+            throw_binding_error(scope, &error);
+        }
+        return;
+    }
+    if matches!(interface, "CSSStyleProperties" | "CSSPageDescriptors") {
+        let result =
+            page_rules::validate_declaration_interface(scope, &state, args.this(), interface)
+                .and_then(|()| {
+                    page_rules::set_declaration_attribute(scope, args.this(), member, args.get(0))
+                });
+        if let Err(error) = result {
+            throw_binding_error(scope, &error);
+        }
+        return;
+    }
+    if interface == "MediaList" {
+        if let Err(error) =
+            page_rules::media_lists::set_text(scope, &state, args.this(), args.get(0))
+        {
+            throw_binding_error(scope, &error);
+        }
+        return;
+    }
     if interface == "CSSRule" && member == "cssText" {
         // CSSRule.cssText has a no-op setter, after receiver validation and
         // Web IDL string conversion.
@@ -8469,6 +8543,20 @@ fn generated_operation_impl<'s>(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "MediaList" {
+        match page_rules::media_lists::operation(scope, &state, &args, member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if interface == "CSSGroupingRule" {
+        match page_rules::group_operation(scope, &state, &args, member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if interface == "CSSRuleList" && member == "item" {
         match css_rule_lists::item(scope, args.this(), args.get(0)) {
             Ok(value) => return_value.set(value),
@@ -21245,6 +21333,9 @@ fn css_property_name(member: &str) -> &str {
         "fontSize" => "font-size",
         "fontStyle" => "font-style",
         "fontWeight" => "font-weight",
+        "marginTop" => "margin-top",
+        "marginBottom" => "margin-bottom",
+        "pageOrientation" => "page-orientation",
         "marginLeft" => "margin-left",
         "marginRight" => "margin-right",
         "maxHeight" => "max-height",
@@ -21560,14 +21651,15 @@ fn edit_stylesheet_rule_list(
         }
         texts
     };
+    if let BindingRuleListEdit::Delete { index } = edit {
+        delete_cached_stylesheet_rule(scope, state, node, index)?;
+    }
     publish_stylesheet_source(state, node, texts.join("\n"))?;
     match edit {
         BindingRuleListEdit::Insert { index, .. } => {
             insert_cached_stylesheet_rule(scope, state, node, index)
         }
-        BindingRuleListEdit::Delete { index } => {
-            delete_cached_stylesheet_rule(scope, state, node, index)
-        }
+        BindingRuleListEdit::Delete { .. } => Ok(()),
     }
 }
 
@@ -21622,7 +21714,7 @@ fn replace_cached_stylesheet_rules(
             .get_index(scope, index)
             .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
         {
-            page_rules::detach(scope, state, object);
+            page_rules::detach(scope, state, object)?;
         }
     }
     let length =
@@ -21656,7 +21748,7 @@ fn delete_cached_stylesheet_rule(
         .get_index(scope, index as u32)
         .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
     {
-        page_rules::detach(scope, state, object);
+        page_rules::detach(scope, state, object)?;
     }
     for position in index.saturating_add(1)..length {
         if let Some(value) = rules.get_index(scope, position as u32) {
@@ -22133,7 +22225,7 @@ fn get_attribute_value<'s>(
         }
         for (_, object) in existing {
             let object = v8::Local::new(scope, object);
-            page_rules::detach(scope, state, object);
+            page_rules::detach(scope, state, object)?;
         }
         return Ok(css_rule_lists::wrap(scope, state, node, rules)?.into());
     }
@@ -25409,6 +25501,21 @@ fn call_operation<'s>(
             // Stylesheet parsing recovers from invalid input. An empty parsed
             // result replaces the previous rules with an empty stylesheet.
             let rules = stylesheet_rules_for_owner(scope, state, node, &source, false)?;
+            if let Some(array) = state
+                .stylesheet_rule_lists
+                .borrow()
+                .get(&node)
+                .and_then(|array| array.to_local(scope))
+            {
+                for index in 0..array.length() {
+                    if let Some(object) = array
+                        .get_index(scope, index)
+                        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+                    {
+                        page_rules::detach(scope, state, object)?;
+                    }
+                }
+            }
             publish_stylesheet_source(state, node, rules.join("\n"))?;
             replace_cached_stylesheet_rules(scope, state, node, &rules)?;
             if member == "replace" {
@@ -29652,7 +29759,7 @@ mod tests {
                 0,
             )
             .unwrap();
-            page_rules::detach(scope, &state, rule);
+            page_rules::detach(scope, &state, rule).unwrap();
             rv.set(rule.into());
         }
         initialize_v8();
