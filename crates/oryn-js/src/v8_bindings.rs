@@ -376,6 +376,7 @@ struct WebSocketRecord {
 }
 
 struct IdbRequestRecord {
+    versionchange_notified: bool,
     failure_event_queued: bool,
     internal: bool,
     open_request: bool,
@@ -401,6 +402,7 @@ struct IdbDatabaseRecord {
 struct IdbTransactionRecord {
     request_queue: VecDeque<u64>,
     abort_event_queued: bool,
+    settled: bool,
     database_id: u64,
     request_id: Option<u64>,
     mode: String,
@@ -1138,6 +1140,7 @@ impl V8BindingState {
         limit: usize,
     ) -> Result<usize, V8BindingError> {
         self.finish_platform_task_checkpoint()?;
+        self.flush_queued_idb_operations()?;
         self.expire_xhr_timeouts(scope)?;
         // Only tasks already queued when this page task began may run in this
         // drain. A completion can queue transaction completion/open-success,
@@ -1196,6 +1199,22 @@ impl V8BindingState {
                 deferred_processed += 1;
                 continue;
             }
+            let completing_transaction = match &task {
+                DeferredPlatformTask::Event {
+                    target_id,
+                    event_type: "complete",
+                } => Some(*target_id),
+                DeferredPlatformTask::FinalizeIdbTransaction {
+                    transaction_id,
+                    commit: true,
+                } => Some(*transaction_id),
+                _ => None,
+            };
+            if completing_transaction.is_some_and(|id| !self.idb_transaction_ready(id)) {
+                self.deferred_platform_tasks.borrow_mut().push_back(task);
+                deferred_processed += 1;
+                continue;
+            }
             match task {
                 DeferredPlatformTask::AbortIdbRequest { request_id } => {
                     if let PlatformObjectRecord::IdbRequest(request) =
@@ -1235,8 +1254,9 @@ impl V8BindingState {
                         }
                         transaction.active = false;
                         transaction.finished = true;
+                        transaction.settled = true;
                     }
-                    if event_type == "abort" {
+                    if matches!(event_type, "complete" | "abort") {
                         let database_id = match &*platform_object(self, target_id)? {
                             PlatformObjectRecord::IdbTransaction(transaction)
                                 if transaction.mode == "versionchange" =>
@@ -1253,7 +1273,7 @@ impl V8BindingState {
                         }
                     }
                     dispatch_platform_event(scope, self, target_id, event_type, None)?;
-                    if event_type == "abort" {
+                    if matches!(event_type, "complete" | "abort") {
                         let open_request = match &*platform_object(self, target_id)? {
                             PlatformObjectRecord::IdbTransaction(transaction)
                                 if transaction.mode == "versionchange" =>
@@ -1267,8 +1287,10 @@ impl V8BindingState {
                                 &mut *platform_object_mut(self, request_id)?
                         {
                             request.transaction_id = None;
-                            request.result = None;
-                            request.done = false;
+                            if event_type == "abort" {
+                                request.result = None;
+                                request.done = false;
+                            }
                         }
                     }
                 }
@@ -1487,7 +1509,48 @@ impl V8BindingState {
                 .any(|pending| !matches!(pending, PendingPlatformOperation::WebSocketPoll { .. }))
     }
 
+    fn idb_transaction_ready(&self, transaction_id: u64) -> bool {
+        let objects = self.platform_objects.borrow();
+        let Some(PlatformObjectRecord::IdbTransaction(current)) = objects.get(&transaction_id)
+        else {
+            return true;
+        };
+        let Some(PlatformObjectRecord::IdbDatabase(database)) = objects.get(&current.database_id)
+        else {
+            return false;
+        };
+        !objects.range(..transaction_id).any(|(_, record)| {
+            let PlatformObjectRecord::IdbTransaction(earlier) = record else {
+                return false;
+            };
+            if earlier.settled {
+                return false;
+            }
+            let Some(PlatformObjectRecord::IdbDatabase(other)) = objects.get(&earlier.database_id)
+            else {
+                return false;
+            };
+            database.name == other.name
+                && (earlier.mode == "versionchange"
+                    || current.mode == "versionchange"
+                    || ((earlier.mode == "readwrite" || current.mode == "readwrite")
+                        && earlier
+                            .object_stores
+                            .iter()
+                            .any(|name| current.object_stores.contains(name))))
+        })
+    }
+
     fn idb_operation_ready(&self, pending: &PendingPlatformOperation) -> bool {
+        if let PendingPlatformOperation::IndexedDb { request_id, .. } = pending {
+            let transaction_id = match self.platform_objects.borrow().get(request_id) {
+                Some(PlatformObjectRecord::IdbRequest(request)) => request.transaction_id,
+                _ => None,
+            };
+            if transaction_id.is_some_and(|id| !self.idb_transaction_ready(id)) {
+                return false;
+            }
+        }
         pending.connection_request().is_none_or(|(_, name)| {
             !self
                 .active_idb_connections
@@ -2097,7 +2160,20 @@ impl V8BindingState {
                             })
                             .collect::<Vec<_>>()
                     };
-                    let blockers = open_connections();
+                    let notify = match &mut *platform_object_mut(self, request_id)? {
+                        PlatformObjectRecord::IdbRequest(request) => {
+                            let notify = !request.versionchange_notified;
+                            request.versionchange_notified = true;
+                            notify
+                        }
+                        _ => false,
+                    };
+                    let blockers = if notify {
+                        open_connections()
+                    } else {
+                        Vec::new()
+                    };
+                    let notified_connections = !blockers.is_empty();
                     for blocker in blockers {
                         let old_version = match &*platform_object(self, blocker)? {
                             PlatformObjectRecord::IdbDatabase(database) => database.version,
@@ -2111,6 +2187,25 @@ impl V8BindingState {
                             "versionchange",
                             Some(event),
                         )?;
+                    }
+                    if notified_connections {
+                        // The blocked check is a later database task. Promise
+                        // reactions to versionchange may close a connection or
+                        // install the next request listener before it runs.
+                        let operation_id = HostOperationId(self.next_platform_operation_id.get());
+                        self.next_platform_operation_id
+                            .set(operation_id.0.saturating_add(1));
+                        self.pending_platform_operations.borrow_mut().insert(
+                            operation_id,
+                            PendingPlatformOperation::IndexedDb { request_id, action },
+                        );
+                        self.deferred_platform_tasks.borrow_mut().push_back(
+                            DeferredPlatformTask::CompleteBlockedIdb {
+                                operation_id,
+                                response,
+                            },
+                        );
+                        return Ok(());
                     }
                     if !open_connections().is_empty() {
                         let event = idb_version_change_event(
@@ -2167,6 +2262,7 @@ impl V8BindingState {
                                 PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
                                     request_queue: VecDeque::new(),
                                     abort_event_queued: false,
+                                    settled: false,
                                     database_id,
                                     request_id: Some(request_id),
                                     mode: "versionchange".into(),
@@ -2274,6 +2370,7 @@ impl V8BindingState {
                             &mut *platform_object_mut(self, transaction_id)?
                         {
                             transaction.finished = true;
+                            transaction.settled = true;
                             transaction.active = false;
                         }
                         dispatch_platform_event(scope, self, transaction_id, event_type, None)?;
@@ -5217,6 +5314,7 @@ fn new_idb_request_for_source(
     register_platform_object(
         state,
         PlatformObjectRecord::IdbRequest(IdbRequestRecord {
+            versionchange_notified: false,
             failure_event_queued: false,
             internal: false,
             open_request: false,
@@ -17207,6 +17305,7 @@ fn call_platform_operation<'s>(
                 PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
                     request_queue: VecDeque::new(),
                     abort_event_queued: false,
+                    settled: false,
                     database_id: id,
                     request_id: None,
                     mode,
@@ -28825,6 +28924,54 @@ mod tests {
     }
 
     #[test]
+    fn indexeddb_upgrade_completion_clears_transaction_before_microtasks() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source = v8::String::new(scope, r#"
+            globalThis.location={href:'https://example.test/',origin:'https://example.test'};
+            const completionOrder=[];
+            const completing=indexedDB.open('completion-state',2);
+            let completedDatabase;
+            completing.onupgradeneeded=()=>{
+                completedDatabase=completing.result;
+                const tx=completing.transaction;
+                completedDatabase.createObjectStore('records');
+                tx.oncomplete=()=>{
+                    completionOrder.push(completing.transaction===tx?'complete':'bad-complete');
+                    try { completedDatabase.createObjectStore('late'); completionOrder.push('bad-create'); }
+                    catch(e) { completionOrder.push(e.name); }
+                    Promise.resolve().then(()=>completionOrder.push(completing.transaction===null?'microtask':'bad-microtask'));
+                };
+            };
+            completing.onsuccess=()=>completionOrder.push(completing.transaction===null && completing.result===completedDatabase && completing.readyState==='done'?'success':'bad-success');
+        "#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..24 {
+            state.drain_platform_completions(scope, 1).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source = v8::String::new(scope, "completionOrder.join('|')").unwrap();
+        let actual = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(actual, "complete|InvalidStateError|microtask|success");
+    }
+
+    #[test]
     fn indexeddb_cached_cursor_and_host_requests_preserve_submission_order() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -28972,6 +29119,7 @@ mod tests {
             PlatformObjectRecord::IdbTransaction(IdbTransactionRecord {
                 request_queue: VecDeque::new(),
                 abort_event_queued: false,
+                settled: false,
                 database_id: database,
                 request_id: None,
                 mode: "readwrite".into(),

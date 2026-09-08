@@ -843,7 +843,7 @@ struct DatabaseData {
 struct TransactionSnapshot {
     origin: String,
     database: String,
-    before: Option<DatabaseData>,
+    before: BTreeMap<String, Option<ObjectStoreData>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -873,40 +873,103 @@ fn execute_idb_transactional(
             database,
             inner,
         } => {
-            let key = (origin.to_string(), database.clone());
-            transactions
-                .entry(token)
-                .or_insert_with(|| TransactionSnapshot {
-                    origin: origin.to_string(),
+            let (inner_database, changed_stores) = match inner.as_ref() {
+                IdbCommand::Batch { database, writes } => (
                     database,
-                    before: databases.get(&key).cloned(),
-                });
-            execute_idb(databases, origin, *inner, limit)
-        }
-        IdbCommand::CommitTransaction { token, database } => {
-            if let Some(snapshot) = transactions.remove(&token)
+                    writes
+                        .iter()
+                        .map(|write| write.store.clone())
+                        .collect::<BTreeSet<_>>(),
+                ),
+                IdbCommand::Delete {
+                    database, store, ..
+                }
+                | IdbCommand::Clear { database, store } => {
+                    (database, BTreeSet::from([store.clone()]))
+                }
+                IdbCommand::Get { database, .. }
+                | IdbCommand::GetAll { database, .. }
+                | IdbCommand::Count { database, .. }
+                | IdbCommand::Cursor { database, .. } => (database, BTreeSet::new()),
+                _ => {
+                    return Err(StorageError::Persistent(
+                        "Invalid transactional command".into(),
+                    ));
+                }
+            };
+            if inner_database != &database {
+                return Err(StorageError::Persistent(
+                    "IndexedDB transaction database mismatch".into(),
+                ));
+            }
+            if let Some(snapshot) = transactions.get(&token)
                 && (snapshot.origin != origin || snapshot.database != database)
             {
                 return Err(StorageError::Persistent(
                     "IndexedDB transaction identity mismatch".into(),
                 ));
             }
+            // Reads need no undo state. Read-only transactions finish locally,
+            // so retaining an empty snapshot here would never be released.
+            if changed_stores.is_empty() {
+                return execute_idb(databases, origin, *inner, limit);
+            }
+            let key = (origin.to_string(), database.clone());
+            let snapshot = transactions
+                .entry(token)
+                .or_insert_with(|| TransactionSnapshot {
+                    origin: origin.to_string(),
+                    database: database.clone(),
+                    before: BTreeMap::new(),
+                });
+            if snapshot.origin != origin || snapshot.database != database {
+                return Err(StorageError::Persistent(
+                    "IndexedDB transaction identity mismatch".into(),
+                ));
+            }
+            // Save only stores this transaction mutates. Restoring a whole
+            // database would discard commits made concurrently to other stores.
+            for name in changed_stores {
+                snapshot.before.entry(name.clone()).or_insert_with(|| {
+                    databases
+                        .get(&key)
+                        .and_then(|db| db.stores.get(&name))
+                        .cloned()
+                });
+            }
+            execute_idb(databases, origin, *inner, limit)
+        }
+        IdbCommand::CommitTransaction { token, database } => {
+            if let Some(snapshot) = transactions.get(&token)
+                && (snapshot.origin != origin || snapshot.database != database)
+            {
+                return Err(StorageError::Persistent(
+                    "IndexedDB transaction identity mismatch".into(),
+                ));
+            }
+            transactions.remove(&token);
             Ok(IdbResponse::default())
         }
         IdbCommand::AbortTransaction { token, database } => {
+            if let Some(snapshot) = transactions.get(&token)
+                && (snapshot.origin != origin || snapshot.database != database)
+            {
+                return Err(StorageError::Persistent(
+                    "IndexedDB transaction identity mismatch".into(),
+                ));
+            }
             if let Some(snapshot) = transactions.remove(&token) {
-                if snapshot.origin != origin || snapshot.database != database {
-                    return Err(StorageError::Persistent(
-                        "IndexedDB transaction identity mismatch".into(),
-                    ));
-                }
                 let key = (origin.to_string(), database);
-                match snapshot.before {
-                    Some(before) => {
-                        databases.insert(key, before);
-                    }
-                    None => {
-                        databases.remove(&key);
+                if let Some(database) = databases.get_mut(&key) {
+                    for (name, before) in snapshot.before {
+                        match before {
+                            Some(store) => {
+                                database.stores.insert(name, store);
+                            }
+                            None => {
+                                database.stores.remove(&name);
+                            }
+                        }
                     }
                 }
             }
@@ -1680,6 +1743,160 @@ mod tests {
             .unwrap();
         assert!(
             matches!(values, StorageResponse::IndexedDb { response } if response.values.len() == 1)
+        );
+    }
+
+    #[test]
+    fn indexed_db_reads_do_not_retain_rollback_state() {
+        let mut databases = BTreeMap::new();
+        let mut transactions = BTreeMap::new();
+        let origin = "https://example.test";
+        for command in [
+            IdbCommand::Open {
+                name: "reads".into(),
+                version: 1,
+            },
+            IdbCommand::CreateObjectStore {
+                database: "reads".into(),
+                definition: ObjectStoreDefinition {
+                    name: "store".into(),
+                    key_path: None,
+                    auto_increment: false,
+                    indexes: Vec::new(),
+                },
+            },
+            IdbCommand::CommitUpgrade {
+                name: "reads".into(),
+            },
+        ] {
+            execute_idb(&mut databases, origin, command, usize::MAX).unwrap();
+        }
+        for index in 0..100 {
+            execute_idb_transactional(
+                &mut databases,
+                &mut transactions,
+                origin,
+                IdbCommand::Transaction {
+                    token: format!("reader-{index}"),
+                    database: "reads".into(),
+                    inner: Box::new(IdbCommand::Get {
+                        database: "reads".into(),
+                        store: "store".into(),
+                        key: serde_json::json!(1),
+                    }),
+                },
+                usize::MAX,
+            )
+            .unwrap();
+        }
+        assert!(transactions.is_empty());
+    }
+
+    #[test]
+    fn indexed_db_abort_preserves_commits_in_other_object_stores() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        let execute = |command| {
+            store.execute(StorageRequest::IndexedDb {
+                origin: "https://example.test".into(),
+                command,
+            })
+        };
+        execute(IdbCommand::Open {
+            name: "scopes".into(),
+            version: 1,
+        })
+        .unwrap();
+        for name in ["left", "right", "observer"] {
+            execute(IdbCommand::CreateObjectStore {
+                database: "scopes".into(),
+                definition: ObjectStoreDefinition {
+                    name: name.into(),
+                    key_path: None,
+                    auto_increment: false,
+                    indexes: Vec::new(),
+                },
+            })
+            .unwrap();
+        }
+        execute(IdbCommand::CommitUpgrade {
+            name: "scopes".into(),
+        })
+        .unwrap();
+        execute(IdbCommand::Transaction {
+            token: "reader".into(),
+            database: "scopes".into(),
+            inner: Box::new(IdbCommand::Get {
+                database: "scopes".into(),
+                store: "observer".into(),
+                key: serde_json::json!(1),
+            }),
+        })
+        .unwrap();
+        for (token, name, value) in [
+            ("aborting", "left", "discard"),
+            ("committing", "right", "retain"),
+        ] {
+            execute(IdbCommand::Transaction {
+                token: token.into(),
+                database: "scopes".into(),
+                inner: Box::new(IdbCommand::Batch {
+                    database: "scopes".into(),
+                    writes: vec![IdbWrite {
+                        store: name.into(),
+                        key: Some(serde_json::json!(1)),
+                        value: serde_json::json!(value),
+                        add_only: false,
+                    }],
+                }),
+            })
+            .unwrap();
+        }
+        assert!(
+            execute(IdbCommand::AbortTransaction {
+                token: "aborting".into(),
+                database: "wrong-database".into(),
+            })
+            .is_err()
+        );
+        assert!(
+            execute(IdbCommand::CommitTransaction {
+                token: "aborting".into(),
+                database: "wrong-database".into(),
+            })
+            .is_err()
+        );
+        execute(IdbCommand::CommitTransaction {
+            token: "committing".into(),
+            database: "scopes".into(),
+        })
+        .unwrap();
+        execute(IdbCommand::AbortTransaction {
+            token: "aborting".into(),
+            database: "scopes".into(),
+        })
+        .unwrap();
+        execute(IdbCommand::AbortTransaction {
+            token: "reader".into(),
+            database: "scopes".into(),
+        })
+        .unwrap();
+        let right = execute(IdbCommand::Get {
+            database: "scopes".into(),
+            store: "right".into(),
+            key: serde_json::json!(1),
+        })
+        .unwrap();
+        assert!(
+            matches!(right, StorageResponse::IndexedDb { response } if response.value == Some(serde_json::json!("retain")))
+        );
+        let left = execute(IdbCommand::Get {
+            database: "scopes".into(),
+            store: "left".into(),
+            key: serde_json::json!(1),
+        })
+        .unwrap();
+        assert!(
+            matches!(left, StorageResponse::IndexedDb { response } if response.value.is_none())
         );
     }
 

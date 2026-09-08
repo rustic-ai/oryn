@@ -1,0 +1,394 @@
+{
+  "scope": "Pre-full-run native evidence; complete conformance unproven.",
+  "source_files_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "750c5b07a1b5b4ca3d59d89dafcb3d7df7baa786af7bb6cdf675cd150f3fc7f7",
+    "crates/oryn-native/src/storage.rs": "c6073ea34e45116ba7e4e07d2ea408610b212cb079c1abee47af13e7facb3e0b"
+  },
+  "gates": {
+    "strict_native_clippy": "passed",
+    "storage": {
+      "passed": 21
+    },
+    "native_indexeddb": {
+      "passed": 20,
+      "overlaps_storage": true
+    },
+    "javascript": {
+      "passed": 170,
+      "existing_ignored": 2,
+      "source": "v3, identical JavaScript source hash"
+    }
+  },
+  "preceding_fixture_candidate": {
+    "source_files_sha256": {
+      "crates/oryn-js/src/v8_bindings.rs": "750c5b07a1b5b4ca3d59d89dafcb3d7df7baa786af7bb6cdf675cd150f3fc7f7",
+      "crates/oryn-native/src/storage.rs": "c5352b60ef362a882b264e32252aff3001eef99eee7746df0e3308909897748d"
+    },
+    "execution_mode": "isolated_native_context_fixture",
+    "passing_fixtures": 37,
+    "passing_assertions": 179,
+    "fixtures": [
+      {
+        "fixture": "IndexedDB/upgrade-transaction-lifecycle-backend-aborted.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 2,
+        "total": 2,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/upgrade-transaction-lifecycle-user-aborted.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-abort-multiple-metadata-revert.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-abort-index-metadata-revert.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 6,
+        "total": 6,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-abort-object-store-metadata-revert.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbindex-rename-abort.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 2,
+        "total": 2,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbobjectstore-rename-abort.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 2,
+        "total": 2,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/abort-in-initial-upgradeneeded.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-abort-generator-revert.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 2,
+        "total": 2,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/request-event-ordering-small-values.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/request-event-ordering-large-values.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/request-event-ordering-large-then-small-values.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/request-event-ordering-large-mixed-with-small-values.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/request-abort-ordering.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-abort-request-error.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbindex_get.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 8,
+        "total": 8,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbindex_getKey.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 8,
+        "total": 8,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbindex_openCursor.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbindex_openKeyCursor.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbcursor_advance_index.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 8,
+        "total": 8,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbcursor_continue_index.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 10,
+        "total": 10,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/request_bubble-and-capture.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbobjectstore_add.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 16,
+        "total": 16,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbobjectstore_get.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 7,
+        "total": 7,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbobjectstore_put.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 16,
+        "total": 16,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/idbtransaction_abort.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/keygenerator.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 21,
+        "total": 21,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/key-conversion-exceptions.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 27,
+        "total": 27,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/keypath-exceptions.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 6,
+        "total": 6,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/upgrade-transaction-lifecycle-committed.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 2,
+        "total": 2,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-scheduling-across-connections.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-scheduling-across-databases.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-scheduling-mixed-scopes.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-scheduling-ordering.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-scheduling-ro-waits-for-rw.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-scheduling-rw-scopes.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      },
+      {
+        "fixture": "IndexedDB/transaction-scheduling-within-database.any.js",
+        "valid_pass": true,
+        "complete": true,
+        "harness": 0,
+        "passed": 1,
+        "total": 1,
+        "failures": []
+      }
+    ],
+    "unresolved": {
+      "IndexedDB/transaction-lifetime.any.js": "WorkerLimitExceeded: generated platform operation wall time",
+      "IndexedDB/transaction-lifetime-empty.any.js": "Incomplete; zero assertions",
+      "IndexedDB/transaction-deactivation-timing.any.js": "4/5 assertions; microtasks did not run between listeners"
+    },
+    "difference_from_promoted_candidate": "Storage read operations no longer allocate empty rollback snapshots. Covered by native regression test; combined fixture/full behavior awaits signed full run."
+  },
+  "remaining_implementation_gaps": [
+    "Cross-page transaction scheduling",
+    "Lifetime and per-listener transaction deactivation semantics"
+  ],
+  "latest_full_result": {
+    "commit": "b0741344e9598ec2327aaa2930e72c2f9c7034ed",
+    "passed": 2982,
+    "total": 4022
+  },
+  "artifacts": {
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-run-idb-lifecycle-scheduling-context-fixtures.py": "284312e79adf71b47cede3e398455e310863acf6fa754f6a22c810801cbbcbf1",
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-idb-scheduling-v4-source-hashes.json": "b85bcbdb96f470985c83e591b51f01d906e43c6b1b8c92714484439ad4f394ea",
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-summarize-idb-lifecycle-scheduling-fixtures.py": "a0827bb218cda276824540fecfe3fe64fea4fd69b6f86721e0ec7adfb4fb2eaf",
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-test-idb-scheduling-v4.py": "14816d0546e3504bcda3f7bd658cb6d69ceb73a86c5f2ecd28846c767cd4bcc6",
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-idb-lifecycle-scheduling-fixtures-v3.log": "550b0fbdb82c7d389f480009f2283610ee1c93adebb9657ce8501a222bcca75b",
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-idb-lifecycle-scheduling-summary-v3.jsonl": "332609ccad61700a7f1eaa8d7d861a8ae43409b53da1181026aacb9cfc994ba4",
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-idb-transaction-lifetime-empty-v3.json": "4e9818ca3a0799a94fc83cf23531d39434889ab6141e8b61b8d452130decf88e",
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-idb-scheduling-v3-source-hashes.json": "cd029ced604b8430b364b0dab15e61a2240468892e2cfb89a5016d527c6cc5e9",
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-idb-scheduling-gates-v4.log": "58a9d0cb71a5c92c678b7c043cf44bf863473d87cdb658d8ec3d26003339f37b",
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-idb-transaction-deactivation-timing-v3.json": "41636486cf62d80a2d90317ebf03e8f8d2c89268f958448ea707b0dfdbfef47e",
+    "artifacts/upstream-conformance/native-idb-scheduling/oryn-idb-scheduling-gates-v3.log": "9b2dfe254ad2496c47f519744c6d6ffcfb2ef587024ee6bf6800a6b566fdefd6"
+  }
+}

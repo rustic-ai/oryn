@@ -50,10 +50,16 @@ Stylo remains the CSS engine. IndexedDB passes 391/456; other root totals are un
 Native validation of the measured batch is recorded in
 [native evidence](CONFORMANCE-IDB-ABORT-NATIVE-2026-09-08.json).
 
-Next: validate the isolated committed-upgrade lifecycle fix and store-scoped rollback
-changes. Native gates are running; a combined 40-fixture batch is prepared. The
-transaction creation-order/scope scheduler remains unimplemented. No next-candidate
-gain is established until its signed full run and assertion audits complete.
+The next candidate implements page-local transaction creation-order/scope scheduling,
+committed-upgrade cleanup, store-scoped rollback, deferred blocked-upgrade checks,
+and removal of retained read-only rollback entries. Strict native Clippy, 21 storage
+and 20 filtered native IndexedDB tests pass (the sets overlap); the unchanged JS
+source passed 170 tests with two existing ignores. The preceding native candidate
+passed 37 fixtures/179 assertions, with three lifecycle fixtures still unresolved.
+Cross-page scheduling remains open. See
+[native scheduling evidence](CONFORMANCE-IDB-SCHEDULING-NATIVE-2026-09-08.json)
+for exact source hashes and validation scope. Next: signed full measurement and
+regression audit. No next-candidate overall gain is established yet.
 Every remaining failure stays in scope; complete conformance is not established.
 
 | Root | Passed / required |
@@ -90,6 +96,23 @@ failures linked to a reproduced common mechanism, then validate that mechanism
 against unchanged affected fixtures before paying for another full signed run.
 Record whole-test gains, losses, assertion regressions and missing assertions for
 every full candidate; retain the completion gates above without exceptions.
+
+## Throughput correction after the IndexedDB batch
+
+The current backlog has 975 failures outside IndexedDB: editing 315, DOM 262,
+CSS 250, HTML 104, WebIDL 28, referrer policy 8, and accessibility 8. Repeatedly
+extending IndexedDB work leaves most of the overall score unchanged. Native
+passes are validation of a candidate, not additions to the full-run pass count.
+
+Close the current lifecycle/scheduling batch before expanding its scope. Preserve
+any unresolved cases explicitly, then promote only validated changes and measure
+one signed full candidate with the existing regression and missing-assertion audit.
+After that measurement, investigate the existing editing regressions and shared
+mechanisms in the editing, DOM, and CSS backlog. Choose a reproduced cause with
+broad fixture impact; root counts and matching error text alone do not prove one.
+Keep Stylo as the CSS engine. Each subsequent batch must have a bounded mechanism,
+affected unchanged fixtures, and an explicit full-run measurement step before
+starting another batch. The 4,022/4,022 twice requirement remains unchanged.
 
 ## W0 — establish the current baseline and keep diagnosis trustworthy
 

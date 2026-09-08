@@ -21,10 +21,16 @@ Stylo remains the CSS engine. IndexedDB passes 391/456; other root totals are un
 Native validation of the measured batch is recorded in
 [native evidence](CONFORMANCE-IDB-ABORT-NATIVE-2026-09-08.json).
 
-Next: validate the isolated committed-upgrade lifecycle fix and store-scoped rollback
-changes. Native gates are running; a combined 40-fixture batch is prepared. The
-transaction creation-order/scope scheduler remains unimplemented. No next-candidate
-gain is established until its signed full run and assertion audits complete.
+The next candidate implements page-local transaction creation-order/scope scheduling,
+committed-upgrade cleanup, store-scoped rollback, deferred blocked-upgrade checks,
+and removal of retained read-only rollback entries. Strict native Clippy, 21 storage
+and 20 filtered native IndexedDB tests pass (the sets overlap); the unchanged JS
+source passed 170 tests with two existing ignores. The preceding native candidate
+passed 37 fixtures/179 assertions, with three lifecycle fixtures still unresolved.
+Cross-page scheduling remains open. See
+[native scheduling evidence](CONFORMANCE-IDB-SCHEDULING-NATIVE-2026-09-08.json)
+for exact source hashes and validation scope. Next: signed full measurement and
+regression audit. No next-candidate overall gain is established yet.
 Every remaining failure stays in scope; complete conformance is not established.
 
 | Root | Passed / required |
