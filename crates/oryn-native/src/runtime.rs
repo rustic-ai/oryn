@@ -10828,6 +10828,68 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn editing_join_preserves_default_inline_whitespace_and_outer_formatting() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://editing.example.test/default-inline",
+            "<!doctype html><style id=rules></style><div id=host contenteditable></div>",
+        )
+        .await
+        .unwrap();
+        let result = page.evaluate(r#"(() => {
+          const host = document.getElementById('host'), rules = document.getElementById('rules');
+          const cases = [
+            ['def', '', null],
+            ['def<br>ghi', 'ghi', null],
+            ['def<div>ghi</div>', '<div>ghi</div>', null],
+            ['<b>def</b>', '', 'b'],
+            ['<b>def<br>ghi</b>', '<b>ghi</b>', 'b'],
+            ['<b>def</b><br>ghi', 'ghi', 'b'],
+            ['<b>def<br></b>ghi', 'ghi', 'b'],
+            ['<em>def<br>ghi</em>', '<em>ghi</em>', 'em'],
+            ['<b style="color:red">def<br>ghi</b>', '<b style="color:red">ghi</b>', 'b'],
+            ['<b><i>def<br>ghi</i></b>', '<b><i>ghi</i></b>', 'i']
+          ];
+          let checked = 0;
+          for (const mode of ['nowrap','pre','pre-wrap','pre-line','break-spaces']) {
+            rules.textContent = '.left{white-space:' + mode + '}';
+            for (const authored of [false,true]) for (const direction of ['backward','forward','selection']) {
+              for (const [body, remainder, formatting] of cases) {
+                host.innerHTML = (authored ? '<div style="white-space:' + mode + '">' : '<div class="left">') + 'abc</div>' + body;
+                const left = host.firstChild, source = left.nextSibling;
+                let rightText = source;
+                while (rightText.nodeType !== 3) rightText = rightText.firstChild;
+                host.focus();
+                const range = document.createRange();
+                if (direction === 'backward') {range.setStart(rightText,0);range.collapse(true);}
+                else {range.setStart(left.firstChild,3);if (direction === 'forward') range.collapse(true);else range.setEnd(rightText,0);}
+                getSelection().removeAllRanges();getSelection().addRange(range);
+                document.execCommand(direction === 'forward' ? 'forwardDelete' : 'delete');
+                const details = () => JSON.stringify({mode,authored,direction,body,actual:host.innerHTML});
+                if (left.textContent !== 'abcdef') throw new Error('first line changed ' + details());
+                const remaining = Array.from(host.childNodes).slice(1).map(n => n.nodeType === 3 ? n.data : n.outerHTML).join('');
+                if (remaining !== remainder) throw new Error('remainder changed ' + details());
+                const walker = document.createTreeWalker(left,NodeFilter.SHOW_TEXT);
+                let moved;
+                while (walker.nextNode()) if (walker.currentNode.data.includes('def')) moved = walker.currentNode;
+                if (!moved || getComputedStyle(moved.parentElement).whiteSpace !== 'normal') throw new Error('default whitespace lost ' + details());
+                if (formatting && !moved.parentElement.closest(formatting)) throw new Error('outer formatting lost ' + details());
+                if (body === '<b>def</b>' && !left.contains(source)) throw new Error('whole inline identity lost ' + details());
+                if (body.includes('color:red') && getComputedStyle(moved.parentElement).color !== 'rgb(255, 0, 0)') throw new Error('authored declaration lost ' + details());
+                document.execCommand('insertText',false,'X');
+                if (left.textContent !== 'abcXdef') throw new Error('caret changed ' + details());
+                checked++;
+              }
+            }
+          }
+          return String(checked);
+        })()"#).await.unwrap();
+        assert_eq!(result, "300");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_join_resolves_nested_and_inline_paragraph_boundaries() {
         let context = Browser::new().new_context();
         let page = context.new_page();

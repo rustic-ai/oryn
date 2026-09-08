@@ -1,0 +1,34 @@
+{
+  "baseline_runtime": "70352c7bd2abd8c9d2d153950fe062cbc0866a53",
+  "new_native_cases": 300,
+  "change": "Preserve default whitespace for inline sources, semantic outer formatting elements, whole-element identity, authored declarations, and line breaks immediately following extracted inline content. Retain author-provenance rules for block joins.",
+  "source_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "c555b84de9b0afd1f027fa7e743ce81a347950e62adb63dad1c4c58cfbcf0690",
+    "crates/oryn-native/src/runtime.rs": "a199770b0fd40114f5222a9a038df764bf60f0713e43e2d7eedeeffd91526d77"
+  },
+  "validation": {
+    "layout_passed": 48,
+    "bindings_passed": 148,
+    "bindings_existing_ignored": 2,
+    "native_editing_filters_passed": 10,
+    "native_justification_filters_passed": 9,
+    "other_native_checks": [
+      "command state",
+      "keyboard geometry",
+      "shadow selection",
+      "frame Range identity"
+    ],
+    "strict_clippy": [
+      "oryn-layout",
+      "oryn-js",
+      "oryn-native"
+    ]
+  },
+  "logs": {
+    "artifacts/native-shared-editing/oryn-default-inline-join-tests.log": "fbcc23eeb331e594a75cccb717d5417dd04a7999a95b39c22edd9d656a58ef18",
+    "artifacts/native-shared-editing/oryn-default-inline-join-tests-v2.log": "dd2bf325122363e65d05b266d2ddbe43bfc0d9ab522242ecb271081177567d42",
+    "artifacts/native-shared-editing/oryn-default-inline-join-broad-v2.log": "16b92af0c88a307e6fa2b7a570c751680d818a55eb9c838dce2012dc866a879b"
+  },
+  "fixed_validation_failure": "Explicitly classify Text and CDataSection as inline; they need not have an exported display entry.",
+  "conformance": "Unmeasured candidate; latest full score remains 2880/4022 at 70352c7. Run all704 editing executions and audit prior whole/assertion passes before claiming the targeted variants are fixed."
+}

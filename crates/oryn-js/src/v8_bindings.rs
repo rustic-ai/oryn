@@ -11283,6 +11283,24 @@ fn join_first_editing_line_before(
         line_root = first;
     }
     let source_mode = editing_white_space(state, line_root)?;
+    let source_is_inline = matches!(
+        state.dom.borrow().arena().get(line_root)?.kind,
+        NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+    ) || state
+        .layout
+        .borrow()
+        .styles
+        .get(&node_key(line_root))
+        .and_then(|style| style.get("display"))
+        .is_some_and(|display| display == "inline");
+    // Semantic inline elements are part of the moved line, rather than its
+    // paragraph container. A span used as a whitespace carrier is rebuilt below.
+    let preserve_inline_shell = source_is_inline
+        && matches!(
+            state.dom.borrow().arena().get(line_root)?.kind,
+            NodeKind::Element { .. }
+        )
+        && element_local_name(&state.dom.borrow(), line_root) != Some("span");
     let source_has_author_whitespace = {
         let dom = state.dom.borrow();
         let style_node = if matches!(
@@ -11383,6 +11401,27 @@ fn join_first_editing_line_before(
             _ => {}
         }
     }
+    // The paragraph's first line can end at a break immediately outside an
+    // inline source container (including a bare text node).
+    let following_break = if source_is_inline
+        && separator.is_none()
+        && end.container == line_root
+        && end.offset == boundary_length(&state.dom.borrow(), line_root)?
+    {
+        let dom = state.dom.borrow();
+        dom.parent(source)?
+            .map(|parent| light_children(&dom, parent))
+            .transpose()?
+            .and_then(|children| {
+                children
+                    .windows(2)
+                    .find(|pair| pair[0] == source)
+                    .map(|pair| pair[1])
+            })
+            .filter(|node| element_local_name(&dom, *node) == Some("br"))
+    } else {
+        None
+    };
     if let Some((node, _)) = separator {
         let mut current = Some(node);
         while let Some(node) = current {
@@ -11429,6 +11468,26 @@ fn join_first_editing_line_before(
             dom.remove_child(parent, node)?;
         }
     }
+    if let Some(node) = following_break
+        && let Some(parent) = dom.parent(node)?
+    {
+        dom.remove_child(parent, node)?;
+    }
+    if preserve_inline_shell && !source_is_placeholder {
+        let children = light_children(&dom, fragment)?;
+        if !children.is_empty() {
+            let shell = if light_children(&dom, line_root)?.is_empty() {
+                // Reuse a wholly consumed element so listeners and identity survive.
+                line_root
+            } else {
+                dom.clone_node(line_root, false)?
+            };
+            for child in children {
+                dom.append_child(shell, child)?;
+            }
+            dom.append_child(fragment, shell)?;
+        }
+    }
     let moving = if source_is_placeholder {
         Vec::new()
     } else {
@@ -11442,8 +11501,11 @@ fn join_first_editing_line_before(
         {
             dom.remove_child(destination, last)?;
         }
-        let target = if source_mode != destination_mode && source_has_author_whitespace {
+        let target = if source_mode != destination_mode
+            && (source_has_author_whitespace || source_is_inline)
+        {
             if reusable_inline
+                && !preserve_inline_shell
                 && moving.len() == 1
                 && matches!(dom.arena().get(moving[0])?.kind, NodeKind::Element { .. })
             {
