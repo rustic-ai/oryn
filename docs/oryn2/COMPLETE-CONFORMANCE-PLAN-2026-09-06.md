@@ -74,11 +74,13 @@ The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exac
 
 ## Immediate execution correction
 
-The latest batch gained 14 whole tests with no observed assertion regressions.
-The four previous candidate regressions are verified recovered in the signed run.
-Further progress requires closing shared failure chains, not counting native checks
-as whole-inventory gains. The event and exception fixes pass native validation and all 97 assertions in
-eight unchanged fixtures; they have no signed full-run evidence yet.
+The latest batch gained 16 whole tests and regressed 12, a net gain of four.
+The signed run exposed upgrade-abort event ordering failures despite the earlier
+97 passing assertions in eight focused fixtures. The next batch addresses shared
+request delivery, cancellation, task checkpoints, and upgrade metadata rollback.
+Its 169 JavaScript tests pass with two existing ignores; native storage validation
+is still running and the expanded 29-fixture batch has not run. A full-inventory
+gain remains unproven until the next signed candidate is measured and audited.
 
 The backlog now joins the durable [diagnosis ledger](CONFORMANCE-DIAGNOSES.json),
 keyed by inventory ID. A confirmed cause is bound to the full result hash, source
