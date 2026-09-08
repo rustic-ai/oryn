@@ -806,6 +806,17 @@ pub struct BindingPageDeclarationMutation {
 /// implementation lives in the page orchestrator so generated bindings keep
 /// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
 pub trait BindingLayoutProvider {
+    fn set_page_rule_selector(
+        &self,
+        _source: &str,
+        _path: &[usize],
+        _selector: &str,
+        _base_url: &str,
+        _quirks: bool,
+    ) -> Option<Result<Option<Vec<BindingRuleView>>, String>> {
+        None
+    }
+
     fn mutate_rule_list(
         &self,
         _source: &str,
@@ -2722,35 +2733,6 @@ impl V8BindingState {
             .borrow_mut()
             .retain(|pending| *pending != frame);
         self.schedule_dynamic_frame(frame);
-    }
-
-    fn dynamic_script_candidates(&self, root: NodeId) -> Result<Vec<NodeId>, V8BindingError> {
-        let candidates = {
-            let dom = self.dom.borrow();
-            if !dom.is_connected(root)? {
-                return Ok(Vec::new());
-            }
-            let mut candidates = Vec::new();
-            if is_script_element(&dom, root) {
-                candidates.push(root);
-            }
-            candidates.extend(dom.query_selector_all(root, "script")?);
-            candidates
-                .into_iter()
-                .filter(|script| is_script_element(&dom, *script))
-                .filter(|script| {
-                    dom.attribute(*script, "src")
-                        .ok()
-                        .flatten()
-                        .is_some_and(|src| !src.trim().is_empty())
-                        || dom
-                            .arena()
-                            .text_content(*script)
-                            .is_ok_and(|source| !source.trim().is_empty())
-                })
-                .collect::<Vec<_>>()
-        };
-        Ok(candidates)
     }
 
     fn mark_script_subtree_inert(&self, root: NodeId) -> Result<(), V8BindingError> {
@@ -26171,17 +26153,34 @@ fn prepare_dynamic_script_subtrees(
     state: &Rc<V8BindingState>,
     roots: &[NodeId],
 ) -> Result<(), V8BindingError> {
-    let mut scripts = Vec::new();
+    let mut post_connection = Vec::new();
     for &root in roots {
-        prepare_dynamic_referrer_meta(scope, state, root)?;
+        if !state.dom.borrow().is_connected(root)? {
+            continue;
+        }
         prepare_dynamic_frame_subtree(state, root)?;
         prepare_dynamic_image_subtree(scope, state, root)?;
         prepare_dynamic_stylesheet_subtree(state, root)?;
-        scripts.extend(state.dynamic_script_candidates(root)?);
+        let dom = state.dom.borrow();
+        let mut candidates = vec![root];
+        candidates.extend(dom.query_selector_all(root, "script, meta")?);
+        post_connection.extend(candidates.into_iter().filter_map(|node| {
+            if dom.is_element(node, "http://www.w3.org/1999/xhtml", "meta") {
+                Some((node, true))
+            } else if is_script_element(&dom, node) {
+                Some((node, false))
+            } else {
+                None
+            }
+        }));
     }
-    for script in scripts {
+    for (script, is_meta) in post_connection {
         // An earlier post-connection script may have removed a later one.
         if !state.dom.borrow().is_connected(script).unwrap_or(false) {
+            continue;
+        }
+        if is_meta {
+            prepare_dynamic_referrer_meta(scope, state, script)?;
             continue;
         }
         if state.prepared_scripts.borrow().contains(&script) {
@@ -26197,6 +26196,11 @@ fn prepare_dynamic_script_subtrees(
                 dom.arena().text_content(script)?,
             )
         };
+        // Empty inline scripts have not started; an earlier script may fill
+        // their text before their own post-connection step is reached.
+        if external.as_ref().is_none_or(|src| src.trim().is_empty()) && source.trim().is_empty() {
+            continue;
+        }
         let kind = script_type.trim().to_ascii_lowercase();
         let classic = matches!(
             kind.as_str(),
@@ -26237,8 +26241,9 @@ fn prepare_dynamic_referrer_meta(
         if !dom.is_connected(root)? {
             return Ok(());
         }
-        let mut candidates = vec![root];
-        candidates.extend(dom.query_selector_all(root, "meta")?);
+        // Process this element only. Descendant meta elements have their own
+        // ordered post-connection steps and must not run ahead of scripts.
+        let candidates = [root];
         let mut policies = Vec::new();
         let mut refreshes = Vec::new();
         for node in candidates {
@@ -27767,6 +27772,86 @@ mod tests {
         fn drain_completions(&self, limit: usize) -> Vec<PlatformHostCompletion> {
             let mut queue = self.completions.lock().unwrap();
             (0..limit).filter_map(|_| queue.pop_front()).collect()
+        }
+    }
+
+    #[test]
+    fn batch_meta_processing_preserves_fetch_policy_order() {
+        #[derive(Default)]
+        struct RecordingHost {
+            inner: TestPlatformHost,
+            requests: RefCell<Vec<(String, Option<String>)>>,
+        }
+        impl PlatformHost for RecordingHost {
+            fn submit(
+                &self,
+                id: HostOperationId,
+                request: PlatformHostRequest,
+            ) -> Result<(), String> {
+                if let PlatformHostRequest::HttpStart { request } = &request {
+                    self.requests
+                        .borrow_mut()
+                        .push((request.url.clone(), request.referrer_policy.clone()));
+                }
+                self.inner.submit(id, request)
+            }
+            fn cancel(&self, id: HostOperationId) {
+                self.inner.cancel(id);
+            }
+            fn drain_completions(&self, limit: usize) -> Vec<PlatformHostCompletion> {
+                self.inner.drain_completions(limit)
+            }
+        }
+        initialize_v8();
+        for method in ["appendChild", "append", "prepend", "replaceChildren", "div"] {
+            let dom = Rc::new(RefCell::new(
+                html::parse("<!doctype html><body></body>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            let mut isolate = v8::Isolate::new(Default::default());
+            v8::scope!(let scope, &mut isolate);
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+            let host = Rc::new(RecordingHost::default());
+            state.set_platform_host(host.clone());
+            let script = format!(
+                "const insertionMethod = {method:?};\n{}",
+                r#"
+                globalThis.location = {href:'https://example.test/page', origin:'https://example.test'};
+                const initial = document.createElement('meta');
+                initial.name = 'referrer'; initial.content = 'unsafe-url'; document.head.appendChild(initial);
+                const before = document.createElement('script'), after = document.createElement('script');
+                before.textContent = "fetch('https://example.test/before')";
+                after.textContent = "fetch('https://example.test/after')";
+                const meta = document.createElement('meta'); meta.name = 'referrer'; meta.content = 'no-referrer';
+                const fragment = document.createDocumentFragment(); fragment.append(before, meta, after);
+                if (insertionMethod === 'appendChild') document.head.appendChild(fragment);
+                else if (insertionMethod === 'div') {
+                    const div = document.createElement('div'); div.appendChild(fragment); document.head.appendChild(div);
+                } else document.head[insertionMethod](before, meta, after);
+            "#
+            );
+            let source = v8::String::new(scope, &script).unwrap();
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(
+                *host.requests.borrow(),
+                vec![
+                    (
+                        "https://example.test/before".into(),
+                        Some("unsafe-url".into())
+                    ),
+                    (
+                        "https://example.test/after".into(),
+                        Some("no-referrer".into())
+                    ),
+                ],
+                "{method}"
+            );
         }
     }
 

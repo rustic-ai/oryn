@@ -1,0 +1,76 @@
+{
+  "scope": "Ordered meta/script post-connection processing and full-sheet page-rule selector/declaration mutations. Not a full conformance result.",
+  "baseline_runtime": "8844fd5a0dad9539605593df59cf995d508ab16a",
+  "source_files": [
+    {
+      "path": "crates/oryn-layout/src/cssom.rs",
+      "baseline_sha256": "1f612b7cfc27cffa8585729f74cfca2e00f5c7c511c9af193aed5e2ad61c06ad",
+      "integrated_sha256": "2bfd66bb869741a9bb9a641ca51dd692a6878859f9917c164b006f6e80bc15b6",
+      "functional_test_source_sha256": "2bfd66bb869741a9bb9a641ca51dd692a6878859f9917c164b006f6e80bc15b6"
+    },
+    {
+      "path": "crates/oryn-js/src/v8_bindings.rs",
+      "baseline_sha256": "e0b80a7c9298f6f94ab2cf7444f865ad5016eb200f2bc56f2ed8011ec4e0382c",
+      "integrated_sha256": "8aa59138de2fdc35070659ece312338fe1be70cee6c462049298e387615e1049",
+      "functional_test_source_sha256": "667bc0f75964e8b9ac64f22ee2a24f3a4ce80212a15aea66fb3f059333ab6a22"
+    },
+    {
+      "path": "crates/oryn-js/src/v8_bindings/page_rules.rs",
+      "baseline_sha256": "99ea39055301eabdd07d3f6396a946600c0afbaa9915734f24cd9491fb046fcc",
+      "integrated_sha256": "d60eb7e406ad9c5d2386c1868c8199a66ffba34428af595c3aeb0b1e207ecb39",
+      "functional_test_source_sha256": "d60eb7e406ad9c5d2386c1868c8199a66ffba34428af595c3aeb0b1e207ecb39"
+    },
+    {
+      "path": "crates/oryn-native/src/rust_executable.rs",
+      "baseline_sha256": "e0ba8f00f15d6d2ceab12e52d05cd4728fc9896b583be8affc804949c326ee28",
+      "integrated_sha256": "a712e89b4b3798989af67e9e050618f6835221deeb249da7ceb5ae130cb83961",
+      "functional_test_source_sha256": "a712e89b4b3798989af67e9e050618f6835221deeb249da7ceb5ae130cb83961"
+    }
+  ],
+  "validation": {
+    "layout_passed": 61,
+    "v8_bindings_passed": 131,
+    "v8_bindings_existing_ignored": 2,
+    "v8_bindings_other_filtered": 18,
+    "native_cssom_passed": 27,
+    "functional_failures": 0,
+    "final_strict_clippy": [
+      "oryn-layout --lib -D warnings",
+      "oryn-native --features v8-host,v8-sandbox,core-full --lib -D warnings"
+    ],
+    "cleanup": "The functional run passed before removal of a private helper with no remaining callers. Its final Clippy stage failed on that unused method. Only that obsolete method was removed, with before/after source hashes and removed text archived. Final strict Clippy passed. The behavior tests were not repeated solely for dead-code deletion."
+  },
+  "behavior": [
+    "Stylesheets, frames and images retain insertion preparation before post-connection processing. Meta and script elements are then processed in document order.",
+    "A native integration test captures real fetch host requests across five insertion forms and verifies that earlier requests retain the earlier referrer policy.",
+    "Disconnected roots skip candidate discovery and post-connection processing. Removed later scripts remain inert.",
+    "Page selectors and declarations mutate the complete native stylesheet at a path, preserving siblings, nested margin rules, namespace context and detached rule identity."
+  ],
+  "artifacts": [
+    {
+      "path": "artifacts/upstream-conformance/native-page-context-meta/oryn-page-context-and-meta-validation-v1.log",
+      "sha256": "41f75d39ba9a48d216c54d9e97d1ed37479e120a94c6c6d2c59ad9e0a0ecba25"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-page-context-meta/oryn-page-context-meta-cleanup-clippy.log",
+      "sha256": "927ec3aa649e351a544aaa1608313a2af5e38e423fc0b8874f5b46f54f47fc19"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-page-context-meta/oryn-meta-unused-helper-cleanup.json",
+      "sha256": "b57c323987eecc1e59de4fef47ad96b81ff51d6469f87318686ad361389d96d5"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-page-context-meta/oryn-test-page-rule-context.py",
+      "sha256": "e876af19c81c3ab8de421f141bd20d3c723099835f554b032b1e5c698c4a092f"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-page-context-meta/oryn-check-page-context-meta-cleanup.py",
+      "sha256": "b1c1720c2003f8d36132f42e353265cd5da29d19788f05dc2298eef0b355cb97"
+    }
+  ],
+  "remaining": [
+    "Fresh signed-worker verification of the affected behavior is pending; no new overall score is claimed.",
+    "Nested live rule lists and generated grouping interfaces remain incomplete.",
+    "All 4022 executions twice on one frozen candidate plus every required gate remain the completion criterion."
+  ]
+}

@@ -311,17 +311,18 @@ fn rule_view(
 
 /// Mutate a page selector through Stylo, preserving declarations and nested rules.
 /// Invalid selectors leave the rule untouched, as required by CSSOM.
-pub fn set_page_selector(
+pub fn set_page_rule_selector(
     source: &str,
+    path: &[usize],
     selector: &str,
     base_url: &str,
     quirks: bool,
-) -> Result<Option<RuleView>, String> {
+) -> Result<Option<Vec<RuleView>>, String> {
     use style::{
         media_queries::MediaList,
         parser::{Parse, ParserContext},
         servo_arc::Arc,
-        shared_lock::{SharedRwLock, ToCssWithGuard},
+        shared_lock::SharedRwLock,
         stylesheets::{AllowImportRules, CssRule, PageSelectors, Stylesheet, StylesheetInDocument},
     };
     let url_data = UrlExtraData::from(url::Url::parse(base_url).map_err(|e| e.to_string())?);
@@ -352,37 +353,65 @@ pub fn set_page_selector(
         }
     };
     let lock = SharedRwLock::new();
+    let loader = CssomImportLoader {
+        base_url: url_data.clone(),
+        quirks,
+    };
     let sheet = Stylesheet::from_str(
         source,
         url_data,
         Origin::Author,
         Arc::new(lock.wrap(MediaList::empty())),
         lock.clone(),
-        None,
+        Some(&loader),
         None,
         quirks,
-        AllowImportRules::No,
+        AllowImportRules::Yes,
     );
     let rule = {
         let guard = lock.read();
-        let rules = &sheet.contents(&guard).rules.read_with(&guard).0;
-        if rules.len() != 1 {
-            return Ok(None);
+        let mut rules = sheet.contents(&guard).rules.read_with(&guard).0.as_slice();
+        let (&last, ancestors) = path.split_last().ok_or("Empty CSS rule path")?;
+        for &index in ancestors {
+            let rule = rules.get(index).ok_or("CSS rule path out of bounds")?;
+            if matches!(rule, CssRule::Import(_)) {
+                return Err("Import sheet requires its own mutation context".into());
+            }
+            rules = rule.children(&guard);
         }
-        match &rules[0] {
+        match rules.get(last).ok_or("CSS rule path out of bounds")? {
             CssRule::Page(rule) => rule.clone(),
-            _ => return Ok(None),
+            _ => return Err("CSS rule is not a page rule".into()),
         }
     };
     rule.write_with(&mut lock.write()).selectors = selectors;
-    let serialized = rule
-        .read_with(&lock.read())
-        .to_css_string(&lock.read())
-        .to_string();
+    let guard = lock.read();
+    Ok(Some(
+        sheet
+            .contents(&guard)
+            .rules
+            .read_with(&guard)
+            .0
+            .iter()
+            .map(|rule| rule_view(rule, &guard))
+            .collect::<Result<Vec<_>, _>>()?,
+    ))
+}
+
+/// Mutate one standalone page rule through the same full-context transaction.
+pub fn set_page_selector(
+    source: &str,
+    selector: &str,
+    base_url: &str,
+    quirks: bool,
+) -> Result<Option<RuleView>, String> {
+    let rules = read_stylesheet(source, base_url, quirks, false)?;
+    if rules.len() != 1 || rules[0].rule_type != 6 {
+        return Ok(None);
+    }
     Ok(
-        read_stylesheet(&serialized, base_url, quirks == QuirksMode::Quirks, false)?
-            .into_iter()
-            .next(),
+        set_page_rule_selector(&rules[0].css_text, &[0], selector, base_url, quirks)?
+            .and_then(|rules| rules.into_iter().next()),
     )
 }
 
@@ -881,6 +910,59 @@ pub fn supported_properties() -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn page_selector_transaction_preserves_full_sheet_and_nested_margin_rules() {
+        let base = "https://example.test/styles/main.css";
+        let source = "@namespace svg url(http://www.w3.org/2000/svg); @media print { @page chapter { margin-top: 10px; @top-left { content: 'heading'; } } svg|rect { color: red; } } aside { color: blue; }";
+        let before = read_stylesheet(source, base, false, true).unwrap();
+        let after = set_page_rule_selector(source, &[1, 0], "chapter:left", base, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.len(), 3);
+        assert_eq!(after[0], before[0]);
+        assert_eq!(after[2], before[2]);
+        assert_eq!(after[1].children[1], before[1].children[1]);
+        let page = &after[1].children[0];
+        assert_eq!(page.selector_text.as_deref(), Some("chapter:left"));
+        assert_eq!(
+            page.declaration_text,
+            before[1].children[0].declaration_text
+        );
+        assert_eq!(page.children, before[1].children[0].children);
+        assert!(after[1].css_text.contains("chapter:left"));
+        assert!(!before[1].css_text.contains("chapter:left"));
+    }
+
+    #[test]
+    fn page_selector_transaction_rejects_invalid_selectors_and_validates_paths() {
+        let base = "https://example.test/";
+        let source = "@media print { @page chapter { margin: 1cm; } }";
+        for invalid in [
+            "div > span",
+            ":unknown",
+            "chapter,",
+            "chapter { margin: 0 }",
+        ] {
+            assert!(
+                set_page_rule_selector(source, &[0, 0], invalid, base, false)
+                    .unwrap()
+                    .is_none(),
+                "{invalid}"
+            );
+        }
+        for path in [&[][..], &[0][..], &[0, 1][..]] {
+            assert!(set_page_rule_selector(source, path, "chapter:left", base, false).is_err());
+        }
+        let after = set_page_rule_selector(source, &[0, 0], "", base, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(after[0].children[0].selector_text.as_deref(), Some(""));
+        assert_eq!(
+            after[0].children[0].declaration_text.as_deref(),
+            Some("margin: 1cm;")
+        );
+    }
 
     #[test]
     fn style_selector_edits_preserve_namespace_and_nested_context() {

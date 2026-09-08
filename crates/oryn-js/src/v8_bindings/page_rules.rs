@@ -281,11 +281,15 @@ fn setter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8
             .borrow()
             .get(&identity)
             .map(|r| r.view.rule_type);
-        if kind == Some(1) {
+        if matches!(kind, Some(1 | 6)) {
             let (source, index) = mutation_context(scope, &state, identity)?;
             let provider = state.layout_provider.borrow().clone();
             if let Some(result) = provider.and_then(|p| {
-                p.set_style_rule_selector(&source, &[index], &selector, &base_url, quirks)
+                if kind == Some(6) {
+                    p.set_page_rule_selector(&source, &[index], &selector, &base_url, quirks)
+                } else {
+                    p.set_style_rule_selector(&source, &[index], &selector, &base_url, quirks)
+                }
             }) && let Some(rules) = result.map_err(V8BindingError::EventCallback)?
             {
                 publish_rule_transaction(scope, &state, identity, parent, index, rules)?;
@@ -473,7 +477,7 @@ fn mutate_style(
         .borrow()
         .get(&identity)
         .map(|r| r.view.rule_type);
-    if kind == Some(1) {
+    if matches!(kind, Some(1 | 6)) {
         let (source, index) = mutation_context(scope, &state, identity)?;
         let mutation = provider
             .mutate_rule_declaration(

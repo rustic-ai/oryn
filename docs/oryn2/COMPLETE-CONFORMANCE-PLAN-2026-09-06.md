@@ -41,9 +41,9 @@ All three earlier stylesheet-insertion assertion regressions now pass. The new f
 run exposes **one assertion regression** in
 `Node-append-meta-referrer-and-script-from-fragment.html`: a later referrer-policy meta
 tag is processed before an earlier script. Stylesheet preparation must precede scripts,
-while meta tags and scripts require ordered post-connection processing. An isolated
-correction and a fetch-policy integration test are undergoing validation. The regression
-is not waived and the correction is not part of this measured candidate.
+while meta tags and scripts require ordered post-connection processing. The subsequent
+correction passes native fetch-policy integration tests and final strict Clippy. Signed
+WPT recovery is pending; the correction is not part of the measured `8844fd5` candidate.
 
 The Range audit finds **27 newly unobserved prior passing assertions**: 24 appendData,
 one deleteData and two insertData. All **46 older unobserved assertions remain absent**,
@@ -67,9 +67,12 @@ older failure. [Native evidence](CONFORMANCE-NATIVE-RULE-MUTATIONS-2026-09-07.js
 the exact source hashes, logs and that open failure. Full-run CSS totals are cascade
 50/97, CSSOM 89/190 and selectors 162/277. DOM reaches 396/662; editing retains 389/704.
 
-The immediate work is to validate the meta/script ordering correction and the full-context
-page-rule mutation path, then verify them with a signed full run. Complete nested rule
-ownership, live child collections, grouping mutations and generated typed interfaces next.
+The meta/script correction and full-context page-rule mutations pass 61 layout, 131
+binding and 27 native CSSOM tests. [Correction evidence](CONFORMANCE-PAGE-CONTEXT-META-2026-09-07.json)
+records final source hashes and strict checks after removal of an unused helper. Verify
+the affected CSSOM and DOM-node tests on the signed worker next. Then complete nested rule
+ownership, live child collections, grouping mutations and generated typed interfaces,
+and measure the broader candidate with the full inventory.
 Media lists, remaining CSSOM interfaces, Range resource failures, historical regressions
 and every other failing inventory execution remain in scope.
 

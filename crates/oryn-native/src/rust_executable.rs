@@ -37,6 +37,20 @@ struct LiveLayoutProvider {
 }
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn set_page_rule_selector(
+        &self,
+        source: &str,
+        path: &[usize],
+        selector: &str,
+        base_url: &str,
+        quirks: bool,
+    ) -> Option<Result<Option<Vec<oryn_js::v8_bindings::BindingRuleView>>, String>> {
+        Some(
+            oryn_layout::cssom::set_page_rule_selector(source, path, selector, base_url, quirks)
+                .map(|rules| rules.map(|rules| rules.into_iter().map(binding_rule_view).collect())),
+        )
+    }
+
     fn mutate_rule_list(
         &self,
         source: &str,
@@ -5794,6 +5808,36 @@ mod tests {
         assert_eq!(
             page.evaluate("order.join('|')").unwrap(),
             "handler:5:true|listener:true|after"
+        );
+    }
+
+    #[test]
+    fn cssom_page_transactions_preserve_siblings_and_detached_context() {
+        let mut page = RustExecutableDocument::load(r#"<!doctype html><style>@namespace svg url(http://www.w3.org/2000/svg); @page chapter { margin-top: 10px; @top-left { content: 'heading'; } } svg|rect { color: red; }</style>"#).unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const sheet = document.styleSheets[0], list = sheet.cssRules;
+            const pageRule = list[1], pageStyle = pageRule.style, sibling = list[2];
+            const checks = [];
+            sheet.insertRule('svg|circle {}', 1);
+            pageRule.selectorText = 'chapter:left';
+            pageStyle.marginTop = '20px';
+            checks.push(list[2] === pageRule, list[3] === sibling,
+                pageRule.selectorText === 'chapter:left', pageRule.style === pageStyle,
+                pageStyle.marginTop === '20px', pageRule.cssText.includes('@top-left'),
+                sibling.selectorText === 'svg|rect', sibling.style.color === 'red');
+            sheet.deleteRule(2);
+            pageRule.selectorText = 'appendix:right';
+            pageStyle.cssText = 'margin-bottom: 30px';
+            checks.push(pageRule.parentStyleSheet === null,
+                pageRule.selectorText === 'appendix:right', pageStyle.marginBottom === '30px',
+                pageRule.cssText.includes('@top-left'), list.length === 3, list[2] === sibling);
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#
+            )
+            .unwrap(),
+            ""
         );
     }
 
