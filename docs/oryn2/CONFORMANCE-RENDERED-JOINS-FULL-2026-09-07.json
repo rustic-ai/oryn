@@ -1,0 +1,490 @@
+{
+  "baseline_ledger_sha256": "fe3fa4eb89c613208869d26945836c3a586005e35bfea7c81acafaf0fd94ddee",
+  "ledger": "artifacts/upstream-conformance/conformance-worker-full-dom-boundaries-70352c7.json",
+  "ledger_sha256": "4932c838e7cd21a0b26bc7e32e1b1c952cc1969d93c605ce11086f932385ff2f",
+  "source": {
+    "commit": "70352c7bd2abd8c9d2d153950fe062cbc0866a53",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "binary": {
+    "sha256": "52c1c6a55da8b36a784287a1cc41b21cc8202d52f4f00e0a3439bda4283e0aaa",
+    "size_bytes": 6991456
+  },
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "887445ae879a308db36184cd1e0789df850ac6c879c2e4d68780ea7aa04f85ca",
+    "worker_binary_sha256": "7c080f8624c14931c85fc626b4eaf98465d3bf79362cfef8c1d50af2a6963103",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_protocol_version": 8,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+  "exact_coverage": true,
+  "passed_completions_valid": true,
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 2880,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "counts_by_root": {
+    "IndexedDB": {
+      "passed": 341,
+      "required": 456
+    },
+    "WebIDL": {
+      "passed": 30,
+      "required": 58
+    },
+    "accname": {
+      "passed": 15,
+      "required": 19
+    },
+    "css/css-cascade": {
+      "passed": 47,
+      "required": 97
+    },
+    "css/cssom": {
+      "passed": 73,
+      "required": 190
+    },
+    "css/selectors": {
+      "passed": 161,
+      "required": 277
+    },
+    "dom": {
+      "passed": 393,
+      "required": 662
+    },
+    "editing": {
+      "passed": 377,
+      "required": 704
+    },
+    "html/browsers/history": {
+      "passed": 32,
+      "required": 136
+    },
+    "referrer-policy": {
+      "passed": 1383,
+      "required": 1391
+    },
+    "wai-aria": {
+      "passed": 28,
+      "required": 32
+    }
+  },
+  "failure_domains": {
+    "assertion": 952,
+    "timeout": 3,
+    "runtime": 41,
+    "harness": 143,
+    "incomplete": 3
+  },
+  "file_gains": [
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=normal&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=normal&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=normal&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=normal&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=nowrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=nowrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=nowrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=nowrap&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre-line&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre-line&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre-line&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre-line&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=normal&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=normal&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=normal&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=normal&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-line-and-right-paragraph.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=normal&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=normal&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=normal&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=normal&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=nowrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=nowrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=nowrap&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=pre&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=pre&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=pre&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=pre-line&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=pre-line&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=pre-line&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=normal&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=normal&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=normal&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=normal&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=pre&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=pre&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=pre&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-left-paragraph-and-right-line.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=normal&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=normal&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=normal&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=normal&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=nowrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=nowrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=nowrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=nowrap&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre-line&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre-line&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre-line&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre-line&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=backspace&left-white-space=pre-wrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=normal&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=nowrap&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre-line&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=forwarddelete&left-white-space=pre-wrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=normal&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=normal&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=normal&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=normal&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=nowrap&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre&right-white-space=pre-line",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre-line&right-white-space=pre-wrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=normal",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=nowrap",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=pre",
+    "editing/other/join-different-white-space-style-paragraphs.html|window|?method=select-boundary&left-white-space=pre-wrap&right-white-space=pre-line"
+  ],
+  "file_losses": [],
+  "zero_assertion_passes": [],
+  "verified_assertion_renames": [],
+  "assertion_change_counts": {
+    "missing_prior_passes": 10,
+    "observed_pass_to_fail": 0,
+    "corrected_existing": 4433,
+    "additional_passing_names": 40
+  },
+  "full_assertion_delta_artifact": {
+    "path": "artifacts/upstream-conformance/dom-boundaries-70352c7-full-audit.json",
+    "sha256": "2143583c5aad77c776c378ba60ef817370419cc8df5400aa5507f4bead319017"
+  },
+  "assertion_regressions": [],
+  "verified_server_port_reconciliations": [
+    {
+      "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+      "missing_raw_names": [
+        "http://localhost:50350/common/blank.html to http://localhost:50350/common/blank.html#newhash should work",
+        "http://localhost:50350/common/blank.html to http://localhost:50350/common/blank.html?newsearch should work",
+        "http://localhost:50350/common/blank.html to http://localhost:50350/newpath should work",
+        "http://localhost:50350/common/blank.html to about:blank should not work",
+        "http://localhost:50350/common/blank.html to about:srcdoc should not work"
+      ],
+      "normalization": "http://localhost:\\d+ -> http://localhost:PORT",
+      "complete_name_status_multisets_equal": true,
+      "assertion_count_in_each_run": 7
+    }
+  ],
+  "unresolved_missing_prior_passes": [
+    {
+      "id": "dom/ranges/Range-mutations-appendData.html|window|",
+      "names": [
+        "foreignComment.appendData(\"\"), with unselected range on foreignComment from 0 to foreignComment.length",
+        "foreignComment.appendData(\"\"), with selected range on foreignComment from 0 to foreignComment.length",
+        "foreignComment.appendData(\"\"), with unselected range on foreignComment from 1 to foreignComment.length",
+        "foreignComment.appendData(\"\"), with selected range on foreignComment from 1 to foreignComment.length",
+        "foreignComment.appendData(\"\"), with unselected range collapsed at (foreignComment, foreignComment.length)"
+      ],
+      "failure_domain": "runtime",
+      "complete": false,
+      "diagnostics": [
+        "Error: Runtime(WorkerLimitExceeded { resource: \"wall time\" })"
+      ]
+    }
+  ],
+  "selected_audit": {
+    "path": "artifacts/upstream-conformance/shared-editing-70352c7-rendered-boundary-audit.json",
+    "sha256": "a592741da210e9581a81e23bd26459fa584e60b155e195234075484c2b7b8b6c",
+    "whole_gains": 152,
+    "whole_losses": 0,
+    "observed_pass_to_fail": 0,
+    "missing_prior_passes": 0
+  },
+  "historical_assertion_recovery": {
+    "prior_evidence": "docs/oryn2/CONFORMANCE-EDITING-FULL-2026-09-07.json",
+    "prior_evidence_sha256": "2d00d577081bb9ac3093c2ae83a66d2c65c566863b3d03abf3d6bf6e586a5868",
+    "recovered_passing_names": 28,
+    "still_unobserved": 1,
+    "details": [
+      {
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "observed_passing_now": [
+          "paras[1].firstChild.textContent += \"foo\", with selected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.textContent += paras[1].firstChild.textContent, with unselected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.textContent += paras[1].firstChild.textContent, with selected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue = \"\", with unselected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue = \"\", with selected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue = \"foo\", with unselected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue = \"foo\", with selected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue = paras[1].firstChild.nodeValue, with unselected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue = paras[1].firstChild.nodeValue, with selected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue += \"\", with unselected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue += \"\", with selected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue += \"foo\", with unselected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue += \"foo\", with selected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue += paras[1].firstChild.nodeValue, with unselected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.nodeValue += paras[1].firstChild.nodeValue, with selected range collapsed at (paras[1].firstChild, 0)",
+          "paras[1].firstChild.data = \"\", with unselected range on paras[1].firstChild from 0 to 1",
+          "paras[1].firstChild.data = \"\", with selected range on paras[1].firstChild from 0 to 1",
+          "paras[1].firstChild.data = \"foo\", with unselected range on paras[1].firstChild from 0 to 1",
+          "paras[1].firstChild.data = \"foo\", with selected range on paras[1].firstChild from 0 to 1",
+          "paras[1].firstChild.data = paras[1].firstChild.data, with unselected range on paras[1].firstChild from 0 to 1"
+        ],
+        "still_unobserved": [],
+        "current_run_complete": false
+      },
+      {
+        "id": "dom/ranges/Range-mutations-deleteData.html|window|",
+        "observed_passing_now": [
+          "detachedForeignTextNode.deleteData(3, 0), with selected range on detachedForeignTextNode from 1 to 3"
+        ],
+        "still_unobserved": [],
+        "current_run_complete": false
+      },
+      {
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "observed_passing_now": [
+          "foreignTextNode.replaceData(0, 47, \"\"), with unselected range collapsed at (foreignTextNode, 0)",
+          "foreignTextNode.replaceData(0, 47, \"\"), with selected range collapsed at (foreignTextNode, 0)",
+          "foreignTextNode.replaceData(1, 47, \"\"), with unselected range collapsed at (foreignTextNode, 1)",
+          "foreignTextNode.replaceData(1, 47, \"\"), with selected range collapsed at (foreignTextNode, 1)",
+          "foreignTextNode.replaceData(foreignTextNode.length, 47, \"\"), with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+          "foreignTextNode.replaceData(foreignTextNode.length, 47, \"\"), with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+          "foreignTextNode.replaceData(1, 47, \"\"), with unselected range on foreignTextNode from 1 to 3"
+        ],
+        "still_unobserved": [
+          "foreignTextNode.replaceData(1, 47, \"\"), with selected range on foreignTextNode from 1 to 3"
+        ],
+        "current_run_complete": false
+      }
+    ],
+    "qualification": "Passing names are explicitly reconciled, but incomplete Range executions and other historical comparisons remain open."
+  },
+  "comparison_since_f6": {
+    "path": "artifacts/upstream-conformance/dom-boundaries-70352c7-full-since-f6-audit.json",
+    "sha256": "9c5f3b9cb4b419a03f1540a759f775a6490735cf38f0ba99833d0f0992776575",
+    "whole_gains": 253,
+    "whole_losses": 0,
+    "assertion_counts": {
+      "missing_prior_passes": 6,
+      "observed_pass_to_fail": 11,
+      "corrected_existing": 9871,
+      "additional_passing_names": 21
+    },
+    "assertion_regressions": [
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=block&command=insertText",
+        "names": [
+          "<p contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+        ]
+      },
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline&command=insertText",
+        "names": [
+          "<p contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+        ]
+      },
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline-block&command=insertText",
+        "names": [
+          "<p contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+        ]
+      },
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=block&command=insertText",
+        "names": [
+          "<span contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+        ]
+      },
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline&command=insertText",
+        "names": [
+          "<span contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+        ]
+      },
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline-block&command=insertText",
+        "names": [
+          "<span contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+        ]
+      },
+      {
+        "id": "editing/run/delete.html|window|?5001-6000",
+        "names": [
+          "[[\"defaultparagraphseparator\",\"div\"],[\"delete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML",
+          "[[\"defaultparagraphseparator\",\"p\"],[\"delete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML"
+        ]
+      },
+      {
+        "id": "editing/run/forwarddelete.html|window|?1001-2000",
+        "names": [
+          "[[\"forwarddelete\",\"\"]] \"<ol><li>foo[]<li>bar<br>baz</ol>\" compare innerHTML"
+        ]
+      },
+      {
+        "id": "editing/run/forwarddelete.html|window|?5001-6000",
+        "names": [
+          "[[\"defaultparagraphseparator\",\"div\"],[\"forwarddelete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML",
+          "[[\"defaultparagraphseparator\",\"p\"],[\"forwarddelete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML"
+        ]
+      }
+    ]
+  },
+  "qualification": "Full measurement: 2880/4022, 1142 failing executions. Versus cdead0a: 152 whole gains, 0 whole losses, 0 observed assertion regressions and 5 unresolved missing prior passes. 5 raw history assertion name changes reconcile only through equal complete normalized name/status multisets. Complete conformance remains unachieved; requires 4022/4022 twice on the same frozen candidate plus every required gate. Historical unresolved evidence remains open."
+}

@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `cdead0a`, measured on 2026-09-07.
+Current full-run evidence: signed candidate `70352c7`, measured on 2026-09-07.
 This is the active forward plan. Earlier batch sections in the runtime action plan remain history.
 
 ## Objective and definition of done
@@ -32,35 +32,42 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The latest complete full measurement at `cdead0a` is **2,728/4,022 (67.8%)**,
-with **1,294 failures**, **101 gained whole-test passes** and **zero whole-test losses**
-versus `f6be522`. Editing independently measures **225/704**, versus 124/704 in that
-full baseline. The [full evidence](CONFORMANCE-EDITING-FULL-2026-09-07.json) verifies
-exact coverage, nonempty passing completions, frozen hashes and unchanged limits.
+The latest complete signed-worker run at `70352c7` measures **2,880/4,022 (71.6%)**,
+with **1,142 failing executions**. Versus `cdead0a`, it gains **152 whole-test
+passes** and loses **0**. Editing independently reproduces **377/704**, up from
+225/704. The selected editing audit finds zero assertion regressions or missing prior
+passes and 4,433 corrected existing assertions. The overall score comes from the
+complete inventory, not an overlay of selected results.
 
-The comparison still contains **11 observed assertion regressions** and **29 missing
-prior passing assertions** in three incomplete Range runs with worker wall-time
-limits. Five server-port name changes reconcile by complete normalized name/status
-multisets. The 11 editing expectations differ from isolated reference-browser results,
-but remain open requirements; no fixture or assertion is waived. Earlier unresolved
-comparisons remain documented in historical reports. This measured improvement is
-not a regression-free acceptance baseline or a release candidate.
+The full comparison records **0 observed assertion regressions** and **5
+unresolved missing prior passing assertions**. It reconciles 5 history assertion
+name changes only after complete normalized name/status multisets match. The 11 earlier
+editing assertion regressions remain. Explicit name matching finds 28 of the 29
+previously missing Range assertions passing now; 1 remains unobserved in
+addition to the 5 newly missing assertions. Those Range executions remain incomplete;
+passing assertion recovery does not establish whole-test completion or resolve other
+historical comparison gaps.
 
-Stylo supplies whitespace values and winning author provenance to editing. Placeholder
-cleanup precedes text insertion so MutationObservers see text insertion last. Selected
-paragraph boundaries with intervening whitespace use the same line-joining behavior
-as collapsed deletion. All nine preformatted-paragraph join variants pass. The final
-selected audits retain all prior passes and assertions versus both recent editing
-candidates (`4fb9d80`, `62c9aa0`). Native and lint evidence is recorded in the
-[boundary report](CONFORMANCE-EDITING-BOUNDARIES-2026-09-07.json).
+The audit verifies exact coverage of 4,022 unique IDs, nonempty successful passing
+completions, frozen source/binary hashes, and unchanged inventory, limits and sandbox
+boundaries. This remains an incomplete conformance result, not a release candidate.
 
-The next implementation priority is the **164 remaining whitespace-joining variants**:
-rendered block adjacency, nested paragraph boundaries and inline editing-host boundaries.
-Validate representative native behavior, all 704 editing executions and their prior
-passing assertions, then the full inventory. Keep the 11 regressions and Range resource
-failures open; avoid another Range micro-optimization cycle without evidence that it
-allows a whole failing group to complete. Isolated or selected passes do not update the
-overall score.
+Stylo remains the CSS engine and supplies the native declaration provider.
+Ordinary rule wrappers still lack complete typed objects and live declaration behavior.
+The new editing resolver handles nested and inline paragraph boundaries, preserves
+inherited author whitespace for bare text, reuses suitable inline formatting containers,
+and preserves structural metadata. Validation includes 300 new native cases, the existing
+editing regressions, 48 layout tests, 148 binding tests (two existing ignores), strict
+Clippy and signed-worker security checks. [Full evidence](CONFORMANCE-RENDERED-JOINS-FULL-2026-09-07.json) and
+[native evidence](CONFORMANCE-RENDERED-JOINS-2026-09-07.json) retain the results.
+
+The next editing correction covers the **12 remaining whitespace-join variants**:
+preserve default normal whitespace and the outer formatting element when moving inline
+content into a differently styled paragraph. All three original joining families now
+have only those 12 failing variants. Then broaden work to native CSSOM rule ownership,
+typed rule trees and live declarations; most non-page rule wrappers currently discard
+parsed rule metadata. Keep the earlier editing regressions and Range resource failures
+open. Native or selected results alone do not change the overall score.
 
 The [historical observer baseline](CONFORMANCE-OBSERVER-BASELINE-2026-09-06.json)
 retains an earlier complete run. That earlier assertion audit records 25 corrected
@@ -69,7 +76,7 @@ and five verified history fixture-port name changes. Selected passes are not add
 to the score, and this result does not establish complete conformance.
 
 The [planning backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) uses the
-`cdead0a` full ledger, replacing the previous full-candidate planning index.
+`70352c7` full ledger, replacing the previous full-candidate planning index.
 Each open ID retains its source evidence, failure domain, first observed failing
 assertion when available, and workstream assignment. Routing remains provisional;
 first-error text does not establish a root cause. No ID is silently discarded.
@@ -77,7 +84,7 @@ first-error text does not establish a root cause. No ID is silently discarded.
 | Root | Latest evidence used for planning | Open executions |
 |---|---|---:|
 | DOM | Latest full measurement | 269 |
-| Editing | Latest full measurement | 479 |
+| Editing | Latest full measurement | 327 |
 | CSS | Latest full measurement | 283 |
 | IndexedDB | Latest full measurement | 115 |
 | HTML | Latest full measurement | 104 |

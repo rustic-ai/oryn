@@ -2,32 +2,44 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Latest complete signed-worker measurement `cdead0a`: **2,728/4,022 (67.8%)**.
-> **101 gained file passes, 0 lost file passes, and 1,294 remaining failures** versus `f6be522`.
+> Latest full measurement: **2,880/4,022 (71.6%)**, **1,142 remaining**.
 
-The complete inventory independently reproduces **225/704 editing passes**, up from
-124/704 in the previous full run. The final candidate retains every whole-test pass
-from both recent editing candidates. The final selected audits also find no new assertion regressions
-or missing prior passes versus `4fb9d80` or `62c9aa0`. This overall score comes from
-a complete 4,022-execution run, not an overlay of selected results.
+The latest complete signed-worker run at `70352c7` measures **2,880/4,022 (71.6%)**,
+with **1,142 failing executions**. Versus `cdead0a`, it gains **152 whole-test
+passes** and loses **0**. Editing independently reproduces **377/704**, up from
+225/704. The selected editing audit finds zero assertion regressions or missing prior
+passes and 4,433 corrected existing assertions. The overall score comes from the
+complete inventory, not an overlay of selected results.
 
-Stylo remains the CSS engine and already owns CSSOM declaration parsing and mutation.
-Editing now consumes the winning author whitespace provenance separately from CSSOM
-values, preserves caret/formatting when joining paragraphs, handles selected boundaries
-with intervening whitespace, and removes redundant placeholders before text insertion.
-All nine preformatted-paragraph join variants pass. Validation includes 1,197 native
-editing cases, 48 layout tests, 148 binding tests (two existing ignores), broader
-native regressions, strict Clippy, and signed-worker sandbox checks.
+The full comparison records **0 observed assertion regressions** and **5
+unresolved missing prior passing assertions**. It reconciles 5 history assertion
+name changes only after complete normalized name/status multisets match. The 11 earlier
+editing assertion regressions remain. Explicit name matching finds 28 of the 29
+previously missing Range assertions passing now; 1 remains unobserved in
+addition to the 5 newly missing assertions. Those Range executions remain incomplete;
+passing assertion recovery does not establish whole-test completion or resolve other
+historical comparison gaps.
 
-The full audit verifies all 4,022 unique IDs, nonempty successful passing completions,
-frozen source/binary hashes, and unchanged inventory, sandbox boundaries and limits.
-**Eleven observed assertion regressions remain versus `f6be522`.** Six concern normal
-whitespace newline insertion and five concern legacy paragraph/list joining. Their
-reference-browser discrepancies remain investigations, not fixture waivers.
-**Twenty-nine prior passing assertions are missing** from three partial Range runs
-that hit worker wall-time limits. Five other raw name changes reconcile through equal
-complete assertion name/status multisets after normalizing only the server port.
-Historical unresolved comparisons remain recorded in earlier evidence.
+The audit verifies exact coverage of 4,022 unique IDs, nonempty successful passing
+completions, frozen source/binary hashes, and unchanged inventory, limits and sandbox
+boundaries. This remains an incomplete conformance result, not a release candidate.
+
+Stylo remains the CSS engine and supplies the native declaration provider.
+Ordinary rule wrappers still lack complete typed objects and live declaration behavior.
+The new editing resolver handles nested and inline paragraph boundaries, preserves
+inherited author whitespace for bare text, reuses suitable inline formatting containers,
+and preserves structural metadata. Validation includes 300 new native cases, the existing
+editing regressions, 48 layout tests, 148 binding tests (two existing ignores), strict
+Clippy and signed-worker security checks. [Full evidence](CONFORMANCE-RENDERED-JOINS-FULL-2026-09-07.json) and
+[native evidence](CONFORMANCE-RENDERED-JOINS-2026-09-07.json) retain the results.
+
+The next editing correction covers the **12 remaining whitespace-join variants**:
+preserve default normal whitespace and the outer formatting element when moving inline
+content into a differently styled paragraph. All three original joining families now
+have only those 12 failing variants. Then broaden work to native CSSOM rule ownership,
+typed rule trees and live declarations; most non-page rule wrappers currently discard
+parsed rule metadata. Keep the earlier editing regressions and Range resource failures
+open. Native or selected results alone do not change the overall score.
 
 | Root | Passed / required |
 |---|---:|
@@ -38,19 +50,12 @@ Historical unresolved comparisons remain recorded in earlier evidence.
 | css/cssom | 73/190 |
 | css/selectors | 161/277 |
 | dom | 393/662 |
-| editing | 225/704 |
+| editing | 377/704 |
 | html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-[Full measurement evidence](CONFORMANCE-EDITING-FULL-2026-09-07.json) records the
-result, fingerprints, gains and unresolved comparisons. The
-[failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly
-1,294 open executions from this full run. The next shared editing priority is the
-164 remaining variants across three whitespace-joining families, especially rendered
-block adjacency, nested paragraph boundaries and inline editing-host boundaries.
-Retain the 11 regressions and Range resource failures as open work. Native MessagePort
-work remains isolated. Complete conformance is not achieved.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,142 failed IDs from this run.
 
 This status is intentionally capability-based. It records implemented behavior and
 does not imply that later browser-conformance work is complete.
