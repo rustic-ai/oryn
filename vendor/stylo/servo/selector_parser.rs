@@ -381,6 +381,7 @@ pub enum NonTSPseudoClass {
     Indeterminate,
     Invalid,
     Lang(Lang),
+    Dir(Box<str>),
     Link,
     Modal,
     MozMeterOptimum,
@@ -446,6 +447,11 @@ impl ToCss for NonTSPseudoClass {
             Self::CustomState(ref state) => {
                 dest.write_str(":state(")?;
                 state.0.to_css(dest)?;
+                return dest.write_char(')');
+            },
+            Self::Dir(ref direction) => {
+                dest.write_str(":dir(")?;
+                serialize_identifier(direction, dest)?;
                 return dest.write_char(')');
             },
             Self::Default => ":default",
@@ -523,7 +529,7 @@ impl NonTSPseudoClass {
             Self::UserValid => ElementState::USER_VALID,
             Self::Valid => ElementState::VALID,
             Self::Visited => ElementState::VISITED,
-            Self::CustomState(_) | Self::Lang(_) | Self::ServoNonZeroBorder => {
+            Self::CustomState(_) | Self::Lang(_) | Self::Dir(_) | Self::ServoNonZeroBorder => {
                 ElementState::empty()
             },
         }
@@ -671,6 +677,9 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
         let pseudo_class = match_ignore_ascii_case! { &name,
             "lang" if !after_part => {
                 NonTSPseudoClass::Lang(parser.expect_ident_or_string()?.as_ref().into())
+            },
+            "dir" if !after_part => {
+                NonTSPseudoClass::Dir(parser.expect_ident()?.as_ref().into())
             },
             "state" => {
                 let result = AtomIdent::from(parser.expect_ident()?.as_ref());

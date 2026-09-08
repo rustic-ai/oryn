@@ -50,11 +50,11 @@ still fail; cumulative regression tracking preserves unresolved older failures.
 Stylo remains the CSS engine. Automation ordering, native shadow keyboard targeting,
 and editing-host Enter semantics are implemented and measured in the signed suite.
 
-Next: implement shared editing command queries using computed styles and normalized
-selected ranges. The isolated formatBlock draft still needs correct collapsed
-whitespace and extraneous-line-break visibility before compilation and validation.
-Validate affected unchanged fixtures and native gates before the next signed full
-run. Every remaining failure stays in scope; complete conformance is not established.
+Next: qualify the isolated CSS direction candidate in the signed full suite.
+Its 277-selector diagnostic has four whole-execution gains and no losses or
+unresolved assertion-retention gaps. Keep the unfinished Range and formatBlock
+changes preserved separately, with their failures tracked. Every remaining failure
+stays in scope; complete conformance is not established.
 
 | Root | Passed / required |
 |---|---:|

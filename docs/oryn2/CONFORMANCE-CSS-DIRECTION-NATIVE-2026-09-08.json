@@ -1,0 +1,52 @@
+{
+  "qualification": "Native candidate diagnostic, not signed full conformance",
+  "baseline_runtime_commit": "3f754fcd33a27d44496ee3512cb114b5ebb13f8a",
+  "baseline_signed_passed": 3025,
+  "required_total": 4022,
+  "candidate_files": {
+    "Cargo.lock": "1d4233f83bc153f1617e4dc7e3ea0821c321713e831928baa02cdfd66e1f18de",
+    "crates/oryn-layout/Cargo.toml": "ea963e5fdd159575b55bf84cc38b9258e6c0048e89f290b4396b5b513e3c01e5",
+    "crates/oryn-layout/src/dom_queries.rs": "7baecb1912611bc3cb0c877f240a7b47137d9845b4c59f5b6c5eb92d37695a6c",
+    "crates/oryn-layout/src/lib.rs": "8a4a5de301d2f83cb377e0bc84d2f7f97891feab838f80494d6130630aa100e2",
+    "crates/oryn-native/src/runtime.rs": "b8b40ccd29b4cd643bfde8156aee8b22fec16d10912c7ee759f0b43b805e5f32",
+    "vendor/blitz-dom/assets/default.css": "ab282b1cf84703d2cd3c955450148a462ad71f2ab08be509a2c5831a7bc44451",
+    "vendor/blitz-dom/src/stylo.rs": "164fbcf3b605a88378c3129105c0015a9015fe3e0c2d9b83805769debdd57537",
+    "vendor/stylo/servo/selector_parser.rs": "92e3d9c12836e57c3b0388740fdd82ecec2a73bbd4cd8e3c497a4b42e6b39b98",
+    "crates/oryn-layout/src/directionality.rs": "b27446ac6ad23d7a87dcf78e81b028a9923a1b7177ed933f8710f0ec2aaa68c6"
+  },
+  "probe_sha256": "3b73b992ea9f8bdbdecc52242ce12b305d2c087f4456c95928de9c6c09e153ee",
+  "selector_executions": 277,
+  "whole_execution_gains": [
+    "css/selectors/dir-pseudo-on-bdi-element.html",
+    "css/selectors/dir-pseudo-on-input-element.html",
+    "css/selectors/dir-selector-auto.html",
+    "css/selectors/dir-selector-querySelector.html"
+  ],
+  "whole_execution_losses": [],
+  "observed_assertion_regressions": 0,
+  "raw_missing_prior_passes": 12,
+  "transport_reconciled_missing_prior_passes": 12,
+  "unresolved_missing_prior_passes": 0,
+  "gates": {
+    "native_cssom_tests_passed": 32,
+    "layout_tests_passed": 67,
+    "cargo_fmt_all_check": "passed",
+    "strict_clippy_native_layout_js": "passed",
+    "canonical_generated_bindings_check": "passed"
+  },
+  "limitations": [
+    "Full signed inventory not yet measured for this candidate.",
+    "Range and formatBlock work excluded from this commit and preserved separately.",
+    "Cross-profile release qualification remains required for complete conformance."
+  ],
+  "evidence": {
+    "artifacts/upstream-conformance/native-css-direction-v3/conformance_focus_context_probe.rs": "6dca1b4feb5be0e7eeb0430163eee86c59fabfe8d27ca368dbfa9acb2760debf",
+    "artifacts/upstream-conformance/native-css-direction-v3/oryn-direction-only-gates-v3.log": "bad2f914077a4b0e21fa6fc777c85a241742fb1924b6aac4c4de905dfd71c53d",
+    "artifacts/upstream-conformance/native-css-direction-v3/oryn-direction-only-v3-audit.json": "e9b4ae6a47c70190b19c8e162b658ee747e912031c03b96eda0722f2c4d104db",
+    "artifacts/upstream-conformance/native-css-direction-v3/oryn-direction-only-v3-generated-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/upstream-conformance/native-css-direction-v3/oryn-direction-only-v3-inventory.json": "472fa28b9cfdeb6853a17228e5bc4ae4f0d6e0d3b841791c62720c38d3511323",
+    "artifacts/upstream-conformance/native-css-direction-v3/oryn-direction-only-v3-reconciliation.json": "b3c7a6152b7442d7533fcda731a34033de6f0fb4cf14c0a946f6a5e2b511268a",
+    "artifacts/upstream-conformance/native-css-direction-v3/oryn-direction-only-v3-source-hashes.json": "217440c5693d812ec1386d606ec517a622f584b1a7b048f9088ee7a01dfa414d",
+    "artifacts/upstream-conformance/native-css-direction-v3/oryn-direction-only-v3.log": "b74ffa18b3a4c975ff5ce173ea57dc2aaed888376246acfab4a17aeaa6cba53d"
+  }
+}

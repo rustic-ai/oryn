@@ -8889,13 +8889,18 @@ pub(crate) fn layout_input(
                     _ => None,
                 })
                 .collect::<String>();
+            let mut attributes = node.attributes.clone();
+            attributes.insert(
+                "data-oryn-effective-dir".into(),
+                oryn_layout::directionality::directionality(&document.dom, *id).into(),
+            );
             Some(oryn_layout::LayoutNode {
                 id: packed,
                 parent,
                 children,
                 tag: name.local.to_string(),
                 namespace: name.ns.to_string(),
-                attributes: node.attributes.clone(),
+                attributes,
                 text,
             })
         })

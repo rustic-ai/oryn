@@ -485,6 +485,9 @@ impl selectors::Element for BlitzNode<'_> {
             NonTSPseudoClass::Fullscreen => false,
             NonTSPseudoClass::Hover => self.element_state().contains(ElementState::HOVER),
             NonTSPseudoClass::Indeterminate => false,
+            NonTSPseudoClass::Dir(ref direction) => self.data
+                .attr(LocalName::from("data-oryn-effective-dir"))
+                .is_some_and(|value| value.eq_ignore_ascii_case(direction)),
             NonTSPseudoClass::Lang(_) => false,
             NonTSPseudoClass::CustomState(_) => false,
             NonTSPseudoClass::Link => self.element_state().contains(ElementState::UNVISITED),

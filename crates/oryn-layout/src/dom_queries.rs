@@ -308,6 +308,9 @@ impl Element for DomElement<'_> {
                 !self.tag().contains('-') || self.states.contains_key(&self.id)
             }
             NonTSPseudoClass::CustomState(name) => self.has_custom_state(&name.0),
+            NonTSPseudoClass::Dir(direction) => direction.eq_ignore_ascii_case(
+                crate::directionality::directionality(self.dom.arena(), self.id),
+            ),
             NonTSPseudoClass::Lang(language) => {
                 let mut current = Some(*self);
                 while let Some(element) = current {

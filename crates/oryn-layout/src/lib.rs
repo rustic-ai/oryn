@@ -6,6 +6,7 @@
 //! JavaScript, networking, cookies, or browser policy.
 
 pub mod cssom;
+pub mod directionality;
 
 #[cfg(test)]
 use std::ptr::NonNull;
@@ -883,11 +884,6 @@ fn rewrite_custom_state_selectors(stylesheet: &str) -> Cow<'_, str> {
     let stylesheet = part.replace_all(stylesheet, |captures: &regex::Captures<'_>| {
         format!(" [part~={}]", &captures[1])
     });
-    let direction =
-        Regex::new(r":dir\(\s*(ltr|rtl)\s*\)").expect("static direction selector expression");
-    let stylesheet = direction.replace_all(&stylesheet, |captures: &regex::Captures<'_>| {
-        format!("[data-oryn-effective-dir={}]", &captures[1])
-    });
     let language = Regex::new(r":lang\(\s*([-_a-zA-Z0-9]+)\s*\)")
         .expect("static language selector expression");
     let stylesheet = language.replace_all(&stylesheet, |captures: &regex::Captures<'_>| {
@@ -973,7 +969,7 @@ fn stylo_computed_values_with_provenance(
                         }));
                     }
                     let mut cursor = Some(node.id);
-                    let mut direction = None;
+                    let mut direction = node.attributes.get("data-oryn-effective-dir").cloned();
                     let mut language = None;
                     while let Some(current) = cursor {
                         let Some(ancestor) = by_id.get(&current).copied() else {

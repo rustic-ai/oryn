@@ -2380,6 +2380,7 @@ dependencies = [
  "blitz-traits",
  "cssparser",
  "fontique",
+ "icu_properties",
  "oryn-common",
  "oryn-dom",
  "parley",

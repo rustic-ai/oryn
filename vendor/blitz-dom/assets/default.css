@@ -1130,3 +1130,7 @@ slot {
         background-color: transparent;
     }
 }
+
+/* HTML auto directionality is calculated from the live DOM, not CSS direction. */
+:where([dir="auto" i], bdi):dir(ltr) { direction: ltr; }
+:where([dir="auto" i], bdi):dir(rtl) { direction: rtl; }
