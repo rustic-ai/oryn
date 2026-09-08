@@ -3715,6 +3715,13 @@ pub fn install_generated_bindings_with_root_for_global(
         context
             .global(scope)
             .set(scope, name.into(), user_input.into());
+        let keyboard_target = v8::Function::new(scope, keyboard_input_target)
+            .ok_or(V8BindingError::Allocation("keyboard target resolver"))?;
+        let name = v8::String::new(scope, "__oryn_resolve_keyboard_target")
+            .ok_or(V8BindingError::Allocation("keyboard target resolver name"))?;
+        context
+            .global(scope)
+            .set(scope, name.into(), keyboard_target.into());
         let pointer_focus = v8::Function::new(scope, focus_from_pointer)
             .ok_or(V8BindingError::Allocation("pointer focus dispatcher"))?;
         let name = v8::String::new(scope, "__oryn_focus_from_pointer")
@@ -3902,6 +3909,46 @@ fn focus_html_element(
         set_selection_boundaries(state, point, point)?;
     }
     Ok(())
+}
+
+fn keyboard_input_target(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let result = (|| -> Result<(), V8BindingError> {
+        let state = scope
+            .get_current_context()
+            .get_slot::<V8BindingState>()
+            .ok_or(V8BindingError::Allocation("keyboard focus state"))?;
+        let object = args
+            .get(0)
+            .to_object(scope)
+            .ok_or(V8BindingError::Allocation("keyboard input target"))?;
+        let requested = resolve_receiver(scope, &state, object, "Node")?;
+        let target = {
+            let dom = state.dom.borrow();
+            let mut target = requested;
+            if let Some(focused) = dom.focused() {
+                let mut current = Some(focused);
+                // Native parent links include shadow hosts, including closed roots.
+                // Public activeElement intentionally retargets this focus.
+                while let Some(node) = current {
+                    if node == requested {
+                        target = focused;
+                        break;
+                    }
+                    current = dom.parent(node)?;
+                }
+            }
+            target
+        };
+        rv.set(wrap_node(scope, &state, target)?.into());
+        Ok(())
+    })();
+    if let Err(error) = result {
+        throw_binding_error(scope, &error);
+    }
 }
 
 fn focus_from_pointer(

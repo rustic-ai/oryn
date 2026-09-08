@@ -1914,7 +1914,16 @@ const __oryn_testdriver_keyboard=(target,value,pressed)=>{
     const input=new Event('input',{bubbles:true});input.inputType=inputType;input.data=replacement||null;target.dispatchEvent(input);return
   }
   if(key==='Enter'){
-    const lineBreak=modifiers.has('Shift'),inputType=lineBreak?'insertLineBreak':'insertParagraph';
+    let plaintext=false;
+    const selection=document.getSelection(),startNode=selection?.rangeCount?selection.getRangeAt(0).startContainer:target;
+    for(let element=startNode?.nodeType===1?startNode:startNode?.parentElement; element; element=element.parentElement){
+      const editable=element.getAttribute?.('contenteditable')?.toLowerCase();
+      if(editable==='false')break;
+      if(editable==='plaintext-only')plaintext=true;
+      else if(editable===''||editable==='true')plaintext=false;
+    }
+    if(document.designMode.toLowerCase()==='on')plaintext=false;
+    const lineBreak=modifiers.has('Shift')||plaintext,inputType=lineBreak?'insertLineBreak':'insertParagraph';
     const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType});target.dispatchEvent(before);
     if(!before.defaultPrevented)document.execCommand(lineBreak?'insertLineBreak':'insertParagraph')
   }
@@ -1931,12 +1940,12 @@ const __oryn_testdriver_keyboard=(target,value,pressed)=>{
     if(!before.defaultPrevented)document.execCommand('insertText',false,key)
   }
 };
-const __oryn_testdriver_key_target=target=>{const focused=document.activeElement;if(!focused||focused===target)return target;let current=focused;for(let depth=0;current&&depth<32;depth++){if(current===target)return focused;const root=current.getRootNode?.({composed:false});current=root&&root!==document?root.host:current.parentElement}return target};
-globalThis.__oryn_testdriver_send_keys=async(target,keys)=>{if(!target)throw new TypeError('testdriver target is required');target=__oryn_testdriver_key_target(target);target.focus?.();keys=String(keys);if(String(target.tagName).toLowerCase()==='input'&&String(target.type).toLowerCase()==='file'){const response=contextCall({operation:'materialize_upload',page_id:__oryn_page_id,label:keys});if(response.result!=='upload_materialized')throw new Error('parent did not authorize the selected upload');target.setAttribute('data-oryn-upload-files',JSON.stringify([{filename:response.filename,media_type:response.media_type,body_base64:response.body_base64,last_modified:response.last_modified}]));target.value=response.filename;target.dispatchEvent(new Event('input',{bubbles:true}));target.dispatchEvent(new Event('change',{bubbles:true}));return}for(const key of [...keys]){__oryn_testdriver_keyboard(target,key,true);__oryn_testdriver_keyboard(target,key,false)}};
+const __oryn_testdriver_key_target=target=>target?__oryn_resolve_keyboard_target(target):target;
+globalThis.__oryn_testdriver_send_keys=async(target,keys)=>{await Promise.resolve();if(!target)throw new TypeError('testdriver target is required');target=__oryn_testdriver_key_target(target);target.focus?.();keys=String(keys);if(String(target.tagName).toLowerCase()==='input'&&String(target.type).toLowerCase()==='file'){const response=contextCall({operation:'materialize_upload',page_id:__oryn_page_id,label:keys});if(response.result!=='upload_materialized')throw new Error('parent did not authorize the selected upload');target.setAttribute('data-oryn-upload-files',JSON.stringify([{filename:response.filename,media_type:response.media_type,body_base64:response.body_base64,last_modified:response.last_modified}]));target.value=response.filename;target.dispatchEvent(new Event('input',{bubbles:true}));target.dispatchEvent(new Event('change',{bubbles:true}));return}for(const key of [...keys]){__oryn_testdriver_keyboard(target,key,true);__oryn_testdriver_keyboard(target,key,false)}};
 const __oryn_pointer_down=target=>{if(!target)return;if(__oryn_dispatch_user_input(target,'pointerdown',false)&&__oryn_dispatch_user_input(target,'mousedown',false))__oryn_focus_from_pointer(target)};
 const __oryn_pointer_up=target=>{if(!target)return;__oryn_dispatch_user_input(target,'pointerup',false);__oryn_dispatch_user_input(target,'mouseup',false)};
-globalThis.__oryn_testdriver_click=async target=>{if(!target)throw new TypeError('testdriver target is required');__oryn_pointer_down(target);__oryn_pointer_up(target);target.click?.()};
-globalThis.__oryn_testdriver_actions=async(sources,keyboardTarget=null)=>{let pointerTarget=null,pointerClicks=0;const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set()),touchPointers=new Set(),dispatchInput=(target,type)=>__oryn_dispatch_user_input(target,type,false);const lists=(sources||[]).map(source=>source.actions||[]);const ticks=Math.max(0,...lists.map(actions=>actions.length));for(let tick=0;tick<ticks;tick++)for(let index=0;index<sources.length;index++){const source=sources[index],action=lists[index][tick];if(!action||action.type==='pause')continue;if(action.type==='scroll'){const target=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement||document.body;for(const type of ['wheel','mousewheel'])dispatchInput(target,type);continue}if(action.type==='pointerMove'){if(action.origin&&typeof action.origin==='object')pointerTarget=action.origin;else if(!touchPointers.has(source.id))pointerTarget=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement;if(touchPointers.has(source.id))dispatchInput(pointerTarget,'touchmove');continue}if(action.type==='pointerDown'){__oryn_pointer_down(pointerTarget);if(source.parameters?.pointerType==='touch'){touchPointers.add(source.id);dispatchInput(pointerTarget,'touchstart')}continue}if(action.type==='pointerUp'){__oryn_pointer_up(pointerTarget);if(touchPointers.delete(source.id))dispatchInput(pointerTarget,'touchend');pointerTarget?.click?.();pointerClicks++;if(pointerClicks===2){const text=__oryn_testdriver_text_node(pointerTarget);if(text){const selection=document.getSelection();selection.setBaseAndExtent(text,0,text,text.data.length)}}continue}const target=keyboardTarget||document.activeElement||document.body;if(action.type==='keyDown')__oryn_testdriver_keyboard(target,action.value,true);else if(action.type==='keyUp'){const key=__oryn_testdriver_key_name(String(action.value));__oryn_testdriver_keyboard(target,action.value,false);modifiers.delete(key)}}};
+globalThis.__oryn_testdriver_click=async target=>{await Promise.resolve();if(!target)throw new TypeError('testdriver target is required');__oryn_pointer_down(target);__oryn_pointer_up(target);target.click?.()};
+globalThis.__oryn_testdriver_actions=async(sources,keyboardTarget=null)=>{await Promise.resolve();let pointerTarget=null,pointerClicks=0;const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set()),touchPointers=new Set(),dispatchInput=(target,type)=>__oryn_dispatch_user_input(target,type,false);const lists=(sources||[]).map(source=>source.actions||[]);const ticks=Math.max(0,...lists.map(actions=>actions.length));for(let tick=0;tick<ticks;tick++)for(let index=0;index<sources.length;index++){const source=sources[index],action=lists[index][tick];if(!action||action.type==='pause')continue;if(action.type==='scroll'){const target=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement||document.body;for(const type of ['wheel','mousewheel'])dispatchInput(target,type);continue}if(action.type==='pointerMove'){if(action.origin&&typeof action.origin==='object')pointerTarget=action.origin;else if(!touchPointers.has(source.id))pointerTarget=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement;if(touchPointers.has(source.id))dispatchInput(pointerTarget,'touchmove');continue}if(action.type==='pointerDown'){__oryn_pointer_down(pointerTarget);if(source.parameters?.pointerType==='touch'){touchPointers.add(source.id);dispatchInput(pointerTarget,'touchstart')}continue}if(action.type==='pointerUp'){__oryn_pointer_up(pointerTarget);if(touchPointers.delete(source.id))dispatchInput(pointerTarget,'touchend');pointerTarget?.click?.();pointerClicks++;if(pointerClicks===2){const text=__oryn_testdriver_text_node(pointerTarget);if(text){const selection=document.getSelection();selection.setBaseAndExtent(text,0,text,text.data.length)}}continue}const target=keyboardTarget||document.activeElement||document.body;if(action.type==='keyDown')__oryn_testdriver_keyboard(target,action.value,true);else if(action.type==='keyUp'){const key=__oryn_testdriver_key_name(String(action.value));__oryn_testdriver_keyboard(target,action.value,false);modifiers.delete(key)}}};
 const __oryn_install_text_selection=prototype=>{if(!prototype)return;Object.defineProperties(prototype,{selectionStart:{configurable:true,get(){const length=String(this.value||'').length;return Math.max(0,Math.min(length,Number(this.__oryn_selection_start??length)))},set(value){const length=String(this.value||'').length;this.__oryn_selection_start=Math.max(0,Math.min(length,Number(value)||0));if(this.__oryn_selection_end===undefined||this.__oryn_selection_end<this.__oryn_selection_start)this.__oryn_selection_end=this.__oryn_selection_start}},selectionEnd:{configurable:true,get(){const length=String(this.value||'').length;return Math.max(0,Math.min(length,Number(this.__oryn_selection_end??this.selectionStart)))},set(value){const length=String(this.value||'').length;this.__oryn_selection_end=Math.max(0,Math.min(length,Number(value)||0));if(this.__oryn_selection_start===undefined||this.__oryn_selection_start>this.__oryn_selection_end)this.__oryn_selection_start=this.__oryn_selection_end}},selectionDirection:{configurable:true,get(){return this.__oryn_selection_direction||'none'},set(value){this.__oryn_selection_direction=['forward','backward'].includes(String(value))?String(value):'none'}},setSelectionRange:{configurable:true,value(start,end,direction='none'){this.__oryn_selection_start=Math.max(0,Math.min(String(this.value||'').length,Number(start)||0));this.__oryn_selection_end=Math.max(this.__oryn_selection_start,Math.min(String(this.value||'').length,Number(end)||0));this.selectionDirection=direction}},setRangeText:{configurable:true,value(replacement,start=this.selectionStart,end=this.selectionEnd,mode='preserve'){const value=String(this.value||''),text=String(replacement);start=Math.max(0,Math.min(value.length,Number(start)||0));end=Math.max(start,Math.min(value.length,Number(end)||0));this.value=value.slice(0,start)+text+value.slice(end);const finish=start+text.length;if(mode==='select')this.setSelectionRange(start,finish);else if(mode==='start')this.setSelectionRange(start,start);else if(mode==='end')this.setSelectionRange(finish,finish);else this.setSelectionRange(finish,finish)}}})};
 if(globalThis.HTMLInputElement){Object.defineProperty(HTMLInputElement.prototype,'files',{configurable:true,get(){return __orynInputFiles(this)}});__oryn_install_text_selection(HTMLInputElement.prototype)}
 if(globalThis.HTMLTextAreaElement)__oryn_install_text_selection(HTMLTextAreaElement.prototype);
@@ -4965,26 +4974,63 @@ mod tests {
     }
 
     #[test]
+    fn native_focus_automation_defers_dispatch_until_promise_return() {
+        let mut page = RustExecutableDocument::load(
+            "<body><button id='click'>Click</button><input id='keys'><button id='actions'>Actions</button></body>"
+        ).unwrap();
+        page.execute(r#"
+            globalThis.automationResult='pending';
+            (async()=>{
+                const checks=[];
+                for(const id of ['click','keys','actions']) {
+                    const target=document.getElementById(id);
+                    let promise;
+                    target.addEventListener('focus',()=>checks.push(!!promise&&typeof promise.then==='function'),{once:true});
+                    if(id==='click')promise=__oryn_testdriver_click(target);
+                    else if(id==='keys')promise=__oryn_testdriver_send_keys(target,'x');
+                    else promise=__oryn_testdriver_actions([{type:'pointer',id:'mouse',actions:[
+                        {type:'pointerMove',origin:target},{type:'pointerDown',button:0},{type:'pointerUp',button:0}
+                    ]}]);
+                    checks.push(promise instanceof Promise&&document.activeElement!==target);
+                    await promise;
+                    checks.push(document.activeElement===target);
+                }
+                checks.push(document.getElementById('keys').value==='x');
+                return checks.length===10&&checks.every(Boolean)?'ok':JSON.stringify(checks);
+            })().then(value=>globalThis.automationResult=value,error=>globalThis.automationResult=String(error));
+        "#).unwrap();
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);automationResult")
+                .unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
     fn native_focus_visibility_uses_input_default_actions() {
         let mut page = RustExecutableDocument::load(
             "<style>*{outline-color:black}:focus-visible{outline-color:green}</style><body><button id='one'></button><button id='two'></button><input id='text'></body>"
         ).unwrap();
-        assert_eq!(page.evaluate(r#"(() => {
+        page.execute(r#"globalThis.focusTestResult="pending";(async () => {
             const one=document.getElementById('one'),two=document.getElementById('two'),text=document.getElementById('text');
             const visible=node=>{const css=getComputedStyle(node).outlineColor==='rgb(0, 128, 0)';if(node.matches(':focus-visible')!==css)throw new Error('selector/style mismatch');return css};
             one.focus();if(!visible(one))return 'initial script focus';
-            one.blur();__oryn_testdriver_click(one);if(visible(one))return 'pointer button';
+            one.blur();await __oryn_testdriver_click(one);if(visible(one))return 'pointer button';
             one.dispatchEvent(new Event('keydown',{bubbles:true}));if(visible(one))return 'synthetic keyboard';
             __oryn_testdriver_keyboard(one,'a',true);if(!visible(one))return 'native keyboard';
-            __oryn_testdriver_click(one);if(!visible(one))return 'same pointer target';
+            await __oryn_testdriver_click(one);if(!visible(one))return 'same pointer target';
             two.addEventListener('mousedown',event=>event.preventDefault(),{once:true});
-            __oryn_testdriver_click(two);if(document.activeElement!==one)return 'canceled pointer default';
-            __oryn_testdriver_click(two);if(document.activeElement!==two||visible(two))return 'pointer focus transfer';
-            __oryn_testdriver_click(text);if(!visible(text))return 'text input';
+            await __oryn_testdriver_click(two);if(document.activeElement!==one)return 'canceled pointer default';
+            await __oryn_testdriver_click(two);if(document.activeElement!==two||visible(two))return 'pointer focus transfer';
+            await __oryn_testdriver_click(text);if(!visible(text))return 'text input';
             text.blur();one.focus();if(visible(one))return 'script focus after pointer text input';
-            let bodyClick=false;document.body.addEventListener('click',()=>bodyClick=true,{once:true});__oryn_testdriver_click(document.body);if(!bodyClick||document.activeElement!==one)return 'nonfocusable pointer target';
+            let bodyClick=false;document.body.addEventListener('click',()=>bodyClick=true,{once:true});await __oryn_testdriver_click(document.body);if(!bodyClick||document.activeElement!==one)return 'nonfocusable pointer target';
             return 'ok';
-        })()"#).unwrap(), "ok");
+        })().then(value=>globalThis.focusTestResult=value,error=>globalThis.focusTestResult=String(error))"#).unwrap();
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);focusTestResult").unwrap(),
+            "ok"
+        );
     }
 
     #[test]
@@ -4992,18 +5038,22 @@ mod tests {
         let mut page = RustExecutableDocument::load(
             "<body><div id='target' tabindex='0'>Target</div><button id='button'>Button</button><input id='input'></body>"
         ).unwrap();
-        assert_eq!(page.evaluate(r#"(() => {
+        page.execute(r#"globalThis.focusTestResult="pending";(async () => {
             const target=document.getElementById('target'),button=document.getElementById('button'),input=document.getElementById('input');
             const outline=node=>getComputedStyle(node).outlineStyle;
             if(outline(target)!=='none')return 'unfocused';
             target.focus();if(outline(target)!=='auto')return 'script focus';
-            __oryn_testdriver_click(button);if(outline(button)!=='none')return 'pointer button';
+            await __oryn_testdriver_click(button);if(outline(button)!=='none')return 'pointer button';
             __oryn_testdriver_keyboard(button,'a',true);if(outline(button)!=='auto')return 'keyboard button';
             button.style.outline='none';if(outline(button)!=='none')return 'author override';
-            __oryn_testdriver_click(input);if(outline(input)!=='auto')return 'text input';
+            await __oryn_testdriver_click(input);if(outline(input)!=='auto')return 'text input';
             input.blur();if(outline(input)!=='none')return 'blur';
             return 'ok';
-        })()"#).unwrap(), "ok");
+        })().then(value=>globalThis.focusTestResult=value,error=>globalThis.focusTestResult=String(error))"#).unwrap();
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);focusTestResult").unwrap(),
+            "ok"
+        );
     }
 
     #[test]
@@ -6672,6 +6722,110 @@ mod tests {
             [supported,values,native,removed,readonly].join('|')
         "#;
         assert_eq!(page.evaluate(&source).unwrap(), "true|true|true|true|true");
+    }
+
+    #[test]
+    fn keyboard_editing_targets_focus_inside_nested_shadow_roots() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body></body>").unwrap();
+        page.execute(r#"
+            globalThis.shadowKeyboardResult='pending';
+            (async()=>{
+                const checks=[];
+                for(const mode of ['open','closed'])for(const tag of ['input','textarea']) {
+                    const host=document.createElement('div');document.body.append(host);
+                    const root=host.attachShadow({mode});
+                    const nested=document.createElement('div');root.append(nested);
+                    const inner=nested.attachShadow({mode});
+                    const control=document.createElement(tag);inner.append(control);
+                    control.value='text';control.focus();control.selectionStart=control.selectionEnd=4;
+                    checks.push(document.activeElement===host&&root.activeElement===nested&&inner.activeElement===control);
+                    await __oryn_testdriver_send_keys(document.body,'\uE003');
+                    checks.push(control.value==='tex');
+                    control.selectionStart=control.selectionEnd=0;
+                    await __oryn_testdriver_send_keys(host,'\uE017');
+                    checks.push(control.value==='ex');
+                    const other=document.createElement('input');document.body.append(other);
+                    await __oryn_testdriver_send_keys(other,'x');
+                    checks.push(other.value==='x'&&control.value==='ex');
+                    other.remove();host.remove();
+                }
+                globalThis.shadowKeyboardResult=checks.length===16&&checks.every(Boolean)?'ok':JSON.stringify(checks);
+            })().catch(error=>{globalThis.shadowKeyboardResult=String(error)});
+        "#).unwrap();
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);shadowKeyboardResult")
+                .unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn keyboard_editing_enter_uses_selection_host_and_design_mode() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body></body>").unwrap();
+        assert_eq!(page.evaluate(r#"(() => {
+            const selection=document.getSelection();
+            for(const [outer,inner,boundary,design,expected] of [
+                ['true','plaintext-only',false,false,'insertParagraph'],
+                ['plaintext-only','true',false,false,'insertLineBreak'],
+                ['true','plaintext-only',true,false,'insertLineBreak'],
+                ['plaintext-only','true',true,false,'insertParagraph'],
+                ['plaintext-only','plaintext-only',false,true,'insertParagraph']
+            ]) {
+                const host=document.createElement('div'), nested=document.createElement('div');
+                host.contentEditable=outer;nested.contentEditable=inner;
+                if(boundary){const barrier=document.createElement('div');barrier.contentEditable='false';host.append(barrier);barrier.append(nested)}else host.append(nested);
+                nested.innerHTML='<p>ab</p>';document.body.append(host);
+                selection.collapse(nested.firstChild.firstChild,1);
+                document.designMode=design?'on':'off';
+                let observed='';
+                host.addEventListener('beforeinput',event=>{observed=event.inputType;event.preventDefault()});
+                __oryn_testdriver_keyboard(host,'Enter',true);
+                __oryn_testdriver_keyboard(host,'Enter',false);
+                if(observed!==expected)throw Error([outer,inner,boundary,design,observed,expected].join('|'));
+                if(nested.innerHTML!=='<p>ab</p>')throw Error('cancelled beforeinput mutated content');
+                document.designMode='off';selection.removeAllRanges();host.remove();
+            }
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn keyboard_editing_enter_uses_effective_editability() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body></body>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const results=[];
+            for(const [outer,inner,expected] of [
+                ['plaintext-only',null,'insertLineBreak'],
+                ['PLAINTEXT-ONLY','inherit','insertLineBreak'],
+                ['plaintext-only','true','insertLineBreak'],
+                ['true','plaintext-only','insertParagraph'],
+                ['true',null,'insertParagraph']
+            ]) {
+                const host=document.createElement('div'),target=document.createElement('span');
+                host.setAttribute('contenteditable',outer);
+                if(inner!==null)target.setAttribute('contenteditable',inner);
+                target.textContent='unchanged';host.append(target);document.body.append(host);
+                let received=[];
+                target.addEventListener('beforeinput',event=>{
+                    received.push(event.inputType);event.preventDefault();
+                });
+                __oryn_testdriver_keyboard(target,'Enter',true);
+                __oryn_testdriver_keyboard(target,'Enter',false);
+                __oryn_testdriver_keyboard(target,'Shift',true);
+                __oryn_testdriver_keyboard(target,'Enter',true);
+                __oryn_testdriver_keyboard(target,'Enter',false);
+                __oryn_testdriver_keyboard(target,'Shift',false);
+                results.push(received.join('|')===expected+'|insertLineBreak');
+                results.push(target.textContent==='unchanged');host.remove();
+            }
+            results.length===10&&results.every(Boolean)
+        "#
+            )
+            .unwrap(),
+            "true"
+        );
     }
 
     #[test]

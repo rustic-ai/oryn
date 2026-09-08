@@ -1,0 +1,60 @@
+{
+  "qualification": "Composite native diagnostic, not a signed full run. Original537 before OOM plus124missing; overlays13isolated regressions,13retention,78v25Enter,2partial-results. Runtimev24 for unaffected rows;v25 changes Enter host resolution.",
+  "baseline_commit": "689c7e57a90c58c99be23fa4f293fbc3870b6c4c",
+  "runtime_source_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "a99429fb366b88bcaf476772e11e6ed2c19f2871bdfe6fe9577627941f7e6bd1",
+    "crates/oryn-native/src/rust_executable.rs": "486f59dc09f57afcf0b9a14400e251c569292793bb6a33295cefe89c8dffb0ee"
+  },
+  "coverage": 661,
+  "passed": 453,
+  "whole_gains": [
+    "css/selectors/focus-visible-006.html",
+    "editing/other/delete-in-shadow-hosted-in-body.html",
+    "editing/plaintext-only/insertLineBreak.html?white-space=normal",
+    "editing/plaintext-only/insertLineBreak.html?white-space=pre",
+    "editing/plaintext-only/insertLineBreak.html?white-space=pre-line",
+    "editing/plaintext-only/insertLineBreak.html?white-space=pre-wrap"
+  ],
+  "whole_losses": [],
+  "unresolved_prior_passing_assertions_after_text_normalization": [],
+  "normalization_evidence": "crates/oryn-native/src/runtime.rs ContentKind::Text split_whitespace then join;20 raw insertText names reconcile to passing two-space names",
+  "gates": {
+    "strict_native_clippy": "passed",
+    "js_passed": 176,
+    "js_existing_ignored": 2,
+    "native_focus_passed": 4,
+    "keyboard_editing_passed": 4,
+    "passive_passed": 1
+  },
+  "evidence": [
+    {
+      "path": "artifacts/upstream-conformance/native-automation-enter-v25/oryn-automation-context-fixtures-v1.log",
+      "sha256": "718ac2daf85bc3c40bcb80a9e3583a25c37d660fa0e1229eff5815fbb7f1ba24"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-automation-enter-v25/oryn-automation-missing-fixtures-v1.log",
+      "sha256": "7e4dbfe1ac001a9573284d78788f61947c4957c424071e40c2d4b02242b85fa2"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-automation-enter-v25/oryn-automation-parity-fixtures-v1.log",
+      "sha256": "ec86f05957ee1ab66686fda608d958651c009ec336de38c2ac0d3ffe35e2f5d4"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-automation-enter-v25/oryn-automation-retention-fixtures-v1.log",
+      "sha256": "d710277c2bf05ee402b55d1d3a045b9d00eceb54cf18de5393b422dc151c2f72"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-automation-enter-v25/oryn-enter-host-fixtures-v25.log",
+      "sha256": "e770996998d7fac1d6cd155634e03dcc533282d7af42aea53454f1e61e6b39fe"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-automation-enter-v25/oryn-partial-results-v25.log",
+      "sha256": "b8d240b20b3f6495ecb8cfa617b540ebee3471357c97db4a27f7b72340f75d42"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-automation-enter-v25/oryn-enter-host-gates-v25.log",
+      "sha256": "93b69fc53384f91859a8ac40cf04d1574c34268f6c8749a8d2644f488e36dae2"
+    }
+  ],
+  "remaining_scope": "Signed4022 full run, assertion audit, eventual samecandidate4022twice and remaining profile/security gates. Overall baseline3019/4022 unchanged."
+}
