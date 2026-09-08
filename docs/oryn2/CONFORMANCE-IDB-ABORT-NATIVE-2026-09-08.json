@@ -1,0 +1,303 @@
+{
+  "scope": "Native validation only; signed full-inventory measurement pending.",
+  "source_files_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "d856acde996aa9231bbba38992b9dd3671c3c8d4efdda41858bc0da1b3b21677",
+    "crates/oryn-native/src/host.rs": "7074b4df6722176a8db7d96529100d4556fead400eb217d50d5e0d23a420c332",
+    "crates/oryn-native/src/storage.rs": "9e1122f1f956e750583a0c200bae418d11c66998c4d5e71e140f4a89d9e84d13"
+  },
+  "gates": {
+    "strict_native_clippy": "passed",
+    "javascript": {
+      "passed": 169,
+      "existing_ignored": 2
+    },
+    "storage": {
+      "passed": 19
+    },
+    "native_indexeddb": {
+      "passed": 18,
+      "overlaps_storage": true
+    },
+    "generated_bindings": "passed"
+  },
+  "fixture_execution_mode": "isolated_native_context_fixture",
+  "fixtures": [
+    {
+      "fixture": "IndexedDB/upgrade-transaction-lifecycle-backend-aborted.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/upgrade-transaction-lifecycle-user-aborted.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 4,
+      "total": 4,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-abort-multiple-metadata-revert.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 3,
+      "total": 3,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-abort-index-metadata-revert.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 6,
+      "total": 6,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-abort-object-store-metadata-revert.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 4,
+      "total": 4,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbindex-rename-abort.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbobjectstore-rename-abort.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/abort-in-initial-upgradeneeded.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-abort-generator-revert.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request-event-ordering-small-values.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request-event-ordering-large-values.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request-event-ordering-large-then-small-values.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request-event-ordering-large-mixed-with-small-values.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request-abort-ordering.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-abort-request-error.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbindex_get.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 8,
+      "total": 8,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbindex_getKey.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 8,
+      "total": 8,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbindex_openCursor.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 3,
+      "total": 3,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbindex_openKeyCursor.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 4,
+      "total": 4,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbcursor_advance_index.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 8,
+      "total": 8,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbcursor_continue_index.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 10,
+      "total": 10,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request_bubble-and-capture.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbobjectstore_add.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 16,
+      "total": 16,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbobjectstore_get.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 7,
+      "total": 7,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbobjectstore_put.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 16,
+      "total": 16,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbtransaction_abort.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 3,
+      "total": 3,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/keygenerator.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 21,
+      "total": 21,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/key-conversion-exceptions.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 27,
+      "total": 27,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/keypath-exceptions.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 6,
+      "total": 6,
+      "failures": []
+    }
+  ],
+  "fixture_count": 29,
+  "passing_assertions": 170,
+  "artifacts": {
+    "artifacts/upstream-conformance/native-idb-abort/oryn-idb-abort-v3-source-hashes.json": "eb9c64b8320464cd2d31b43d772a41704eec2b3ca7df7e20228979e4db64f962",
+    "artifacts/upstream-conformance/native-idb-abort/oryn-summarize-idb-abort-fixtures.py": "ab11d9d8fbe58b379ce14a9e1e4b4c881bca88c63a25ed5ad72df750fc4ecab9",
+    "artifacts/upstream-conformance/native-idb-abort/oryn-idb-abort-context-fixtures-v2.log": "55779c7b9c73db1fcc86d8809cb56e260db08728264aadbfe9f2941e706ae900",
+    "artifacts/upstream-conformance/native-idb-abort/oryn-idb-abort-gates-v2.log": "431b42cc80a6a490a215aa0b6fbb63c140b6516dd06bb637a86d6a533b023eb1",
+    "artifacts/upstream-conformance/native-idb-abort/oryn-idb-abort-gates-v3.log": "2b8bc30ed63324cf8f10d549e65072f82d09fcf5c94b9dc2ec8f05be8be0ef8b",
+    "artifacts/upstream-conformance/native-idb-abort/oryn-idb-abort-context-fixtures-v3.log": "abc4556a8c609e711207313896dc181cc2149ac8a2974205132fb9805da6efe5",
+    "artifacts/upstream-conformance/native-idb-abort/oryn-idb-abort-v2-source-hashes.json": "f7cd9da6760263c34bd89984abde12d2abe35d6d84c2094fb4e5b6af89291522",
+    "artifacts/upstream-conformance/native-idb-abort/oryn-idb-abort-fixture-summary-v3.jsonl": "aa2498fa17ecc1bf560c0fe64be21d2ba11ad95f1e1e0f9ab0f4d897a2b4ce2c",
+    "artifacts/upstream-conformance/native-idb-abort/conformance_idb_context_probe.rs": "252034748898af9114932c9fcea2e221872bf7f2b6d6dbe139ecc82029f2008a",
+    "artifacts/upstream-conformance/native-idb-abort/oryn-run-idb-abort-context-fixtures.py": "f63501dbb9d3b851f58fd85204aa79ff645bd2922e880d0ae5c2f40f6ca932a8",
+    "artifacts/upstream-conformance/native-idb-abort/oryn-idb-abort-fixture-summary-v2.jsonl": "dba5ad9ea0d317153cf73660c9cf2951b0c70aed5a04a4f83e27282de5c08bc9"
+  },
+  "qualification": "Complete conformance unproven; latest audited signed result remains 2948/4022 at bd8e02a."
+}

@@ -2145,8 +2145,10 @@ mod raw_v8 {
                     let context = v8::Local::new(handle_scope, &context);
                     let scope = &mut v8::ContextScope::new(handle_scope, context);
                     queue_mutation_observer_microtask(scope);
+                    // Each platform completion is a task; its promise jobs
+                    // must run before the next completion is delivered.
                     pass += state
-                        .drain_platform_completions(scope, 32)
+                        .drain_platform_completions(scope, 1)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     if pass > 0 {
                         queue_mutation_observer_microtask(scope);

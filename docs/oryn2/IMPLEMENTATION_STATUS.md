@@ -20,10 +20,13 @@ Stylo remains the CSS engine. IndexedDB passes 357/456; other root totals are un
 The focused event/storage batch passed its native checks, but the full run exposed
 abort-ordering regressions; focused success did not establish overall correctness.
 
-Next: validate the isolated transaction request-ordering, cancellation, microtask,
-and shared upgrade rollback fixes. Native gates are running; 29 unchanged pinned
-fixtures are prepared. These changes are not yet verified or promoted. Then build,
-sign, and measure the candidate against all 4,022 executions and audit all deltas.
+The transaction request-ordering, cancellation, microtask, and upgrade rollback
+fixes pass strict Clippy, 169 JavaScript tests (two existing ignores), 19 storage
+tests and 18 overlapping native IndexedDB checks. All 29 unchanged pinned fixtures
+pass all 170 assertions with successful harness completion; see
+[native evidence](CONFORMANCE-IDB-ABORT-NATIVE-2026-09-08.json).
+The validated source is promoted. Next: build and verify the signed candidate,
+measure all 4,022 executions, and audit every gain, regression, and missing assertion.
 Every remaining failure stays in scope; complete conformance is not established.
 
 | Root | Passed / required |

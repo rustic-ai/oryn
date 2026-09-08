@@ -1451,6 +1451,7 @@ fn put_record(
         indexes: Vec::new(),
     });
     let mut value = write.value;
+    let mut next_key = store.next_key;
     let key_from_path = definition
         .key_path
         .as_deref()
@@ -1462,11 +1463,11 @@ fn put_record(
     let key = match write.key.or(key_from_path) {
         Some(key) => key,
         None if definition.auto_increment => {
-            let next = store.next_key.max(1);
+            let next = next_key.max(1);
             if next > MAX_GENERATED_KEY {
                 return Err(StorageError::Constraint);
             }
-            store.next_key = next + 1;
+            next_key = next + 1;
             serde_json::Value::from(next)
         }
         None => return Err(StorageError::KeyRequired),
@@ -1481,7 +1482,7 @@ fn put_record(
         } else {
             numeric.floor() as u64 + 1
         };
-        store.next_key = store.next_key.max(next);
+        next_key = next_key.max(next);
     }
     if let Some(path) = definition.key_path
         && json_value_at_key_path(&value, &path).is_none()
@@ -1506,6 +1507,7 @@ fn put_record(
             return Err(StorageError::Constraint);
         }
     }
+    store.next_key = next_key;
     store.records.insert(
         encoded,
         RecordData {
@@ -2127,6 +2129,48 @@ mod tests {
                     DatabaseInfo { name: "second".into(), version: 2 },
                 ]
         ));
+    }
+
+    #[test]
+    fn indexed_db_failed_unique_write_does_not_advance_generator() {
+        let index = IndexDefinition {
+            name: "unique_value".into(),
+            key_path: "value".into(),
+            unique: true,
+            multi_entry: false,
+        };
+        let mut store = ObjectStoreData {
+            definition: Some(ObjectStoreDefinition {
+                name: "items".into(),
+                key_path: None,
+                auto_increment: true,
+                indexes: vec![index.clone()],
+            }),
+            indexes: BTreeMap::from([(index.name.clone(), index)]),
+            ..Default::default()
+        };
+        let write = |key, value| IdbWrite {
+            store: "items".into(),
+            key,
+            value: serde_json::json!({"value":value}),
+            add_only: true,
+        };
+        assert_eq!(
+            put_record(&mut store, write(None, "a")).unwrap(),
+            serde_json::json!(1)
+        );
+        assert!(matches!(
+            put_record(&mut store, write(None, "a")),
+            Err(StorageError::Constraint)
+        ));
+        assert!(matches!(
+            put_record(&mut store, write(Some(serde_json::json!(100)), "a")),
+            Err(StorageError::Constraint)
+        ));
+        assert_eq!(
+            put_record(&mut store, write(None, "b")).unwrap(),
+            serde_json::json!(2)
+        );
     }
 
     #[test]
