@@ -59,16 +59,21 @@ assertion failures, 135 harness failures, 42 runtime failures, 3 incomplete and
 1 timeout. The 181 non-assertion outcomes need diagnosis; they are not evidence
 that the harness itself is defective, and remain failures.
 
-The isolated native URL/URLSearchParams v4 implementation passes three native
-binding tests, 67 layout tests and relevant strict Clippy. However, production
-`rust_executable.rs` still replaces both global constructors with bootstrap
-classes. Location is a proxy around that bootstrap URL class. This is a verified
-integration gap: isolated binding success cannot establish production gains.
-Native Location is now connected to the isolated production path. All five initial
-WPT fixtures below pass completely (nine assertions); the 136-execution history
-run is in progress. The broader binding suite reports 178 passes, two remaining
-plain-object Location setup failures, and two existing ignores. Promotion remains
-blocked on completing validation and resolving regressions, not on user approval.
+Native URL, URLSearchParams and Location are now integrated into the production
+page path, with bootstrap constructor replacements removed and explicit navigation
+requests connected to the page runtime. The corrected native run covers all 136
+history executions through canonical Window routing: 13 whole gains, zero whole
+losses and 68 corrected assertions. Five raw missing names reconcile through the
+server port and three exact whitespace title mappings; none remain missing in this
+selection. This does not clear historical full-suite missing observations.
+
+The candidate passes 180 binding tests (two existing ignores), strict Clippy,
+Location/frame/history/srcdoc integration checks and 30 worker checks. One worker
+failure is also recorded in older native matrices and remains open for release
+qualification. See [integrated evidence](CONFORMANCE-NATIVE-LOCATION-INTEGRATION-2026-09-08.json).
+Earlier direct JavaScript navigation probes do not qualify JavaScript fixtures;
+the current run uses the canonical HTML wrapper. The next acceptance gate is the
+signed full 4,022 run. Do not expand this batch before measuring that result.
 
 Execute these milestones in order:
 

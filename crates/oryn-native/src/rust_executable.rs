@@ -1674,8 +1674,7 @@ class OrynIntersectionObserver{constructor(callback,options={}){if(typeof callba
 globalThis.ResizeObserver=OrynResizeObserver;globalThis.IntersectionObserver=OrynIntersectionObserver;
 const __oryn_rect_key=rect=>[rect.x,rect.y,rect.width,rect.height].join(':');
 globalThis.__oryn_run_geometry_observers=()=>{for(const observer of __oryn_resize_observers){const entries=[];for(const target of observer.targets.keys())try{const rect=target.getBoundingClientRect(),key=__oryn_rect_key(rect);if(observer.targets.get(target)!==key){observer.targets.set(target,key);entries.push({target,contentRect:rect,borderBoxSize:[{inlineSize:rect.width,blockSize:rect.height}],contentBoxSize:[{inlineSize:rect.width,blockSize:rect.height}]})}}catch(_){}if(entries.length)observer.callback(entries,observer)}for(const observer of __oryn_intersection_observers){const entries=[];for(const target of observer.targets.keys())try{const rect=target.getBoundingClientRect(),viewport={x:0,y:0,width:innerWidth||0,height:innerHeight||0},width=Math.max(0,Math.min(rect.right,viewport.width)-Math.max(rect.left,0)),height=Math.max(0,Math.min(rect.bottom,viewport.height)-Math.max(rect.top,0)),area=rect.width*rect.height,ratio=area>0?(width*height)/area:0,key=__oryn_rect_key(rect)+':'+ratio;if(observer.targets.get(target)!==key){observer.targets.set(target,key);entries.push({target,boundingClientRect:rect,intersectionRect:{x:Math.max(rect.x,0),y:Math.max(rect.y,0),width,height},rootBounds:viewport,isIntersecting:ratio>0,intersectionRatio:ratio,time:Date.now()})}}catch(_){}if(entries.length)observer.callback(entries,observer)}};
-Object.defineProperty(globalThis,'location',{value:{href:'about:blank'},writable:true,enumerable:true,configurable:true});
-Object.defineProperty(globalThis,'origin',{configurable:true,enumerable:true,get(){return location.origin}});
+Object.defineProperty(globalThis,'origin',{configurable:true,enumerable:true,get(){return globalThis.__oryn_security_origin??location.origin}});
 globalThis.__oryn_layout={styles:{},geometry:{},viewport:{width:1280,height:720,device_pixel_ratio:1},scroll:{},media:{}};
 globalThis.innerWidth=1280;globalThis.innerHeight=720;
 globalThis.__oryn_install_layout=value=>{globalThis.__oryn_layout=value;globalThis.innerWidth=Number(value.viewport?.width||0);globalThis.innerHeight=Number(value.viewport?.height||0)};
@@ -1686,7 +1685,7 @@ globalThis.__oryn_media={color_scheme:'light',reduced_motion:'no_preference'};
 globalThis.matchMedia=query=>{query=String(query);const result={media:query,onchange:null,addEventListener(){},removeEventListener(){},addListener(){},removeListener(){}};Object.defineProperty(result,'matches',{get(){if(/prefers-color-scheme\s*:\s*dark/i.test(query))return __oryn_media.color_scheme==='dark';if(/prefers-color-scheme\s*:\s*light/i.test(query))return __oryn_media.color_scheme==='light';if(/prefers-reduced-motion\s*:\s*reduce/i.test(query))return __oryn_media.reduced_motion==='reduce';if(/prefers-reduced-motion\s*:\s*no-preference/i.test(query))return __oryn_media.reduced_motion==='no_preference';return true}});return result};
 class OrynStorage {
   constructor(area,items=[]){this.area=area;this.fallback=new Map(items)}
-  __response(operation,extra={}){if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return null;return contextCall({operation:'storage',request:{operation,area:this.area,scope:{origin:location.origin,top_level_page_id:__oryn_page_id},...extra}}).response}
+  __response(operation,extra={}){if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return null;return contextCall({operation:'storage',request:{operation,area:this.area,scope:{origin:globalThis.origin,top_level_page_id:__oryn_page_id},...extra}}).response}
   get items(){const response=this.__response('entries');return response&&response.result==='entries'?new Map(response.entries):this.fallback}
   get length(){return this.items.size}
   key(index){return [...this.items.keys()][index]??null}
@@ -1712,79 +1711,15 @@ globalThis.clearTimeout=id=>{__oryn_timer_cancel(Number(id))};
 globalThis.clearInterval=globalThis.clearTimeout;
 globalThis.__oryn_drain=()=>{if(typeof __oryn_poll_context==='function')__oryn_poll_context()};
 const __oryn_url_search_param_iterators=new WeakMap();
-class OrynURLSearchParamsIterator {
-  constructor(params,kind){__oryn_url_search_param_iterators.set(this,{params,kind,index:0})}
-  next(){const record=__oryn_url_search_param_iterators.get(this);if(!record)throw new TypeError('Illegal invocation');if(record.index>=record.params.items.length)return {value:undefined,done:true};const item=record.params.items[record.index++];return {value:record.kind==='key'?item[0]:record.kind==='value'?item[1]:[item[0],item[1]],done:false}}
-  [Symbol.iterator](){return this}
-}
-Object.setPrototypeOf(OrynURLSearchParamsIterator.prototype,Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]())));
-Object.defineProperty(OrynURLSearchParamsIterator.prototype,'next',{enumerable:true});
-delete OrynURLSearchParamsIterator.prototype.constructor;
-delete OrynURLSearchParamsIterator.prototype[Symbol.iterator];
-Object.defineProperty(OrynURLSearchParamsIterator.prototype,Symbol.toStringTag,{value:'URLSearchParams Iterator',writable:false,enumerable:false,configurable:true});
-class OrynURLSearchParams {
-  constructor(init='',onChange=null){this.items=[];this.onChange=onChange;if(init&&typeof init==='object'){const entries=typeof init[Symbol.iterator]==='function'?[...init]:Object.entries(init);for(const entry of entries){if(!entry||entry.length!==2)throw new TypeError('URLSearchParams entry must contain two values');this.items.push([String(entry[0]),String(entry[1])])}return}for(const part of String(init).replace(/^\?/,'').split('&'))if(part){const [key,value='']=part.split('=');this.items.push([decodeURIComponent(key.replace(/\+/g,' ')),decodeURIComponent(value.replace(/\+/g,' '))])}}
-  changed(){if(this.onChange)this.onChange()}
-  append(key,value){this.items.push([String(key),String(value)]);this.changed()}
-  set(key,value){this.delete(key);this.append(key,value)}
-  get(key){const item=this.items.find(item=>item[0]===String(key));return item?item[1]:null}
-  getAll(key){return this.items.filter(item=>item[0]===String(key)).map(item=>item[1])}
-  has(key){return this.items.some(item=>item[0]===String(key))}
-  delete(key){key=String(key);const length=this.items.length;for(let index=this.items.length-1;index>=0;index--)if(this.items[index][0]===key)this.items.splice(index,1);if(this.items.length!==length)this.changed()}
-  get size(){return this.items.length}
-  entries(){return new OrynURLSearchParamsIterator(this,'entry')}
-  keys(){return new OrynURLSearchParamsIterator(this,'key')}
-  values(){return new OrynURLSearchParamsIterator(this,'value')}
-  forEach(callback,thisArg=undefined){for(let index=0;index<this.items.length;index++){const [key,value]=this.items[index];callback.call(thisArg,value,key,this)}}
-  sort(){this.items=this.items.map((item,index)=>({item,index})).sort((left,right)=>left.item[0]<right.item[0]?-1:left.item[0]>right.item[0]?1:left.index-right.index).map(entry=>entry.item);this.changed()}
-  [Symbol.iterator](){return this.entries()}
-  toString(){return this.items.map(([key,value])=>encodeURIComponent(key)+'='+encodeURIComponent(value)).join('&')}
-}
-Object.defineProperty(OrynURLSearchParams.prototype,Symbol.toStringTag,{value:'URLSearchParams',writable:false,enumerable:false,configurable:true});
-class OrynURL {
-  constructor(input,base){input=String(input);if(base&&!/^[a-z][a-z0-9+.-]*:/i.test(input)){const parent=new OrynURL(base);const root=parent.host?parent.origin:parent.protocol;if(input.startsWith('#'))input=root+parent.pathname+parent.search+input;else if(input.startsWith('?'))input=root+parent.pathname+input;else input=input.startsWith('/')?root+input:root+parent.pathname.replace(/[^/]*$/,'')+input}const match=input.match(/^([a-z][a-z0-9+.-]*:)(?:\/\/([^/?#]*))?([^?#]*)(\?[^#]*)?(#.*)?$/i);if(!match)throw new TypeError('Invalid URL');this.protocol=match[1];this.hasAuthority=input.startsWith(this.protocol+'//');this.host=match[2]||'';this.hostname=this.host.split(':')[0];this.port=this.host.slice(this.hostname.length+1);this.pathname=match[3]||'/';this._search=match[4]||'';this._searchDirty=false;this.hash=match[5]||'';this.origin=this.host?this.protocol+'//'+this.host:'null';this.searchParams=new OrynURLSearchParams(this._search,()=>{this._searchDirty=true})}
-  get search(){if(!this._searchDirty)return this._search;const query=this.searchParams.toString();return query?'?'+query:''}
-  set search(value){this._search=String(value||'');this._searchDirty=false;this.searchParams=new OrynURLSearchParams(this._search,()=>{this._searchDirty=true})}
-  get href(){const path=this.pathname||(this.host?'/':'');return (this.host?this.origin:(this.hasAuthority?this.protocol+'//':this.protocol))+path+this.search+this.hash}
-  set href(value){Object.assign(this,new OrynURL(value,this.href))}
-  toString(){return this.href}
-  toJSON(){return this.href}
-  static createObjectURL(blob){return __oryn_blob_url_create(blob)}
-  static revokeObjectURL(url){__oryn_blob_url_revoke(String(url))}
-}
-globalThis.URL=OrynURL;globalThis.URLSearchParams=OrynURLSearchParams;
-// Location has an immutable prototype but must remain extensible.
-const __oryn_location=(()=>{
-  const target=new OrynURL(location.href),prototype=Object.getPrototypeOf(target);
-  return new Proxy(target,{
-    setPrototypeOf(_target,value){return value===prototype},
-    preventExtensions(){return false}
-  });
-})();
-Object.defineProperty(globalThis,'location',{get(){return __oryn_location},set(value){__oryn_location.href=String(value)},enumerable:true,configurable:true});
-Object.defineProperty(location,'assign',{configurable:true,enumerable:true,writable:true,value(url){this.href=new OrynURL(url,this.href).href}});
-const __oryn_history_clone=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value));
-class OrynHistory {
-  constructor(){this.entries=[{url:location.href,state:null}];this.index=0;this.scrollRestoration='auto'}
-  get length(){return this.entries.length}
-  get state(){return __oryn_history_clone(this.entries[this.index].state)}
-  __entry(state,url){let next=new OrynURL(url===undefined||url===null||String(url)===''?location.href:url,location.href);if(location.origin!=='null'&&next.origin!==location.origin){const error=new Error('history URL must be same-origin');error.name='SecurityError';throw error}return {url:next.href,state:__oryn_history_clone(state)}}
-  pushState(state,_unused,url){const entry=this.__entry(state,url);this.entries.splice(this.index+1);this.entries.push(entry);this.index=this.entries.length-1;Object.assign(location,new OrynURL(entry.url))}
-  replaceState(state,_unused,url){const entry=this.__entry(state,url);this.entries[this.index]=entry;Object.assign(location,new OrynURL(entry.url))}
-  go(delta=0){delta=Number(delta)||0;if(delta===0)return;const next=this.index+delta;if(next<0||next>=this.entries.length)return;const previous=location.href;this.index=next;const entry=this.entries[next];Object.assign(location,new OrynURL(entry.url));const pop=new Event('popstate');pop.state=__oryn_history_clone(entry.state);dispatchEvent(pop);if(new OrynURL(previous).hash!==location.hash){const hash=new Event('hashchange');hash.oldURL=previous;hash.newURL=location.href;dispatchEvent(hash)}}
-  back(){this.go(-1)}
-  forward(){this.go(1)}
-}
-if(globalThis.History&&globalThis.History.prototype)Object.setPrototypeOf(OrynHistory.prototype,globalThis.History.prototype);
-// The generated Rust binding installs the production History object. Keep the
-// compatibility implementation only for explicit legacy/no-binding probes.
-if(!globalThis.history)globalThis.history=new OrynHistory();
+// URL, URLSearchParams, Location and History are installed by native bindings.
+// Retain a lexical alias for bootstrap consumers without replacing constructors.
+const OrynURL=globalThis.URL;
 const contextCall=request=>JSON.parse(globalThis.__oryn_context_call(JSON.stringify(request)));
 Object.defineProperty(Document.prototype,'cookie',{configurable:true,enumerable:true,get(){if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return '';const response=contextCall({operation:'get_document_cookie',page_id:__oryn_page_id});return response.result==='document_cookie'?response.value:''},set(value){if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'set_document_cookie',page_id:__oryn_page_id,value:String(value)})}});
 Object.defineProperty(Document.prototype,'title',{configurable:true,enumerable:true,get(){const node=this.querySelector('title');return node?node.textContent:''},set(value){let node=this.querySelector('title');if(!node){node=this.createElement('title');const parent=this.querySelector('head')||this.documentElement;parent.appendChild(node)}node.textContent=String(value)}});
 const __oryn_page_proxies=new Map();
 const __oryn_page_proxy=pageId=>{if(pageId==null)return null;if(__oryn_page_proxies.has(pageId))return __oryn_page_proxies.get(pageId);const proxy={__orynPageId:pageId,__closed:false,get closed(){return this.__closed},get origin(){const response=contextCall({operation:'get_related_page_origin',source_page_id:__oryn_page_id,target_page_id:pageId});return response.result==='security_origin'?response.serialized:''},focus(){contextCall({operation:'activate_page',source_page_id:__oryn_page_id,target_page_id:pageId})},close(){contextCall({operation:'close_page',source_page_id:__oryn_page_id,target_page_id:pageId});this.__closed=true},postMessage(data,targetOrigin='*'){contextCall({operation:'post_message',source_page_id:__oryn_page_id,target_page_id:pageId,target_origin:String(targetOrigin),data})}};__oryn_page_proxies.set(pageId,proxy);return proxy};
-globalThis.__oryn_configure_context=(pageId,openerPageId)=>{__oryn_page_id=pageId;globalThis.opener=__oryn_page_proxy(openerPageId);if(typeof globalThis.__oryn_context_call==='function'){const response=contextCall({operation:'get_security_origin',page_id:pageId});if(response.result==='security_origin'){location.origin=response.serialized;globalThis.__oryn_opaque_origin=!!response.opaque}}};
+globalThis.__oryn_configure_context=(pageId,openerPageId,realmOrigin)=>{__oryn_page_id=pageId;globalThis.opener=__oryn_page_proxy(openerPageId);if(typeof globalThis.__oryn_context_call==='function'){const response=contextCall({operation:'get_security_origin',page_id:pageId});if(response.result==='security_origin'){globalThis.__oryn_security_origin=response.serialized;globalThis.__oryn_opaque_origin=!!response.opaque}}if(realmOrigin!==undefined){globalThis.__oryn_security_origin=String(realmOrigin);globalThis.__oryn_opaque_origin=realmOrigin==='null'}};
 globalThis.open=(url='',name='')=>{url=String(url);name=String(name);if(name&&name!=='_blank'){const frame=[...document.querySelectorAll('iframe')].find(candidate=>candidate.name===name||candidate.getAttribute('name')===name);if(frame){if(url)frame.contentWindow.location.href=new OrynURL(url,location.href).href;return frame.contentWindow}}if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return null;const target=url?new OrynURL(url,location.href).href:null;const response=contextCall({operation:'open_page',opener_page_id:__oryn_page_id,url:target,name:name||null});if(response.result==='page_opened'){__oryn_context_trace.push({kind:'page_created',detail:{page_id:response.page_id,opener_page_id:__oryn_page_id}});return __oryn_page_proxy(response.page_id)}if(response.result==='page_denied')__oryn_context_trace.push({kind:'capability_failure',detail:{capability:'popup.open',detail:response.reason}});return null};
 globalThis.closed=false;
 globalThis.close=()=>{if(closed||__oryn_page_id===null)return;globalThis.closed=true;__oryn_context_trace.push({kind:'page_closed',detail:{page_id:__oryn_page_id}})};
@@ -1792,10 +1727,10 @@ const __oryn_websockets=new Set();const __oryn_message_log=[];const __oryn_recor
 class SecurityPolicyViolationEvent extends Event {constructor(type,eventInitDict={}){super(type,{bubbles:true,cancelable:false});for(const [name,value] of Object.entries({documentURI:'',referrer:'',blockedURI:'',violatedDirective:'',effectiveDirective:'',originalPolicy:'',sourceFile:'',sample:'',disposition:'enforce',statusCode:0,lineNumber:0,columnNumber:0,...eventInitDict}))Object.defineProperty(this,name,{value,enumerable:true,writable:false,configurable:false})}}
 globalThis.SecurityPolicyViolationEvent=SecurityPolicyViolationEvent;
 const __oryn_structured_clone=globalThis.structuredClone;
-globalThis.__oryn_deliver_message=(data,targetOrigin='*',source=null,sourceOrigin='')=>{targetOrigin=String(targetOrigin);if(targetOrigin!=='*'&&targetOrigin!=='/'&&targetOrigin!==location.origin)return;const cloned=__oryn_structured_clone(data);__oryn_record_message({origin:String(sourceOrigin),data:cloned});const event=new Event('message',{});event.data=cloned;event.origin=String(sourceOrigin);event.source=source;queueMicrotask(()=>dispatchEvent(event))};
+globalThis.__oryn_deliver_message=(data,targetOrigin='*',source=null,sourceOrigin='')=>{targetOrigin=String(targetOrigin);if(targetOrigin!=='*'&&targetOrigin!=='/'&&targetOrigin!==globalThis.origin)return;const cloned=__oryn_structured_clone(data);__oryn_record_message({origin:String(sourceOrigin),data:cloned});const event=new Event('message',{});event.data=cloned;event.origin=String(sourceOrigin);event.source=source;queueMicrotask(()=>dispatchEvent(event))};
 globalThis.__oryn_make_window_proxy=(deliver,targetOrigin,sourceOrigin,sameOriginTarget=null)=>{const facade={__source:null,__closed:false,origin:String(targetOrigin),get closed(){return this.__closed},focus(){},close(){this.__closed=true},postMessage(data,requestedOrigin='*'){deliver(data,String(requestedOrigin),proxy.__source,String(sourceOrigin))}};const proxy=sameOriginTarget?new Proxy(facade,{get(target,key,receiver){if(Reflect.has(target,key))return Reflect.get(target,key,receiver);return Reflect.get(sameOriginTarget,key,sameOriginTarget)},set(target,key,value,receiver){if(Reflect.has(target,key))return Reflect.set(target,key,value,receiver);return Reflect.set(sameOriginTarget,key,value,sameOriginTarget)},has(target,key){return Reflect.has(target,key)||Reflect.has(sameOriginTarget,key)}}):facade;return proxy};
 globalThis.__oryn_make_provisional_window_proxy=()=>{let target=null;const queued=[];const facade={__source:null,__closed:false,get closed(){return target?target.closed:this.__closed},get origin(){return target?target.origin:''},focus(){if(target)target.focus()},close(){this.__closed=true;if(target)target.close()},postMessage(data,requestedOrigin='*'){if(target)target.postMessage(data,requestedOrigin);else queued.push([data,String(requestedOrigin)])},__bind(committed){target=committed;this.__closed=false;this.__source=committed.__source;while(queued.length){const [data,origin]=queued.shift();target.postMessage(data,origin)}}};return new Proxy(facade,{get(object,key,receiver){if(Reflect.has(object,key))return Reflect.get(object,key,receiver);return target?Reflect.get(target,key,target):undefined},set(object,key,value,receiver){if(Reflect.has(object,key)||!target)return Reflect.set(object,key,value,receiver);return Reflect.set(target,key,value,target)},has(object,key){return Reflect.has(object,key)||(target&&Reflect.has(target,key))}})};
-globalThis.postMessage=(data,targetOrigin='*')=>globalThis.__oryn_deliver_message(data,targetOrigin,globalThis,location.origin);
+globalThis.postMessage=(data,targetOrigin='*')=>globalThis.__oryn_deliver_message(data,targetOrigin,globalThis,globalThis.origin);
 globalThis.__oryn_poll_context=()=>{if(typeof globalThis.__oryn_context_call!=='function'||__oryn_page_id===null)return;const response=contextCall({operation:'poll_events',page_id:__oryn_page_id,after_event_id:__oryn_context_event_id,max_events:32});if(response.result==='events')for(const record of response.events||[]){__oryn_context_event_id=Math.max(__oryn_context_event_id,record.event_id);const item=record.event;if(!item)continue;if(item.kind==='storage'){const change=item.change||{};const event=new Event('storage',{});event.key=change.key??null;event.oldValue=change.old_value??null;event.newValue=change.new_value??null;event.storageArea=change.area==='local'?localStorage:sessionStorage;event.url=location.href;dispatchEvent(event)}else if(item.kind==='message'){__oryn_record_message({origin:item.source_origin||'',data:item.data});__oryn_context_trace.push({kind:'opener_message',detail:{source_page_id:item.source_page_id,target_page_id:__oryn_page_id,origin:item.source_origin||''}});const event=new Event('message',{});event.data=item.data;event.origin=item.source_origin||'';event.source=__oryn_page_proxy(item.source_page_id);dispatchEvent(event)}else if(item.kind==='page_lifecycle'){const lifecycle=item.event||{};if(lifecycle.kind==='closed'){const proxy=__oryn_page_proxies.get(lifecycle.page_id);if(proxy)proxy.__closed=true}}else if(item.kind==='csp_violation'){const value=item.violation||{};const event=new SecurityPolicyViolationEvent('securitypolicyviolation',{documentURI:value.document_uri||'',referrer:value.referrer||'',blockedURI:value.blocked_uri||'',violatedDirective:value.effective_directive||'',effectiveDirective:value.effective_directive||'',originalPolicy:value.original_policy||'',sourceFile:value.source_file||'',sample:value.sample||'',disposition:value.disposition||'enforce',statusCode:value.status_code||0,lineNumber:value.line_number||0,columnNumber:value.column_number||0});document.dispatchEvent(event);dispatchEvent(event)}else if(item.kind==='csp_report'){__oryn_context_trace.push({kind:'csp_report',detail:{endpoint:item.endpoint||'',format:item.format||'',outcome:item.outcome||''}})}}for(const socket of [...__oryn_websockets])socket.__poll()};
 class OrynWebSocket {constructor(url,protocols=[]){this.url=new OrynURL(url,location.href).href;this.protocol='';this.binaryType='blob';this.readyState=0;this.__listeners=new Map();if(typeof protocols==='string')protocols=[protocols];const response=contextCall({operation:'web_socket_open',page_id:__oryn_page_id,url:this.url,protocols:[...protocols].map(String)});if(response.result!=='web_socket_opened')throw new Error('WebSocket open failed');this.__id=response.socket_id;this.protocol=response.protocol;__oryn_websockets.add(this);queueMicrotask(()=>{this.readyState=1;this.__event('open')})}addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)}__event(type,extra={}){const event=new Event(type,{});Object.assign(event,extra);for(const callback of this.__listeners.get(type)||[])callback.call(this,event);const handler=this['on'+type];if(typeof handler==='function')handler.call(this,event)}send(data){const frame=typeof data==='string'?{kind:'text',value:data}:{kind:'binary',base64:bytesToBase64(bodyBytes(data))};const bytes=typeof data==='string'?new TextEncoder().encode(data).length:bodyBytes(data).length;contextCall({operation:'web_socket_send',page_id:__oryn_page_id,socket_id:this.__id,frame});__oryn_context_trace.push({kind:'web_socket_frame',detail:{socket_id:this.__id,direction:'outbound',frame_type:frame.kind,bytes,url:this.url}})}close(code=1000,reason=''){contextCall({operation:'web_socket_close',page_id:__oryn_page_id,socket_id:this.__id,code,reason:String(reason)});this.readyState=3;__oryn_websockets.delete(this);this.__event('close',{code,reason:String(reason),wasClean:true})}__poll(){if(this.readyState!==1)return;const response=contextCall({operation:'web_socket_poll',page_id:__oryn_page_id,socket_id:this.__id,max_frames:32});if(response.result!=='web_socket_events')return;for(const frame of response.frames||[]){let bytes=0;if(frame.kind==='text'){bytes=new TextEncoder().encode(frame.value).length;this.__event('message',{data:frame.value})}else if(frame.kind==='binary'){const value=base64ToBytes(frame.base64);bytes=value.length;this.__event('message',{data:this.binaryType==='arraybuffer'?value.buffer:new Blob([value])})}else if(frame.kind==='close'){this.readyState=3;__oryn_websockets.delete(this);this.__event('close',{code:frame.code??1005,reason:frame.reason||'',wasClean:true})}__oryn_context_trace.push({kind:'web_socket_frame',detail:{socket_id:this.__id,direction:'inbound',frame_type:frame.kind,bytes,url:this.url}})}}}
 Object.assign(OrynWebSocket,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});Object.assign(OrynWebSocket.prototype,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});globalThis.WebSocket=OrynWebSocket;
@@ -1952,7 +1887,7 @@ if(globalThis.HTMLTextAreaElement)__oryn_install_text_selection(HTMLTextAreaElem
 class OrynFormData {constructor(form){this.items=[];if(form)for(const node of [...form.querySelectorAll('input'),...form.querySelectorAll('textarea'),...form.querySelectorAll('select')]){const name=node.getAttribute('name');if(!name||node.disabled)continue;const type=(node.getAttribute('type')||'').toLowerCase();if((type==='checkbox'||type==='radio')&&!node.checked)continue;if(type==='file'){for(const file of __orynInputFiles(node))this.append(name,file);continue}this.append(name,node.value)}}append(name,value,filename){if(filename!==undefined&&value instanceof OrynBlob)value=new OrynFile([value.__bytes],filename,{type:value.type});this.items.push([String(name),value instanceof OrynBlob?value:String(value)])}set(name,value,filename){this.delete(name);this.append(name,value,filename)}get(name){const item=this.items.find(item=>item[0]===String(name));return item?item[1]:null}getAll(name){return this.items.filter(item=>item[0]===String(name)).map(item=>item[1])}has(name){return this.items.some(item=>item[0]===String(name))}delete(name){this.items=this.items.filter(item=>item[0]!==String(name))}entries(){return this.items[Symbol.iterator]()}keys(){return this.items.map(item=>item[0])[Symbol.iterator]()}values(){return this.items.map(item=>item[1])[Symbol.iterator]()}[Symbol.iterator](){return this.entries()}}
 globalThis.FormData=OrynFormData;
 globalThis.crypto={getRandomValues(array){const encoded=__oryn_crypto_sync('random',String(array.byteLength));array.set(base64ToBytes(encoded));return array},randomUUID(){const bytes=new Uint8Array(16);this.getRandomValues(bytes);bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;const hex=[...bytes].map(value=>value.toString(16).padStart(2,'0')).join('');return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`},subtle:{digest(algorithm,value){if(String(algorithm).toUpperCase()!=='SHA-256')return Promise.reject(new Error('unsupported digest'));const result=base64ToBytes(__oryn_crypto_sync('sha256',bytesToBase64(bodyBytes(value))));return Promise.resolve(result.buffer)}}};
-const __oryn_idb_call=command=>{const outer=contextCall({operation:'storage',request:{operation:'indexed_db',origin:location.origin,command}});if(outer.result!=='storage'||outer.response.result!=='indexed_db')throw new Error('invalid IndexedDB response');return outer.response.response};
+const __oryn_idb_call=command=>{const outer=contextCall({operation:'storage',request:{operation:'indexed_db',origin:globalThis.origin,command}});if(outer.result!=='storage'||outer.response.result!=='indexed_db')throw new Error('invalid IndexedDB response');return outer.response.response};
 const __oryn_clone_encode=value=>{if(value instanceof ArrayBuffer)return {__oryn_clone:'array_buffer',base64:bytesToBase64(value)};if(ArrayBuffer.isView(value))return {__oryn_clone:'typed_array',type:value.constructor.name,base64:bytesToBase64(new Uint8Array(value.buffer,value.byteOffset,value.byteLength))};if(value instanceof OrynFile)return {__oryn_clone:'file',base64:bytesToBase64(value.__bytes),type:value.type,name:value.name,last_modified:value.lastModified};if(value instanceof OrynBlob)return {__oryn_clone:'blob',base64:bytesToBase64(value.__bytes),type:value.type};if(Array.isArray(value))return value.map(__oryn_clone_encode);if(value&&typeof value==='object'){const result={};for(const [key,item] of Object.entries(value))result[key]=__oryn_clone_encode(item);return result}return value};
 const __oryn_clone_decode=value=>{if(Array.isArray(value))return value.map(__oryn_clone_decode);if(value&&typeof value==='object'){if(value.__oryn_clone==='array_buffer')return base64ToBytes(value.base64).buffer;if(value.__oryn_clone==='typed_array'){const bytes=base64ToBytes(value.base64),ctor=globalThis[value.type];return new ctor(bytes.buffer)}if(value.__oryn_clone==='blob')return new Blob([base64ToBytes(value.base64)],{type:value.type});if(value.__oryn_clone==='file')return new File([base64ToBytes(value.base64)],value.name,{type:value.type,lastModified:value.last_modified});const result={};for(const [key,item] of Object.entries(value))result[key]=__oryn_clone_decode(item);return result}return value};
 const __oryn_idb_slots=(target,values)=>{const descriptors={};for(const [name,value] of Object.entries(values))descriptors[name]={configurable:true,enumerable:true,writable:true,value};Object.defineProperties(target,descriptors)};
@@ -2352,26 +2287,10 @@ impl RustExecutableDocument {
         let top_realm = host.active_realm();
         host.execute(RUST_RUNTIME_GLOBALS)?;
         host.execute(crate::observable::OBSERVABLE_GLOBALS)?;
-        #[cfg(unix)]
-        if let Some((page_id, opener_page_id)) = context_identity {
-            host.execute(&format!(
-                "__oryn_configure_context({}, {})",
-                page_id.0,
-                opener_page_id
-                    .map(|page_id| page_id.0.to_string())
-                    .unwrap_or_else(|| "null".into())
-            ))?;
-        }
         host.set_module_sources(&resources);
         if let Some(base_url) = &base_url {
-            let url = serde_json::to_string(base_url.as_str())
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            // Seed the realm's committed URL without invoking Location's public
-            // navigation path. Internal fixture URLs are valid document origins
-            // but must never escape through the network broker as navigations.
-            host.execute(&format!(
-                "Object.assign(globalThis.location,new OrynURL({url}))"
-            ))?;
+            // Initial URL hydration is a native commit, not script navigation.
+            host.commit_location(base_url.as_str())?;
             #[cfg(unix)]
             if let Some((client, page_id, _)) = &context_handle {
                 client
@@ -2381,6 +2300,16 @@ impl RustExecutableDocument {
                     })
                     .map_err(|error| HostError::Execution(error.to_string()))?;
             }
+        }
+        #[cfg(unix)]
+        if let Some((page_id, opener_page_id)) = context_identity {
+            host.execute(&format!(
+                "__oryn_configure_context({}, {})",
+                page_id.0,
+                opener_page_id
+                    .map(|page_id| page_id.0.to_string())
+                    .unwrap_or_else(|| "null".into())
+            ))?;
         }
         let local_storage = resources
             .get("oryn:local-storage")
@@ -2581,16 +2510,10 @@ impl RustExecutableDocument {
             host.set_module_sources(&resources);
             #[cfg(unix)]
             if let Some((page_id, _)) = context_identity {
-                host.execute(&format!("__oryn_configure_context({}, null)", page_id.0))?;
+                configure_frame_context(&mut host, page_id.0)?;
             }
             if let Some(frame_url) = &frame_url {
-                let url = serde_json::to_string(frame_url.as_str())
-                    .map_err(|error| HostError::Execution(error.to_string()))?;
-                // Frame creation installs an already-authorized document URL;
-                // assigning href here would incorrectly schedule navigation.
-                host.execute(&format!(
-                    "Object.assign(globalThis.location,new OrynURL({url}))"
-                ))?;
+                host.commit_location(frame_url.as_str())?;
             }
             let referrer = serde_json::to_string(base_url.as_ref().map_or("", url::Url::as_str))
                 .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -2773,10 +2696,11 @@ impl RustExecutableDocument {
     }
 
     pub fn set_committed_location(&mut self, url: &str) -> Result<(), HostError> {
-        let url =
-            serde_json::to_string(url).map_err(|error| HostError::Execution(error.to_string()))?;
-        self.host
-            .execute(&format!("Object.assign(location,new URL({url}))"))
+        self.host.commit_location(url)
+    }
+
+    pub fn take_location_navigation(&self) -> Option<oryn_js::v8_bindings::LocationNavigation> {
+        self.host.take_location_navigation()
     }
 
     pub fn take_history_traversal(&self) -> Result<Option<i64>, HostError> {
@@ -4029,11 +3953,9 @@ impl RustExecutableDocument {
                 self.host.set_module_sources(&self.resources);
                 #[cfg(unix)]
                 if let Some((_, page_id, _)) = &self.context {
-                    self.host
-                        .execute(&format!("__oryn_configure_context({}, null)", page_id.0))
-                        .map_err(|error| {
-                            HostError::Execution(format!("dynamic frame context: {error}"))
-                        })?;
+                    configure_frame_context(&mut self.host, page_id.0).map_err(|error| {
+                        HostError::Execution(format!("dynamic frame context: {error}"))
+                    })?;
                 }
                 let committed_url = if inherited_about_blank {
                     "about:blank".to_owned()
@@ -4045,15 +3967,9 @@ impl RustExecutableDocument {
                         .map_or_else(|| url.clone(), Url::to_string)
                 };
                 if frame_url.is_some() {
-                    let encoded = serde_json::to_string(&committed_url)
-                        .map_err(|error| HostError::Execution(error.to_string()))?;
-                    self.host
-                        .execute(&format!(
-                            "Object.assign(globalThis.location,new OrynURL({encoded}))"
-                        ))
-                        .map_err(|error| {
-                            HostError::Execution(format!("dynamic frame location: {error}"))
-                        })?;
+                    self.host.commit_location(&committed_url).map_err(|error| {
+                        HostError::Execution(format!("dynamic frame location: {error}"))
+                    })?;
                 }
                 let referrer = serde_json::to_string(&document_referrer)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -4075,7 +3991,7 @@ impl RustExecutableDocument {
                 ))?;
                 if opaque_sandbox {
                     self.host
-                        .execute("location.origin='null';globalThis.__oryn_opaque_origin=true")
+                        .execute("globalThis.__oryn_security_origin='null';globalThis.__oryn_opaque_origin=true")
                         .map_err(|error| {
                             HostError::Execution(format!("dynamic frame opaque origin: {error}"))
                         })?;
@@ -4088,7 +4004,7 @@ impl RustExecutableDocument {
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     self.host
                         .execute(&format!(
-                            "location.origin={frame_origin};globalThis.__oryn_opaque_origin=false"
+                            "globalThis.__oryn_security_origin={frame_origin};globalThis.__oryn_opaque_origin=false"
                         ))
                         .map_err(|error| {
                             HostError::Execution(format!("dynamic srcdoc origin: {error}"))
@@ -4597,13 +4513,27 @@ fn script_diagnostic_at(error: HostError, resource: &str) -> oryn_common::v3::Ca
     script_diagnostic(HostError::Execution(format!("{resource}: {error}")))
 }
 
+/// Frame transport shares its page's context-service ID, but its security
+/// origin is the native realm's origin, not the top-level page's origin.
+#[cfg(unix)]
+fn configure_frame_context(host: &mut RawV8Host, page_id: u64) -> Result<(), HostError> {
+    let origin = &host
+        .realm_descriptor(host.active_realm())
+        .ok_or_else(|| HostError::Execution("frame realm metadata is unavailable".into()))?
+        .origin;
+    let origin =
+        serde_json::to_string(origin).map_err(|error| HostError::Execution(error.to_string()))?;
+    host.execute(&format!(
+        "__oryn_configure_context({page_id},null,{origin})"
+    ))
+}
+
 fn execute_javascript_url(
     host: &mut RawV8Host,
     source: &str,
     committed_url: &str,
 ) -> Result<(), HostError> {
-    let committed_url = serde_json::to_string(committed_url)
-        .map_err(|error| HostError::Execution(error.to_string()))?;
+    host.commit_location(committed_url)?;
     let source = source.trim();
     let evaluation = if let Some(literal) = source
         .strip_prefix('\'')
@@ -4623,7 +4553,7 @@ fn execute_javascript_url(
         format!("const __html=(0,eval)({source});")
     };
     host.execute(&format!(
-        "{{const __origin=location.origin;Object.assign(location,new OrynURL({committed_url}));location.origin=__origin;{evaluation}if(typeof __html==='string'){{document.open();document.write(__html);document.close()}}}}"
+        "{{{evaluation}if(typeof __html==='string'){{document.open();document.write(__html);document.close()}}}}"
     ))
 }
 
@@ -5381,6 +5311,34 @@ mod tests {
         page.apply_action(button, SemanticAction::Click, None)
             .expect("inline navigation handler");
         assert_eq!(page.location().unwrap(), "https://example.test/next.html");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn location_frame_context_keeps_native_security_origin() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<p>frame origin</p>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://child.example.test/frame").unwrap()),
+        )
+        .unwrap();
+        page.host.execute("globalThis.__oryn_context_call=()=>JSON.stringify({result:'security_origin',serialized:'https://parent.example.test',opaque:false})").unwrap();
+        configure_frame_context(&mut page.host, 1).unwrap();
+        assert_eq!(
+            page.evaluate("[origin,location.origin,__oryn_opaque_origin].join('|')")
+                .unwrap(),
+            "https://child.example.test|https://child.example.test|false"
+        );
+        // An inherited srcdoc URL has an opaque URL origin but retains the
+        // actual document realm's origin for messaging and access decisions.
+        page.host.commit_location("about:srcdoc").unwrap();
+        configure_frame_context(&mut page.host, 1).unwrap();
+        assert_eq!(
+            page.evaluate("[origin,location.origin,__oryn_opaque_origin].join('|')")
+                .unwrap(),
+            "https://child.example.test|null|false"
+        );
     }
 
     #[test]
@@ -7149,7 +7107,7 @@ mod tests {
     fn nested_named_frame_navigation_reports_through_its_owner_realm() {
         let resources = BTreeMap::from([
             (
-                "https://source.example.test/source".into(),
+                "https://frame.example.test/source".into(),
                 r#"<script>
                 addEventListener('message',event=>{
                   if(event.data==='start'){
@@ -7579,7 +7537,7 @@ mod tests {
     fn srcdoc_window_proxies_preserve_message_source_for_same_and_opaque_origins() {
         let mut page = RustExecutableDocument::load_with_environment(
             r#"<output id=result>pending</output><script>
-            const child='<script>onmessage=()=>parent.postMessage(location.origin,"*")<\/script>';
+            const child='<script>onmessage=()=>{if(location.origin!=="null")throw Error("srcdoc URL origin");parent.postMessage(origin,"*")}<\/script>';
             const load=sandbox=>new Promise(resolve=>{
               const frame=document.createElement('iframe');
               if(sandbox) frame.sandbox='allow-scripts';

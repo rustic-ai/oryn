@@ -4821,8 +4821,25 @@ struct PaintSnapshotPlan {
 #[derive(Debug, Clone, Copy)]
 enum HistoryUpdate {
     Push,
+    Replace,
     Preserve,
     Reload,
+}
+
+#[cfg(feature = "v8-host")]
+fn take_script_navigation(
+    executable: &crate::executable::RustExecutableDocument,
+) -> Option<(String, HistoryUpdate)> {
+    executable.take_location_navigation().map(|request| {
+        let update = if request.reload {
+            HistoryUpdate::Reload
+        } else if request.replace {
+            HistoryUpdate::Replace
+        } else {
+            HistoryUpdate::Push
+        };
+        (request.url, update)
+    })
 }
 
 impl PageState {
@@ -5249,6 +5266,10 @@ impl PageState {
             }
             self.history.push(self.url.clone());
             self.history_index = Some(self.history.len() - 1);
+        } else if matches!(history_update, HistoryUpdate::Replace)
+            && let Some(index) = self.history_index
+        {
+            self.history[index] = self.url.clone();
         }
         self.record_snapshot();
         self.trace.push(
@@ -5301,6 +5322,10 @@ impl PageState {
                 }
                 self.history.push(self.url.clone());
                 self.history_index = Some(self.history.len() - 1);
+            } else if matches!(history_update, HistoryUpdate::Replace)
+                && let Some(index) = self.history_index
+            {
+                self.history[index] = self.url.clone();
             }
             #[cfg(feature = "v8-host")]
             if let Some(executable) = self.executable.as_mut() {
@@ -5309,8 +5334,11 @@ impl PageState {
                 let previous = serde_json::to_string(&previous_url)
                     .map_err(|error| RuntimeError::Script(error.to_string()))?;
                 let traversed = matches!(history_update, HistoryUpdate::Preserve);
+                executable
+                    .set_committed_location(&self.url)
+                    .map_err(map_host_error)?;
                 executable.execute(&format!(
-                    "Object.assign(location,new URL({url}));if(new URL({previous}).hash!==new URL({url}).hash)dispatchEvent(new Event('hashchange'));{}",
+                    "if(new URL({previous}).hash!==new URL({url}).hash)dispatchEvent(new Event('hashchange'));{}",
                     if traversed {
                         "dispatchEvent(new Event('popstate'))"
                     } else {
@@ -6822,7 +6850,7 @@ impl PageState {
             (
                 executable.take_console_entries().unwrap_or_default(),
                 executable.take_context_trace_entries().unwrap_or_default(),
-                executable.location().ok(),
+                take_script_navigation(executable),
                 executable
                     .take_history_traversal()
                     .map_err(map_host_error)?,
@@ -6854,11 +6882,8 @@ impl PageState {
             self.traverse_history(delta)?;
             return Ok(());
         }
-        if let Some(location) = location
-            && location != self.url
-            && Url::parse(&location).ok() != Url::parse(&self.url).ok()
-        {
-            self.navigate(location, HistoryUpdate::Push)?;
+        if let Some((location, update)) = location {
+            self.navigate(location, update)?;
             return Ok(());
         }
         let after = self.semantic_graph.semantic_revision();
@@ -6973,7 +6998,7 @@ impl PageState {
                     value,
                     executable.take_console_entries().unwrap_or_default(),
                     executable.take_context_trace_entries().unwrap_or_default(),
-                    executable.location().ok(),
+                    take_script_navigation(executable),
                     executable
                         .take_history_traversal()
                         .map_err(map_host_error)?,
@@ -7000,11 +7025,8 @@ impl PageState {
                 self.traverse_history(delta)?;
                 return Ok(value);
             }
-            if let Some(location) = location
-                && location != self.url
-                && Url::parse(&location).ok() != Url::parse(&self.url).ok()
-            {
-                self.navigate(location, HistoryUpdate::Push)?;
+            if let Some((location, update)) = location {
+                self.navigate(location, update)?;
                 return Ok(value);
             }
             self.refresh_layout()?;
@@ -8510,9 +8532,7 @@ impl PageState {
                     .apply_action(node_id, action.action, action.value.as_deref())
                     .map_err(map_host_error)?;
             }
-            let pending_navigation = executable.location().ok().filter(|location| {
-                location != &self.url && Url::parse(location).ok() != Url::parse(&self.url).ok()
-            });
+            let pending_navigation = take_script_navigation(executable);
             (
                 executable.take_console_entries().unwrap_or_default(),
                 executable.take_context_trace_entries().unwrap_or_default(),
@@ -8643,16 +8663,11 @@ impl PageState {
                 },
             );
         }
-        if let Some(location) = pending_navigation {
-            if same_document_url(&self.url, &location) {
-                self.url = location.clone();
-                result.effects.push(Effect::Navigation { url: location });
-            } else {
-                let navigation = self.navigate(location.clone(), HistoryUpdate::Push)?;
-                result.revision_after = navigation.revision;
-                result.delta = None;
-                result.effects.push(Effect::Navigation { url: location });
-            }
+        if let Some((location, update)) = pending_navigation {
+            let navigation = self.navigate(location.clone(), update)?;
+            result.revision_after = navigation.revision;
+            result.delta = None;
+            result.effects.push(Effect::Navigation { url: location });
         } else if let Some(delta) = pending_history_traversal {
             let delta = isize::try_from(delta).map_err(|_| RuntimeError::HistoryBoundary)?;
             let navigation = self.traverse_history(delta)?;

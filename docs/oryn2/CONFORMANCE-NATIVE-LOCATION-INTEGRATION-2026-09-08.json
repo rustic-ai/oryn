@@ -1,0 +1,82 @@
+{
+  "qualification": "Integrated native production path; not signed full-inventory conformance or complete release qualification",
+  "baseline": {
+    "commit": "a3acd6cc453eb7057d7a4386202a7e2fa5eea1ce",
+    "overall_passed": 3030,
+    "overall_required": 4022,
+    "history_passed": 32,
+    "history_required": 136
+  },
+  "candidate": {
+    "files": {
+      "crates/oryn-js/src/v8_bindings.rs": "d017110885d26aa41b852c42c450884b2139cb883f51a13cc0169f52cd85507b",
+      "crates/oryn-js/src/v8_bindings/location.rs": "7d7cbb8a2465fae5c155f703bfc83771937359f594f32cb9ae4106f2572e72bd",
+      "crates/oryn-js/src/v8_bindings/url_objects.rs": "5a69bac0113c45161d41e25253a31c130973a0e787b08e7597a93ccc67f1cbeb",
+      "crates/oryn-js/src/generated/browser.rs": "4f9966f2916ddf0592c138a1c055bb33da8464305043035e411f3ef64b583284",
+      "crates/oryn-webidl/idl/browser.webidl": "aab8da2a5e8dddf695b58e2ad0e28ede01ab3029e51539ec686c308b4cf6ef98",
+      "crates/oryn-native/src/host.rs": "63f520d3fa7b9b51475805fac73106226519b443f728ff299af77f554423b2ad",
+      "crates/oryn-native/src/rust_executable.rs": "62778d39fe773c14f48eb3bbda37cee45027879fd2f0b5f0f2f28341fb7c8ed5",
+      "crates/oryn-native/src/runtime.rs": "2ea65f51a35a97b277a8ac9f7518731ff703615a79f76c2b923213e933f6ed28"
+    },
+    "probe_source_sha256": "6dca1b4feb5be0e7eeb0430163eee86c59fabfe8d27ca368dbfa9acb2760debf",
+    "purpose": "Isolated production path qualification; not signed overall conformance",
+    "baseline": "a3acd6c",
+    "routing": "localhost; .window.js/.any.js use the canonical __oryn_any_runner.html wrapper; unchanged source fixtures and variants",
+    "runner_sha256": "450b6ae4a3e2ed921d54e022b19cea326fc5b7a980aa177c34e86d7bbb61a0c3",
+    "probe_sha256": "559872d758e50fa177becd8590c9c15111586fbaa313e419a64fbfb2e2aff7ac"
+  },
+  "archive": "artifacts/upstream-conformance/native-location-integrated-v6",
+  "exact_history_coverage": 136,
+  "whole_gains": [
+    "html/browsers/history/the-history-interface/pushstate-replacestate-empty-string/pushstate-whitespace.html",
+    "html/browsers/history/the-history-interface/pushstate-replacestate-empty-string/pushstate.html",
+    "html/browsers/history/the-history-interface/pushstate-replacestate-empty-string/replacestate-whitespace.html",
+    "html/browsers/history/the-history-interface/pushstate-replacestate-empty-string/replacestate.html",
+    "html/browsers/history/the-location-interface/location-non-configurable-toString-valueOf.html",
+    "html/browsers/history/the-location-interface/location-prototype-no-toString-valueOf.html",
+    "html/browsers/history/the-location-interface/location-stringifier.html",
+    "html/browsers/history/the-location-interface/location-symbol-toprimitive.html",
+    "html/browsers/history/the-location-interface/location-tojson.html",
+    "html/browsers/history/the-location-interface/location-valueof.html",
+    "html/browsers/history/the-location-interface/location_assign.html",
+    "html/browsers/history/the-location-interface/location_hashchange_infinite_loop.html",
+    "html/browsers/history/the-location-interface/location_replace.html"
+  ],
+  "whole_losses": [],
+  "corrected_assertions": 68,
+  "assertion_retention": {
+    "raw_missing_names": 5,
+    "observed_pass_to_fail": 0,
+    "missing_after_explicit_port_and_three_title_mappings": 0,
+    "note": "Preserves both raw and reconciled audits; does not clear 85 historical missing observations or 11 historical regressions from the signed full-run history."
+  },
+  "validation": {
+    "bindings": {
+      "passed": 180,
+      "failed": 0,
+      "existing_ignored": 2
+    },
+    "strict_clippy": "passed",
+    "native_location": 6,
+    "native_frame": 19,
+    "native_history": 4,
+    "native_srcdoc": 1,
+    "native_worker": {
+      "passed": 30,
+      "failed": 1,
+      "failure": "executable::tests::blob_url_worker_executes_registered_rust_owned_bytes",
+      "error": "ReferenceError: dedicated is not defined",
+      "historical_evidence": [
+        "artifacts/native-window-profile/native-matrix.json",
+        "artifacts/native-frame-commit/native-matrix.json"
+      ],
+      "qualification": "Existing failure remains open; not a new candidate regression"
+    }
+  },
+  "remaining": [
+    "Signed full 4022 run required before any overall gain claim",
+    "Location ancestorOrigins, cross-origin exotic semantics, deferred cross-document URL visibility, frame navigation requests and history ownership remain incomplete",
+    "Continue all 992 baseline failures; retain missing observations and historical assertion regressions",
+    "Final completion requires 4022/4022 twice on one frozen signed candidate and all release gates"
+  ]
+}

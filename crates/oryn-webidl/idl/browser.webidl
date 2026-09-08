@@ -1,6 +1,7 @@
 [Exposed=Window]
 interface Window : EventTarget {
   attribute DOMString name;
+  [LegacyUnforgeable, PutForwards=href] readonly attribute Location location;
 };
 
 [Exposed=(Window,Worker)]
@@ -72,22 +73,55 @@ interface QuotaExceededError : DOMException {
   readonly attribute double? requested;
 };
 
+[Exposed=Window]
+interface Location {
+  [LegacyUnforgeable] attribute USVString href;
+  [LegacyUnforgeable] readonly attribute USVString origin;
+  [LegacyUnforgeable] attribute USVString protocol;
+  [LegacyUnforgeable] attribute USVString host;
+  [LegacyUnforgeable] attribute USVString hostname;
+  [LegacyUnforgeable] attribute USVString port;
+  [LegacyUnforgeable] attribute USVString pathname;
+  [LegacyUnforgeable] attribute USVString search;
+  [LegacyUnforgeable] attribute USVString hash;
+  [LegacyUnforgeable] undefined assign(USVString url);
+  [LegacyUnforgeable] undefined replace(USVString url);
+  [LegacyUnforgeable] undefined reload();
+  [LegacyUnforgeable] USVString toString();
+};
+
 [Exposed=(Window,Worker)]
 interface URL {
-  constructor(DOMString url, optional DOMString base);
-  attribute DOMString href;
-  readonly attribute DOMString origin;
-  readonly attribute DOMString protocol;
-  readonly attribute DOMString username;
-  readonly attribute DOMString password;
-  readonly attribute DOMString host;
-  readonly attribute DOMString hostname;
-  readonly attribute DOMString port;
-  readonly attribute DOMString pathname;
-  readonly attribute DOMString search;
-  readonly attribute DOMString hash;
-  DOMString toJSON();
-  DOMString toString();
+  constructor(USVString url, optional USVString base);
+  attribute USVString href;
+  readonly attribute USVString origin;
+  attribute USVString protocol;
+  attribute USVString username;
+  attribute USVString password;
+  attribute USVString host;
+  attribute USVString hostname;
+  attribute USVString port;
+  attribute USVString pathname;
+  attribute USVString search;
+  attribute USVString hash;
+  [SameObject] readonly attribute URLSearchParams searchParams;
+  USVString toJSON();
+  USVString toString();
+};
+
+[Exposed=(Window,Worker)]
+interface URLSearchParams {
+  constructor(optional (sequence<sequence<USVString>> or record<USVString, USVString> or USVString) init = "");
+  readonly attribute unsigned long size;
+  undefined append(USVString name, USVString value);
+  undefined delete(USVString name, optional USVString value);
+  USVString? get(USVString name);
+  sequence<USVString> getAll(USVString name);
+  boolean has(USVString name, optional USVString value);
+  undefined set(USVString name, USVString value);
+  undefined sort();
+  USVString toString();
+  iterable<USVString, USVString>;
 };
 
 [Exposed=(Window,Worker)]
@@ -789,7 +823,7 @@ interface Document : Node {
   readonly attribute DOMString charset;
   readonly attribute DOMString inputEncoding;
   readonly attribute DOMString contentType;
-  readonly attribute any location;
+  [PutForwards=href] readonly attribute Location? location;
   attribute DOMString cookie;
   readonly attribute any defaultView;
   [SameObject] readonly attribute HTMLCollection children;

@@ -1546,6 +1546,20 @@ mod raw_v8 {
                 .map(|state| state.take_history_traversal())
         }
 
+        pub fn commit_location(&self, href: &str) -> Result<(), HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
+                .commit_location(href)
+                .map_err(|error| HostError::Execution(error.to_string()))
+        }
+
+        pub fn take_location_navigation(&self) -> Option<oryn_js::v8_bindings::LocationNavigation> {
+            self.binding_states
+                .get(&self.active_realm)
+                .and_then(|state| state.take_location_navigation())
+        }
+
         pub fn take_history_url_update(&self) -> Option<String> {
             self.binding_states
                 .get(&self.active_realm)
@@ -3116,6 +3130,12 @@ mod raw_v8 {
                     close.into(),
                 );
                 let parsed_url = Url::parse(&resource_name).ok();
+                binding_state.set_security_origin(
+                    parsed_url
+                        .as_ref()
+                        .map(|url| url.origin().ascii_serialization())
+                        .unwrap_or_else(|| "null".into()),
+                );
                 let url = serde_json::to_string(&resource_name).map_err(|e| e.to_string())?;
                 let origin = serde_json::to_string(
                     &parsed_url

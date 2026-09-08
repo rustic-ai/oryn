@@ -36,8 +36,10 @@ use crate::{
 
 mod computed_styles;
 mod global_events;
+mod location;
 mod message_events;
 pub mod structured_clone;
+mod url_objects;
 pub mod window_proxy;
 pub use global_events::{report_exception, report_script_exception};
 
@@ -473,6 +475,9 @@ enum PlatformObjectRecord {
         requested: Option<f64>,
     },
     Url(Url),
+    Location,
+    UrlSearchParams(url_objects::SearchParams),
+    UrlSearchParamsIterator(url_objects::IteratorRecord),
     Blob(BlobRecord),
     FileReader {
         result: Option<v8::Global<v8::Value>>,
@@ -1034,6 +1039,12 @@ pub struct V8BindingState {
     storage_fallback: RefCell<[BTreeMap<String, String>; 2]>,
     next_platform_object_id: Cell<u64>,
     platform_objects: RefCell<BTreeMap<u64, PlatformObjectRecord>>,
+    security_origin: RefCell<Option<String>>,
+    location_url: RefCell<Url>,
+    location_object: Cell<Option<u64>>,
+    pending_location_navigation: RefCell<Option<LocationNavigation>>,
+    url_search_params: RefCell<BTreeMap<u64, u64>>,
+    url_iterator_prototype: RefCell<Option<v8::Global<v8::Object>>>,
     platform_wrappers: RefCell<BTreeMap<u64, v8::Weak<v8::Object>>>,
     platform_host: RefCell<Option<Rc<dyn PlatformHost>>>,
     next_platform_operation_id: Cell<u64>,
@@ -1112,7 +1123,34 @@ struct BindingStateRegistry {
     instances: RefCell<BTreeMap<u64, RcWeak<V8BindingState>>>,
 }
 
+/// A script navigation request consumed at the page scheduler checkpoint.
+#[derive(Debug, Clone)]
+pub struct LocationNavigation {
+    pub url: String,
+    pub replace: bool,
+    pub reload: bool,
+}
+
 impl V8BindingState {
+    /// Set the embedder-owned security origin, independently of the URL.
+    pub fn set_security_origin(&self, origin: String) {
+        *self.security_origin.borrow_mut() = Some(origin);
+    }
+
+    /// Commit a URL without requesting navigation (initialization/history).
+    pub fn commit_location(&self, href: &str) -> Result<(), V8BindingError> {
+        let url = Url::parse(href).map_err(|_| V8BindingError::Unsupported {
+            interface: "Location".into(),
+            member: "SyntaxError".into(),
+        })?;
+        *self.location_url.borrow_mut() = url;
+        Ok(())
+    }
+
+    pub fn take_location_navigation(&self) -> Option<LocationNavigation> {
+        self.pending_location_navigation.borrow_mut().take()
+    }
+
     pub fn has_pending_selection_change(&self) -> bool {
         self.selection_revision.get() != self.delivered_selection_revision.get()
     }
@@ -3188,6 +3226,16 @@ pub fn install_generated_bindings_with_root_for_global(
         storage_fallback: RefCell::new([BTreeMap::new(), BTreeMap::new()]),
         next_platform_object_id: Cell::new(1),
         platform_objects: RefCell::new(BTreeMap::new()),
+        security_origin: RefCell::new(
+            context
+                .get_slot::<crate::realm::RealmDescriptor>()
+                .map(|descriptor| descriptor.origin.clone()),
+        ),
+        location_url: RefCell::new(Url::parse("about:blank").expect("valid initial URL")),
+        location_object: Cell::new(None),
+        pending_location_navigation: RefCell::new(None),
+        url_search_params: RefCell::new(BTreeMap::new()),
+        url_iterator_prototype: RefCell::new(None),
         platform_wrappers: RefCell::new(BTreeMap::new()),
         platform_host: RefCell::new(None),
         next_platform_operation_id: Cell::new(1),
@@ -3322,6 +3370,9 @@ pub fn install_generated_bindings_with_root_for_global(
             ) {
                 inline_styles::configure(instance);
             }
+            if interface.name == "Location" {
+                location::configure(instance);
+            }
             if interface.name == "MediaList" {
                 page_rules::media_lists::configure(instance);
             }
@@ -3443,7 +3494,16 @@ pub fn install_generated_bindings_with_root_for_global(
                             .length(arity.into())
                             .constructor_behavior(v8::ConstructorBehavior::Throw)
                             .build(scope);
-                        prototype.set(name.into(), function.into());
+                        if member.unforgeable {
+                            instance.set_with_attr(
+                                name.into(),
+                                function.into(),
+                                v8::PropertyAttribute::READ_ONLY
+                                    | v8::PropertyAttribute::DONT_DELETE,
+                            );
+                        } else {
+                            prototype.set(name.into(), function.into());
+                        }
                     }
                     GeneratedMemberKind::Constant => {
                         let value = generated_constant_value(
@@ -3459,6 +3519,10 @@ pub fn install_generated_bindings_with_root_for_global(
                         );
                     }
                     GeneratedMemberKind::Iterable => {
+                        if interface.name == "URLSearchParams" {
+                            url_objects::install_iterable(scope, prototype)?;
+                            continue;
+                        }
                         if member.value_iterable && has_indexed_getter {
                             // Web IDL value iterators use the realm's original
                             // Array intrinsics: https://webidl.spec.whatwg.org/#es-iterators
@@ -3732,6 +3796,9 @@ pub fn install_generated_bindings_with_root_for_global(
     }
     global_events::install(scope, context)?;
     structured_clone::install(scope, context)?;
+    if binding_global == BindingGlobal::Window {
+        location::install(scope, &state)?;
+    }
     Ok(state)
 }
 
@@ -5587,23 +5654,16 @@ fn json_bytes(value: Option<&serde_json::Value>) -> Vec<u8> {
         .unwrap_or_default()
 }
 
-fn current_platform_origin(scope: &mut v8::PinScope) -> String {
-    let global = scope.get_current_context().global(scope);
-    if v8::String::new(scope, "__oryn_opaque_origin")
-        .and_then(|key| global.get(scope, key.into()))
-        .is_some_and(|value| value.boolean_value(scope))
-    {
-        return "null".into();
-    }
-    let location = v8::String::new(scope, "location")
-        .and_then(|key| global.get(scope, key.into()))
-        .and_then(|value| value.to_object(scope));
-    location
-        .and_then(|location| {
-            v8::String::new(scope, "origin").and_then(|key| location.get(scope, key.into()))
-        })
-        .map(|value| value.to_rust_string_lossy(scope))
-        .unwrap_or_else(|| "null".into())
+fn current_platform_origin(state: &V8BindingState) -> String {
+    // Platform operations belong to their receiver's settings object. Never
+    // invoke a script-visible Location getter in the borrowed method's realm.
+    // Bare binding contexts have no RealmDescriptor; their initialized URL
+    // supplies the origin until an embedder explicitly installs one.
+    state
+        .security_origin
+        .borrow()
+        .clone()
+        .unwrap_or_else(|| state.location_url.borrow().origin().ascii_serialization())
 }
 
 fn new_internal_idb_request(state: &V8BindingState, transaction_id: Option<u64>) -> u64 {
@@ -5642,13 +5702,13 @@ fn new_idb_request_for_source(
 }
 
 fn submit_idb(
-    scope: &mut v8::PinScope,
+    _scope: &mut v8::PinScope,
     state: &V8BindingState,
     request_id: u64,
     command: IdbHostCommand,
     action: IdbCompletionAction,
 ) -> Result<(), V8BindingError> {
-    let origin = current_platform_origin(scope);
+    let origin = current_platform_origin(state);
     if origin == "null" {
         return Err(V8BindingError::Unsupported {
             interface: "IDBFactory".into(),
@@ -6594,6 +6654,8 @@ fn is_platform_interface(interface: &str) -> bool {
             | "DOMException"
             | "QuotaExceededError"
             | "URL"
+            | "Location"
+            | "URLSearchParams"
             | "AbortSignal"
             | "AbortController"
             | "MessagePort"
@@ -7148,9 +7210,17 @@ fn initialize_platform_constructor<'s>(
         return Ok(true);
     }
     if name == "URL" {
-        let input = required_string(scope, args, 0)?;
+        let input = args
+            .get(0)
+            .to_string(scope)
+            .ok_or(V8BindingError::JavaScriptException)?
+            .to_rust_string_lossy(scope);
         let parsed = if args.length() > 1 && !args.get(1).is_undefined() {
-            let base = required_string(scope, args, 1)?;
+            let base = args
+                .get(1)
+                .to_string(scope)
+                .ok_or(V8BindingError::JavaScriptException)?
+                .to_rust_string_lossy(scope);
             Url::parse(&base).and_then(|base| base.join(&input))
         } else {
             Url::parse(&input)
@@ -7160,6 +7230,12 @@ fn initialize_platform_constructor<'s>(
             member: "TypeError".into(),
         })?;
         let id = register_platform_object(state, PlatformObjectRecord::Url(parsed));
+        bind_platform_object(scope, state, id, args.this());
+        return Ok(true);
+    }
+    if name == "URLSearchParams" {
+        let params = url_objects::initialize(scope, args.get(0))?;
+        let id = register_platform_object(state, PlatformObjectRecord::UrlSearchParams(params));
         bind_platform_object(scope, state, id, args.this());
         return Ok(true);
     }
@@ -7825,7 +7901,7 @@ fn blob_url_create_callback(
         state.next_blob_url_id.set(id.saturating_add(1));
         let url = format!(
             "blob:{}/{}-{}",
-            current_platform_origin(scope),
+            current_platform_origin(&state),
             state.document_generation,
             id
         );
@@ -9012,6 +9088,17 @@ fn generated_attribute_getter(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "Window" && member == "location" {
+        if !global_events::is_global(scope, &state, args.this()) {
+            throw_type_error(scope, "Window.location requires a Window receiver");
+        } else {
+            match location::object(scope, &state) {
+                Ok(value) => return_value.set(value.into()),
+                Err(error) => throw_binding_error(scope, &error),
+            }
+        }
+        return;
+    }
     if interface == "Window" && member == "name" {
         if !global_events::is_global(scope, &state, args.this()) {
             throw_type_error(scope, "Window.name requires a Window receiver");
@@ -9185,6 +9272,16 @@ fn generated_attribute_setter_impl(
         throw_type_error(scope, "generated binding state is unavailable");
         return;
     };
+    if interface == "Window" && member == "location" {
+        if !global_events::is_global(scope, &state, args.this()) {
+            throw_type_error(scope, "Window.location requires a Window receiver");
+        } else if let Some(id) = state.location_object.get()
+            && let Err(error) = location::set(scope, &state, id, "href", args.get(0))
+        {
+            throw_binding_error(scope, &error);
+        }
+        return;
+    }
     if interface == "Window" && member == "name" {
         if !global_events::is_global(scope, &state, args.this()) {
             throw_type_error(scope, "Window.name requires a Window receiver");
@@ -10354,6 +10451,8 @@ fn platform_interface_for_id(state: &V8BindingState, id: u64) -> Option<&'static
         PlatformObjectRecord::EventTarget => "EventTarget",
         PlatformObjectRecord::DomException { .. } => "DOMException",
         PlatformObjectRecord::Url(_) => "URL",
+        PlatformObjectRecord::Location => "Location",
+        PlatformObjectRecord::UrlSearchParams(_) => "URLSearchParams",
         PlatformObjectRecord::FileReader { .. } => "FileReader",
         PlatformObjectRecord::AbortSignal(_) => "AbortSignal",
         PlatformObjectRecord::XMLHttpRequest(_) => "XMLHttpRequest",
@@ -15371,6 +15470,11 @@ fn request_initiator_url(scope: &mut v8::PinScope) -> Option<String> {
 }
 
 fn set_location_href(scope: &mut v8::PinScope, href: &str) -> Result<(), V8BindingError> {
+    if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>()
+        && state.binding_global == BindingGlobal::Window
+    {
+        return state.commit_location(href);
+    }
     let location = global_property(scope, "location")?
         .to_object(scope)
         .ok_or(V8BindingError::Allocation("location object"))?;
@@ -15649,6 +15753,7 @@ fn storage_area(index: usize) -> &'static str {
 
 fn storage_context_response(
     scope: &mut v8::PinScope,
+    state: &V8BindingState,
     index: usize,
     operation: &str,
     key: Option<&str>,
@@ -15666,16 +15771,7 @@ fn storage_context_response(
     let page_id = page_id
         .integer_value(scope)
         .ok_or(V8BindingError::Allocation("storage page id"))?;
-    let location = global_property(scope, "location")?
-        .to_object(scope)
-        .ok_or(V8BindingError::Allocation("location object"))?;
-    let origin_key =
-        v8::String::new(scope, "origin").ok_or(V8BindingError::Allocation("origin key"))?;
-    let origin = location
-        .get(scope, origin_key.into())
-        .and_then(|value| value.to_string(scope))
-        .map(|value| value.to_rust_string_lossy(scope))
-        .ok_or(V8BindingError::Allocation("storage origin"))?;
+    let origin = current_platform_origin(state);
     let mut request = serde_json::json!({
         "operation": "storage",
         "request": {
@@ -15711,7 +15807,7 @@ fn storage_entries(
     state: &Rc<V8BindingState>,
     index: usize,
 ) -> Result<Vec<(String, String)>, V8BindingError> {
-    if let Some(response) = storage_context_response(scope, index, "entries", None, None)? {
+    if let Some(response) = storage_context_response(scope, state, index, "entries", None, None)? {
         let entries = response
             .get("response")
             .and_then(|response| response.get("entries"))
@@ -15760,7 +15856,8 @@ fn call_storage_operation<'s>(
         }
         "getItem" => {
             let key = required_string(scope, args, 0)?;
-            if let Some(response) = storage_context_response(scope, index, "get", Some(&key), None)?
+            if let Some(response) =
+                storage_context_response(scope, state, index, "get", Some(&key), None)?
             {
                 let value = response
                     .get("response")
@@ -15780,18 +15877,21 @@ fn call_storage_operation<'s>(
         "setItem" => {
             let key = required_string(scope, args, 0)?;
             let value = required_string(scope, args, 1)?;
-            if storage_context_response(scope, index, "set", Some(&key), Some(&value))?.is_none() {
+            if storage_context_response(scope, state, index, "set", Some(&key), Some(&value))?
+                .is_none()
+            {
                 state.storage_fallback.borrow_mut()[index].insert(key, value);
             }
         }
         "removeItem" => {
             let key = required_string(scope, args, 0)?;
-            if storage_context_response(scope, index, "remove", Some(&key), None)?.is_none() {
+            if storage_context_response(scope, state, index, "remove", Some(&key), None)?.is_none()
+            {
                 state.storage_fallback.borrow_mut()[index].remove(&key);
             }
         }
         "clear" => {
-            if storage_context_response(scope, index, "clear", None, None)?.is_none() {
+            if storage_context_response(scope, state, index, "clear", None, None)?.is_none() {
                 state.storage_fallback.borrow_mut()[index].clear();
             }
         }
@@ -15994,6 +16094,13 @@ fn get_platform_attribute<'s>(
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     let id = stateful_id(scope, object)?;
+    if interface == "Location" {
+        return location::get(scope, state, id, member);
+    }
+    if interface == "URL" && member == "searchParams" {
+        return url_objects::search_params(scope, state, object, id);
+    }
+
     if matches!(interface, "IDBObjectStore" | "IDBIndex") && member == "keyPath" {
         let cache_key = "__oryn_same_object_key_path";
         if let Some(key) = v8::String::new(scope, cache_key)
@@ -16195,28 +16302,22 @@ fn get_platform_attribute<'s>(
                 member: member.into(),
             }),
         },
+        (PlatformObjectRecord::UrlSearchParams(params), "URLSearchParams", "size") => {
+            Ok(v8::Number::new(scope, params.entries.len() as f64).into())
+        }
         (PlatformObjectRecord::Url(url), "URL", member) => {
             let value = match member {
-                "href" => url.as_str().to_string(),
-                "origin" => url.origin().ascii_serialization(),
-                "protocol" => format!("{}:", url.scheme()),
-                "username" => url.username().to_string(),
-                "password" => url.password().unwrap_or_default().to_string(),
-                "host" => url.host_str().map_or_else(String::new, |host| {
-                    url.port()
-                        .map_or_else(|| host.to_string(), |port| format!("{host}:{port}"))
-                }),
-                "hostname" => url.host_str().unwrap_or_default().to_string(),
-                "port" => url.port().map(|port| port.to_string()).unwrap_or_default(),
-                "pathname" => url.path().to_string(),
-                "search" => url
-                    .query()
-                    .map(|query| format!("?{query}"))
-                    .unwrap_or_default(),
-                "hash" => url
-                    .fragment()
-                    .map(|hash| format!("#{hash}"))
-                    .unwrap_or_default(),
+                "href" => url::quirks::href(url),
+                "origin" => return v8_string(scope, &url::quirks::origin(url)),
+                "protocol" => url::quirks::protocol(url),
+                "username" => url::quirks::username(url),
+                "password" => url::quirks::password(url),
+                "host" => url::quirks::host(url),
+                "hostname" => url::quirks::hostname(url),
+                "port" => url::quirks::port(url),
+                "pathname" => url::quirks::pathname(url),
+                "search" => url::quirks::search(url),
+                "hash" => url::quirks::hash(url),
                 _ => {
                     return Err(V8BindingError::Unsupported {
                         interface: interface.into(),
@@ -16224,7 +16325,7 @@ fn get_platform_attribute<'s>(
                     });
                 }
             };
-            v8_string(scope, &value)
+            v8_string(scope, value)
         }
         (PlatformObjectRecord::Blob(blob), "Blob", "size") => {
             Ok(v8::Number::new(scope, blob.bytes.len() as f64).into())
@@ -16945,17 +17046,63 @@ fn set_platform_attribute(
     value: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
     let id = stateful_id(scope, object)?;
-    if interface == "URL" && member == "href" {
-        let href = value.to_rust_string_lossy(scope);
-        let parsed = Url::parse(&href).map_err(|_| V8BindingError::Unsupported {
-            interface: "URL".into(),
-            member: "TypeError".into(),
-        })?;
+    if interface == "Location" {
+        return location::set(scope, state, id, member, value);
+    }
+    if interface == "URL" {
+        if !matches!(&*platform_object(state, id)?, PlatformObjectRecord::Url(_)) {
+            return Err(V8BindingError::Unsupported {
+                interface: "URL".into(),
+                member: "TypeError".into(),
+            });
+        }
+        let input = value
+            .to_string(scope)
+            .ok_or(V8BindingError::JavaScriptException)?
+            .to_rust_string_lossy(scope);
         let mut record = platform_object_mut(state, id)?;
         let PlatformObjectRecord::Url(url) = &mut *record else {
             return Err(V8BindingError::Allocation("URL record"));
         };
-        *url = parsed;
+        // The URL crate's quirks module implements the web API setter
+        // algorithms, including invalid-input no-ops and component encoding.
+        match member {
+            "href" => {
+                url::quirks::set_href(url, &input).map_err(|_| V8BindingError::Unsupported {
+                    interface: "URL".into(),
+                    member: "TypeError".into(),
+                })?
+            }
+            "protocol" => {
+                let _ = url::quirks::set_protocol(url, &input);
+            }
+            "username" => {
+                let _ = url::quirks::set_username(url, &input);
+            }
+            "password" => {
+                let _ = url::quirks::set_password(url, &input);
+            }
+            "host" => {
+                let _ = url::quirks::set_host(url, &input);
+            }
+            "hostname" => {
+                let _ = url::quirks::set_hostname(url, &input);
+            }
+            "port" => {
+                let _ = url::quirks::set_port(url, &input);
+            }
+            "pathname" => url::quirks::set_pathname(url, &input),
+            "search" => url::quirks::set_search(url, &input),
+            "hash" => url::quirks::set_hash(url, &input),
+            _ => {
+                return Err(V8BindingError::Unsupported {
+                    interface: interface.into(),
+                    member: member.into(),
+                });
+            }
+        }
+        drop(record);
+        url_objects::refresh(state, id)?;
         return Ok(());
     }
     if let Some(event_type) = member.strip_prefix("on") {
@@ -17359,6 +17506,13 @@ fn call_platform_operation<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let id = stateful_id(scope, object)?;
+    if interface == "Location" {
+        return location::operation(scope, state, id, member, args);
+    }
+    if interface == "URLSearchParams" {
+        return url_objects::operation(scope, state, id, member, args);
+    }
+
     match (interface, member) {
         ("FileReader", "readAsArrayBuffer" | "readAsText" | "readAsDataURL") => {
             let blob = args
@@ -17570,7 +17724,7 @@ fn call_platform_operation<'s>(
             let resolver = v8::PromiseResolver::new(scope)
                 .ok_or(V8BindingError::Allocation("IDBFactory.databases resolver"))?;
             let promise = resolver.get_promise(scope);
-            if current_platform_origin(scope) == "null" {
+            if current_platform_origin(state) == "null" {
                 let exception = dom_exception_value(scope, "SecurityError")?;
                 resolver.reject(scope, exception);
                 return Ok(Some(promise.into()));
@@ -17578,7 +17732,7 @@ fn call_platform_operation<'s>(
             submit_platform_operation(
                 state,
                 PlatformHostRequest::IndexedDb {
-                    origin: current_platform_origin(scope),
+                    origin: current_platform_origin(state),
                     command: IdbHostCommand::ListDatabases,
                 },
                 PendingPlatformOperation::IdbDatabases {
@@ -29068,7 +29222,7 @@ mod tests {
             let script = format!(
                 "const insertionMethod = {method:?};\n{}",
                 r#"
-                globalThis.location = {href:'https://example.test/page', origin:'https://example.test'};
+                globalThis.location.href='https://example.test/page';
                 const initial = document.createElement('meta');
                 initial.name = 'referrer'; initial.content = 'unsafe-url'; document.head.appendChild(initial);
                 const before = document.createElement('script'), after = document.createElement('script');
@@ -29300,6 +29454,227 @@ mod tests {
     }
 
     #[test]
+    fn generated_url_location_owns_descriptors_and_navigation() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state
+            .commit_location("https://example.test/a/start")
+            .unwrap();
+        let source = v8::String::new(scope, r#"
+          (()=>{
+            const eq=(a,b,label)=>{if(a!==b)throw Error(label+': '+a+' != '+b)};
+            const throws=(name,fn)=>{try{fn()}catch(e){eq(e.name,name,'exception');return}throw Error('missing '+name)};
+            eq(location,globalThis.location,'same object');eq(location,document.location,'document owner');
+            eq(Object.getPrototypeOf(location),Location.prototype,'prototype');
+            throws('TypeError',()=>new Location());
+            eq(location.toJSON,undefined,'not a URL object');
+            eq(Object.hasOwn(Location.prototype,'toString'),false,'stringifier on instance');
+            eq(Object.hasOwn(Location.prototype,'valueOf'),false,'valueOf on instance');
+            for(const key of ['toString','assign','replace','reload']){
+              const d=Object.getOwnPropertyDescriptor(location,key);
+              eq(d.enumerable,true,key+' enumerable');eq(d.writable,false,key+' readonly');eq(d.configurable,false,key+' permanent');
+            }
+            for(const key of ['valueOf',Symbol.toPrimitive]){
+              const d=Object.getOwnPropertyDescriptor(location,key);
+              eq(d.enumerable,false,'special enumerable');eq(d.writable,false,'special writable');eq(d.configurable,false,'special configurable');
+            }
+            eq(location.valueOf,Object.prototype.valueOf,'intrinsic valueOf');
+            eq(location[Symbol.toPrimitive],undefined,'primitive value');
+            throws('TypeError',()=>Object.defineProperty(location,'toString',{get(){}}));
+            throws('TypeError',()=>Object.setPrototypeOf(location,{}));
+            eq(Reflect.setPrototypeOf(location,Location.prototype),true,'same prototype');
+            eq(Reflect.preventExtensions(location),false,'cannot prevent extensions');
+            eq(Object.isExtensible(location),true,'still extensible');
+            location.extra=42;eq(location.extra,42,'extension');
+            throws('TypeError',()=>location.toString.call({}));
+            const marker={};let converted=false;
+            throws('TypeError',()=>location.assign.call({}, {toString(){converted=true;throw marker}}));
+            eq(converted,false,'brand before conversion');
+            location.hash='hello world';eq(location.hash,'#hello%20world','hash encoding');
+            location.pathname='/a/../b c';eq(location.pathname,'/b%20c','path parsing');
+            throws('SyntaxError',()=>{location.protocol=':'});
+            throws('SyntaxError',()=>location.assign('http://:'));
+            location.replace('/replacement?q=one');
+            eq(location.href,'https://example.test/replacement?q=one','replace URL');
+            return 'ok';
+          })()
+        "#).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let result = v8::Script::compile(scope, source, None).unwrap().run(scope);
+        let error = scope.exception().map(|e| e.to_rust_string_lossy(scope));
+        assert!(result.is_some(), "{error:?}");
+        assert_eq!(result.unwrap().to_rust_string_lossy(scope), "ok");
+        let navigation = state.take_location_navigation().unwrap();
+        assert_eq!(navigation.url, "https://example.test/replacement?q=one");
+        assert!(navigation.replace);
+        assert!(!navigation.reload);
+        state
+            .commit_location("https://example.test/committed")
+            .unwrap();
+        assert!(state.take_location_navigation().is_none());
+    }
+
+    #[test]
+    fn generated_url_components_use_web_parser_and_setter_semantics() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            const errors=[];
+            const equal=(actual,expected,label)=>{
+              if(actual!==expected)errors.push(label+': '+actual+' != '+expected);
+            };
+            const u=new URL('https://user:pw@EXAMPLE.test:443/a?q=one#old');
+            equal(u.host,'example.test','default port');
+            u.hash='hello world';equal(u.hash,'#hello%20world','fragment encoding');
+            u.hash='#';equal(u.hash,'','empty fragment getter');
+            equal(u.href.endsWith('#'),true,'empty fragment retained in URL');
+            u.search='?';equal(u.search,'','empty query getter');
+            u.search='a=b c';equal(u.search,'?a=b%20c','query encoding');
+            u.pathname='/b c/../d';equal(u.pathname,'/d','path normalization');
+            u.protocol='http';equal(u.protocol,'http:','scheme setter');
+            u.username='a b';equal(u.username,'a%20b','username encoding');
+            u.password='p@ss';equal(u.password,'p%40ss','password encoding');
+            u.hostname='[::1]';equal(u.hostname,'[::1]','IPv6 host');
+            u.port='80';equal(u.port,'','new scheme default port');
+            u.host='example.test:8080';equal(u.port,'8080','host port');
+            u.port='invalid';equal(u.port,'8080','invalid port no-op');
+            u.hostname='[';equal(u.hostname,'example.test','invalid host no-op');
+            const old=u.href;let invalid=false;
+            try{u.href='not an absolute URL'}catch(e){invalid=e instanceof TypeError}
+            equal(invalid,true,'invalid href throws');equal(u.href,old,'invalid href atomic');
+            const opaque=new URL('mailto:person@example.test');
+            opaque.pathname='other';opaque.protocol='https';opaque.username='user';
+            equal(opaque.href,'mailto:person@example.test','opaque setter restrictions');
+            equal(new URL('../next?q=a b','https://example.test/history/page.html').href,
+              'https://example.test/next?q=a%20b','relative URL parser');
+            u.hash='\ud800';equal(u.hash,'#%EF%BF%BD','USVString conversion');
+            equal(new URL('https://example.test/\ud800').pathname,'/%EF%BF%BD','constructor USVString conversion');
+            const marker={};let conversion=false;
+            try{u.hash={toString(){throw marker}}}catch(e){conversion=e===marker}
+            equal(conversion,true,'conversion exception preserved');
+            errors.length?errors.join('\n'):'ok';
+        "#,
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(script.run(scope).unwrap().to_rust_string_lossy(scope), "ok");
+    }
+
+    #[test]
+    fn generated_url_search_params_are_live_native_lists() {
+        initialize_v8();
+        let parsed = html::parse("<main></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+          const errors=[];const eq=(a,b,label)=>{if(a!==b)errors.push(label+': '+a+' != '+b)};
+          const p=new URLSearchParams('?a=1&a=2&space=a+b&bad=%FF');
+          eq(p instanceof URLSearchParams,true,'native brand');eq(p.size,4,'size');
+          eq(p.getAll('a').join(','),'1,2','duplicates');eq(p.get('space'),'a b','plus decoding');
+          eq(p.get('bad'),'\ufffd','replacement decoding');
+          p.set('a','3');p.append('a','4');p.delete('a','3');
+          eq(p.getAll('a').join(','),'4','value deletion');eq(p.has('a','3'),false,'value has');
+          const encoded=new URLSearchParams([['x','a ~!*']]);eq(String(encoded),'x=a+%7E%21*','form encoding');
+          const sorted=new URLSearchParams([['\ufffd','last'],['\ud834\udd1e','first'],['a','1'],['a','2']]);
+          sorted.sort();eq([...sorted.values()].join(','),'1,2,first,last','stable UTF16 sorting');
+          const u=new URL('https://example.test/?x=a%20b');const saved=u.searchParams;
+          eq(saved,u.searchParams,'same object');saved.append('y','~');
+          eq(u.search,'?x=a+b&y=%7E','query list updates URL');
+          u.search='?z=1';eq(saved.get('z'),'1','URL setter updates retained list');
+          u.href='https://example.test/?q=2';eq(saved.get('q'),'2','href updates retained list');
+          saved.delete('q');eq(u.search,'','last item clears query');eq(u.href,'https://example.test/','query removed');
+          const live=new URLSearchParams('a=1&b=2');const it=live.entries();
+          eq(Object.prototype.toString.call(it),'[object URLSearchParams Iterator]','iterator brand');
+          eq(it[Symbol.iterator](),it,'iterator self');eq(live[Symbol.iterator],live.entries,'default iterator identity');
+          eq(it.next().value.join(','),'a,1','first pair');live.set('b','3');
+          eq(it.next().value.join(','),'b,3','live iterator');eq(it.next().done,true,'exhausted');
+          live.append('c','4');eq(it.next().value.join(','),'c,4','iterator observes appended item after exhaustion');
+          const seen=[];const each=new URLSearchParams('a=1');const receiver={};
+          each.forEach(function(value,key,owner){eq(this,receiver,'callback this');eq(owner,each,'callback owner');seen.push(key);if(key==='a')each.append('b','2')},receiver);
+          eq(seen.join(','),'a,b','live callback list');
+          const trace=[];const marker={};
+          const init={*[Symbol.iterator](){try{yield [{toString(){throw marker}},'x']}finally{trace.push('closed')}}};
+          let preserved=false;try{new URLSearchParams(init)}catch(e){preserved=e===marker}
+          eq(preserved,true,'conversion exception');eq(trace.join(','),'closed','iterator close');
+          const record=Object.create({inherited:'no'});record.a='1';Object.defineProperty(record,'hidden',{value:'no'});
+          eq(String(new URLSearchParams(record)),'a=1','own enumerable record properties');
+          eq(String(new URLSearchParams(null)),'null=','null string conversion');
+          let conversions=0;const hostile={toString(){conversions++;return 'x'}};
+          let brand=false;try{URLSearchParams.prototype.append.call(u,hostile,'x')}catch(e){brand=e instanceof TypeError}
+          eq(brand,true,'query method brand');eq(conversions,0,'query brand before conversion');
+          brand=false;try{Object.getOwnPropertyDescriptor(URL.prototype,'hash').set.call(p,hostile)}catch(e){brand=e instanceof TypeError}
+          eq(brand,true,'URL setter brand');eq(conversions,0,'URL brand before conversion');
+          errors.length?errors.join('\n'):'ok';
+        "#).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(script.run(scope).unwrap().to_rust_string_lossy(scope), "ok");
+    }
+
+    #[test]
+    fn generated_url_objects_preserve_foreign_receiver_ownership() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let first = v8::Context::new(scope, Default::default());
+        let foreign = {
+            let scope = &mut v8::ContextScope::new(scope, first);
+            let dom = Rc::new(RefCell::new(
+                html::parse("<main></main>").into_runtime().unwrap(),
+            ));
+            install_generated_bindings(scope, first, dom, RealmId(0), 1).unwrap();
+            let source = v8::String::new(scope, "[URLSearchParams.prototype.entries,Object.getOwnPropertyDescriptor(URL.prototype,'searchParams').get,Object.getPrototypeOf(new URLSearchParams().entries())]").unwrap();
+            let value = v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            v8::Global::new(scope, value)
+        };
+        let second = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, second);
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        install_generated_bindings(scope, second, dom, RealmId(1), 1).unwrap();
+        let foreign = v8::Local::new(scope, foreign);
+        let global = second.global(scope);
+        set_object_property(scope, global, "foreign", foreign).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            const p=new URLSearchParams('a=1');const it=foreign[0].call(p);
+            const u=new URL('https://example.test/?q=2');const params=foreign[1].call(u);
+            [it.next().value.join(','),Object.getPrototypeOf(it)===foreign[2],
+             Object.getPrototypeOf(p.entries())!==foreign[2],params instanceof URLSearchParams,
+             params===u.searchParams,params.get('q')].join('|');
+        "#,
+        )
+        .unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(
+            script.run(scope).unwrap().to_rust_string_lossy(scope),
+            "a,1|true|true|true|true|2"
+        );
+    }
+
+    #[test]
     fn generated_history_owns_state_urls_and_traversal() {
         initialize_v8();
         let parsed = html::parse("<main></main>");
@@ -29311,7 +29686,7 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "globalThis.location={href:'https://example.test/start'};const events=[];globalThis.dispatchEvent=event=>{events.push([event.type,event.state,event.oldURL,event.newURL]);return true};history.pushState({step:1},'', '/next#one');const first=history.state;first.step=9;history.replaceState({step:2},'', '#two');history.back();[history instanceof History,history.length,history.state,location.href,events[0][0],events[1][0],first.step].join('|')",
+            "globalThis.location.href='https://example.test/start';const events=[];globalThis.dispatchEvent=event=>{events.push([event.type,event.state,event.oldURL,event.newURL]);return true};history.pushState({step:1},'', '/next#one');const first=history.state;first.step=9;history.replaceState({step:2},'', '#two');history.back();[history instanceof History,history.length,history.state,location.href,events[0][0],events[1][0],first.step].join('|')",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
@@ -29387,9 +29762,10 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/").unwrap();
         let source = v8::String::new(
             scope,
-            "globalThis.location={origin:'https://example.test'};let result='';const blob=new Blob(['oryn'],{type:'text/plain'});const url=__oryn_blob_url_create(blob);const xhr=new XMLHttpRequest();xhr.open('GET',url,true);xhr.onload=()=>result+='xhr:'+xhr.responseText+':'+xhr.getResponseHeader('content-type')+'|';xhr.send();fetch(url).then(response=>response.text()).then(text=>result+='fetch:'+text);",
+            "let result='';const blob=new Blob(['oryn'],{type:'text/plain'});const url=__oryn_blob_url_create(blob);const xhr=new XMLHttpRequest();xhr.open('GET',url,true);xhr.onload=()=>result+='xhr:'+xhr.responseText+':'+xhr.getResponseHeader('content-type')+'|';xhr.send();fetch(url).then(response=>response.text()).then(text=>result+='fetch:'+text);",
         )
         .unwrap();
         v8::Script::compile(scope, source, None)
@@ -29451,7 +29827,7 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
-        let source = v8::String::new(scope, "globalThis.location={href:'https://example.test/app',origin:'https://example.test'};let result='';const controller=new AbortController();controller.signal.addEventListener('abort',()=>result+='abort|');controller.abort('stop');fetch('/data').then(response=>{result+=response.status+'|'+response.ok+'|'+response.headers.get('content-type')});const opened=indexedDB.open('app',2);opened.onupgradeneeded=()=>result+='|upgrade';opened.onsuccess=()=>result+='|db:'+opened.result.version;").unwrap();
+        let source = v8::String::new(scope, "globalThis.location.href='https://example.test/app';let result='';const controller=new AbortController();controller.signal.addEventListener('abort',()=>result+='abort|');controller.abort('stop');fetch('/data').then(response=>{result+=response.status+'|'+response.ok+'|'+response.headers.get('content-type')});const opened=indexedDB.open('app',2);opened.onupgradeneeded=()=>result+='|upgrade';opened.onsuccess=()=>result+='|db:'+opened.result.version;").unwrap();
         v8::Script::compile(scope, source, None)
             .unwrap()
             .run(scope)
@@ -29483,7 +29859,7 @@ mod tests {
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(scope, r#"
-            globalThis.location={href:'https://example.test/',origin:'https://example.test'};
+            globalThis.location.href='https://example.test/';
             const completionOrder=[];
             const completing=indexedDB.open('completion-state',2);
             let completedDatabase;
@@ -29533,7 +29909,7 @@ mod tests {
         let source = v8::String::new(
             scope,
             r#"
-            globalThis.location={href:'https://example.test/',origin:'https://example.test'};
+            globalThis.location.href='https://example.test/';
             const deliveryOrder=[];
             function recordDelivery(label) {
                 deliveryOrder.push(label);
@@ -29592,7 +29968,7 @@ mod tests {
         let source = v8::String::new(
             scope,
             r#"
-            globalThis.location={href:'https://example.test/',origin:'https://example.test'};
+            globalThis.location.href='https://example.test/';
             const abortOrder=[];
             const opening=indexedDB.open('deferred-abort',2);
             opening.onupgradeneeded=()=>{
@@ -29811,7 +30187,7 @@ mod tests {
         let source = v8::String::new(
             scope,
             r#"
-            globalThis.location={href:'https://example.test/',origin:'https://example.test'};
+            globalThis.location.href='https://example.test/';
             let cloneChecks=0;
             const opening=indexedDB.open('getter-exceptions',2);
             opening.onupgradeneeded=()=>{
@@ -29965,7 +30341,7 @@ mod tests {
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(scope, r#"
-            globalThis.location={href:'https://example.test/',origin:'https://example.test'};
+            globalThis.location.href='https://example.test/';
             let result=[];
             const open=indexedDB.open('bulk',1);
             open.onupgradeneeded=()=>{
@@ -30014,9 +30390,10 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        state.commit_location("https://example.test/").unwrap();
         let source = v8::String::new(
             scope,
-            "globalThis.location={origin:'https://example.test'};let result='';indexedDB.databases().then(values=>result=values.map(value=>value.name+':'+value.version).join('|'))",
+            "let result='';indexedDB.databases().then(values=>result=values.map(value=>value.name+':'+value.version).join('|'))",
         )
         .unwrap();
         v8::Script::compile(scope, source, None)
@@ -30169,7 +30546,7 @@ mod tests {
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(
             scope,
-            "globalThis.location={href:'https://example.test/',origin:'https://example.test'};let result='';const request=indexedDB.open('abort-me',2);request.onupgradeneeded=e=>{result=(e instanceof Event)+'|'+(e instanceof IDBVersionChangeEvent)+'|'+e.target.transaction.mode+'|'+(e.target.transaction.db===e.target.result);e.target.transaction.onabort=event=>result+='|abort:'+event.target.db.version;e.target.transaction.abort()};request.onerror=e=>result+='|error:'+e.target.error.name+'|'+String(e.target.transaction)",
+            "globalThis.location.href='https://example.test/';let result='';const request=indexedDB.open('abort-me',2);request.onupgradeneeded=e=>{result=(e instanceof Event)+'|'+(e instanceof IDBVersionChangeEvent)+'|'+e.target.transaction.mode+'|'+(e.target.transaction.db===e.target.result);e.target.transaction.onabort=event=>result+='|abort:'+event.target.db.version;e.target.transaction.abort()};request.onerror=e=>result+='|error:'+e.target.error.name+'|'+String(e.target.transaction)",
         )
         .unwrap();
         v8::Script::compile(scope, source, None)
@@ -30205,7 +30582,7 @@ mod tests {
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(scope, r#"
-            globalThis.location={href:'https://example.test/',origin:'https://example.test'};
+            globalThis.location.href='https://example.test/';
             let result=''; const request=indexedDB.open('rename',1);
             request.onupgradeneeded=()=>{
                 const db=request.result, tx=request.transaction, store=db.createObjectStore('books');
@@ -30250,7 +30627,7 @@ mod tests {
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
         let source = v8::String::new(
             scope,
-            "globalThis.location={href:'https://example.test/',origin:'https://example.test'};let result='',db;const request=indexedDB.open('close-me',1);request.onupgradeneeded=e=>{db=e.target.result;db.createObjectStore('items');db.close();e.target.transaction.oncomplete=()=>result+='complete|'};request.onsuccess=()=>result+='success';request.onerror=e=>{result+='error:'+e.target.error.name+'|'+e.bubbles+'|'+e.cancelable+'|'+e.isTrusted;try{db.transaction('items')}catch(error){result+='|'+error.name}}",
+            "globalThis.location.href='https://example.test/';let result='',db;const request=indexedDB.open('close-me',1);request.onupgradeneeded=e=>{db=e.target.result;db.createObjectStore('items');db.close();e.target.transaction.oncomplete=()=>result+='complete|'};request.onsuccess=()=>result+='success';request.onerror=e=>{result+='error:'+e.target.error.name+'|'+e.bubbles+'|'+e.cancelable+'|'+e.isTrusted;try{db.transaction('items')}catch(error){result+='|'+error.name}}",
         )
         .unwrap();
         v8::Script::compile(scope, source, None)
@@ -30288,7 +30665,7 @@ mod tests {
         let script = v8::String::new(
             scope,
             r#"
-            globalThis.location = {href:'https://example.test/',origin:'https://example.test'};
+            globalThis.location.href='https://example.test/';
             globalThis.events = []; globalThis.connections = [];
             function open(version) {
                 const request = indexedDB.open('queue', version);
@@ -30926,7 +31303,7 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
-        let source = v8::String::new(scope, "globalThis.location={href:'https://example.test/app',origin:'https://example.test'};const states=[];let xhrResult='';const xhr=new XMLHttpRequest();xhr.onreadystatechange=()=>states.push(xhr.readyState);xhr.onload=()=>xhrResult=states.join(',')+'|'+xhr.status+'|'+xhr.responseText;xhr.open('GET','/data');xhr.send();").unwrap();
+        let source = v8::String::new(scope, "globalThis.location.href='https://example.test/app';const states=[];let xhrResult='';const xhr=new XMLHttpRequest();xhr.onreadystatechange=()=>states.push(xhr.readyState);xhr.onload=()=>xhrResult=states.join(',')+'|'+xhr.status+'|'+xhr.responseText;xhr.open('GET','/data');xhr.send();").unwrap();
         v8::Script::compile(scope, source, None)
             .unwrap()
             .run(scope)
@@ -30956,7 +31333,7 @@ mod tests {
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         state.set_platform_host(Rc::new(TestPlatformHost::default()));
-        let source = v8::String::new(scope, "globalThis.location={href:'https://example.test/app',origin:'https://example.test'};let cancelled='';const controller=new AbortController();fetch('/data',{signal:controller.signal}).catch(reason=>cancelled+='fetch:'+reason);controller.abort('stop');const xhr=new XMLHttpRequest();xhr.onabort=()=>cancelled+='|xhr:abort';xhr.onload=()=>cancelled+='|xhr:load';xhr.open('GET','/data');xhr.send();xhr.abort();").unwrap();
+        let source = v8::String::new(scope, "globalThis.location.href='https://example.test/app';let cancelled='';const controller=new AbortController();fetch('/data',{signal:controller.signal}).catch(reason=>cancelled+='fetch:'+reason);controller.abort('stop');const xhr=new XMLHttpRequest();xhr.onabort=()=>cancelled+='|xhr:abort';xhr.onload=()=>cancelled+='|xhr:load';xhr.open('GET','/data');xhr.send();xhr.abort();").unwrap();
         v8::Script::compile(scope, source, None)
             .unwrap()
             .run(scope)
@@ -31743,7 +32120,7 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "globalThis.location={href:'https://fixture.test/app'};const button=document.getElementById('go');let events='';button.onfocus=()=>events+='focus';button.onblur=()=>events+=':blur';button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+(document.location===location)+'|'+focused+'|'+(document.activeElement===document.body)+'|'+events",
+            "globalThis.location.href='https://fixture.test/app';const button=document.getElementById('go');let events='';button.onfocus=()=>events+='focus';button.onblur=()=>events+=':blur';button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+(document.location===location)+'|'+focused+'|'+(document.activeElement===document.body)+'|'+events",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
