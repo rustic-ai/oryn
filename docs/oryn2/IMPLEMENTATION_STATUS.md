@@ -1,38 +1,34 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **2,944/4,022 (73.2%)**, **1,078 remaining**.
+> Latest full measurement: **2,948/4,022 (73.3%)**, **1,074 remaining**.
 
-The signed run at `f63e10c` passes **2,944/4,022 (73.2%)**, with **1,078 remaining**.
-It gains 14 whole tests versus `50993c3`, with no whole-test losses or observed
-assertion regressions. It corrects 99 existing assertions and exposes 62 additional
-passing names. All four previous candidate assertion regressions now pass.
+The signed run at `bd8e02a` passes **2,948/4,022 (73.3%)**, with **1,074 remaining**.
+It gains 16 whole tests and loses 12 versus `f63e10c`, a net gain of four.
+The 12 observed assertion regressions are IndexedDB upgrade-abort ordering failures.
+It corrects 81 existing assertions and exposes 11 additional passing names.
 The audit verifies exact inventory coverage, passing completions, source/binary
 fingerprints, and unchanged limits and sandbox boundaries.
 
 Five history port-name differences reconcile by complete normalized assertion
-multisets. Three newly unobserved assertions remain; 36 of the previous 84 gaps
-now pass and 48 remain absent. The combined tracked gap count is 51.
+multisets. There are 41 newly unobserved assertions; five of the previous 51 gaps
+now pass and 46 remain absent. The combined tracked gap count is 87.
 All 11 historical editing assertion regressions still fail.
 
-[Full evidence](CONFORMANCE-IDB-KEYS-FULL-2026-09-08.json) records the audit.
-Stylo remains the CSS engine. The integrated HTMLAllCollection/parser fixes and
-shared IndexedDB key transport are verified by this full run. IndexedDB gains
-12 whole tests and DOM gains two. Native key/storage evidence remains recorded in
-[the native proof](CONFORMANCE-IDB-KEYS-NATIVE-2026-09-08.json).
-These results do not establish complete conformance or qualification.
+[Full evidence](CONFORMANCE-IDB-EVENTS-FULL-2026-09-08.json) records the audit.
+Stylo remains the CSS engine. IndexedDB passes 357/456; other root totals are unchanged.
+The focused event/storage batch passed its native checks, but the full run exposed
+abort-ordering regressions; focused success did not establish overall correctness.
 
-The IndexedDB event, exception, sparse-array, range and key-injection batch now
-passes strict Clippy, 167 JavaScript tests (two existing ignores), 18 storage tests
-and 17 overlapping native IndexedDB checks. Eight unchanged fixtures pass all
-97 assertions with successful harness completion; see the
-[native evidence](CONFORMANCE-IDB-EVENTS-NATIVE-2026-09-08.json).
-Next: build and verify the signed candidate, measure all 4,022 executions, and audit
-whole-test and assertion deltas. Every remaining failure stays in scope.
+Next: validate the isolated transaction request-ordering, cancellation, microtask,
+and shared upgrade rollback fixes. Native gates are running; 29 unchanged pinned
+fixtures are prepared. These changes are not yet verified or promoted. Then build,
+sign, and measure the candidate against all 4,022 executions and audit all deltas.
+Every remaining failure stays in scope; complete conformance is not established.
 
 | Root | Passed / required |
 |---|---:|
-| IndexedDB | 353/456 |
+| IndexedDB | 357/456 |
 | WebIDL | 30/58 |
 | accname | 15/19 |
 | css/css-cascade | 54/97 |
@@ -44,7 +40,7 @@ whole-test and assertion deltas. Every remaining failure stays in scope.
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,078 failed IDs from this run.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,074 failed IDs from this run.
 
 ## P0 — complete
 
