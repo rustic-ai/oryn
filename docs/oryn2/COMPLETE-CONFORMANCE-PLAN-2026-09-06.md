@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `b40e1d1`, measured on 2026-09-08.
+Current full-run evidence: signed candidate `e83615c`, measured on 2026-09-08.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,60 +32,55 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `b40e1d1` passes **2,990/4,022 (74.3%)**, with **1,032 remaining**.
-It gains 10 whole tests and loses two versus `b074134`, for a net gain of eight.
-The losses are `IndexedDB/open-request-queue.any.js` in window and dedicated worker.
-No previously passing assertion was observed failing, but missing assertions remain
-unresolved and the whole-test losses are regressions. Both committed-upgrade
-lifecycle regressions from the previous candidate recover.
+The signed run at `e83615c` passes **3,012/4,022 (74.9%)**, with **1,010 remaining**.
+It gains 22 whole tests and loses none versus `b40e1d1`: 20 focus selector cases
+and both `IndexedDB/open-request-queue.any.js` globals. The focus subset passes
+37/61 in the signed worker, confirming the preceding native probe result.
 
 The audit validates exact inventory coverage, every passing completion, source and
-binary fingerprints, and unchanged limits and sandbox settings. It observes 12
-corrected existing assertions and 18 additional passing names. Five server-port
-name differences reconcile; 28 newly missing prior passes remain. Thirteen older
-gaps recover, 74 remain absent, and the combined tracked missing count is 102.
+binary fingerprints, and unchanged limits and sandbox settings. It observes no
+passing-to-failing assertion changes, 20 corrected existing assertions, and 11
+additional passing names. Five server-port name differences reconcile; 25 newly
+missing prior passes remain unresolved. Six older gaps recover, 96 remain absent,
+and the combined tracked missing count is 121. Missing assertions are not passes.
 All 11 historical editing assertion regressions still fail.
 
-[Full evidence](CONFORMANCE-IDB-SCHEDULING-FULL-2026-09-08.json) records the audit.
-Stylo remains the CSS engine. IndexedDB passes 399/456; other root totals are unchanged.
-Native validation and its narrower scope are recorded in
-[native evidence](CONFORMANCE-IDB-SCHEDULING-NATIVE-2026-09-08.json).
+[Full evidence](CONFORMANCE-FOCUS-VISIBLE-FULL-2026-09-08.json) records the audit.
+Stylo remains the CSS engine. IndexedDB passes 401/456 and css/selectors passes
+185/277; every other root total is unchanged. Pre-full native evidence is recorded
+[separately](CONFORMANCE-FOCUS-VISIBLE-NATIVE-2026-09-08.json).
 
-The next candidate connects native focus visibility to Stylo and DOM selector
-queries, preserves keyboard/pointer modality, and corrects the IndexedDB blocked
-request microtask ordering. Native gates pass. The focus probe passes 37/61 cases,
-including all 17 signed-baseline passes; this cross-mode comparison is not an
-overall gain. The queue/lifecycle probe passes 38/41, including open-request-queue.
-[Native evidence](CONFORMANCE-FOCUS-VISIBLE-NATIVE-2026-09-08.json) records every
-remaining probe failure and the exact source hashes. Next: build and verify the
-signed candidate, run all 4,022 executions, and audit assertion gains, regressions,
-and missing results. Cross-page scheduling and other lifecycle/focus gaps remain
-open. No next-candidate overall gain is established before that audit.
-Every remaining failure stays in scope; complete conformance is not established.
+Next: validate the isolated focus-event lifecycle draft. It adds canonical
+UIEvent/FocusEvent bindings, typed native focus events, bubbling focusin/focusout,
+constructor and legacy initialization behavior, and callback reentrancy handling.
+Formatting and generated checks pass; compilation and runtime tests are pending.
+Cross-page IndexedDB scheduling, remaining focus behavior, and every other failure
+stay in scope. Complete conformance is not established.
 
 | Root | Passed / required |
 |---|---:|
-| IndexedDB | 399/456 |
+| IndexedDB | 401/456 |
 | WebIDL | 30/58 |
 | accname | 15/19 |
 | css/css-cascade | 54/97 |
 | css/cssom | 95/190 |
-| css/selectors | 165/277 |
+| css/selectors | 185/277 |
 | dom | 400/662 |
 | editing | 389/704 |
 | html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,032 failed IDs from this run.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,010 failed IDs from this run.
 
 
 ## Immediate execution correction
 
-The latest batch gained 10 whole tests and lost two open-request queue executions.
-Diagnose and recover those queue regressions before the next candidate. Validate
-the already isolated focus-state integration draft, targeting the broader CSS
-backlog while keeping Stylo. Do not treat missing assertions as non-regressions.
+The latest batch gained 22 whole tests without whole-test losses. Validate the
+isolated typed focus-event and callback-transition implementation against native
+gates and all 61 pinned focus cases, retaining the 37 signed passes. Recheck the
+41 IndexedDB queue/lifecycle fixtures after JavaScript binding changes. Do not
+treat missing assertions as non-regressions or count uncompiled work as gains.
 
 The backlog now joins the durable [diagnosis ledger](CONFORMANCE-DIAGNOSES.json),
 keyed by inventory ID. A confirmed cause is bound to the full result hash, source
