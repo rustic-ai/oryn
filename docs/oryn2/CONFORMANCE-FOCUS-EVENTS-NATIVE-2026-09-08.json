@@ -1,0 +1,1198 @@
+{
+  "scope": "Native pre-full-run validation only; complete conformance unproven. Native probe mode differs from signed worker.",
+  "source_files_sha256": {
+    "crates/oryn-dom/src/lib.rs": "853ae284a119307fd3d4ccaff59f3e4913c7b7adf3c86cd72220ca2c4cf677e1",
+    "crates/oryn-layout/src/lib.rs": "310d4cae31bd81174287f58559af58eb04bb1c46d2f8dba0926335d621819c90",
+    "crates/oryn-native/src/runtime.rs": "f7305b83e0bf739e92a8b23ca95b802edaa6bccf83b85ad0e34afd5e60d48fbf",
+    "crates/oryn-native/src/rust_executable.rs": "d1da9b3b16713dd9b953dd00c4434c6a165c210380b93856942e7103c92f6081",
+    "crates/oryn-js/src/v8_bindings.rs": "09601f488b461db3a8da41dff839cb95c62fbc8e53ead920555a3efcef6c6a27",
+    "vendor/blitz-dom/src/stylo.rs": "00f6341557b737c4c412115dad90827a9c0e928994de21d69f11ae93e5047074",
+    "crates/oryn-layout/src/dom_queries.rs": "ab41e19970c251d7b8f738c9bd3bd79cbd758f470677525079b6b4aaed5c319b",
+    "crates/oryn-webidl/idl/browser.webidl": "4b27e77b0df205ced75af5de7ea8f423fac465c9e41c6ee486e4778122441d1c",
+    "crates/oryn-js/src/generated/browser.rs": "bd4579d623d49740783ecdeafef7bf98b11bac76d9e52392c47a990bf10cb038",
+    "vendor/blitz-dom/assets/default.css": "aac3a1b6436d35682ef1d4fae0212ebdbf29308135694cb1cb3b9b4611850928"
+  },
+  "gates": {
+    "strict_native_clippy": "passed",
+    "formatting": "passed",
+    "generated_bindings": "passed",
+    "layout_passed": 65,
+    "javascript_passed": 176,
+    "javascript_existing_ignored": 2,
+    "javascript_source": "unchanged from v20 passed gates",
+    "native_focus_passed": 3,
+    "native_keyboard_editing_passed": 1,
+    "native_passive_passed": 1
+  },
+  "focus": [
+    {
+      "fixture": "css/selectors/focus-display-none-001.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 0,
+      "total": 2,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "assert_false: Check input doesn't match ':focus' after getting 'display: none' expected false got true",
+          "name": "Test ':focus' after 'display:none' on input",
+          "status": 1
+        },
+        {
+          "message": "assert_false: Check input doesn't match ':focus' after parent got 'display: none' expected false got true",
+          "name": "Test ':focus' after 'display:none' on input's parent",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "css/selectors/focus-in-focus-event-001.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 3,
+      "total": 3,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-in-focusin-event-001.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 3,
+      "total": 3,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-001.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-002.html",
+      "valid_pass": false,
+      "complete": null,
+      "harness": null,
+      "passed": 0,
+      "total": 0,
+      "runtime_error": "wait predicate is not currently satisfied: SelectorExists(\"#oryn-wpt-result\")",
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-003.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 2,
+      "passed": 0,
+      "total": 0,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-004.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 2,
+      "passed": 0,
+      "total": 0,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-005.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-006.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 0,
+      "total": 1,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "Cannot read properties of undefined (reading 'then')",
+          "name": "Focus should always match :focus-visible on content editable divs",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "css/selectors/focus-visible-007.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 0,
+      "total": 1,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "assert_equals: expected \"rgb(0, 255, 0)\" but got \"rgba(0, 0, 0, 0)\"",
+          "name": "Using keyboard while element is focused should trigger :focus-visible; using mouse without moving focus should not cancel it; moving focus using mouse should cancel it.",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "css/selectors/focus-visible-008.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-009.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 0,
+      "total": 1,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "assert_equals: Should have correct focused element expected Element node <button autofocus=\"\" id=\"button\" tabindex=\"-1\">I will be ... but got Element node <body>\n  This test checks that any element focused via an...",
+          "name": "Autofocus should match :focus-visible",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "css/selectors/focus-visible-010.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-011.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-012.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-013.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 2,
+      "passed": 0,
+      "total": 0,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-014.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-015.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-016.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-017-2.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 38,
+      "total": 38,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-017.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-018-2.html",
+      "valid_pass": false,
+      "complete": null,
+      "harness": null,
+      "passed": 0,
+      "total": 0,
+      "runtime_error": "wait predicate is not currently satisfied: SelectorExists(\"#oryn-wpt-result\")",
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-018.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-019.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-020.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 2,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "assert_not_equals: backgroundColor for DIV#host should NOT be red got disallowed value \"rgb(255, 0, 0)\"",
+          "name": ":focus-visible doesn't match on ShadowRoot",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "css/selectors/focus-visible-021.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-022.tentative.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-023.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-024.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 3,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "assert_equals: outline-style for DIV#targetA should be solid expected \"solid\" but got \"none\"",
+          "name": ":focus-visible matches after accesskey on DIV",
+          "status": 1
+        },
+        {
+          "message": "assert_equals: outline-style for BUTTON#targetB should be solid expected \"solid\" but got \"none\"",
+          "name": ":focus-visible matches after accesskey on BUTTON",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "css/selectors/focus-visible-025.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 3,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "assert_equals: outline-style for DIV#targetA should be solid expected \"solid\" but got \"none\"",
+          "name": ":focus-visible matches after accesskey on DIV after previous mouse focus",
+          "status": 1
+        },
+        {
+          "message": "assert_equals: outline-style for DIV#initial should be none expected \"none\" but got \"solid\"",
+          "name": ":focus-visible matches after accesskey on BUTTON after previous mouse focus",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "css/selectors/focus-visible-026.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-027.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-028.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-001.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-002.tentative.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-003.tentative.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-004.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-005.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-006.tentative.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-007.tentative.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-008-b.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-008.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-009.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-010.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-011.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-012.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 2,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-013.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 2,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-014.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-015.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-016.tentative.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-017.tentative.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-018.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-019.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-visible-script-focus-020.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-within-009.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 12,
+      "total": 12,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-within-display-none-001.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 0,
+      "total": 2,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "assert_false: Check input doesn't match ':focus-within' after getting 'display: none' expected false got true",
+          "name": "Test ':focus-within' after 'display:none' on input",
+          "status": 1
+        },
+        {
+          "message": "assert_false: Check input doesn't match ':focus-within' after parent got 'display: none' expected false got true",
+          "name": "Test ':focus-within' after 'display:none' on input's parent",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "css/selectors/focus-within-focus-move.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-within-removal.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "css/selectors/focus-within-toplayer-001.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 0,
+      "total": 3,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "assert_false: ancestor outside top layer should not match :focus-within expected false got true",
+          "name": "Focusing inside a modal dialog should not propagate :focus-within beyond the dialog.",
+          "status": 1
+        },
+        {
+          "message": "popover.showPopover is not a function",
+          "name": "Focusing inside a popover should not propagate :focus-within beyond the popover.",
+          "status": 1
+        },
+        {
+          "message": "nestPopover.showPopover is not a function",
+          "name": "With nested top layer elements, :focus-within should stop at the innermost top layer boundary.",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "css/selectors/has-focus-display-change.html",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 0,
+      "total": 1,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "assert_equals: Focus can move to #second expected Element node <button id=\"second\">B</button> but got Element node <button id=\"first\">A</button>",
+          "name": ":has(:focus) doesn't cause focusability to be lost",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "css/selectors/parsing/parse-focus-visible.html",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 3,
+      "total": 3,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "observed": 61,
+      "expected": 61,
+      "passing_fixtures": 44,
+      "missing": []
+    }
+  ],
+  "indexeddb": [
+    {
+      "fixture": "IndexedDB/open-request-queue.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/abort-in-initial-upgradeneeded.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbcursor_advance_index.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 8,
+      "total": 8,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbcursor_continue_index.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 10,
+      "total": 10,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbindex-rename-abort.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbindex_get.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 8,
+      "total": 8,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbindex_getKey.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 8,
+      "total": 8,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbindex_openCursor.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 3,
+      "total": 3,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbindex_openKeyCursor.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 4,
+      "total": 4,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbobjectstore-rename-abort.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbobjectstore_add.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 16,
+      "total": 16,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbobjectstore_get.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 7,
+      "total": 7,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbobjectstore_put.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 16,
+      "total": 16,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/idbtransaction_abort.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 3,
+      "total": 3,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/key-conversion-exceptions.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 27,
+      "total": 27,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/keygenerator.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 21,
+      "total": 21,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/keypath-exceptions.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 6,
+      "total": 6,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request-abort-ordering.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request-event-ordering-large-mixed-with-small-values.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request-event-ordering-large-then-small-values.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request-event-ordering-large-values.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request-event-ordering-small-values.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/request_bubble-and-capture.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-abort-generator-revert.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-abort-index-metadata-revert.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 6,
+      "total": 6,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-abort-multiple-metadata-revert.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 3,
+      "total": 3,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-abort-object-store-metadata-revert.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 4,
+      "total": 4,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-abort-request-error.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-deactivation-timing.any.js",
+      "valid_pass": false,
+      "complete": true,
+      "harness": 0,
+      "passed": 4,
+      "total": 5,
+      "runtime_error": null,
+      "failures": [
+        {
+          "message": "assert_true: microtasks ran before second listener expected true got false",
+          "name": "Deactivation of new transactions happens at end of invocation",
+          "status": 1
+        }
+      ]
+    },
+    {
+      "fixture": "IndexedDB/transaction-lifetime-empty.any.js",
+      "valid_pass": false,
+      "complete": false,
+      "harness": null,
+      "passed": 0,
+      "total": 0,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-lifetime.any.js",
+      "valid_pass": false,
+      "complete": null,
+      "harness": null,
+      "passed": 0,
+      "total": 0,
+      "runtime_error": "Error: WorkerLimitExceeded { resource: \"generated platform operation wall time\" }",
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-scheduling-across-connections.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-scheduling-across-databases.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-scheduling-mixed-scopes.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-scheduling-ordering.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-scheduling-ro-waits-for-rw.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-scheduling-rw-scopes.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/transaction-scheduling-within-database.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 1,
+      "total": 1,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/upgrade-transaction-lifecycle-backend-aborted.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/upgrade-transaction-lifecycle-committed.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 2,
+      "total": 2,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "fixture": "IndexedDB/upgrade-transaction-lifecycle-user-aborted.any.js",
+      "valid_pass": true,
+      "complete": true,
+      "harness": 0,
+      "passed": 4,
+      "total": 4,
+      "runtime_error": null,
+      "failures": []
+    },
+    {
+      "observed": 41,
+      "expected": 41,
+      "passing_fixtures": 38,
+      "missing": []
+    }
+  ],
+  "focus_previous_probe_comparison": {
+    "scope": "Native probe delta, not signed overall gains",
+    "passed": 44,
+    "gains": [
+      "css/selectors/focus-visible-017-2.html",
+      "css/selectors/focus-visible-017.html"
+    ],
+    "losses": [],
+    "assertion_losses": []
+  },
+  "idb_previous_probe_comparison": {
+    "observed": 41,
+    "assertion_losses": []
+  },
+  "cross_mode_comparison": {
+    "signed_baseline_commit": "e83615c93232592e12e250ed3e10253c60c6ced7",
+    "signed_focus_passed": 37,
+    "native_focus_passed": 44,
+    "previous_signed_passes_missing_or_failing": 0,
+    "qualification": "Not an overall gain; requires signed full measurement."
+  },
+  "evidence_sha256": {
+    "artifacts/upstream-conformance/native-focus-events/conformance_focus_context_probe.rs": "8bdca0a0ac2914304a1d71218378a82b33fd87dce143414fadddb05d3c039f5c",
+    "artifacts/upstream-conformance/native-focus-events/conformance_idb_context_probe.rs": "252034748898af9114932c9fcea2e221872bf7f2b6d6dbe139ecc82029f2008a",
+    "artifacts/upstream-conformance/native-focus-events/oryn-focus-context-comparison-v7.json": "936864ca392b65a7e14e87e5681d9d79063e78f1db02f071165d3fec613f3c44",
+    "artifacts/upstream-conformance/native-focus-events/oryn-focus-context-fixtures-v7.log": "79cc3ddd572a8d5d5a849f41bdfcbfefc6d16208b36e553109b6034cdff13d96",
+    "artifacts/upstream-conformance/native-focus-events/oryn-focus-context-summary-v7.jsonl": "8d82b45d114a92ca6ca88fb7d3faf58242403e0c215398c4584583e225da6db3",
+    "artifacts/upstream-conformance/native-focus-events/oryn-focus-events-gates-v4.log": "950a05f93785a05365249cabecce3c6d02e0755fe03859d8800e04ba99642889",
+    "artifacts/upstream-conformance/native-focus-events/oryn-focus-outline-gates-v1.log": "5885087c2f4519550fc55573929abd3b186a575ffda83bea7f27ebe66d0a781d",
+    "artifacts/upstream-conformance/native-focus-events/oryn-focus-visible-draft-v21-source-hashes.json": "94ce559016a156fdc4e67a8fff07188802662773d0774c9e002bfa94935af6a5",
+    "artifacts/upstream-conformance/native-focus-events/oryn-idb-queue-context-comparison-v3.json": "fce54a7d1373853dc9325b2f21481cff35c4b7ced84a98b2f23d86dbc7bbb2d9",
+    "artifacts/upstream-conformance/native-focus-events/oryn-idb-queue-context-fixtures-v3.log": "a2b56f449d738036cfd84582899f03b4f9e7b0cb953c98e7aacd06f3342ad33a",
+    "artifacts/upstream-conformance/native-focus-events/oryn-idb-queue-context-summary-v3.jsonl": "5d5388caeef1a285e64d9c8f6295f6dc45cdd0e355058b46bca829273159827d",
+    "artifacts/upstream-conformance/native-focus-events/oryn-run-focus-context-fixtures.py": "32493407f7eee0ca6b6419a110ecb04912ab3a6afc8dc7cda5e44a2bd96a7fc7",
+    "artifacts/upstream-conformance/native-focus-events/oryn-run-idb-queue-context-fixtures.py": "a8807dfeafc8fd3fab24c0fbde290fbdd4fa6ba7d73dfa37676115a69d46be43",
+    "artifacts/upstream-conformance/native-focus-events/oryn-test-focus-events-gates-v1.py": "711ce00963646ffa237dc9a6da5e7af2142af72bf8b0ac103ab9100161106877",
+    "artifacts/upstream-conformance/native-focus-events/oryn-test-focus-outline-gates-v1.py": "16d1b685211d376507c62fffcbe9e5aa20d7f2cbb21de1440a0488b9a89704e2"
+  },
+  "remaining": "17 focus fixtures and 3 IDB fixtures fail/incomplete in native probes. All 1010 full-run failures remain open pending signed measurement. Inventory, fixtures, assertions, runtime limits, and sandbox settings unchanged. Stylo remains CSS engine."
+}

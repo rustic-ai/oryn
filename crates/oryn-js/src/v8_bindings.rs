@@ -1004,6 +1004,7 @@ pub struct V8BindingState {
     mutation_observers: RefCell<BTreeMap<u64, MutationObserverEntry>>,
     mutation_record_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     error_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
+    ui_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     message_event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     computed_style_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     event_brand: RefCell<Option<v8::Global<v8::Symbol>>>,
@@ -1072,6 +1073,7 @@ pub struct V8BindingState {
     parser_input_commands: RefCell<VecDeque<ParserInputCommand>>,
     document_open: Cell<bool>,
     design_mode: Cell<bool>,
+    focus_transition_revision: Cell<u64>,
     style_with_css: Cell<bool>,
     default_paragraph_separator: RefCell<String>,
     undo_history: RefCell<UndoHistory>,
@@ -3141,6 +3143,7 @@ pub fn install_generated_bindings_with_root_for_global(
         mutation_observers: RefCell::new(BTreeMap::new()),
         mutation_record_brand: RefCell::new(None),
         error_event_brand: RefCell::new(None),
+        ui_event_brand: RefCell::new(None),
         message_event_brand: RefCell::new(None),
         computed_style_brand: RefCell::new(None),
         event_brand: RefCell::new(None),
@@ -3226,6 +3229,7 @@ pub fn install_generated_bindings_with_root_for_global(
         parser_input_commands: RefCell::new(VecDeque::new()),
         document_open: Cell::new(false),
         design_mode: Cell::new(false),
+        focus_transition_revision: Cell::new(0),
         style_with_css: Cell::new(false),
         default_paragraph_separator: RefCell::new("div".into()),
         undo_history: RefCell::new(UndoHistory::default()),
@@ -3724,6 +3728,100 @@ pub fn install_generated_bindings_with_root_for_global(
     Ok(state)
 }
 
+fn tag_ui_event_object(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    object: v8::Local<v8::Object>,
+) {
+    let brand = {
+        let mut brand = state.ui_event_brand.borrow_mut();
+        if brand.is_none() {
+            let symbol = v8::Symbol::new(scope, None);
+            *brand = Some(v8::Global::new(scope, symbol));
+        }
+        v8::Local::new(scope, brand.as_ref().unwrap())
+    };
+    object.set_internal_field(3, brand.into());
+}
+
+fn create_focus_event_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    event_type: &str,
+    related_target: Option<NodeId>,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let event = create_event_object_with_interface(
+        scope,
+        state,
+        "FocusEvent",
+        event_type,
+        matches!(event_type, "focusin" | "focusout"),
+        false,
+    )?;
+    let data = v8::Array::new(scope, 4);
+    let view = state
+        .global_object
+        .to_local(scope)
+        .ok_or(V8BindingError::Allocation("focus event view"))?;
+    data.set_index(scope, 0, view.into());
+    let detail = v8::Integer::new(scope, 0);
+    data.set_index(scope, 1, detail.into());
+    let related = optional_node(scope, state, related_target)?;
+    data.set_index(scope, 2, related);
+    // Keep payload references traced by V8, with a native subtype marker.
+    // Script cannot replace readonly values through public backing properties.
+    event.set_internal_field(2, data.into());
+    let focus = v8::Boolean::new(scope, true);
+    data.set_index(scope, 3, focus.into());
+    tag_ui_event_object(scope, state, event);
+    let id = event_id(scope, event)?;
+    if let Some(record) = state.events.borrow_mut().get_mut(&id) {
+        record.is_trusted = true;
+        record.composed = true;
+    }
+    Ok(event)
+}
+
+fn ui_event_property<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    object: v8::Local<v8::Object>,
+    interface: &str,
+    member: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    event_id(scope, object)?;
+    let invalid = || V8BindingError::Allocation("UIEvent receiver");
+    let owner = binding_state_for_receiver(scope, object).ok_or_else(invalid)?;
+    let expected = owner
+        .ui_event_brand
+        .borrow()
+        .as_ref()
+        .map(|brand| v8::Local::new(scope, brand))
+        .ok_or_else(invalid)?;
+    let brand = object
+        .get_internal_field(scope, 3)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .ok_or_else(invalid)?;
+    if !brand.strict_equals(expected.into()) {
+        return Err(invalid());
+    }
+    let data = object
+        .get_internal_field(scope, 2)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
+        .ok_or_else(invalid)?;
+    let marker = data.get_index(scope, 3).ok_or_else(invalid)?;
+    if interface == "FocusEvent" && !marker.boolean_value(scope) {
+        return Err(invalid());
+    }
+    let index = match member {
+        "view" => 0,
+        "detail" => 1,
+        "relatedTarget" => 2,
+        _ => return Err(invalid()),
+    };
+    data.get_index(scope, index).ok_or_else(invalid)
+}
+
 fn focus_html_element(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -3740,14 +3838,38 @@ fn focus_html_element(
         state.dom.borrow_mut().set_focus_visible(false);
     }
     if previous != Some(node) {
+        let revision = state.focus_transition_revision.get().wrapping_add(1);
+        state.focus_transition_revision.set(revision);
         if let Some(previous) = previous {
             state.dom.borrow_mut().focus(None)?;
-            let event = create_event_object(scope, state, "blur", false, false)?;
+            let event = create_focus_event_object(scope, state, "blur", Some(node))?;
+            dispatch_event(scope, state, previous, event)?;
+            let event = create_focus_event_object(scope, state, "focusout", Some(node))?;
             dispatch_event(scope, state, previous, event)?;
         }
+        // A callback may focus another target, focus and then blur it, or
+        // detach this target. The interrupted transition must not overwrite
+        // the callback's focus decision or restore a detached element.
+        if state.focus_transition_revision.get() != revision
+            || !state.dom.borrow().is_connected(node)?
+        {
+            return Ok(());
+        }
         state.dom.borrow_mut().focus(Some(node))?;
-        let event = create_event_object(scope, state, "focus", false, false)?;
+        let event = create_focus_event_object(scope, state, "focus", previous)?;
         dispatch_event(scope, state, node, event)?;
+        if state.focus_transition_revision.get() != revision
+            || state.dom.borrow().focused() != Some(node)
+        {
+            return Ok(());
+        }
+        let event = create_focus_event_object(scope, state, "focusin", previous)?;
+        dispatch_event(scope, state, node, event)?;
+        if state.focus_transition_revision.get() != revision
+            || state.dom.borrow().focused() != Some(node)
+        {
+            return Ok(());
+        }
     }
     // A focused editing host has a usable caret even before script
     // explicitly creates a Selection. This is observable by keyboard
@@ -7914,6 +8036,193 @@ fn event_init_member<'s>(
     init.get(scope, key.into())
 }
 
+fn ui_event_nullable_target<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    value: v8::Local<'s, v8::Value>,
+    window_only: bool,
+) -> Option<v8::Local<'s, v8::Value>> {
+    if value.is_null_or_undefined() {
+        return Some(v8::null(scope).into());
+    }
+    let object = v8::Local::<v8::Object>::try_from(value).ok();
+    if let Some(object) = object {
+        let owners: Vec<_> = scope
+            .get_slot::<BindingStateRegistry>()
+            .map(|registry| {
+                registry
+                    .realms
+                    .borrow()
+                    .values()
+                    .filter_map(|owner| owner.upgrade())
+                    .collect()
+            })
+            .unwrap_or_default();
+        if global_events::is_global(scope, state, object)
+            || owners.iter().any(|owner| {
+                owner.binding_global == BindingGlobal::Window
+                    && global_events::is_global(scope, owner, object)
+            })
+        {
+            return Some(value);
+        }
+        if !window_only {
+            let owner = binding_state_for_receiver(scope, object).unwrap_or_else(|| state.clone());
+            if embedded_node_identity(scope, object).is_some()
+                && resolve_receiver(scope, &owner, object, "Node").is_ok()
+            {
+                return Some(value);
+            }
+            if is_platform_receiver(scope, &owner, object) {
+                let mut interface = stateful_id(scope, object)
+                    .ok()
+                    .and_then(|id| platform_interface_for_id(&owner, id));
+                while let Some(name) = interface {
+                    if name == "EventTarget" {
+                        return Some(value);
+                    }
+                    interface = GENERATED_INTERFACES
+                        .iter()
+                        .find(|entry| entry.name == name)
+                        .and_then(|entry| entry.parent);
+                }
+            }
+        }
+    }
+    throw_type_error(
+        scope,
+        if window_only {
+            "UIEvent view must be a Window or null"
+        } else {
+            "FocusEvent relatedTarget must be an EventTarget or null"
+        },
+    );
+    None
+}
+
+fn initialize_legacy_ui_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Option<()> {
+    if let Err(error) = ui_event_property(scope, args.this(), "UIEvent", "view") {
+        throw_type_error(scope, &error.to_string());
+        return None;
+    }
+    let event_type = args.get(0).to_string(scope)?;
+    let event_type = rust_string_preserving_utf16(scope, event_type).ok()?;
+    let bubbles = args.get(1).boolean_value(scope);
+    let cancelable = args.get(2).boolean_value(scope);
+    let view = ui_event_nullable_target(scope, state, args.get(3), true)?;
+    let detail = args.get(4).int32_value(scope)?;
+    let id = event_id(scope, args.this()).ok()?;
+    // Conversion can invoke script; check dispatch state only after conversion,
+    // without holding a mutable native borrow across JavaScript execution.
+    {
+        let mut events = state.events.borrow_mut();
+        let event = events.get_mut(&id)?;
+        if event.dispatching {
+            return Some(());
+        }
+        event.event_type = event_type;
+        event.bubbles = bubbles;
+        event.cancelable = cancelable;
+        event.default_prevented = false;
+        event.propagation_stopped = false;
+        event.immediate_stopped = false;
+        event.is_trusted = false;
+        event.target = None;
+        event.platform_target = None;
+        event.initialized = true;
+    }
+    let data = args
+        .this()
+        .get_internal_field(scope, 2)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())?;
+    data.set_index(scope, 0, view);
+    let detail = v8::Integer::new(scope, detail);
+    data.set_index(scope, 1, detail.into());
+    let empty = v8::undefined(scope);
+    args.this().set_internal_field(4, empty.into());
+    args.this().set_internal_field(5, empty.into());
+    Some(())
+}
+
+fn initialize_ui_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    name: &str,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Option<()> {
+    if args.length() == 0 {
+        throw_type_error(scope, "UIEvent constructor requires a type");
+        return None;
+    }
+    let event_type = args.get(0).to_string(scope)?;
+    let event_type = rust_string_preserving_utf16(scope, event_type).ok()?;
+    let init_value = args.get(1);
+    let init = if init_value.is_null_or_undefined() {
+        None
+    } else if init_value.is_object() {
+        Some(init_value.to_object(scope)?)
+    } else {
+        throw_type_error(scope, "UIEventInit must be an object, null, or undefined");
+        return None;
+    };
+    let bubbles = event_init_member(scope, init, "bubbles")?.boolean_value(scope);
+    let cancelable = event_init_member(scope, init, "cancelable")?.boolean_value(scope);
+    let composed = event_init_member(scope, init, "composed")?.boolean_value(scope);
+    let detail = event_init_member(scope, init, "detail")?.int32_value(scope)?;
+    let view = event_init_member(scope, init, "view")?;
+    let view = ui_event_nullable_target(scope, state, view, true)?;
+    let focus = name == "FocusEvent";
+    let related = if focus {
+        let value = event_init_member(scope, init, "relatedTarget")?;
+        ui_event_nullable_target(scope, state, value, false)?
+    } else {
+        v8::null(scope).into()
+    };
+    let data = v8::Array::new(scope, 4);
+    data.set_index(scope, 0, view);
+    let detail = v8::Integer::new(scope, detail);
+    data.set_index(scope, 1, detail.into());
+    data.set_index(scope, 2, related);
+    let focus = v8::Boolean::new(scope, focus);
+    data.set_index(scope, 3, focus.into());
+    let event_id = state.next_event_id.get();
+    state.next_event_id.set(event_id.saturating_add(1));
+    state.events.borrow_mut().insert(
+        event_id,
+        EventRecord {
+            time_stamp: state.performance_now(),
+            event_type,
+            target: None,
+            current_target: None,
+            platform_target: None,
+            platform_path: Vec::new(),
+            platform_current_target: None,
+            bubbles,
+            cancelable,
+            composed,
+            is_trusted: false,
+            default_prevented: false,
+            propagation_stopped: false,
+            immediate_stopped: false,
+            in_passive_listener: false,
+            dispatching: false,
+            initialized: true,
+            phase: 0,
+        },
+    );
+    args.this()
+        .set_internal_field(0, v8::Number::new(scope, event_id as f64).into());
+    tag_event_object(scope, state, args.this());
+    args.this().set_internal_field(2, data.into());
+    tag_ui_event_object(scope, state, args.this());
+    Some(())
+}
+
 fn initialize_error_event<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
@@ -8062,6 +8371,16 @@ fn generated_constructor<'s>(
             throw_type_error(scope, "MessageEvent constructor requires new");
         } else if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() {
             message_events::construct(scope, &state, &args);
+        } else {
+            throw_type_error(scope, "generated binding state is unavailable");
+        }
+        return;
+    }
+    if matches!(name, "UIEvent" | "FocusEvent") {
+        if !args.is_construct_call() {
+            throw_type_error(scope, "UIEvent constructor requires new");
+        } else if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>() {
+            initialize_ui_event(scope, &state, name, &args);
         } else {
             throw_type_error(scope, "generated binding state is unavailable");
         }
@@ -8751,6 +9070,13 @@ fn generated_attribute_getter(
         }
         return;
     }
+    if matches!(interface, "UIEvent" | "FocusEvent") {
+        match ui_event_property(scope, args.this(), interface, member) {
+            Ok(value) => return_value.set(value),
+            Err(error) => throw_type_error(scope, &error.to_string()),
+        }
+        return;
+    }
     if interface == "InputEvent" {
         let key = v8::String::new(scope, &format!("__oryn_{member}"))
             .expect("static InputEvent backing key");
@@ -9204,6 +9530,12 @@ fn generated_operation_impl<'s>(
             Ok(Some(value)) => return_value.set(value),
             Ok(None) => return_value.set(v8::undefined(scope).into()),
             Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
+    if interface == "UIEvent" && member == "initUIEvent" {
+        if initialize_legacy_ui_event(scope, &state, &args).is_some() {
+            return_value.set(v8::undefined(scope).into());
         }
         return;
     }
@@ -22984,9 +23316,52 @@ fn get_attribute_value<'s>(
     if interface == "Document" && member == "currentScript" {
         return optional_node(scope, state, state.current_script.get());
     }
-    if interface == "Document" && member == "activeElement" {
-        let focused = state.dom.borrow().focused();
-        return optional_node(scope, state, focused);
+    if matches!(interface, "Document" | "ShadowRoot") && member == "activeElement" {
+        let active = {
+            let dom = state.dom.borrow();
+            if interface == "Document" && node != state.document {
+                None
+            } else {
+                let mut active = None;
+                if let Some(focused) = dom.focused() {
+                    let mut target = focused;
+                    let mut current = Some(focused);
+                    while let Some(cursor) = current {
+                        if cursor == node {
+                            active = Some(target);
+                            break;
+                        }
+                        let record = dom.arena().get(cursor)?;
+                        if matches!(record.kind, NodeKind::ShadowRoot { .. })
+                            && let Some(host) = record.parent
+                        {
+                            target = host;
+                        }
+                        current = record.parent;
+                    }
+                }
+                if active.is_none()
+                    && interface == "Document"
+                    && let Some(root) = dom.first_element_child(node)?
+                {
+                    let record = dom.arena().get(root)?;
+                    let body = if matches!(&record.kind, NodeKind::Element { name }
+                            if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "html")
+                    {
+                        record.children.iter().copied().find(|child| {
+                                dom.arena().get(*child).is_ok_and(|child| matches!(&child.kind,
+                                    NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                                        && matches!(name.local.as_ref(), "body" | "frameset")))
+                            })
+                    } else {
+                        None
+                    };
+                    active = body.or(Some(root));
+                }
+                active
+            }
+        };
+        return optional_node(scope, state, active);
     }
     if interface == "Document" && member == "designMode" {
         return v8_string(scope, if state.design_mode.get() { "on" } else { "off" });
@@ -24619,6 +24994,10 @@ fn call_operation<'s>(
                 "CustomEvent"
             } else if requested == "messageevent" {
                 "MessageEvent"
+            } else if matches!(requested.as_str(), "uievent" | "uievents") {
+                "UIEvent"
+            } else if requested == "focusevent" {
+                "FocusEvent"
             } else {
                 "Event"
             };
@@ -24627,6 +25006,18 @@ fn call_operation<'s>(
             if interface == "MessageEvent" {
                 message_events::initialize_empty(scope, state, event)
                     .ok_or(V8BindingError::Allocation("MessageEvent payload"))?;
+            }
+            if matches!(interface, "UIEvent" | "FocusEvent") {
+                let data = v8::Array::new(scope, 4);
+                let null = v8::null(scope);
+                data.set_index(scope, 0, null.into());
+                let zero = v8::Integer::new(scope, 0);
+                data.set_index(scope, 1, zero.into());
+                data.set_index(scope, 2, null.into());
+                let focus = v8::Boolean::new(scope, interface == "FocusEvent");
+                data.set_index(scope, 3, focus.into());
+                event.set_internal_field(2, data.into());
+                tag_ui_event_object(scope, state, event);
             }
             let id = event_id(scope, event)?;
             state.events.borrow_mut().get_mut(&id).unwrap().initialized = false;
@@ -26433,8 +26824,13 @@ fn call_operation<'s>(
         }
         ("HTMLElement", "blur") => {
             if state.dom.borrow().focused() == Some(node) {
+                state
+                    .focus_transition_revision
+                    .set(state.focus_transition_revision.get().wrapping_add(1));
                 state.dom.borrow_mut().focus(None)?;
-                let event = create_event_object(scope, state, "blur", false, false)?;
+                let event = create_focus_event_object(scope, state, "blur", None)?;
+                dispatch_event(scope, state, node, event)?;
+                let event = create_focus_event_object(scope, state, "focusout", None)?;
                 dispatch_event(scope, state, node, event)?;
             }
             Ok(None)
@@ -27563,6 +27959,7 @@ fn event_id(
     let matches = [
         &state.event_brand,
         &state.error_event_brand,
+        &state.ui_event_brand,
         &state.message_event_brand,
     ]
     .into_iter()
@@ -31299,13 +31696,273 @@ mod tests {
         install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
         let source = v8::String::new(
             scope,
-            "globalThis.location={href:'https://fixture.test/app'};const button=document.getElementById('go');let events='';button.onfocus=()=>events+='focus';button.onblur=()=>events+=':blur';button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+(document.location===location)+'|'+focused+'|'+(document.activeElement===null)+'|'+events",
+            "globalThis.location={href:'https://fixture.test/app'};const button=document.getElementById('go');let events='';button.onfocus=()=>events+='focus';button.onblur=()=>events+=':blur';button.focus();const focused=document.activeElement===button;button.scrollIntoView();button.blur();document.URL+'|'+document.baseURI+'|'+(document.location===location)+'|'+focused+'|'+(document.activeElement===document.body)+'|'+events",
         )
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert_eq!(
             script.run(scope).unwrap().to_rust_string_lossy(scope),
             "https://fixture.test/app|https://fixture.test/app|true|true|true|focus:blur"
+        );
+    }
+
+    #[test]
+    fn active_element_falls_back_and_retargets_nested_shadow_focus() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body><input id='light'>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const checks=[];
+            checks.push(document.activeElement===document.body);
+            const light=document.getElementById('light');light.focus();
+            checks.push(document.activeElement===light);light.blur();
+            checks.push(document.activeElement===document.body);
+            const host=document.createElement('div');document.body.appendChild(host);
+            const outer=host.attachShadow({mode:'closed'});
+            const innerHost=document.createElement('div');outer.appendChild(innerHost);
+            const inner=innerHost.attachShadow({mode:'open'});
+            const input=document.createElement('input');inner.appendChild(input);input.focus();
+            checks.push(document.activeElement===host&&outer.activeElement===innerHost&&inner.activeElement===input);
+            light.focus();checks.push(outer.activeElement===null&&inner.activeElement===null);
+            const detached=document.implementation.createHTMLDocument('detached');
+            checks.push(detached.activeElement===null);
+            light.remove();checks.push(document.activeElement===document.body);
+            document.body.remove();checks.push(document.activeElement===document.documentElement);
+            document.documentElement.remove();checks.push(document.activeElement===null);
+            checks.every(Boolean)
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .boolean_value(scope)
+        );
+    }
+
+    #[test]
+    fn ui_event_payloads_and_getters_accept_other_realms() {
+        initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let token = v8::String::new(scope, "same-origin").unwrap();
+        context.set_security_token(token.into());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body><input>").into_runtime().unwrap(),
+        ));
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let other = v8::Context::new(scope, Default::default());
+        other.set_security_token(token.into());
+        {
+            let scope = &mut v8::ContextScope::new(scope, other);
+            let dom = Rc::new(RefCell::new(
+                html::parse("<body><input>").into_runtime().unwrap(),
+            ));
+            install_generated_bindings(scope, other, dom, RealmId(1), 1).unwrap();
+        }
+        let key = v8::String::new(scope, "other").unwrap();
+        let global = other.global(scope);
+        context.global(scope).set(scope, key.into(), global.into());
+        let source = v8::String::new(scope, r#"
+            const local=document.querySelector('input'),remote=other.document.querySelector('input');
+            const event=new FocusEvent('focus',{view:other,relatedTarget:remote});
+            const foreign=new other.FocusEvent('focus',{view:globalThis,relatedTarget:local});
+            const getter=Object.getOwnPropertyDescriptor(other.UIEvent.prototype,'view').get;
+            const related=Object.getOwnPropertyDescriptor(FocusEvent.prototype,'relatedTarget').get;
+            const accepted=event.view===other&&event.relatedTarget===remote&&
+                foreign.view===globalThis&&foreign.relatedTarget===local&&
+                getter.call(event)===other&&related.call(foreign)===local;
+            UIEvent.prototype.initUIEvent.call(foreign,'reinit',false,false,other,8);
+            accepted&&foreign.view===other&&foreign.detail===8&&foreign.relatedTarget===local
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .boolean_value(scope)
+        );
+    }
+
+    #[test]
+    fn ui_event_constructors_validate_payloads_and_legacy_initialization() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body><input id='target'></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const errors=[],check=(ok,label)=>{if(!ok)errors.push(label)};
+            const throws=(fn,label)=>{try{fn();errors.push(label)}catch(e){check(e instanceof TypeError,label+':type')}};
+            const target=document.getElementById('target');
+            const basic=new UIEvent('basic');
+            check(basic.view===null&&basic.detail===0&&!basic.isTrusted,'UI defaults');
+            const focus=new FocusEvent('focus');
+            check(focus instanceof UIEvent&&focus instanceof Event&&focus.relatedTarget===null,'Focus defaults');
+            for(const name of ['UIEvent','UIEvents','FocusEvent']) {
+                const legacy=document.createEvent(name);
+                check(legacy instanceof UIEvent&&legacy.view===null&&legacy.detail===0&&legacy.type==='','legacy defaults '+name);
+                if(name==='FocusEvent')check(legacy instanceof FocusEvent&&legacy.relatedTarget===null,'legacy Focus subtype');
+                try{target.dispatchEvent(legacy);errors.push('legacy uninitialized '+name)}
+                catch(e){check(e.name==='InvalidStateError','legacy dispatch error '+name)}
+                legacy.initUIEvent('ready',true,false,globalThis,5);
+                check(legacy.type==='ready'&&legacy.view===globalThis&&legacy.detail===5&&target.dispatchEvent(legacy),'legacy initialization '+name);
+            }
+            throws(()=>UIEvent('x'),'new required');
+            throws(()=>new FocusEvent(),'type required');
+            throws(()=>new FocusEvent('x',1),'dictionary');
+            throws(()=>new FocusEvent('x',{view:{}}),'Window conversion');
+            throws(()=>new FocusEvent('x',{relatedTarget:{}}),'EventTarget conversion');
+            const order=[];
+            const values={bubbles:true,cancelable:true,composed:true,detail:4294967297,view:globalThis,relatedTarget:target};
+            const init={};
+            for(const key of Object.keys(values))Object.defineProperty(init,key,{get(){order.push(key);return values[key]}});
+            const event=new FocusEvent('x',init);
+            check(order.join(',')==='bubbles,cancelable,composed,detail,view,relatedTarget','conversion order');
+            check(event.view===globalThis&&event.detail===1&&event.relatedTarget===target,'payload');
+            event.relatedTarget=null;event.view=null;event.detail=99;
+            check(event.relatedTarget===target&&event.view===globalThis&&event.detail===1,'readonly');
+            const sentinel={};
+            try{new UIEvent('x',{get detail(){throw sentinel}});errors.push('exception lost')}
+            catch(e){check(e===sentinel,'exception identity')}
+            const relatedGetter=Object.getOwnPropertyDescriptor(FocusEvent.prototype,'relatedTarget').get;
+            throws(()=>relatedGetter.call(basic),'subtype brand');
+            const viewGetter=Object.getOwnPropertyDescriptor(UIEvent.prototype,'view').get;
+            throws(()=>viewGetter.call(new Event('x')),'UI brand');
+            event.preventDefault();
+            event.initUIEvent('changed',false,true,null,-2);
+            check(event.type==='changed'&&!event.bubbles&&event.cancelable&&!event.defaultPrevented&&event.view===null&&event.detail===-2&&event.relatedTarget===target,'legacy init');
+            target.addEventListener('changed',()=>event.initUIEvent('during',true,false,globalThis,7));
+            target.dispatchEvent(event);
+            check(event.type==='changed'&&event.view===null&&event.detail===-2,'dispatch no-op');
+            event.initEvent('base');
+            check(event.view===null&&event.detail===-2&&event.relatedTarget===target,'base init preserves derived payload');
+            errors.join('|')
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn native_focus_events_have_typed_payloads_and_bubbling_order() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body><input id='a'><input id='b'></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const a=document.getElementById('a'),b=document.getElementById('b');
+            const events=[],bubbled=[];
+            let valid=true;
+            for(const node of [a,b]) for(const type of ['focus','focusin','blur','focusout']) {
+                node.addEventListener(type,e=>{
+                    valid=valid && e instanceof FocusEvent && e instanceof UIEvent &&
+                        e instanceof Event && e.isTrusted && e.composed && !e.cancelable &&
+                        e.view===globalThis && e.detail===0 &&
+                        e.bubbles===(type==='focusin'||type==='focusout');
+                    events.push(node.id+':'+type+':'+(e.relatedTarget?.id||'-'));
+                });
+            }
+            for(const type of ['focus','focusin','blur','focusout'])
+                document.body.addEventListener(type,e=>bubbled.push(e.type));
+            a.focus();b.focus();b.blur();
+            valid && events.join('|')===
+                'a:focus:-|a:focusin:-|a:blur:b|a:focusout:b|b:focus:a|b:focusin:a|b:blur:-|b:focusout:-' &&
+                bubbled.join('|')==='focusin|focusout|focusin|focusout'
+        "#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .boolean_value(scope)
+        );
+    }
+
+    #[test]
+    fn focus_callbacks_preserve_nested_transitions_and_detached_targets() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body><input id='a'><input id='b'><input id='c'></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            const a=document.getElementById('a'), b=document.getElementById('b'),
+                  c=document.getElementById('c');
+            const checks=[];
+            let bFocus=0;
+            b.onfocus=()=>bFocus++;
+            a.focus();
+            a.onblur=()=>c.focus();
+            b.focus();
+            checks.push(document.activeElement===c && bFocus===0);
+            a.onblur=null;
+            a.focus();
+            a.onblur=()=>{c.focus();c.blur()};
+            b.focus();
+            checks.push(document.activeElement!==b && document.activeElement!==c && bFocus===0);
+            a.onblur=null;
+            a.focus();
+            a.onblur=()=>b.remove();
+            b.focus();
+            checks.push(!b.isConnected && document.activeElement!==b && bFocus===0);
+            a.onblur=null;
+            document.body.appendChild(b);
+            b.focus();
+            b.focus();
+            checks.push(document.activeElement===b && bFocus===1);
+            a.focus();
+            a.addEventListener('focusout',()=>b.remove(),{once:true});
+            b.focus();
+            checks.push(!b.isConnected && document.activeElement!==b && bFocus===1);
+            document.body.appendChild(b);
+            b.addEventListener('focusin',()=>c.focus(),{once:true});
+            b.focus();
+            checks.push(document.activeElement===c && bFocus===2);
+            checks.every(Boolean)
+        "#,
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .boolean_value(scope)
         );
     }
 

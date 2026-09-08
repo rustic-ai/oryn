@@ -165,6 +165,30 @@ dictionary CustomEventInit : EventInit {
   any detail = null;
 };
 
+// UI Events: https://www.w3.org/TR/uievents/#interface-focusevent
+[Exposed=Window]
+interface UIEvent : Event {
+  constructor(DOMString type, optional UIEventInit eventInitDict);
+  readonly attribute Window? view;
+  readonly attribute long detail;
+  undefined initUIEvent(DOMString type, optional boolean bubbles = false, optional boolean cancelable = false, optional Window? view = null, optional long detail = 0);
+};
+
+dictionary UIEventInit : EventInit {
+  Window? view = null;
+  long detail = 0;
+};
+
+[Exposed=Window]
+interface FocusEvent : UIEvent {
+  constructor(DOMString type, optional FocusEventInit eventInitDict);
+  readonly attribute EventTarget? relatedTarget;
+};
+
+dictionary FocusEventInit : UIEventInit {
+  EventTarget? relatedTarget = null;
+};
+
 dictionary MouseEventInit {
   boolean bubbles = false;
   boolean cancelable = false;
@@ -777,7 +801,7 @@ interface Document : Node {
   readonly attribute HTMLElement? body;
   readonly attribute Element? scrollingElement;
   readonly attribute Node? doctype;
-  readonly attribute HTMLElement? activeElement;
+  readonly attribute Element? activeElement;
   readonly attribute HTMLElement? currentScript;
   readonly attribute sequence<CSSStyleSheet> styleSheets;
   attribute DOMString designMode;
@@ -1309,6 +1333,7 @@ interface DocumentFragment : Node {
 
 [Exposed=Window]
 interface ShadowRoot : DocumentFragment {
+  readonly attribute Element? activeElement;
   attribute ObservableArray<CSSStyleSheet> adoptedStyleSheets;
   attribute DOMString innerHTML;
   readonly attribute DOMString mode;

@@ -21,12 +21,16 @@ Stylo remains the CSS engine. IndexedDB passes 401/456 and css/selectors passes
 185/277; every other root total is unchanged. Pre-full native evidence is recorded
 [separately](CONFORMANCE-FOCUS-VISIBLE-NATIVE-2026-09-08.json).
 
-Next: validate the isolated focus-event lifecycle draft. It adds canonical
-UIEvent/FocusEvent bindings, typed native focus events, bubbling focusin/focusout,
-constructor and legacy initialization behavior, and callback reentrancy handling.
-Formatting and generated checks pass; compilation and runtime tests are pending.
-Cross-page IndexedDB scheduling, remaining focus behavior, and every other failure
-stay in scope. Complete conformance is not established.
+The next candidate adds canonical UIEvent/FocusEvent bindings, typed native
+focus events, bubbling focusin/focusout, constructors and legacy initialization,
+callback reentrancy, document/shadow active-element handling, and default focus
+outlines through Stylo. Native gates pass; the focus probe passes 44/61 and the
+IndexedDB probe passes 38/41. All 37 signed focus passes are retained in the native
+probe. [Native evidence](CONFORMANCE-FOCUS-EVENTS-NATIVE-2026-09-08.json) records
+source hashes and remaining failures; it establishes no overall gain. Next: build
+and verify the signed candidate, run all 4,022 cases, and audit gains, losses and
+missing assertions. Every remaining failure stays in scope. Complete conformance
+is not established.
 
 | Root | Passed / required |
 |---|---:|

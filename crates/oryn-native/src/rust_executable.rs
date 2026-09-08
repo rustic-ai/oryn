@@ -4988,6 +4988,25 @@ mod tests {
     }
 
     #[test]
+    fn native_focus_default_outline_tracks_visibility_and_author_override() {
+        let mut page = RustExecutableDocument::load(
+            "<body><div id='target' tabindex='0'>Target</div><button id='button'>Button</button><input id='input'></body>"
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"(() => {
+            const target=document.getElementById('target'),button=document.getElementById('button'),input=document.getElementById('input');
+            const outline=node=>getComputedStyle(node).outlineStyle;
+            if(outline(target)!=='none')return 'unfocused';
+            target.focus();if(outline(target)!=='auto')return 'script focus';
+            __oryn_testdriver_click(button);if(outline(button)!=='none')return 'pointer button';
+            __oryn_testdriver_keyboard(button,'a',true);if(outline(button)!=='auto')return 'keyboard button';
+            button.style.outline='none';if(outline(button)!=='none')return 'author override';
+            __oryn_testdriver_click(input);if(outline(input)!=='auto')return 'text input';
+            input.blur();if(outline(input)!=='none')return 'blur';
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
     fn native_focus_updates_stylo_and_selector_state_synchronously() {
         let mut page = RustExecutableDocument::load(
             "<style>* {color:black} :focus-within {color:red} :focus {color:blue}</style><body><div id='parent'><input id='target'></div><section></section></body>",
