@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `e83615c`, measured on 2026-09-08.
+Current full-run evidence: signed candidate `689c7e5`, measured on 2026-09-08.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,34 +32,31 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `e83615c` passes **3,012/4,022 (74.9%)**, with **1,010 remaining**.
-It gains 22 whole tests and loses none versus `b40e1d1`: 20 focus selector cases
-and both `IndexedDB/open-request-queue.any.js` globals. The focus subset passes
-37/61 in the signed worker, confirming the preceding native probe result.
+The signed run at `689c7e5` passes **3,019/4,022 (75.1%)**, with **1,003 remaining**.
+It gains eight whole tests and loses one versus `e83615c`: seven focus selector
+cases and one DOM case improve, while editing a text control in a body-hosted
+shadow root regresses. The signed focus subset passes 44/61.
 
-The audit validates exact inventory coverage, every passing completion, source and
-binary fingerprints, and unchanged limits and sandbox settings. It observes no
-passing-to-failing assertion changes, 20 corrected existing assertions, and 11
-additional passing names. Five server-port name differences reconcile; 25 newly
-missing prior passes remain unresolved. Six older gaps recover, 96 remain absent,
-and the combined tracked missing count is 121. Missing assertions are not passes.
+The audit validates exact inventory coverage, passing completions, source and
+binary fingerprints, and unchanged limits and sandbox settings. It records two
+passing-to-failing assertions, 71 corrected assertions, and 15 additional passing
+names. Five server-port name differences reconcile; five newly missing prior
+passes remain unresolved. Seven older gaps recover, 114 remain absent, and the
+combined tracked missing count is 119. Missing assertions are not passes.
 All 11 historical editing assertion regressions still fail.
 
-[Full evidence](CONFORMANCE-FOCUS-VISIBLE-FULL-2026-09-08.json) records the audit.
-Stylo remains the CSS engine. IndexedDB passes 401/456 and css/selectors passes
-185/277; every other root total is unchanged. Pre-full native evidence is recorded
-[separately](CONFORMANCE-FOCUS-VISIBLE-NATIVE-2026-09-08.json).
+[Full evidence](CONFORMANCE-FOCUS-EVENTS-FULL-2026-09-08.json) records the audit.
+Stylo remains the CSS engine. The new regression affects Backspace in input and
+textarea controls inside the body's shadow root and must be recovered before
+promoting the next candidate.
 
-The next candidate adds canonical UIEvent/FocusEvent bindings, typed native
-focus events, bubbling focusin/focusout, constructors and legacy initialization,
-callback reentrancy, document/shadow active-element handling, and default focus
-outlines through Stylo. Native gates pass; the focus probe passes 44/61 and the
-IndexedDB probe passes 38/41. All 37 signed focus passes are retained in the native
-probe. [Native evidence](CONFORMANCE-FOCUS-EVENTS-NATIVE-2026-09-08.json) records
-source hashes and remaining failures; it establishes no overall gain. Next: build
-and verify the signed candidate, run all 4,022 cases, and audit gains, losses and
-missing assertions. Every remaining failure stays in scope. Complete conformance
-is not established.
+The isolated next draft defers automation dispatch until its promise is returned
+and uses effective plaintext editability for Enter. It is not yet compiled or
+validated. Next: repair shadow keyboard targeting, run native gates and the
+broader automation fixture batch, then measure and audit the signed full suite.
+Shared editing command queries also need computed-style and selected-range
+semantics. Every remaining failure stays in scope; complete conformance is not
+established.
 
 | Root | Passed / required |
 |---|---:|
@@ -68,14 +65,14 @@ is not established.
 | accname | 15/19 |
 | css/css-cascade | 54/97 |
 | css/cssom | 95/190 |
-| css/selectors | 185/277 |
-| dom | 400/662 |
-| editing | 389/704 |
+| css/selectors | 192/277 |
+| dom | 401/662 |
+| editing | 388/704 |
 | html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,010 failed IDs from this run.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,003 failed IDs from this run.
 
 
 ## Immediate execution correction
