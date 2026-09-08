@@ -276,8 +276,9 @@ impl Element for DomElement<'_> {
                     && self.attr("checked").is_some())
                     || (self.html_tag(&["option"]) && self.attr("selected").is_some())
             }
-            NonTSPseudoClass::Focus | NonTSPseudoClass::FocusVisible => {
-                self.dom.focused() == Some(self.id)
+            NonTSPseudoClass::Focus => self.dom.focused() == Some(self.id),
+            NonTSPseudoClass::FocusVisible => {
+                self.dom.focused() == Some(self.id) && self.dom.focus_visible()
             }
             NonTSPseudoClass::FocusWithin => {
                 let mut id = self.dom.focused();
@@ -545,6 +546,59 @@ mod tests {
             .unwrap()
             .is_empty()
         );
+    }
+
+    #[test]
+    fn focus_queries_distinguish_indicator_state_without_changing_focus_within() {
+        let mut dom = DomRuntime::new();
+        let document = dom.document();
+        let root = dom.create_element("main");
+        let button = dom.create_element("button");
+        dom.append_child(document, root).unwrap();
+        dom.append_child(root, button).unwrap();
+        dom.focus(Some(button)).unwrap();
+        let states = BTreeMap::new();
+        for visible in [true, false, true] {
+            dom.set_focus_visible(visible);
+            assert_eq!(
+                query(&dom, document, ":focus", SelectorOperation::All, &states).unwrap(),
+                vec![button]
+            );
+            assert_eq!(
+                query(
+                    &dom,
+                    document,
+                    ":focus-within",
+                    SelectorOperation::All,
+                    &states
+                )
+                .unwrap(),
+                vec![root, button]
+            );
+            let expected = if visible { vec![button] } else { Vec::new() };
+            assert_eq!(
+                query(
+                    &dom,
+                    document,
+                    ":focus-visible",
+                    SelectorOperation::All,
+                    &states
+                )
+                .unwrap(),
+                expected
+            );
+            assert_eq!(
+                query(
+                    &dom,
+                    button,
+                    ":focus-visible",
+                    SelectorOperation::Matches,
+                    &states
+                )
+                .unwrap(),
+                expected
+            );
+        }
     }
 
     #[test]

@@ -22,11 +22,16 @@ Stylo remains the CSS engine. IndexedDB passes 399/456; other root totals are un
 Native validation and its narrower scope are recorded in
 [native evidence](CONFORMANCE-IDB-SCHEDULING-NATIVE-2026-09-08.json).
 
-Next: resolve the open-request queue regressions and validate the isolated native
-focus-visibility draft against DOM/layout/JS/native gates and all 61 inventoried
-focus-related selector fixtures. That draft is uncompiled and unmeasured. Cross-page
-IndexedDB scheduling and other lifecycle gaps remain open. No next-candidate gain
-is established until another signed full run and assertion audit complete.
+The next candidate connects native focus visibility to Stylo and DOM selector
+queries, preserves keyboard/pointer modality, and corrects the IndexedDB blocked
+request microtask ordering. Native gates pass. The focus probe passes 37/61 cases,
+including all 17 signed-baseline passes; this cross-mode comparison is not an
+overall gain. The queue/lifecycle probe passes 38/41, including open-request-queue.
+[Native evidence](CONFORMANCE-FOCUS-VISIBLE-NATIVE-2026-09-08.json) records every
+remaining probe failure and the exact source hashes. Next: build and verify the
+signed candidate, run all 4,022 executions, and audit assertion gains, regressions,
+and missing results. Cross-page scheduling and other lifecycle/focus gaps remain
+open. No next-candidate overall gain is established before that audit.
 Every remaining failure stays in scope; complete conformance is not established.
 
 | Root | Passed / required |

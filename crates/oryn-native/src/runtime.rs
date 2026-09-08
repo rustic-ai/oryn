@@ -7058,6 +7058,10 @@ impl PageState {
             .executable
             .as_ref()
             .and_then(|executable| executable.focused_layout_node());
+        input.focus_visible = self
+            .executable
+            .as_ref()
+            .is_some_and(|executable| executable.focus_visible());
         let limits = oryn_layout::LayoutLimits {
             max_nodes: self.config.max_layout_nodes,
             max_font_bytes: self.config.max_font_bytes,
@@ -8917,6 +8921,7 @@ pub(crate) fn layout_input(
         stylesheets,
         custom_states: BTreeMap::new(),
         focused_node: None,
+        focus_visible: false,
         viewport,
         scroll,
         color_scheme: match color_scheme {

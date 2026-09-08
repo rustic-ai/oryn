@@ -314,6 +314,7 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             .borrow()
             .focused()
             .map(|node| (u64::from(node.generation) << 32) | u64::from(node.slot));
+        input.focus_visible = self.dom.borrow().focus_visible();
         input.custom_states = custom_states
             .iter()
             .map(|(node, values)| {
@@ -1857,10 +1858,13 @@ const __oryn_testdriver_clipboard={text:'',html:''};
 const __oryn_testdriver_data_transfer=()=>({getData(type){return type==='text/html'?__oryn_testdriver_clipboard.html:__oryn_testdriver_clipboard.text},setData(type,value){if(type==='text/html')__oryn_testdriver_clipboard.html=String(value);else __oryn_testdriver_clipboard.text=String(value)},types:['text/plain','text/html']});
 const __oryn_testdriver_keyboard=(target,value,pressed)=>{
   const key=__oryn_testdriver_key_name(String(value));
+  const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set());
+  if(pressed&&['Control','Meta','Shift','Alt'].includes(key))modifiers.add(key);
+  if(!pressed)modifiers.delete(key);
   const event=new Event(pressed?'keydown':'keyup',{bubbles:true,cancelable:true});
   event.key=key;event.code=key.length===1?'Key'+key.toUpperCase():key;
-  target.dispatchEvent(event);
-  const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set());
+  event.ctrlKey=modifiers.has('Control');event.metaKey=modifiers.has('Meta');event.altKey=modifiers.has('Alt');event.shiftKey=modifiers.has('Shift');
+  __oryn_dispatch_user_input(target,pressed?'keydown':'keyup',false,event);
   if(!pressed){modifiers.delete(key);return}
   if(event.defaultPrevented)return;
   if(key==='Control'||key==='Meta'||key==='Shift'||key==='Alt'){modifiers.add(key);return}
@@ -1929,8 +1933,10 @@ const __oryn_testdriver_keyboard=(target,value,pressed)=>{
 };
 const __oryn_testdriver_key_target=target=>{const focused=document.activeElement;if(!focused||focused===target)return target;let current=focused;for(let depth=0;current&&depth<32;depth++){if(current===target)return focused;const root=current.getRootNode?.({composed:false});current=root&&root!==document?root.host:current.parentElement}return target};
 globalThis.__oryn_testdriver_send_keys=async(target,keys)=>{if(!target)throw new TypeError('testdriver target is required');target=__oryn_testdriver_key_target(target);target.focus?.();keys=String(keys);if(String(target.tagName).toLowerCase()==='input'&&String(target.type).toLowerCase()==='file'){const response=contextCall({operation:'materialize_upload',page_id:__oryn_page_id,label:keys});if(response.result!=='upload_materialized')throw new Error('parent did not authorize the selected upload');target.setAttribute('data-oryn-upload-files',JSON.stringify([{filename:response.filename,media_type:response.media_type,body_base64:response.body_base64,last_modified:response.last_modified}]));target.value=response.filename;target.dispatchEvent(new Event('input',{bubbles:true}));target.dispatchEvent(new Event('change',{bubbles:true}));return}for(const key of [...keys]){__oryn_testdriver_keyboard(target,key,true);__oryn_testdriver_keyboard(target,key,false)}};
-globalThis.__oryn_testdriver_click=async target=>{if(!target)throw new TypeError('testdriver target is required');target.focus?.();target.dispatchEvent(new Event('pointerdown',{bubbles:true,cancelable:true}));target.dispatchEvent(new Event('mousedown',{bubbles:true,cancelable:true}));target.dispatchEvent(new Event('pointerup',{bubbles:true,cancelable:true}));target.dispatchEvent(new Event('mouseup',{bubbles:true,cancelable:true}));target.click?.()};
-globalThis.__oryn_testdriver_actions=async(sources,keyboardTarget=null)=>{let pointerTarget=null,pointerClicks=0;const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set()),touchPointers=new Set(),dispatchInput=(target,type)=>__oryn_dispatch_user_input(target,type,false);const lists=(sources||[]).map(source=>source.actions||[]);const ticks=Math.max(0,...lists.map(actions=>actions.length));for(let tick=0;tick<ticks;tick++)for(let index=0;index<sources.length;index++){const source=sources[index],action=lists[index][tick];if(!action||action.type==='pause')continue;if(action.type==='scroll'){const target=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement||document.body;for(const type of ['wheel','mousewheel'])dispatchInput(target,type);continue}if(action.type==='pointerMove'){if(action.origin&&typeof action.origin==='object')pointerTarget=action.origin;else if(!touchPointers.has(source.id))pointerTarget=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement;if(touchPointers.has(source.id))dispatchInput(pointerTarget,'touchmove');continue}if(action.type==='pointerDown'){pointerTarget?.focus?.();pointerTarget?.dispatchEvent(new Event('pointerdown',{bubbles:true,cancelable:true}));pointerTarget?.dispatchEvent(new Event('mousedown',{bubbles:true,cancelable:true}));if(source.parameters?.pointerType==='touch'){touchPointers.add(source.id);dispatchInput(pointerTarget,'touchstart')}continue}if(action.type==='pointerUp'){pointerTarget?.dispatchEvent(new Event('pointerup',{bubbles:true,cancelable:true}));pointerTarget?.dispatchEvent(new Event('mouseup',{bubbles:true,cancelable:true}));if(touchPointers.delete(source.id))dispatchInput(pointerTarget,'touchend');pointerTarget?.click?.();pointerClicks++;if(pointerClicks===2){const text=__oryn_testdriver_text_node(pointerTarget);if(text){const selection=document.getSelection();selection.setBaseAndExtent(text,0,text,text.data.length)}}continue}const target=keyboardTarget||document.activeElement||document.body;if(action.type==='keyDown')__oryn_testdriver_keyboard(target,action.value,true);else if(action.type==='keyUp'){const key=__oryn_testdriver_key_name(String(action.value));__oryn_testdriver_keyboard(target,action.value,false);modifiers.delete(key)}}};
+const __oryn_pointer_down=target=>{if(!target)return;if(__oryn_dispatch_user_input(target,'pointerdown',false)&&__oryn_dispatch_user_input(target,'mousedown',false))__oryn_focus_from_pointer(target)};
+const __oryn_pointer_up=target=>{if(!target)return;__oryn_dispatch_user_input(target,'pointerup',false);__oryn_dispatch_user_input(target,'mouseup',false)};
+globalThis.__oryn_testdriver_click=async target=>{if(!target)throw new TypeError('testdriver target is required');__oryn_pointer_down(target);__oryn_pointer_up(target);target.click?.()};
+globalThis.__oryn_testdriver_actions=async(sources,keyboardTarget=null)=>{let pointerTarget=null,pointerClicks=0;const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set()),touchPointers=new Set(),dispatchInput=(target,type)=>__oryn_dispatch_user_input(target,type,false);const lists=(sources||[]).map(source=>source.actions||[]);const ticks=Math.max(0,...lists.map(actions=>actions.length));for(let tick=0;tick<ticks;tick++)for(let index=0;index<sources.length;index++){const source=sources[index],action=lists[index][tick];if(!action||action.type==='pause')continue;if(action.type==='scroll'){const target=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement||document.body;for(const type of ['wheel','mousewheel'])dispatchInput(target,type);continue}if(action.type==='pointerMove'){if(action.origin&&typeof action.origin==='object')pointerTarget=action.origin;else if(!touchPointers.has(source.id))pointerTarget=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement;if(touchPointers.has(source.id))dispatchInput(pointerTarget,'touchmove');continue}if(action.type==='pointerDown'){__oryn_pointer_down(pointerTarget);if(source.parameters?.pointerType==='touch'){touchPointers.add(source.id);dispatchInput(pointerTarget,'touchstart')}continue}if(action.type==='pointerUp'){__oryn_pointer_up(pointerTarget);if(touchPointers.delete(source.id))dispatchInput(pointerTarget,'touchend');pointerTarget?.click?.();pointerClicks++;if(pointerClicks===2){const text=__oryn_testdriver_text_node(pointerTarget);if(text){const selection=document.getSelection();selection.setBaseAndExtent(text,0,text,text.data.length)}}continue}const target=keyboardTarget||document.activeElement||document.body;if(action.type==='keyDown')__oryn_testdriver_keyboard(target,action.value,true);else if(action.type==='keyUp'){const key=__oryn_testdriver_key_name(String(action.value));__oryn_testdriver_keyboard(target,action.value,false);modifiers.delete(key)}}};
 const __oryn_install_text_selection=prototype=>{if(!prototype)return;Object.defineProperties(prototype,{selectionStart:{configurable:true,get(){const length=String(this.value||'').length;return Math.max(0,Math.min(length,Number(this.__oryn_selection_start??length)))},set(value){const length=String(this.value||'').length;this.__oryn_selection_start=Math.max(0,Math.min(length,Number(value)||0));if(this.__oryn_selection_end===undefined||this.__oryn_selection_end<this.__oryn_selection_start)this.__oryn_selection_end=this.__oryn_selection_start}},selectionEnd:{configurable:true,get(){const length=String(this.value||'').length;return Math.max(0,Math.min(length,Number(this.__oryn_selection_end??this.selectionStart)))},set(value){const length=String(this.value||'').length;this.__oryn_selection_end=Math.max(0,Math.min(length,Number(value)||0));if(this.__oryn_selection_start===undefined||this.__oryn_selection_start>this.__oryn_selection_end)this.__oryn_selection_start=this.__oryn_selection_end}},selectionDirection:{configurable:true,get(){return this.__oryn_selection_direction||'none'},set(value){this.__oryn_selection_direction=['forward','backward'].includes(String(value))?String(value):'none'}},setSelectionRange:{configurable:true,value(start,end,direction='none'){this.__oryn_selection_start=Math.max(0,Math.min(String(this.value||'').length,Number(start)||0));this.__oryn_selection_end=Math.max(this.__oryn_selection_start,Math.min(String(this.value||'').length,Number(end)||0));this.selectionDirection=direction}},setRangeText:{configurable:true,value(replacement,start=this.selectionStart,end=this.selectionEnd,mode='preserve'){const value=String(this.value||''),text=String(replacement);start=Math.max(0,Math.min(value.length,Number(start)||0));end=Math.max(start,Math.min(value.length,Number(end)||0));this.value=value.slice(0,start)+text+value.slice(end);const finish=start+text.length;if(mode==='select')this.setSelectionRange(start,finish);else if(mode==='start')this.setSelectionRange(start,start);else if(mode==='end')this.setSelectionRange(finish,finish);else this.setSelectionRange(finish,finish)}}})};
 if(globalThis.HTMLInputElement){Object.defineProperty(HTMLInputElement.prototype,'files',{configurable:true,get(){return __orynInputFiles(this)}});__oryn_install_text_selection(HTMLInputElement.prototype)}
 if(globalThis.HTMLTextAreaElement)__oryn_install_text_selection(HTMLTextAreaElement.prototype);
@@ -3110,6 +3116,10 @@ impl RustExecutableDocument {
             candidate = record.parent;
         }
         Ok(None)
+    }
+
+    pub(crate) fn focus_visible(&self) -> bool {
+        self.live_dom.borrow().focus_visible()
     }
 
     pub(crate) fn focused_layout_node(&self) -> Option<u64> {
@@ -4952,6 +4962,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(page.evaluate("parserViewport").unwrap(), "1280|720");
+    }
+
+    #[test]
+    fn native_focus_visibility_uses_input_default_actions() {
+        let mut page = RustExecutableDocument::load(
+            "<style>*{outline-color:black}:focus-visible{outline-color:green}</style><body><button id='one'></button><button id='two'></button><input id='text'></body>"
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"(() => {
+            const one=document.getElementById('one'),two=document.getElementById('two'),text=document.getElementById('text');
+            const visible=node=>{const css=getComputedStyle(node).outlineColor==='rgb(0, 128, 0)';if(node.matches(':focus-visible')!==css)throw new Error('selector/style mismatch');return css};
+            one.focus();if(!visible(one))return 'initial script focus';
+            one.blur();__oryn_testdriver_click(one);if(visible(one))return 'pointer button';
+            one.dispatchEvent(new Event('keydown',{bubbles:true}));if(visible(one))return 'synthetic keyboard';
+            __oryn_testdriver_keyboard(one,'a',true);if(!visible(one))return 'native keyboard';
+            __oryn_testdriver_click(one);if(!visible(one))return 'same pointer target';
+            two.addEventListener('mousedown',event=>event.preventDefault(),{once:true});
+            __oryn_testdriver_click(two);if(document.activeElement!==one)return 'canceled pointer default';
+            __oryn_testdriver_click(two);if(document.activeElement!==two||visible(two))return 'pointer focus transfer';
+            __oryn_testdriver_click(text);if(!visible(text))return 'text input';
+            text.blur();one.focus();if(visible(one))return 'script focus after pointer text input';
+            let bodyClick=false;document.body.addEventListener('click',()=>bodyClick=true,{once:true});__oryn_testdriver_click(document.body);if(!bodyClick||document.activeElement!==one)return 'nonfocusable pointer target';
+            return 'ok';
+        })()"#).unwrap(), "ok");
     }
 
     #[test]

@@ -704,6 +704,7 @@ pub struct DomRuntime {
     ids: BTreeMap<String, NodeId>,
     mutations: MutationJournal,
     focused: Option<NodeId>,
+    focus_ring_suppressed: bool,
     next_range: u64,
     ranges: BTreeMap<LiveRangeId, LiveRange>,
 }
@@ -750,6 +751,7 @@ impl DomRuntime {
         self.ids.clear();
         self.mutations.clear();
         self.focused = None;
+        self.focus_ring_suppressed = false;
         self.next_range = 0;
         self.ranges.clear();
         self.restore_template_roots()?;
@@ -1988,6 +1990,84 @@ impl DomRuntime {
         self.focused
     }
 
+    /// Whether the focused element should match `:focus-visible`. Blurring
+    /// preserves this state so a subsequent script focus inherits it.
+    pub fn focus_visible(&self) -> bool {
+        self.focused.is_some_and(|node| {
+            !self.focus_ring_suppressed || self.focus_accepts_keyboard_input(node)
+        })
+    }
+
+    fn focus_accepts_keyboard_input(&self, node: NodeId) -> bool {
+        let Ok(record) = self.arena.get(node) else {
+            return false;
+        };
+        if let NodeKind::Element { name } = &record.kind
+            && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+        {
+            if name.local.as_ref() == "textarea" {
+                return !record.attributes.contains_key("readonly");
+            }
+            if name.local.as_ref() == "input" {
+                let kind = record
+                    .attributes
+                    .get("type")
+                    .map(String::as_str)
+                    .unwrap_or("text")
+                    .to_ascii_lowercase();
+                return !record.attributes.contains_key("readonly")
+                    && !matches!(
+                        kind.as_str(),
+                        "hidden"
+                            | "button"
+                            | "submit"
+                            | "reset"
+                            | "image"
+                            | "checkbox"
+                            | "radio"
+                            | "file"
+                            | "color"
+                            | "range"
+                    );
+            }
+        }
+        let mut current = Some(node);
+        while let Some(id) = current {
+            let Ok(record) = self.arena.get(id) else {
+                break;
+            };
+            if let Some(value) = record.attributes.get("contenteditable") {
+                if value.is_empty()
+                    || value.eq_ignore_ascii_case("true")
+                    || value.eq_ignore_ascii_case("plaintext-only")
+                {
+                    return true;
+                }
+                if value.eq_ignore_ascii_case("false") {
+                    return false;
+                }
+            }
+            current = record.parent;
+        }
+        false
+    }
+
+    /// Update native input state without dispatching synthetic focus events.
+    /// Journal changes even when focus stays put so style consumers recascade.
+    pub fn set_focus_visible(&mut self, visible: bool) {
+        let suppressed = !visible;
+        if self.focus_ring_suppressed == suppressed {
+            return;
+        }
+        self.focus_ring_suppressed = suppressed;
+        if self.focused.is_some() {
+            self.mutations.push(Mutation::Focus {
+                previous: self.focused,
+                current: self.focused,
+            });
+        }
+    }
+
     pub fn set_event_listener_presence(
         &mut self,
         node: NodeId,
@@ -2968,6 +3048,57 @@ mod tests {
         assert_eq!(dom.focused(), Some(input));
         dom.append_child(other, input).unwrap();
         assert_eq!(dom.focused(), None);
+    }
+
+    #[test]
+    fn focus_visibility_survives_script_transfers_and_invalidates_existing_focus() {
+        let mut dom = html::parse("<body><button id='a'></button><button id='b'></button></body>")
+            .into_runtime()
+            .unwrap();
+        let a = dom.query_selector(dom.document(), "#a").unwrap().unwrap();
+        let b = dom.query_selector(dom.document(), "#b").unwrap().unwrap();
+        dom.focus(Some(a)).unwrap();
+        assert!(dom.focus_visible());
+        dom.set_focus_visible(false);
+        assert!(!dom.focus_visible());
+        dom.focus(None).unwrap();
+        dom.focus(Some(b)).unwrap();
+        assert!(!dom.focus_visible());
+        let cursor = dom.mutation_cursor();
+        dom.set_focus_visible(true);
+        assert!(dom.focus_visible());
+        assert_eq!(dom.focused(), Some(b));
+        assert!(matches!(dom.mutations_since(cursor).mutations.as_slice(),
+            [Mutation::Focus { previous, current }] if *previous == Some(b) && *current == Some(b)));
+        dom.focus(None).unwrap();
+        assert!(!dom.focus_visible());
+        dom.focus(Some(a)).unwrap();
+        assert!(dom.focus_visible());
+    }
+
+    #[test]
+    fn text_input_focus_exception_does_not_change_script_focus_modality() {
+        let mut dom = html::parse("<body><input id='input'><button id='button'></button></body>")
+            .into_runtime()
+            .unwrap();
+        let input = dom
+            .query_selector(dom.document(), "#input")
+            .unwrap()
+            .unwrap();
+        let button = dom
+            .query_selector(dom.document(), "#button")
+            .unwrap()
+            .unwrap();
+        dom.set_focus_visible(false);
+        dom.focus(Some(input)).unwrap();
+        assert!(dom.focus_visible());
+        dom.focus(Some(button)).unwrap();
+        assert!(!dom.focus_visible());
+        dom.set_attribute(input, "type", "button").unwrap();
+        dom.focus(Some(input)).unwrap();
+        assert!(!dom.focus_visible());
+        dom.set_attribute(input, "type", "text").unwrap();
+        assert!(dom.focus_visible());
     }
 
     #[test]

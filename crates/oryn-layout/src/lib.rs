@@ -213,6 +213,9 @@ pub struct LayoutInput {
     /// Native focused element, projected into the private Stylo mirror.
     #[serde(default)]
     pub focused_node: Option<u64>,
+    /// Native focus indicator state, independent of whether focus exists.
+    #[serde(default)]
+    pub focus_visible: bool,
     pub viewport: ViewportState,
     pub scroll: ScrollState,
     #[serde(default)]
@@ -1065,6 +1068,9 @@ fn stylo_computed_values_with_provenance(
                 node.element_state_mut().insert(ElementState::FOCUS_WITHIN);
                 if id == focused {
                     node.element_state_mut().insert(ElementState::FOCUS);
+                    if input.focus_visible {
+                        node.element_state_mut().insert(ElementState::FOCUSRING);
+                    }
                 }
             }
             current = by_id.get(&id).and_then(|node| node.parent);
@@ -2628,6 +2634,7 @@ mod tests {
             stylesheets: vec![String::new(), rules.into()],
             custom_states: BTreeMap::new(),
             focused_node: None,
+            focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -2659,6 +2666,7 @@ mod tests {
             stylesheets: vec!["html { color: rgb(1, 2, 3) }".into()],
             custom_states: BTreeMap::new(),
             focused_node: None,
+            focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -2685,7 +2693,7 @@ mod tests {
         let mut input = LayoutInput {
             nodes: vec![root, hidden, child, node(4, Some(3), "span", "")],
             stylesheets: vec!["section { display: none; color: red; opacity: .5 } div { color: green; width: 37px } div.changed { color: lime } span { background-color: blue }".into()],
-            custom_states: BTreeMap::new(), focused_node: None,
+            custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
         };
@@ -2727,6 +2735,7 @@ mod tests {
             stylesheets: vec!["div { color: blue } div:empty { color: red }".into()],
             custom_states: BTreeMap::new(),
             focused_node: None,
+            focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -2751,6 +2760,7 @@ mod tests {
             stylesheets: vec!["button { width: 120px; height: 30px; margin: 4px }".into()],
             custom_states: BTreeMap::new(),
             focused_node: None,
+            focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -2787,7 +2797,7 @@ mod tests {
                     .into(),
             ],
             custom_states: BTreeMap::from([(2, BTreeSet::from(["--green".into()]))]),
-            focused_node: None,
+            focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -2840,7 +2850,7 @@ mod tests {
                     .into(),
             ],
             custom_states: BTreeMap::new(),
-            focused_node: None,
+            focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -2868,6 +2878,7 @@ mod tests {
                 stylesheets: vec!["div { font-family: Arial }".into()],
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2915,6 +2926,7 @@ mod tests {
                 stylesheets: vec!["table{width:300px} td{padding:4px}".into()],
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2946,6 +2958,7 @@ mod tests {
                 stylesheets: vec!["div { width: 100px; min-height: 20px }".into()],
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -2987,6 +3000,7 @@ mod tests {
                 stylesheets: Vec::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -3034,10 +3048,10 @@ mod tests {
                 node(3, Some(1), "input", ""),
             ],
             stylesheets: vec![
-                "* {color:black} :focus-within {color:red} :focus {color:blue}".into(),
+                "* {color:black; outline-color:black} :focus-within {color:red} :focus {color:blue} :focus-visible {outline-color:green}".into(),
             ],
             custom_states: BTreeMap::new(),
-            focused_node: Some(2),
+            focused_node: Some(2), focus_visible: true,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -3049,6 +3063,14 @@ mod tests {
         assert_eq!(output.computed_styles[&1]["color"], "rgb(255, 0, 0)");
         assert_eq!(output.computed_styles[&2]["color"], "rgb(0, 0, 255)");
         assert_eq!(output.computed_styles[&3]["color"], "rgb(0, 0, 0)");
+        assert_eq!(
+            output.computed_styles[&2]["outline-color"],
+            "rgb(0, 128, 0)"
+        );
+        input.focus_visible = false;
+        let output = engine.compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(output.computed_styles[&2]["color"], "rgb(0, 0, 255)");
+        assert_eq!(output.computed_styles[&2]["outline-color"], "rgb(0, 0, 0)");
         input.focused_node = Some(3);
         let output = engine.compute(&input, &LayoutLimits::default()).unwrap();
         assert_eq!(output.computed_styles[&2]["color"], "rgb(0, 0, 0)");
@@ -3074,7 +3096,7 @@ mod tests {
             nodes,
             stylesheets: vec!["main {color:black} main:has(> .hot + .cold) {color:green} div {width:10px} div:nth-child(2 of .hot) {width:73px}".into()],
             custom_states: BTreeMap::new(),
-            focused_node: None,
+            focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -3106,7 +3128,7 @@ mod tests {
             nodes: vec![root, html, svg, unqualified],
             stylesheets: vec!["@namespace svg url(http://www.w3.org/2000/svg); circle {color:red} svg|circle {color:green} |circle {color:blue}".into()],
             custom_states: BTreeMap::new(),
-            focused_node: None,
+            focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -3139,6 +3161,7 @@ mod tests {
             stylesheets: vec!["* {color:red} [type=foo] {color:green}".into()],
             custom_states: BTreeMap::new(),
             focused_node: None,
+            focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -3182,6 +3205,7 @@ mod tests {
             ],
             custom_states: BTreeMap::new(),
             focused_node: None,
+            focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -3212,6 +3236,7 @@ mod tests {
             stylesheets: Vec::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
+            focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -3277,6 +3302,7 @@ mod tests {
             stylesheets: Vec::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
+            focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -3329,6 +3355,7 @@ mod tests {
                 ],
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -3365,6 +3392,7 @@ mod tests {
                 stylesheets: Vec::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -3404,6 +3432,7 @@ mod tests {
                 stylesheets: vec!["button { color: black !important }".into()],
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -3425,6 +3454,7 @@ mod tests {
             stylesheets: vec![format!("button {{ color: {color} }}")],
             custom_states: BTreeMap::new(),
             focused_node: None,
+            focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -3458,6 +3488,7 @@ mod tests {
                 stylesheets: Vec::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -3491,6 +3522,7 @@ mod tests {
                 stylesheets: vec!["span{height:20px}".into()],
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -3518,7 +3550,7 @@ mod tests {
         let input = LayoutInput {
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", ""), node(4, Some(1), "div", ""), node(5, Some(1), "div", ""), node(6, Some(1), "span", "")],
             stylesheets: vec!["div { width: 200px } div > div { width: 50%; height: 100px; padding: 5px; border: 2px solid } div > div:nth-child(1) { transform: scale(2) } div > div:nth-child(2) { box-sizing: border-box } div > div:nth-child(3) { visibility: hidden } div > div:nth-child(4) { display: none } span { width: 50%; height: 100px }".into()],
-            custom_states: BTreeMap::new(), focused_node: None,
+            custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
         };
@@ -3554,7 +3586,7 @@ mod tests {
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", ""), node(4, Some(1), "div", "")],
             stylesheets: vec!["div > div {width:100px;height:20px;padding:5px;border:2px solid} div > div:first-child {visibility:hidden} div > div:last-child {display:none}".into()],
             custom_states: BTreeMap::new(),
-            focused_node: None,
+            focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,
@@ -3620,6 +3652,7 @@ mod tests {
                 stylesheets: Vec::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState {
                     x: 0.0,
@@ -3662,6 +3695,7 @@ mod tests {
                 stylesheets: Vec::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -3685,6 +3719,7 @@ mod tests {
                 stylesheets: vec!["p{font-family:Fixture Font}".into()],
                 custom_states: BTreeMap::new(),
                 focused_node: None,
+                focus_visible: false,
                 viewport: ViewportState::default(),
                 scroll: ScrollState::default(),
                 color_scheme: ColorScheme::Light,
@@ -3710,6 +3745,7 @@ mod tests {
             stylesheets: Vec::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
+            focus_visible: false,
             viewport: ViewportState::default(),
             scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light,

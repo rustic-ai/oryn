@@ -2173,7 +2173,6 @@ impl V8BindingState {
                     } else {
                         Vec::new()
                     };
-                    let notified_connections = !blockers.is_empty();
                     for blocker in blockers {
                         let old_version = match &*platform_object(self, blocker)? {
                             PlatformObjectRecord::IdbDatabase(database) => database.version,
@@ -2187,25 +2186,12 @@ impl V8BindingState {
                             "versionchange",
                             Some(event),
                         )?;
-                    }
-                    if notified_connections {
-                        // The blocked check is a later database task. Promise
-                        // reactions to versionchange may close a connection or
-                        // install the next request listener before it runs.
-                        let operation_id = HostOperationId(self.next_platform_operation_id.get());
-                        self.next_platform_operation_id
-                            .set(operation_id.0.saturating_add(1));
-                        self.pending_platform_operations.borrow_mut().insert(
-                            operation_id,
-                            PendingPlatformOperation::IndexedDb { request_id, action },
-                        );
-                        self.deferred_platform_tasks.borrow_mut().push_back(
-                            DeferredPlatformTask::CompleteBlockedIdb {
-                                operation_id,
-                                response,
-                            },
-                        );
-                        return Ok(());
+                        // Finish the native event callback before checking
+                        // blockers, while leaving timer tasks queued. A Promise
+                        // reaction may close this connection or attach a blocked
+                        // listener; setTimeout must not overtake the blocked check.
+                        scope.perform_microtask_checkpoint();
+                        self.finish_platform_task_checkpoint()?;
                     }
                     if !open_connections().is_empty() {
                         let event = idb_version_change_event(
@@ -3725,10 +3711,137 @@ pub fn install_generated_bindings_with_root_for_global(
         context
             .global(scope)
             .set(scope, name.into(), user_input.into());
+        let pointer_focus = v8::Function::new(scope, focus_from_pointer)
+            .ok_or(V8BindingError::Allocation("pointer focus dispatcher"))?;
+        let name = v8::String::new(scope, "__oryn_focus_from_pointer")
+            .ok_or(V8BindingError::Allocation("pointer focus dispatcher name"))?;
+        context
+            .global(scope)
+            .set(scope, name.into(), pointer_focus.into());
     }
     global_events::install(scope, context)?;
     structured_clone::install(scope, context)?;
     Ok(state)
+}
+
+fn focus_html_element(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    pointer_focus: bool,
+) -> Result<(), V8BindingError> {
+    if !state.dom.borrow().is_connected(node)? {
+        return Ok(());
+    }
+    let previous = state.dom.borrow().focused();
+    if pointer_focus && previous != Some(node) {
+        // Text-input focus indicators are derived from the current control
+        // state; they do not turn pointer interaction into keyboard modality.
+        state.dom.borrow_mut().set_focus_visible(false);
+    }
+    if previous != Some(node) {
+        if let Some(previous) = previous {
+            state.dom.borrow_mut().focus(None)?;
+            let event = create_event_object(scope, state, "blur", false, false)?;
+            dispatch_event(scope, state, previous, event)?;
+        }
+        state.dom.borrow_mut().focus(Some(node))?;
+        let event = create_event_object(scope, state, "focus", false, false)?;
+        dispatch_event(scope, state, node, event)?;
+    }
+    // A focused editing host has a usable caret even before script
+    // explicitly creates a Selection. This is observable by keyboard
+    // input and is required for deterministic testdriver actions.
+    if state.selection_range.get().is_none() && document_is_editable(state) {
+        let caret_container = {
+            let dom = state.dom.borrow();
+            traversal_nodes(&dom, node)?
+                .into_iter()
+                .find(|candidate| {
+                    dom.arena().get(*candidate).is_ok_and(|record| {
+                        matches!(
+                            record.kind,
+                            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+                        ) && editing_host_for_node(
+                            &dom,
+                            Some(*candidate),
+                            state.design_mode.get(),
+                            state.document,
+                        )
+                        .is_ok_and(|host| host == Some(node))
+                    })
+                })
+                .unwrap_or(node)
+        };
+        let point = BoundaryPoint {
+            container: caret_container,
+            offset: 0,
+        };
+        set_selection_boundaries(state, point, point)?;
+    }
+    Ok(())
+}
+
+fn focus_from_pointer(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    let result = (|| -> Result<(), V8BindingError> {
+        let state = scope
+            .get_current_context()
+            .get_slot::<V8BindingState>()
+            .ok_or(V8BindingError::Allocation("pointer focus state"))?;
+        let target = args
+            .get(0)
+            .to_object(scope)
+            .ok_or(V8BindingError::Allocation("pointer focus target"))?;
+        let target = resolve_receiver(scope, &state, target, "Node")?;
+        let focus_target = {
+            let dom = state.dom.borrow();
+            let mut current = Some(target);
+            let mut found = None;
+            while let Some(node) = current {
+                if !matches!(dom.arena().get(node)?.kind, NodeKind::Element { .. }) {
+                    current = dom.parent(node)?;
+                    continue;
+                }
+                let name = element_local_name(&dom, node);
+                let enabled = dom.attribute(node, "disabled")?.is_none();
+                let tab_index = dom
+                    .attribute(node, "tabindex")?
+                    .is_some_and(|value| value.trim().parse::<i32>().is_ok());
+                let editable = editing_host_for_node(
+                    &dom,
+                    Some(node),
+                    state.design_mode.get(),
+                    state.document,
+                )? == Some(node);
+                let control = matches!(
+                    name,
+                    Some("button" | "select" | "textarea" | "iframe" | "summary")
+                ) || (name == Some("input")
+                    && !dom
+                        .attribute(node, "type")?
+                        .is_some_and(|value| value.eq_ignore_ascii_case("hidden")))
+                    || (matches!(name, Some("a" | "area"))
+                        && dom.attribute(node, "href")?.is_some());
+                if enabled && (tab_index || editable || control) {
+                    found = Some(node);
+                    break;
+                }
+                current = dom.parent(node)?;
+            }
+            found
+        };
+        if let Some(node) = focus_target {
+            focus_html_element(scope, &state, node, true)?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        throw_binding_error(scope, &error);
+    }
 }
 
 fn dispatch_user_input_event(
@@ -3762,8 +3875,40 @@ fn dispatch_user_input_event(
                     .get(&(*node, event_type.clone()))
                     .is_some_and(|listeners| listeners.iter().any(|listener| listener.passive))
             });
-        let event = create_event_object(scope, &state, &event_type, true, !passive)?;
+        let event = if args.get(3).is_object() {
+            args.get(3)
+                .to_object(scope)
+                .ok_or(V8BindingError::Allocation("user input event"))?
+        } else {
+            let cancelable = !passive
+                || !matches!(
+                    event_type.as_str(),
+                    "wheel" | "mousewheel" | "touchstart" | "touchmove"
+                );
+            create_event_object(scope, &state, &event_type, true, cancelable)?
+        };
         let id = event_id(scope, event)?;
+        if !state
+            .events
+            .borrow()
+            .get(&id)
+            .is_some_and(|record| record.event_type == event_type)
+        {
+            return Err(V8BindingError::Allocation("user input event type mismatch"));
+        }
+        if event_type == "keydown" {
+            let mut shortcut = false;
+            for name in ["altKey", "ctrlKey", "metaKey"] {
+                let key = v8::String::new(scope, name)
+                    .ok_or(V8BindingError::Allocation("keyboard modifier"))?;
+                shortcut |= event
+                    .get(scope, key.into())
+                    .is_some_and(|value| value.boolean_value(scope));
+            }
+            if !shortcut {
+                state.dom.borrow_mut().set_focus_visible(true);
+            }
+        }
         if let Some(record) = state.events.borrow_mut().get_mut(&id) {
             record.is_trusted = true;
         }
@@ -26237,50 +26382,7 @@ fn call_operation<'s>(
             Ok(None)
         }
         ("HTMLElement", "focus") => {
-            if !state.dom.borrow().is_connected(node)? {
-                return Ok(None);
-            }
-            let previous = state.dom.borrow().focused();
-            if previous != Some(node) {
-                if let Some(previous) = previous {
-                    state.dom.borrow_mut().focus(None)?;
-                    let event = create_event_object(scope, state, "blur", false, false)?;
-                    dispatch_event(scope, state, previous, event)?;
-                }
-                state.dom.borrow_mut().focus(Some(node))?;
-                let event = create_event_object(scope, state, "focus", false, false)?;
-                dispatch_event(scope, state, node, event)?;
-            }
-            // A focused editing host has a usable caret even before script
-            // explicitly creates a Selection. This is observable by keyboard
-            // input and is required for deterministic testdriver actions.
-            if state.selection_range.get().is_none() && document_is_editable(state) {
-                let caret_container = {
-                    let dom = state.dom.borrow();
-                    traversal_nodes(&dom, node)?
-                        .into_iter()
-                        .find(|candidate| {
-                            dom.arena().get(*candidate).is_ok_and(|record| {
-                                matches!(
-                                    record.kind,
-                                    NodeKind::Text { .. } | NodeKind::CDataSection { .. }
-                                ) && editing_host_for_node(
-                                    &dom,
-                                    Some(*candidate),
-                                    state.design_mode.get(),
-                                    state.document,
-                                )
-                                .is_ok_and(|host| host == Some(node))
-                            })
-                        })
-                        .unwrap_or(node)
-                };
-                let point = BoundaryPoint {
-                    container: caret_container,
-                    offset: 0,
-                };
-                set_selection_boundaries(state, point, point)?;
-            }
+            focus_html_element(scope, state, node, false)?;
             Ok(None)
         }
         ("HTMLInputElement" | "HTMLTextAreaElement", "select") => {
@@ -31136,6 +31238,53 @@ mod tests {
         .unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
         assert!(script.run(scope).unwrap().boolean_value(scope));
+    }
+
+    #[test]
+    fn native_input_changes_focus_visibility_but_synthetic_keyboard_events_do_not() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(html::parse(
+            "<body><button id='button'></button><input id='text'><div id='editor' contenteditable></div></body>"
+        ).into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        for (source, visible) in [
+            (
+                "globalThis.button=document.getElementById('button');button.focus()",
+                true,
+            ),
+            ("button.blur();__oryn_focus_from_pointer(button)", false),
+            (
+                "button.dispatchEvent(new Event('keydown',{bubbles:true}))",
+                false,
+            ),
+            (
+                "const shortcut=new Event('keydown',{bubbles:true});shortcut.ctrlKey=true;__oryn_dispatch_user_input(button,'keydown',false,shortcut)",
+                false,
+            ),
+            ("__oryn_dispatch_user_input(button,'keydown',false)", true),
+            ("__oryn_focus_from_pointer(button)", true),
+            ("button.blur();button.focus()", true),
+            (
+                "button.blur();__oryn_focus_from_pointer(button);button.blur();button.focus()",
+                false,
+            ),
+            ("document.getElementById('text').focus()", true),
+            (
+                "__oryn_focus_from_pointer(document.getElementById('editor'))",
+                true,
+            ),
+        ] {
+            let code = v8::String::new(scope, source).unwrap();
+            v8::Script::compile(scope, code, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            assert_eq!(dom.borrow().focus_visible(), visible, "{source}");
+        }
     }
 
     #[test]
