@@ -33,13 +33,21 @@ editing regressions, 48 layout tests, 148 binding tests (two existing ignores), 
 Clippy and signed-worker security checks. [Full evidence](CONFORMANCE-RENDERED-JOINS-FULL-2026-09-07.json) and
 [native evidence](CONFORMANCE-RENDERED-JOINS-2026-09-07.json) retain the results.
 
-The next editing correction covers the **12 remaining whitespace-join variants**:
-preserve default normal whitespace and the outer formatting element when moving inline
-content into a differently styled paragraph. All three original joining families now
-have only those 12 failing variants. Then broaden work to native CSSOM rule ownership,
-typed rule trees and live declarations; most non-page rule wrappers currently discard
-parsed rule metadata. Keep the earlier editing regressions and Range resource failures
-open. Native or selected results alone do not change the overall score.
+The subsequent signed candidate `0095097` passes **all 180 executions across the three
+whitespace-join families**. Its complete editing run reaches **389/704**, gaining 12
+whole-test passes with zero whole losses, assertion regressions or missing prior passes
+versus `70352c7`. It also recovers all three regressions from the intermediate candidate.
+[Selected evidence](CONFORMANCE-INLINE-JOIN-RETENTION-2026-09-07.json) binds both audits,
+exact coverage and signed-worker fingerprints. The overall score and canonical backlog
+remain tied to the full `70352c7` measurement; these 12 selected gains are not added to it.
+
+The next implementation priority is **native CSSOM rule ownership, typed rule trees,
+live declarations and generated interface coverage**. Most non-page rule wrappers discard
+parsed rule metadata, expose plain declaration objects and lack the required IDL surface.
+Retain stylesheet context for namespaces and nested rule mutations, stable parent/child
+identity, live read-only rule collections and detached rule behavior. Use Stylo parsing
+and native state through the generated bindings. Then measure the broader candidate with
+the full inventory. Keep earlier editing regressions and Range resource failures open.
 
 | Root | Passed / required |
 |---|---:|
