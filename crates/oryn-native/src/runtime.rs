@@ -10828,6 +10828,53 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn editing_join_respects_preformatted_containers_and_placeholder_breaks() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://editing.example.test/preformatted-inline",
+            "<!doctype html><div id=host contenteditable></div>",
+        )
+        .await
+        .unwrap();
+        let result = page.evaluate(r#"(() => {
+          const host = document.getElementById('host');let checked=0;
+          for (const css of [false,true]) {
+            for (const tag of ['pre','listing']) for (const attrs of ['', ' style="white-space:pre"', ' style="white-space:pre-wrap"']) {
+              for (const source of ['bar','<span style="white-space:normal">bar</span>','<span style="white-space:nowrap">bar</span>','<b>bar</b>']) {
+                for (const direction of ['backward','forward','selection']) {
+                  host.innerHTML='<'+tag+attrs+'>foo</'+tag+'>'+source;
+                  const left=host.firstChild;let right=host.lastChild;
+                  while (right.nodeType!==3) right=right.firstChild;
+                  host.focus();document.execCommand('styleWithCSS',false,css);
+                  const range=document.createRange();
+                  if (direction==='backward') {range.setStart(right,0);range.collapse(true);}
+                  else {range.setStart(left.firstChild,3);if(direction==='forward')range.collapse(true);else range.setEnd(right,0);}
+                  getSelection().removeAllRanges();getSelection().addRange(range);
+                  document.execCommand(direction==='forward'?'forwardDelete':'delete');
+                  const expected='<'+tag+attrs+'>foo'+(source.startsWith('<b>')?'<b>bar</b>':'bar')+'</'+tag+'>';
+                  if(host.innerHTML!==expected)throw new Error(JSON.stringify({css,tag,attrs,source,direction,expected,actual:host.innerHTML}));
+                  document.execCommand('insertText',false,'X');
+                  if(left.textContent!=='fooXbar')throw new Error('preformatted join caret changed');
+                  checked++;
+                }
+              }
+            }
+            for (const breaks of [1,2,3]) {
+              host.innerHTML='<p>foo</p>'+'<br>'.repeat(breaks)+'<p>bar</p>';
+              host.focus();document.execCommand('styleWithCSS',false,css);getSelection().collapse(host.firstChild.firstChild,3);document.execCommand('forwardDelete');
+              const expected='<p>foo</p>'+'<br>'.repeat(breaks-1)+'<p>bar</p>';
+              if(host.innerHTML!==expected)throw new Error(JSON.stringify({css,breaks,expected,actual:host.innerHTML}));
+              checked++;
+            }
+          }
+          return String(checked);
+        })()"#).await.unwrap();
+        assert_eq!(result, "150");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_join_preserves_default_inline_whitespace_and_outer_formatting() {
         let context = Browser::new().new_context();
         let page = context.new_page();

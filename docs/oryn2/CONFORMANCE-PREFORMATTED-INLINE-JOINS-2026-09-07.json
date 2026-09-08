@@ -1,0 +1,56 @@
+{
+  "baseline_runtime": "37283d816819663c1dbc1288bef596ab4e30f5a2",
+  "change": "Honor preformatted HTML container semantics when absorbing inline whitespace, and consume only one placeholder break.",
+  "new_native_cases": 150,
+  "source_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "a5dc195e34315129d97782879339bd9765cfa411e89694697617f5589677ea9e",
+    "crates/oryn-native/src/runtime.rs": "ac37f0338bed9ccf1584c94f6bb4aeabb74d223726467997c7faf919ea6266f5"
+  },
+  "validation": {
+    "layout_passed": 48,
+    "bindings_passed": 148,
+    "bindings_existing_ignored": 2,
+    "native_editing_filters_passed": 11,
+    "native_justification_filters_passed": 9,
+    "other_native_regressions": "passed",
+    "strict_clippy": [
+      "oryn-layout",
+      "oryn-js",
+      "oryn-native"
+    ]
+  },
+  "logs": {
+    "artifacts/native-shared-editing/oryn-preformatted-inline-join-tests.log": "463aa22d1f20bf9d778f586f25a690e4c67d2ca585cca1c168d8c691d79c965b",
+    "artifacts/native-shared-editing/oryn-preformatted-inline-join-broad.log": "9800fe9e4f4104610281d835d4bcef941e835d49629daa00a00178520ca5b386"
+  },
+  "reference": {
+    "path": "artifacts/native-shared-editing/default-inline-reference-environment.json",
+    "sha256": "101efecea7d6a92375d5a8e56bd292ff5e5d6e4ec04709496b3ecc94d8e7227b",
+    "version": "152.0.7977.76",
+    "cases": 34,
+    "finding": "Chrome absorbs inline normal/nowrap whitespace into pre/listing, retains bold, preserves normal whitespace into a CSS-styled preformatted div, and removes only one of two consecutive breaks. Both styleWithCSS modes verified."
+  },
+  "prior_selected_audit": {
+    "path": "artifacts/upstream-conformance/shared-editing-37283d8-default-inline-audit.json",
+    "sha256": "02bc8a5cdd86af82ad9bdc8abee4068f6d941c06a17045ab16ad24acaf9e46d6",
+    "whole_passed": 389,
+    "whole_gains": 12,
+    "whole_losses": 0,
+    "assertion_regressions": [
+      {
+        "id": "editing/run/delete.html|window|?1-1000",
+        "names": [
+          "[[\"delete\",\"\"]] \"<pre>foo</pre>[]bar\" compare innerHTML"
+        ]
+      },
+      {
+        "id": "editing/run/forwarddelete.html|window|?1-1000",
+        "names": [
+          "[[\"forwarddelete\",\"\"]] \"<pre>foo[]</pre>bar\" compare innerHTML",
+          "[[\"forwarddelete\",\"\"]] \"<p>foo[]</p><br><br><p>bar</p>\" compare innerHTML"
+        ]
+      }
+    ]
+  },
+  "conformance": "Correction unmeasured by WPT; remeasure704 and require retention against both37283d8 and70352c7. Overall remains2880/4022 until next full run."
+}

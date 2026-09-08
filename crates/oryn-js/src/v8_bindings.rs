@@ -11301,6 +11301,13 @@ fn join_first_editing_line_before(
             NodeKind::Element { .. }
         )
         && element_local_name(&state.dom.borrow(), line_root) != Some("span");
+    let destination_absorbs_inline_whitespace = source_is_inline
+        && editing_host(state)?.is_some_and(|host| {
+            let dom = state.dom.borrow();
+            ["pre", "listing"]
+                .into_iter()
+                .any(|tag| has_ancestor_element_before(&dom, destination, tag, host))
+        });
     let source_has_author_whitespace = {
         let dom = state.dom.borrow();
         let style_node = if matches!(
@@ -11404,6 +11411,7 @@ fn join_first_editing_line_before(
     // The paragraph's first line can end at a break immediately outside an
     // inline source container (including a bare text node).
     let following_break = if source_is_inline
+        && !source_is_placeholder
         && separator.is_none()
         && end.container == line_root
         && end.offset == boundary_length(&state.dom.borrow(), line_root)?
@@ -11502,6 +11510,7 @@ fn join_first_editing_line_before(
             dom.remove_child(destination, last)?;
         }
         let target = if source_mode != destination_mode
+            && !destination_absorbs_inline_whitespace
             && (source_has_author_whitespace || source_is_inline)
         {
             if reusable_inline
