@@ -4323,26 +4323,21 @@ fn idb_value_to_json(
     idb_value_to_json_inner(scope, state, value, 0)
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum IdbKey {
-    Number(f64),
-    Date(f64),
-    String(String),
-    Binary(Vec<u8>),
-    Array(Vec<IdbKey>),
-}
+use crate::indexed_db::Key as IdbKey;
 
 fn idb_key_from_value(
     scope: &mut v8::PinScope,
     value: v8::Local<v8::Value>,
 ) -> Result<IdbKey, V8BindingError> {
-    idb_key_from_value_inner(scope, value, 0)
+    let seen = v8::Set::new(scope);
+    idb_key_from_value_inner(scope, value, 0, seen)
 }
 
 fn idb_key_from_value_inner(
     scope: &mut v8::PinScope,
     value: v8::Local<v8::Value>,
     depth: u8,
+    seen: v8::Local<v8::Set>,
 ) -> Result<IdbKey, V8BindingError> {
     let data_error = || V8BindingError::Unsupported {
         interface: "IndexedDB".into(),
@@ -4352,10 +4347,9 @@ fn idb_key_from_value_inner(
         return Err(data_error());
     }
     if value.is_number() {
-        let value = value.number_value(scope).ok_or_else(data_error)?;
-        return value
-            .is_finite()
-            .then_some(IdbKey::Number(value))
+        let number = value.number_value(scope).ok_or_else(data_error)?;
+        return (!number.is_nan())
+            .then_some(IdbKey::Number(number))
             .ok_or_else(data_error);
     }
     if value.is_date() {
@@ -4368,7 +4362,10 @@ fn idb_key_from_value_inner(
             .ok_or_else(data_error);
     }
     if value.is_string() {
-        return Ok(IdbKey::String(value.to_rust_string_lossy(scope)));
+        let string = v8::Local::<v8::String>::try_from(value).map_err(|_| data_error())?;
+        let mut units = vec![0_u16; string.length()];
+        string.write_v2(scope, 0, &mut units, v8::WriteFlags::default());
+        return Ok(IdbKey::String(units));
     }
     if let Ok(buffer) = v8::Local::<v8::ArrayBuffer>::try_from(value) {
         if buffer.was_detached() {
@@ -4388,10 +4385,21 @@ fn idb_key_from_value_inner(
         return Ok(IdbKey::Binary(bytes));
     }
     if let Ok(array) = v8::Local::<v8::Array>::try_from(value) {
+        if seen.has(scope, value).ok_or_else(data_error)? {
+            return Err(data_error());
+        }
+        seen.add(scope, value).ok_or_else(data_error)?;
         let mut keys = Vec::with_capacity(array.length() as usize);
         for index in 0..array.length() {
+            let name = v8::String::new(scope, &index.to_string()).ok_or_else(data_error)?;
+            if !array
+                .has_own_property(scope, name.into())
+                .ok_or_else(data_error)?
+            {
+                return Err(data_error());
+            }
             let item = array.get_index(scope, index).ok_or_else(data_error)?;
-            keys.push(idb_key_from_value_inner(scope, item, depth + 1)?);
+            keys.push(idb_key_from_value_inner(scope, item, depth + 1, seen)?);
         }
         return Ok(IdbKey::Array(keys));
     }
@@ -4399,53 +4407,11 @@ fn idb_key_from_value_inner(
 }
 
 fn compare_idb_keys(left: &IdbKey, right: &IdbKey) -> std::cmp::Ordering {
-    fn rank(key: &IdbKey) -> u8 {
-        match key {
-            IdbKey::Number(_) => 0,
-            IdbKey::Date(_) => 1,
-            IdbKey::String(_) => 2,
-            IdbKey::Binary(_) => 3,
-            IdbKey::Array(_) => 4,
-        }
-    }
-    let type_order = rank(left).cmp(&rank(right));
-    if type_order != std::cmp::Ordering::Equal {
-        return type_order;
-    }
-    match (left, right) {
-        (IdbKey::Number(left), IdbKey::Number(right))
-        | (IdbKey::Date(left), IdbKey::Date(right)) => {
-            left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
-        }
-        (IdbKey::String(left), IdbKey::String(right)) => left.cmp(right),
-        (IdbKey::Binary(left), IdbKey::Binary(right)) => left.cmp(right),
-        (IdbKey::Array(left), IdbKey::Array(right)) => {
-            for (left, right) in left.iter().zip(right) {
-                let ordering = compare_idb_keys(left, right);
-                if ordering != std::cmp::Ordering::Equal {
-                    return ordering;
-                }
-            }
-            left.len().cmp(&right.len())
-        }
-        _ => std::cmp::Ordering::Equal,
-    }
+    left.compare(right)
 }
 
 fn idb_key_to_json(key: IdbKey) -> serde_json::Value {
-    match key {
-        IdbKey::Number(value) | IdbKey::Date(value) => serde_json::Number::from_f64(value)
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null),
-        IdbKey::String(value) => serde_json::Value::String(value),
-        IdbKey::Binary(bytes) => serde_json::json!({
-            "__oryn_idb_key_type": "binary",
-            "bytes": bytes,
-        }),
-        IdbKey::Array(values) => {
-            serde_json::Value::Array(values.into_iter().map(idb_key_to_json).collect())
-        }
-    }
+    key.to_json()
 }
 
 fn idb_query_to_json(
@@ -4469,43 +4435,7 @@ fn compare_idb_json_keys(
     left: &serde_json::Value,
     right: &serde_json::Value,
 ) -> std::cmp::Ordering {
-    fn rank(value: &serde_json::Value) -> u8 {
-        match value {
-            serde_json::Value::Number(_) => 0,
-            serde_json::Value::String(_) => 2,
-            serde_json::Value::Object(object)
-                if object
-                    .get("__oryn_idb_key_type")
-                    .and_then(|value| value.as_str())
-                    == Some("binary") =>
-            {
-                3
-            }
-            serde_json::Value::Array(_) => 4,
-            _ => 5,
-        }
-    }
-    let ranked = rank(left).cmp(&rank(right));
-    if !ranked.is_eq() {
-        return ranked;
-    }
-    match (left, right) {
-        (serde_json::Value::Number(left), serde_json::Value::Number(right)) => left
-            .as_f64()
-            .partial_cmp(&right.as_f64())
-            .unwrap_or(std::cmp::Ordering::Equal),
-        (serde_json::Value::String(left), serde_json::Value::String(right)) => left.cmp(right),
-        (serde_json::Value::Array(left), serde_json::Value::Array(right)) => {
-            for (left, right) in left.iter().zip(right) {
-                let ordering = compare_idb_json_keys(left, right);
-                if !ordering.is_eq() {
-                    return ordering;
-                }
-            }
-            left.len().cmp(&right.len())
-        }
-        _ => left.to_string().cmp(&right.to_string()),
-    }
+    crate::indexed_db::compare_json(left, right).unwrap_or(std::cmp::Ordering::Equal)
 }
 
 fn normalize_idb_cursor_records(
@@ -4585,20 +4515,7 @@ fn idb_json_key_matches_query(query: Option<&serde_json::Value>, key: &serde_jso
 const COMPOUND_KEY_PATH_PREFIX: &str = "__oryn_compound_key_path__:";
 
 fn idb_json_key_path(value: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
-    if let Some(encoded) = path.strip_prefix(COMPOUND_KEY_PATH_PREFIX) {
-        let paths = serde_json::from_str::<Vec<String>>(encoded).ok()?;
-        return paths
-            .iter()
-            .map(|path| idb_json_key_path(value, path))
-            .collect::<Option<Vec<_>>>()
-            .map(serde_json::Value::Array);
-    }
-    if path.is_empty() {
-        return Some(value.clone());
-    }
-    path.split('.')
-        .try_fold(value, |current, segment| current.as_object()?.get(segment))
-        .cloned()
+    crate::indexed_db::key_path(value, path)
 }
 
 #[cfg(test)]
@@ -4607,31 +4524,7 @@ fn is_valid_idb_json_key(value: &serde_json::Value) -> bool {
 }
 
 fn normalize_idb_json_key(value: &serde_json::Value) -> Option<serde_json::Value> {
-    match value {
-        serde_json::Value::Number(value) if value.as_f64().is_some_and(f64::is_finite) => {
-            Some(serde_json::Value::Number(value.clone()))
-        }
-        serde_json::Value::String(value) => Some(serde_json::Value::String(value.clone())),
-        serde_json::Value::Array(values) => values
-            .iter()
-            .map(normalize_idb_json_key)
-            .collect::<Option<Vec<_>>>()
-            .map(serde_json::Value::Array),
-        serde_json::Value::Object(object)
-            if matches!(
-                object
-                    .get("__oryn_clone_type")
-                    .and_then(serde_json::Value::as_str),
-                Some("array_buffer" | "typed_array")
-            ) =>
-        {
-            Some(serde_json::json!({
-                "__oryn_idb_key_type":"binary",
-                "bytes":object.get("bytes").cloned().unwrap_or_else(|| serde_json::Value::Array(Vec::new())),
-            }))
-        }
-        _ => None,
-    }
+    crate::indexed_db::normalized_stored_key(value)
 }
 
 fn idb_value_to_json_inner(
@@ -4669,8 +4562,19 @@ fn idb_value_to_json_inner(
         };
         return Ok(serde_json::json!({"__oryn_clone_type":"number","value":kind}));
     }
+    if value.is_date() {
+        let date = v8::Local::<v8::Date>::try_from(value)
+            .map_err(|_| V8BindingError::Allocation("Date clone"))?;
+        return Ok(serde_json::json!({"__oryn_clone_type":"date","value":date.value_of()}));
+    }
     if value.is_string() {
-        return Ok(serde_json::Value::String(value.to_rust_string_lossy(scope)));
+        let string = v8::Local::<v8::String>::try_from(value)
+            .map_err(|_| V8BindingError::Allocation("String clone"))?;
+        let mut units = vec![0_u16; string.length()];
+        string.write_v2(scope, 0, &mut units, v8::WriteFlags::default());
+        return Ok(String::from_utf16(&units)
+            .map(serde_json::Value::String)
+            .unwrap_or_else(|_| serde_json::json!({"__oryn_clone_type":"string","units":units})));
     }
     if let Some(object) = value.to_object(scope)
         && let Ok(id) = stateful_id(scope, object)
@@ -4822,6 +4726,9 @@ fn idb_value_to_json_inner(
                 idb_value_to_json_inner(scope, state, child, depth + 1)?,
             );
         }
+        if result.contains_key("__oryn_clone_type") || result.contains_key("__oryn_idb_key_type") {
+            return Ok(serde_json::json!({"__oryn_clone_type":"object","properties":result}));
+        }
         return Ok(serde_json::Value::Object(result));
     }
     Err(V8BindingError::Unsupported {
@@ -4835,6 +4742,60 @@ fn idb_json_to_value<'s>(
     state: &V8BindingState,
     value: &serde_json::Value,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let clone_type = value
+        .get("__oryn_clone_type")
+        .and_then(serde_json::Value::as_str);
+    let key_type = value
+        .get("__oryn_idb_key_type")
+        .and_then(serde_json::Value::as_str);
+    if clone_type == Some("date") || key_type == Some("date") {
+        return v8::Date::new(
+            scope,
+            value
+                .get("value")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(f64::NAN),
+        )
+        .map(Into::into)
+        .ok_or(V8BindingError::Allocation("Date clone"));
+    }
+    if clone_type == Some("string") || key_type == Some("string") {
+        let units = value
+            .get("units")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|units| {
+                units
+                    .iter()
+                    .map(|v| v.as_u64().and_then(|v| u16::try_from(v).ok()))
+                    .collect::<Option<Vec<_>>>()
+            })
+            .ok_or(V8BindingError::Allocation("String clone"))?;
+        return v8::String::new_from_two_byte(scope, &units, v8::NewStringType::Normal)
+            .map(Into::into)
+            .ok_or(V8BindingError::Allocation("String clone"));
+    }
+    if key_type == Some("number") {
+        let IdbKey::Number(number) =
+            IdbKey::from_json(value).ok_or(V8BindingError::Allocation("number key"))?
+        else {
+            unreachable!()
+        };
+        return Ok(v8::Number::new(scope, number).into());
+    }
+    if clone_type == Some("object") {
+        let properties = value
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .ok_or(V8BindingError::Allocation("object clone"))?;
+        let object = v8::Object::new(scope);
+        for (name, value) in properties {
+            let name = v8::String::new(scope, name)
+                .ok_or(V8BindingError::Allocation("object clone name"))?;
+            let value = idb_json_to_value(scope, state, value)?;
+            object.create_data_property(scope, name.into(), value);
+        }
+        return Ok(object.into());
+    }
     if value
         .get("__oryn_clone_type")
         .and_then(serde_json::Value::as_str)
@@ -5080,7 +5041,9 @@ fn idb_json_to_value<'s>(
                 .ok_or(V8BindingError::Allocation("IndexedDB number"))?,
         )
         .into()),
-        serde_json::Value::String(value) => v8_string(scope, value),
+        serde_json::Value::String(value) => v8::String::new(scope, value)
+            .map(Into::into)
+            .ok_or(V8BindingError::Allocation("IndexedDB string")),
         serde_json::Value::Array(values) => {
             let array = v8::Array::new(scope, values.len() as i32);
             for (index, value) in values.iter().enumerate() {
@@ -17710,15 +17673,8 @@ fn call_platform_operation<'s>(
                 && let Some(update_value) = update_value
                 && let Some((index_key_path, multi_entry)) = index_configuration
             {
-                let mut index_keys = match idb_json_key_path(&update_value, &index_key_path) {
-                    Some(serde_json::Value::Array(values)) if multi_entry => values,
-                    Some(value) => vec![value],
-                    None => Vec::new(),
-                };
-                index_keys = index_keys
-                    .into_iter()
-                    .filter_map(|key| normalize_idb_json_key(&key))
-                    .collect();
+                let index_keys =
+                    crate::indexed_db::index_keys(&update_value, &index_key_path, multi_entry);
                 let mut record = platform_object_mut(state, id)?;
                 let PlatformObjectRecord::IdbCursor(cursor) = &mut *record else {
                     return Err(V8BindingError::Allocation("IDBCursor record"));
@@ -28414,6 +28370,65 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "abort|201|true|text/plain|upgrade|db:2");
+    }
+
+    #[test]
+    fn indexeddb_key_conversion_preserves_infinities_utf16_and_array_identity() {
+        check_global_event_prototype_script(
+            r#"(()=>{
+            const keys=[-Infinity,-1,-0,Infinity,new Date(0),'\uD800','💡','\uE000',new Uint8Array([0]),[]];
+            for(let i=1;i<keys.length;i++)if(indexedDB.cmp(keys[i-1],keys[i])!==-1)throw Error('order '+i);
+            if(indexedDB.cmp(-0,0)!==0)throw Error('zero');
+            const repeated=[];
+            const sparse=new Array(1);Array.prototype[0]=1;
+            try{
+                for(const key of [NaN,new Date(NaN),[repeated,repeated],sparse]) {
+                    let rejected=false;try{indexedDB.cmp(key,key)}catch(e){rejected=e.name==='DataError'}
+                    if(!rejected)throw Error('invalid key');
+                }
+            } finally {delete Array.prototype[0]}
+            return true;
+        })()"#,
+        );
+    }
+
+    #[test]
+    fn indexeddb_value_clone_preserves_key_types_and_escapes_user_tags() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source=v8::String::new(scope,r#"({date:new Date(7),invalidDate:new Date(NaN),infinity:Infinity,lone:'\uD800',text:'💡',spoof:{__oryn_clone_type:'date',value:7},marker:'\u{f0000}oryn-wtf16:[65]'})"#).unwrap();
+        let value = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let stored = idb_value_to_json(scope, &state, value).unwrap();
+        assert_eq!(
+            normalize_idb_json_key(&idb_json_key_path(&stored, "date").unwrap()),
+            Some(serde_json::json!({"__oryn_idb_key_type":"date","value":7.0}))
+        );
+        assert_eq!(
+            idb_json_key_path(&stored, "text.length"),
+            Some(serde_json::json!(2))
+        );
+        assert!(normalize_idb_json_key(&idb_json_key_path(&stored, "spoof").unwrap()).is_none());
+        let decoded = idb_json_to_value(scope, &state, &stored).unwrap();
+        let name = v8::String::new(scope, "roundTrip").unwrap();
+        context.global(scope).set(scope, name.into(), decoded);
+        let source=v8::String::new(scope,r#"roundTrip.date instanceof Date && roundTrip.date.getTime()===7 && Number.isNaN(roundTrip.invalidDate.getTime()) && roundTrip.infinity===Infinity && roundTrip.lone.charCodeAt(0)===0xD800 && !(roundTrip.spoof instanceof Date) && roundTrip.spoof.__oryn_clone_type==='date' && roundTrip.marker==='\u{f0000}oryn-wtf16:[65]'"#).unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
     }
 
     #[test]

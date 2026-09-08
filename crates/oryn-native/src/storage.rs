@@ -1373,50 +1373,7 @@ fn compare_indexed_db_keys(
     left: &serde_json::Value,
     right: &serde_json::Value,
 ) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    match (left, right) {
-        (serde_json::Value::Number(left), serde_json::Value::Number(right)) => left
-            .as_f64()
-            .partial_cmp(&right.as_f64())
-            .unwrap_or(Ordering::Equal),
-        (serde_json::Value::String(left), serde_json::Value::String(right)) => left.cmp(right),
-        (serde_json::Value::Array(left), serde_json::Value::Array(right)) => {
-            for (left, right) in left.iter().zip(right) {
-                let ordering = compare_indexed_db_keys(left, right);
-                if ordering != Ordering::Equal {
-                    return ordering;
-                }
-            }
-            left.len().cmp(&right.len())
-        }
-        (serde_json::Value::Object(left), serde_json::Value::Object(right))
-            if left
-                .get("__oryn_idb_key_type")
-                .and_then(|value| value.as_str())
-                == Some("binary")
-                && right
-                    .get("__oryn_idb_key_type")
-                    .and_then(|value| value.as_str())
-                    == Some("binary") =>
-        {
-            let bytes = |value: &serde_json::Map<String, serde_json::Value>| {
-                value
-                    .get("bytes")
-                    .and_then(|value| value.as_array())
-                    .map(|values| {
-                        values
-                            .iter()
-                            .filter_map(|value| value.as_u64().map(|value| value as u8))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default()
-            };
-            bytes(left).cmp(&bytes(right))
-        }
-        _ => encode_key(left)
-            .unwrap_or_default()
-            .cmp(&encode_key(right).unwrap_or_default()),
-    }
+    oryn_js::indexed_db::compare_json(left, right).unwrap_or(std::cmp::Ordering::Equal)
 }
 
 fn database_mut<'a>(
@@ -1465,55 +1422,11 @@ fn indexed_record_keys(
     value: &serde_json::Value,
     definition: &IndexDefinition,
 ) -> Vec<serde_json::Value> {
-    let Some(value) = json_value_at_key_path(value, &definition.key_path) else {
-        return Vec::new();
-    };
-    // Structured cloning preserves array properties in a tagged envelope.
-    // Index extraction must operate on its elements, not treat that envelope
-    // as an invalid object key. Use the same conversion for uniqueness checks
-    // and cursor reads so they cannot disagree about indexed records.
-    let elements = value.as_array().or_else(|| {
-        (value
-            .get("__oryn_clone_type")
-            .and_then(serde_json::Value::as_str)
-            == Some("array"))
-        .then(|| value.get("values").and_then(serde_json::Value::as_array))
-        .flatten()
-    });
-    let candidates = if definition.multi_entry {
-        elements.cloned().unwrap_or_else(|| vec![value.clone()])
-    } else {
-        vec![value]
-    };
-    candidates.iter().filter_map(stored_index_key).collect()
+    oryn_js::indexed_db::index_keys(value, &definition.key_path, definition.multi_entry)
 }
 
 fn stored_index_key(value: &serde_json::Value) -> Option<serde_json::Value> {
-    let key = match value
-        .get("__oryn_clone_type")
-        .and_then(serde_json::Value::as_str)
-    {
-        Some("array") => serde_json::Value::Array(
-            value
-                .get("values")?
-                .as_array()?
-                .iter()
-                .map(stored_index_key)
-                .collect::<Option<Vec<_>>>()?,
-        ),
-        Some("array_buffer" | "typed_array") => serde_json::json!({
-            "__oryn_idb_key_type": "binary", "bytes": value.get("bytes")?
-        }),
-        _ if value.is_array() => serde_json::Value::Array(
-            value
-                .as_array()?
-                .iter()
-                .map(stored_index_key)
-                .collect::<Option<Vec<_>>>()?,
-        ),
-        _ => value.clone(),
-    };
-    encode_key(&key).ok().map(|_| key)
+    oryn_js::indexed_db::normalized_stored_key(value)
 }
 
 fn put_record(
@@ -1531,21 +1444,33 @@ fn put_record(
         .key_path
         .as_deref()
         .and_then(|path| json_value_at_key_path(&value, path));
-    let key = write.key.or(key_from_path).or_else(|| {
-        definition.auto_increment.then(|| {
-            let key = serde_json::Value::from(store.next_key.max(1));
-            store.next_key = store.next_key.max(1).saturating_add(1);
-            key
-        })
-    });
-    let key = key.ok_or(StorageError::KeyRequired)?;
+    let key_from_path = key_from_path
+        .map(|key| stored_index_key(&key).ok_or(StorageError::KeyRequired))
+        .transpose()?;
+    const MAX_GENERATED_KEY: u64 = 1_u64 << 53;
+    let key = match write.key.or(key_from_path) {
+        Some(key) => key,
+        None if definition.auto_increment => {
+            let next = store.next_key.max(1);
+            if next > MAX_GENERATED_KEY {
+                return Err(StorageError::Constraint);
+            }
+            store.next_key = next + 1;
+            serde_json::Value::from(next)
+        }
+        None => return Err(StorageError::KeyRequired),
+    };
     if definition.auto_increment
-        && let Some(numeric) = key.as_f64()
-        && numeric.is_finite()
+        && let Some(oryn_js::indexed_db::Key::Number(numeric)) =
+            oryn_js::indexed_db::Key::from_json(&key)
         && numeric >= 1.0
     {
-        let next = numeric.floor().min(u64::MAX as f64) as u64;
-        store.next_key = store.next_key.max(next.saturating_add(1));
+        let next = if numeric >= MAX_GENERATED_KEY as f64 {
+            MAX_GENERATED_KEY + 1
+        } else {
+            numeric.floor() as u64 + 1
+        };
+        store.next_key = store.next_key.max(next);
     }
     if let Some(path) = definition.key_path
         && json_value_at_key_path(&value, &path).is_none()
@@ -1557,13 +1482,15 @@ fn put_record(
         return Err(StorageError::Constraint);
     }
     for index in store.indexes.values().filter(|index| index.unique) {
-        let Some(index_value) = json_value_at_key_path(&value, &index.key_path) else {
-            continue;
-        };
+        let keys = indexed_record_keys(&value, index);
         if store.records.iter().any(|(record_key, record)| {
             record_key != &encoded
-                && json_value_at_key_path(&record.value, &index.key_path).as_ref()
-                    == Some(&index_value)
+                && indexed_record_keys(&record.value, index)
+                    .iter()
+                    .any(|existing| {
+                        keys.iter()
+                            .any(|key| compare_indexed_db_keys(existing, key).is_eq())
+                    })
         }) {
             return Err(StorageError::Constraint);
         }
@@ -1578,34 +1505,8 @@ fn put_record(
     Ok(key)
 }
 
-const COMPOUND_KEY_PATH_PREFIX: &str = "__oryn_compound_key_path__:";
-
 fn json_value_at_key_path(value: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
-    if let Some(encoded) = path.strip_prefix(COMPOUND_KEY_PATH_PREFIX) {
-        let paths = serde_json::from_str::<Vec<String>>(encoded).ok()?;
-        return paths
-            .iter()
-            .map(|path| json_value_at_key_path(value, path))
-            .collect::<Option<Vec<_>>>()
-            .map(serde_json::Value::Array);
-    }
-    if path.is_empty() {
-        return Some(value.clone());
-    }
-    path.split('.')
-        .try_fold(value, |current, segment| {
-            let object = current.as_object()?;
-            if object
-                .get("__oryn_clone_type")
-                .and_then(serde_json::Value::as_str)
-                == Some("array")
-            {
-                object.get("properties")?.as_object()?.get(segment)
-            } else {
-                object.get(segment)
-            }
-        })
-        .cloned()
+    oryn_js::indexed_db::key_path(value, path)
 }
 
 fn inject_json_key_path(
@@ -1620,7 +1521,7 @@ fn inject_json_key_path(
         let object = if object
             .get("__oryn_clone_type")
             .and_then(serde_json::Value::as_str)
-            == Some("array")
+            .is_some_and(|kind| matches!(kind, "array" | "object"))
         {
             object
                 .get_mut("properties")
@@ -1644,51 +1545,9 @@ fn inject_json_key_path(
 }
 
 fn encode_key(key: &serde_json::Value) -> Result<String, StorageError> {
-    match key {
-        serde_json::Value::Number(value) => {
-            let value = value
-                .as_f64()
-                .filter(|value| value.is_finite())
-                .ok_or_else(|| StorageError::DataClone("invalid IndexedDB number key".into()))?;
-            Ok(format!("n:{:016x}", value.to_bits()))
-        }
-        serde_json::Value::String(value) => serde_json::to_string(value)
-            .map(|value| format!("s:{value}"))
-            .map_err(|error| StorageError::DataClone(error.to_string())),
-        serde_json::Value::Array(values) => {
-            let encoded = values
-                .iter()
-                .map(encode_key)
-                .collect::<Result<Vec<_>, _>>()?;
-            serde_json::to_string(&encoded)
-                .map(|encoded| format!("a:{encoded}"))
-                .map_err(|error| StorageError::DataClone(error.to_string()))
-        }
-        serde_json::Value::Object(value)
-            if value
-                .get("__oryn_idb_key_type")
-                .and_then(|value| value.as_str())
-                == Some("binary") =>
-        {
-            let bytes = value
-                .get("bytes")
-                .and_then(|value| value.as_array())
-                .ok_or_else(|| StorageError::DataClone("invalid binary IndexedDB key".into()))?;
-            let mut encoded = String::from("b:");
-            for byte in bytes {
-                let byte = byte.as_u64().filter(|value| *value <= 255).ok_or_else(|| {
-                    StorageError::DataClone("invalid binary IndexedDB key".into())
-                })?;
-                use std::fmt::Write as _;
-                write!(&mut encoded, "{byte:02x}")
-                    .map_err(|error| StorageError::DataClone(error.to_string()))?;
-            }
-            Ok(encoded)
-        }
-        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Object(_) => {
-            Err(StorageError::DataClone("invalid IndexedDB key".into()))
-        }
-    }
+    oryn_js::indexed_db::Key::from_json(key)
+        .map(|key| key.storage_id())
+        .ok_or_else(|| StorageError::DataClone("invalid IndexedDB key".into()))
 }
 
 fn indexed_db_origin_bytes(
@@ -2580,6 +2439,158 @@ mod tests {
                 }
             ),
             vec![serde_json::json!(["a", 2])]
+        );
+    }
+
+    #[test]
+    fn indexed_db_unique_multi_entry_backfill_matches_later_writes() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        let run = |command| {
+            store.execute(StorageRequest::IndexedDb {
+                origin: "https://example.test".into(),
+                command,
+            })
+        };
+        run(IdbCommand::Open {
+            name: "unique".into(),
+            version: 1,
+        })
+        .unwrap();
+        run(IdbCommand::CreateObjectStore {
+            database: "unique".into(),
+            definition: ObjectStoreDefinition {
+                name: "items".into(),
+                key_path: None,
+                auto_increment: false,
+                indexes: Vec::new(),
+            },
+        })
+        .unwrap();
+        let put = |key, value| {
+            run(IdbCommand::Batch {
+                database: "unique".into(),
+                writes: vec![IdbWrite {
+                    store: "items".into(),
+                    key: Some(key),
+                    value,
+                    add_only: false,
+                }],
+            })
+        };
+        put(serde_json::json!(1), serde_json::json!({"tags":[1,1.0]})).unwrap();
+        run(IdbCommand::CreateIndex {
+            database: "unique".into(),
+            store: "items".into(),
+            definition: IndexDefinition {
+                name: "tags".into(),
+                key_path: "tags".into(),
+                unique: true,
+                multi_entry: true,
+            },
+        })
+        .unwrap();
+        put(serde_json::json!(1), serde_json::json!({"tags":[1,1]})).unwrap();
+        assert!(matches!(
+            put(serde_json::json!(2), serde_json::json!({"tags":[1]})),
+            Err(StorageError::Constraint)
+        ));
+        put(
+            serde_json::json!(2),
+            serde_json::json!({"tags":[{"__oryn_clone_type":"date","value":1}]}),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn indexed_db_generator_ignores_date_keys_and_exhausts_at_infinity() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        let run = |command| {
+            store.execute(StorageRequest::IndexedDb {
+                origin: "https://example.test".into(),
+                command,
+            })
+        };
+        run(IdbCommand::Open {
+            name: "generator".into(),
+            version: 1,
+        })
+        .unwrap();
+        run(IdbCommand::CreateObjectStore {
+            database: "generator".into(),
+            definition: ObjectStoreDefinition {
+                name: "items".into(),
+                key_path: None,
+                auto_increment: true,
+                indexes: Vec::new(),
+            },
+        })
+        .unwrap();
+        let put = |key| {
+            run(IdbCommand::Batch {
+                database: "generator".into(),
+                writes: vec![IdbWrite {
+                    store: "items".into(),
+                    key,
+                    value: serde_json::json!("value"),
+                    add_only: true,
+                }],
+            })
+        };
+        put(Some(
+            serde_json::json!({"__oryn_idb_key_type":"date","value":500}),
+        ))
+        .unwrap();
+        assert!(
+            matches!(put(None).unwrap(),StorageResponse::IndexedDb {response} if response.key==Some(serde_json::json!(1)))
+        );
+        put(Some(
+            serde_json::json!({"__oryn_idb_key_type":"number","value":"positive_infinity"}),
+        ))
+        .unwrap();
+        assert!(matches!(put(None), Err(StorageError::Constraint)));
+    }
+
+    #[test]
+    fn indexed_db_key_transport_preserves_types_order_and_zero_identity() {
+        let date = serde_json::json!({"__oryn_idb_key_type":"date","value":1});
+        assert!(
+            encode_key(&date).is_ok(),
+            "Date keys must survive storage transport"
+        );
+        assert_ne!(
+            encode_key(&date).unwrap(),
+            encode_key(&serde_json::json!(1)).unwrap()
+        );
+        assert_eq!(
+            encode_key(&serde_json::json!(-0.0)).unwrap(),
+            encode_key(&serde_json::json!(0)).unwrap()
+        );
+        let keys = [
+            serde_json::json!({"__oryn_idb_key_type":"number","value":"negative_infinity"}),
+            serde_json::json!(-2),
+            serde_json::json!(1),
+            serde_json::json!({"__oryn_idb_key_type":"number","value":"positive_infinity"}),
+            date,
+            serde_json::json!("a"),
+            serde_json::json!({"__oryn_idb_key_type":"binary","bytes":[0]}),
+            serde_json::json!([]),
+        ];
+        for pair in keys.windows(2) {
+            assert!(
+                compare_indexed_db_keys(&pair[0], &pair[1]).is_lt(),
+                "{pair:?}"
+            );
+        }
+        assert_eq!(
+            json_value_at_key_path(&serde_json::json!({"text":"💡"}), "text.length"),
+            Some(serde_json::json!(2))
+        );
+        assert_eq!(
+            json_value_at_key_path(
+                &serde_json::json!({"__oryn_clone_type":"array","values":[1,2],"properties":{}}),
+                "length"
+            ),
+            Some(serde_json::json!(2))
         );
     }
 

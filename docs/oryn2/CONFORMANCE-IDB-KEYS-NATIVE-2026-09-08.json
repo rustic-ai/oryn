@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "purpose": "Native IndexedDB key implementation evidence; signed full-inventory verification is pending.",
+  "base_commit": "87a62c6f270ac430c21ba6acaea1ca7eefb3ac6b",
+  "runtime_source_sha256": {
+    "crates/oryn-js/src/indexed_db.rs": "8c2b2e2842d45e544c21ffd8efc081960f86243a62808105d67e39708ecee4ce",
+    "crates/oryn-js/src/lib.rs": "2c15c638bafd2438abfd78217784009d5f1703211541cb391aac4525399696e1",
+    "crates/oryn-js/src/v8_bindings.rs": "75455e5000ca58b9aed79b51758861b4055871cfbb9800f7f5b1b7481099108f",
+    "crates/oryn-native/src/storage.rs": "6f2b74e7541f005a211838debb62bd13aaedf9469f2798d180bef1b607e8ac49",
+    "crates/oryn-native/src/runtime.rs": "4231d707698aac05ae56d19398f43f11cdf679946dd58b10c544cca7c3f41950"
+  },
+  "changes": [
+    "Binding and parent storage share typed key transport and comparison, preserving Date, infinities, UTF-16 strings, binary keys, arrays and canonical signed-zero identity.",
+    "Stored Date and lossless strings round-trip; ordinary objects escape internal clone/key tags.",
+    "Key-path extraction handles String/Array length and Blob/File intrinsic properties.",
+    "Index backfills, writes and cursor updates share entry extraction and key-based duplicate elimination.",
+    "Auto-increment ignores Date keys and becomes exhausted after a numeric Infinity key."
+  ],
+  "checks": {
+    "strict_native_clippy": "passed",
+    "javascript": {
+      "passed": 163,
+      "existing_ignored": 2
+    },
+    "all_storage_tests": 18,
+    "indexed_db_filtered_native_tests": 17,
+    "filtered_native_tests_overlap_storage_tests": true,
+    "workspace_format": "passed",
+    "canonical_generation": "passed"
+  },
+  "reproduction": {
+    "before": "The new storage regression failed because Date keys could not be encoded.",
+    "after": "The same test passes, as do all storage tests and a Browser-context test covering Date/number identity, key ordering, UTF-16 strings, inline Date keys, string-length key paths and generator behavior through parent storage.",
+    "intermediate_failure": "The first implementation changed integer JSON spellings in existing index records. Normalization was corrected to preserve them; the unchanged failing test now passes."
+  },
+  "artifacts": [
+    {
+      "path": "artifacts/upstream-conformance/native-idb-keys/oryn-idb-key-transport-before.log",
+      "sha256": "52022d6562188098cc767d7738469901d03661acac4c914b013b6384ea000343"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-idb-keys/oryn-idb-key-gates-v1.log",
+      "sha256": "3766a777601f2959b50a2ef75c41f6ed8e7ca35af5408be640f003c06814eed5"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-idb-keys/oryn-idb-key-gates-v2.log",
+      "sha256": "0231303b15650ccbf8e163b9391db2cbd5181a10c57e124f6b190cfd9eb80230"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-idb-keys/oryn-idb-key-gates-v3.log",
+      "sha256": "a6588b070bd4426443e6b88ce45194acee4a49f1b2dad9b035860c7c86ad2245"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-idb-keys/oryn-test-idb-key-gates-v3.py",
+      "sha256": "1d6083fd7e2b16aea88fba94efd1bd7cb967ed6b33bd8c3f2d2878c2933677eb"
+    }
+  ],
+  "qualification": {
+    "complete": false,
+    "reason": "The last signed full inventory remains 2,930/4,022 at50993c3. Native tests do not establish whole-test gains or complete conformance."
+  }
+}

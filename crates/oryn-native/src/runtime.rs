@@ -11895,6 +11895,66 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn indexed_db_typed_keys_round_trip_through_parent_storage() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html("https://app.example.test/typed-keys", r#"<output id=result>pending</output><script>
+            const output=document.getElementById('result');
+            const fail=error=>output.textContent='error:'+String(error?.message||error?.name||error);
+            const open=indexedDB.open('typed-keys',1);
+            open.onerror=()=>fail(open.error);
+            open.onupgradeneeded=()=>{
+                try {
+                    const db=open.result;
+                    const out=db.createObjectStore('out');
+                    out.add('number',1);out.add('date',new Date(1));
+                    out.add('low',-Infinity);out.add('high',Infinity);
+                    out.add('lone','\uD800');out.add('bmp','\uE000');
+                    out.add('binary',new Uint8Array([255]));out.add('array',[]);
+                    const inline=db.createObjectStore('inline',{keyPath:'id'});
+                    inline.add({id:new Date(2),text:'date-value'});
+                    const lengths=db.createObjectStore('lengths',{keyPath:'text.length'});
+                    lengths.add({text:'💡'});
+                    const generated=db.createObjectStore('generated',{autoIncrement:true});
+                    generated.add('date',new Date(500));generated.add('generated');
+                } catch(error) {fail(error);}
+            };
+            open.onsuccess=()=>{
+                try {
+                    const tx=open.result.transaction(['out','inline','lengths','generated']);
+                    let remaining=7;
+                    const read=(request,check)=>{
+                        request.onerror=()=>fail(request.error);
+                        request.onsuccess=()=>{try{check(request.result);if(--remaining===0)output.textContent='ok'}catch(error){fail(error)}};
+                    };
+                    const expect=(condition,message)=>{if(!condition)throw Error(message)};
+                    const out=tx.objectStore('out');
+                    read(out.get(1),v=>expect(v==='number','number identity'));
+                    read(out.get(new Date(1)),v=>expect(v==='date','date identity'));
+                    read(out.getAllKeys(),keys=>{
+                        expect(keys.length===8,'key count');
+                        expect(keys[0]===-Infinity&&keys[1]===1&&keys[2]===Infinity,'numeric order');
+                        expect(keys[3] instanceof Date&&keys[3].getTime()===1,'date order');
+                        expect(keys[4].charCodeAt(0)===0xD800&&keys[5]==='\uE000','UTF16 order');
+                        expect(keys[6] instanceof ArrayBuffer&&new Uint8Array(keys[6])[0]===255&&Array.isArray(keys[7]),'binary array order');
+                    });
+                    read(tx.objectStore('inline').get(new Date(2)),v=>expect(v.id instanceof Date&&v.id.getTime()===2&&v.text==='date-value','inline date'));
+                    read(tx.objectStore('lengths').get(2),v=>expect(v.text==='💡','string length'));
+                    read(tx.objectStore('generated').get(1),v=>expect(v==='generated','generator unchanged by Date'));
+                    read(tx.objectStore('generated').get(new Date(500)),v=>expect(v==='date','generated store Date'));
+                } catch(error) {fail(error);}
+            };
+            </script>"#).await.expect("load typed key fixture");
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);document.getElementById('result').textContent")
+                .await
+                .unwrap(),
+            "ok"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn indexed_db_upgrade_transaction_and_cursor_subset_is_executable() {
         let context = Browser::new().new_context();
         let page = context.new_page();

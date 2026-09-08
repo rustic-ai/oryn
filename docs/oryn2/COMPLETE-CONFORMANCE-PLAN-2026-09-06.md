@@ -84,11 +84,12 @@ provides the actual incompatible Window setter receiver. Its 41-assertion collec
 fixture also passes. Signed full-run recovery remains unverified; see the
 [native evidence](CONFORMANCE-HTML-ALL-PARSER-NATIVE-2026-09-08.json).
 
-The next shared cause candidate is IndexedDB key transport and extraction. Source
-inspection finds Date keys collapsed into numbers at the transport boundary and
-missing type-specific key-path accessors. Reproduce the affected storage operations
-before assigning confirmed causes, then fix binding and storage behavior together.
-Keep all other failure workstreams in scope.
+The IndexedDB key transport failure is reproduced and fixed in the native candidate.
+Bindings and parent storage now share typed keys, ordering, key-path extraction and
+index-entry extraction. Native tests cover the storage boundary and preservation of
+existing behavior; see the [evidence](CONFORMANCE-IDB-KEYS-NATIVE-2026-09-08.json).
+Build the signed integrated candidate and measure the full inventory next. Keep all
+other failure workstreams in scope and do not infer full-suite gains from native checks.
 
 The backlog now joins the durable [diagnosis ledger](CONFORMANCE-DIAGNOSES.json),
 keyed by inventory ID. A confirmed cause is bound to the full result hash, source

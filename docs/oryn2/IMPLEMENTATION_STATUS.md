@@ -31,8 +31,14 @@ passes 2/2. Native checks pass 158 JavaScript tests (two existing ignores), 50 D
 and naming checks. [Native evidence](CONFORMANCE-HTML-ALL-PARSER-NATIVE-2026-09-08.json)
 records the limits of these results; signed full-run recovery remains unverified.
 
-Next: reproduce and fix the shared IndexedDB key-type transport and key-path gaps,
-then measure the integrated candidate. All remaining failures stay in scope.
+The IndexedDB batch now shares typed key transport, comparison, key-path extraction
+and index-entry extraction between bindings and parent storage. All 163 JavaScript
+binding tests pass (two existing ignores), along with all 18 storage tests and the
+17 filtered native IndexedDB checks, including a parent-storage round-trip test.
+[Native evidence](CONFORMANCE-IDB-KEYS-NATIVE-2026-09-08.json) records the reproduction
+and validation. Next: build and verify the signed integrated candidate, run the full
+inventory, and audit gains, losses, regressions and missing assertions. All remaining
+failures stay in scope.
 
 | Root | Passed / required |
 |---|---:|
