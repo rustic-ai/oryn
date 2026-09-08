@@ -1,0 +1,453 @@
+{
+  "baseline_ledger_sha256": "fb01f9de7df6b7ac8784167e2738f8cc92b92fe3e5a44d3f1607a7816dbe6c21",
+  "ledger": "artifacts/upstream-conformance/conformance-worker-full-dom-boundaries-50993c3.json",
+  "ledger_sha256": "3658ef9f3c0177ce7c845eb04634bbd16b3cf40c59308ece9196a6d04ea481da",
+  "source": {
+    "commit": "50993c39b2314dcb5412d4f7b95a60e9decd6766",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "binary": {
+    "sha256": "0d7db7149e5b5160f6b8fbd83cc1e399d2665faaaa62b16f2128ae2ac1f7af84",
+    "size_bytes": 6991504
+  },
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "37b8a407774da6e94839124ef253fb0d7b6e422fb807e385231ba572e5217c61",
+    "worker_binary_sha256": "224a3d7857874a117f2c549b80c33473de9f4892e692eae13deae5788cd6d4ab",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_protocol_version": 8,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+  "exact_coverage": true,
+  "passed_completions_valid": true,
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 2930,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "counts_by_root": {
+    "IndexedDB": {
+      "passed": 341,
+      "required": 456
+    },
+    "WebIDL": {
+      "passed": 30,
+      "required": 58
+    },
+    "accname": {
+      "passed": 15,
+      "required": 19
+    },
+    "css/css-cascade": {
+      "passed": 54,
+      "required": 97
+    },
+    "css/cssom": {
+      "passed": 95,
+      "required": 190
+    },
+    "css/selectors": {
+      "passed": 165,
+      "required": 277
+    },
+    "dom": {
+      "passed": 398,
+      "required": 662
+    },
+    "editing": {
+      "passed": 389,
+      "required": 704
+    },
+    "html/browsers/history": {
+      "passed": 32,
+      "required": 136
+    },
+    "referrer-policy": {
+      "passed": 1383,
+      "required": 1391
+    },
+    "wai-aria": {
+      "passed": 28,
+      "required": 32
+    }
+  },
+  "failure_domains": {
+    "assertion": 906,
+    "timeout": 2,
+    "runtime": 42,
+    "harness": 139,
+    "incomplete": 3
+  },
+  "file_gains": [
+    "css/css-cascade/scope-visited-cssom.html|window|",
+    "css/cssom/CSSContainerRule.tentative.html|window|",
+    "css/selectors/invalidation/attribute-or-elemental-selectors-in-has.html|window|",
+    "css/selectors/invalidation/has-invalidation-for-wiping-an-element.html|window|",
+    "dom/nodes/moveBefore/live-range-updates.html|window|",
+    "dom/nodes/moveBefore/moveBefore-name-map.html|window|"
+  ],
+  "file_losses": [
+    "dom/nodes/MutationObserver-document.html|window|"
+  ],
+  "zero_assertion_passes": [],
+  "verified_assertion_renames": [],
+  "prior_evidence": "docs/oryn2/CONFORMANCE-NESTED-CSSOM-FULL-2026-09-07.json",
+  "prior_evidence_sha256": "05ebe53b0fae28b9c899389798eef0aecba526b254f1c08fd430e6fa297dda39",
+  "verified_server_port_reconciliations": [
+    {
+      "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+      "complete_normalized_name_status_multisets_equal": true,
+      "normalized_assertion_count": 7,
+      "reconciled_prior_passing_names": [
+        "http://localhost:64540/common/blank.html to http://localhost:64540/common/blank.html#newhash should work",
+        "http://localhost:64540/common/blank.html to http://localhost:64540/common/blank.html?newsearch should work",
+        "http://localhost:64540/common/blank.html to http://localhost:64540/newpath should work",
+        "http://localhost:64540/common/blank.html to about:blank should not work",
+        "http://localhost:64540/common/blank.html to about:srcdoc should not work"
+      ]
+    }
+  ],
+  "unresolved_missing_prior_passes": [
+    {
+      "id": "IndexedDB/structured-clone.any.js|window|?101-last",
+      "names": [
+        "Not serializable: Object: [object Object]"
+      ],
+      "complete": true,
+      "failure_domain": "harness"
+    },
+    {
+      "id": "dom/events/passive-by-default.html|window|",
+      "names": [
+        "touchstart listener is non-passive with {passive:false} for Object",
+        "touchstart listener is passive with {passive:true} for Object",
+        "touchmove listener is non-passive with {passive:false} for Object",
+        "touchmove listener is passive with {passive:true} for Object",
+        "wheel listener is non-passive with {passive:false} for Object",
+        "wheel listener is passive with {passive:true} for Object",
+        "mousewheel listener is non-passive with {passive:false} for Object",
+        "mousewheel listener is passive with {passive:true} for Object",
+        "touchend listener is non-passive by default for Object",
+        "touchend listener is non-passive with {passive:undefined} for Object",
+        "touchend listener is non-passive with {passive:false} for Object",
+        "touchend listener is passive with {passive:true} for Object"
+      ],
+      "complete": true,
+      "failure_domain": "assertion"
+    },
+    {
+      "id": "dom/ranges/Range-mutations-appendData.html|window|",
+      "names": [
+        "foreignComment.appendData(\"\"), with selected range on foreignComment from 0 to 1"
+      ],
+      "complete": false,
+      "failure_domain": "runtime"
+    },
+    {
+      "id": "dom/ranges/Range-mutations-insertData.html|window|",
+      "names": [
+        "foreignComment.insertData(3, \"foo\"), with unselected range on foreignComment from 1 to 3",
+        "foreignComment.insertData(3, \"foo\"), with selected range on foreignComment from 1 to 3",
+        "foreignComment.insertData(376, \"\"), with unselected range on foreignComment from 0 to 1",
+        "foreignComment.insertData(376, \"\"), with selected range on foreignComment from 0 to 1",
+        "foreignComment.insertData(0, \"\"), with unselected range collapsed at (foreignComment, 0)",
+        "foreignComment.insertData(0, \"\"), with selected range collapsed at (foreignComment, 0)",
+        "foreignComment.insertData(1, \"\"), with unselected range collapsed at (foreignComment, 1)",
+        "foreignComment.insertData(1, \"\"), with selected range collapsed at (foreignComment, 1)",
+        "foreignComment.insertData(foreignComment.length, \"\"), with unselected range collapsed at (foreignComment, foreignComment.length)",
+        "foreignComment.insertData(foreignComment.length, \"\"), with selected range collapsed at (foreignComment, foreignComment.length)",
+        "foreignComment.insertData(1, \"\"), with unselected range on foreignComment from 1 to 3",
+        "foreignComment.insertData(1, \"\"), with selected range on foreignComment from 1 to 3"
+      ],
+      "complete": false,
+      "failure_domain": "runtime"
+    }
+  ],
+  "prior_missing_recovery": [
+    {
+      "id": "dom/ranges/Range-mutations-appendData.html|window|",
+      "observed_passing_now": [],
+      "observed_failing_now": [],
+      "still_unobserved": [
+        "foreignComment.appendData(\"\"), with unselected range collapsed at (foreignComment, 0)",
+        "foreignComment.appendData(\"\"), with selected range collapsed at (foreignComment, 0)",
+        "foreignComment.appendData(\"\"), with unselected range collapsed at (foreignComment, 1)",
+        "foreignComment.appendData(\"\"), with selected range collapsed at (foreignComment, 1)",
+        "foreignComment.appendData(\"\"), with unselected range on foreignComment from 0 to foreignComment.length",
+        "foreignComment.appendData(\"\"), with selected range on foreignComment from 0 to foreignComment.length",
+        "foreignComment.appendData(\"\"), with unselected range on foreignComment from 1 to foreignComment.length",
+        "foreignComment.appendData(\"\"), with selected range on foreignComment from 1 to foreignComment.length",
+        "foreignComment.appendData(\"\"), with unselected range collapsed at (foreignComment, foreignComment.length)",
+        "foreignComment.appendData(\"\"), with selected range collapsed at (foreignComment, foreignComment.length)",
+        "foreignComment.appendData(\"\"), with unselected range on foreignComment from 1 to 3",
+        "foreignComment.appendData(\"\"), with selected range on foreignComment from 1 to 3",
+        "xmlComment.appendData(\"foo\"), with unselected range on xmlComment from 0 to 1",
+        "xmlComment.appendData(\"foo\"), with selected range on xmlComment from 0 to 1",
+        "xmlComment.appendData(\"foo\"), with unselected range collapsed at (xmlComment, 0)",
+        "xmlComment.appendData(\"foo\"), with selected range collapsed at (xmlComment, 0)",
+        "xmlComment.appendData(\"foo\"), with unselected range collapsed at (xmlComment, 1)",
+        "xmlComment.appendData(\"foo\"), with selected range collapsed at (xmlComment, 1)",
+        "xmlComment.appendData(\"foo\"), with unselected range on xmlComment from 0 to xmlComment.length",
+        "xmlComment.appendData(\"foo\"), with selected range on xmlComment from 0 to xmlComment.length",
+        "xmlComment.appendData(\"foo\"), with unselected range on xmlComment from 1 to xmlComment.length",
+        "xmlComment.appendData(\"foo\"), with selected range on xmlComment from 1 to xmlComment.length",
+        "xmlComment.appendData(\"foo\"), with unselected range collapsed at (xmlComment, xmlComment.length)",
+        "xmlComment.appendData(\"foo\"), with selected range collapsed at (xmlComment, xmlComment.length)",
+        "xmlComment.appendData(\"foo\"), with unselected range on xmlComment from 1 to 3",
+        "xmlComment.appendData(\"foo\"), with selected range on xmlComment from 1 to 3",
+        "xmlComment.appendData(\"\"), with unselected range on xmlComment from 0 to 1",
+        "xmlComment.appendData(\"\"), with selected range on xmlComment from 0 to 1"
+      ],
+      "current_run_complete": false
+    },
+    {
+      "id": "dom/ranges/Range-mutations-insertData.html|window|",
+      "observed_passing_now": [],
+      "observed_failing_now": [],
+      "still_unobserved": [
+        "foreignComment.insertData(2, \"\"), with unselected range on foreignComment from 1 to 3",
+        "foreignComment.insertData(2, \"\"), with selected range on foreignComment from 1 to 3"
+      ],
+      "current_run_complete": false
+    },
+    {
+      "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+      "observed_passing_now": [
+        "paras[1].firstChild.textContent += \"foo\", with unselected range collapsed at (paras[1].firstChild, 0)"
+      ],
+      "observed_failing_now": [],
+      "still_unobserved": [
+        "paras[1].firstChild.textContent += \"foo\", with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.textContent += paras[1].firstChild.textContent, with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.textContent += paras[1].firstChild.textContent, with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = \"\", with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = \"\", with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = \"foo\", with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = \"foo\", with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = paras[1].firstChild.nodeValue, with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue = paras[1].firstChild.nodeValue, with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += \"\", with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += \"\", with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += \"foo\", with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += \"foo\", with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += paras[1].firstChild.nodeValue, with unselected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.nodeValue += paras[1].firstChild.nodeValue, with selected range collapsed at (paras[1].firstChild, 0)",
+        "paras[1].firstChild.data = \"\", with unselected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data = \"\", with selected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data = \"foo\", with unselected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data = \"foo\", with selected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data = paras[1].firstChild.data, with unselected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data = paras[1].firstChild.data, with selected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data += \"\", with unselected range on paras[1].firstChild from 0 to 1",
+        "paras[1].firstChild.data += \"\", with selected range on paras[1].firstChild from 0 to 1"
+      ],
+      "current_run_complete": false
+    },
+    {
+      "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+      "observed_passing_now": [
+        "foreignTextNode.replaceData(1, 47, \"\"), with unselected range collapsed at (foreignTextNode, 1)"
+      ],
+      "observed_failing_now": [],
+      "still_unobserved": [
+        "foreignTextNode.replaceData(1, 47, \"\"), with selected range collapsed at (foreignTextNode, 1)",
+        "foreignTextNode.replaceData(foreignTextNode.length, 47, \"\"), with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.replaceData(foreignTextNode.length, 47, \"\"), with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.replaceData(1, 47, \"\"), with unselected range on foreignTextNode from 1 to 3",
+        "foreignTextNode.replaceData(1, 47, \"\"), with selected range on foreignTextNode from 1 to 3"
+      ],
+      "current_run_complete": false
+    }
+  ],
+  "historical_editing_regression_status": [
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<p contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<p contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline-block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<p contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<span contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<span contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline-block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<span contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/run/delete.html|window|?5001-6000",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "[[\"defaultparagraphseparator\",\"div\"],[\"delete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML",
+        "[[\"defaultparagraphseparator\",\"p\"],[\"delete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/run/forwarddelete.html|window|?1001-2000",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "[[\"forwarddelete\",\"\"]] \"<ol><li>foo[]<li>bar<br>baz</ol>\" compare innerHTML"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/run/forwarddelete.html|window|?5001-6000",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "[[\"defaultparagraphseparator\",\"div\"],[\"forwarddelete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML",
+        "[[\"defaultparagraphseparator\",\"p\"],[\"forwarddelete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    }
+  ],
+  "previous_candidate_regression_status": [],
+  "assertion_change_counts": {
+    "missing_prior_passes": 31,
+    "observed_pass_to_fail": 4,
+    "corrected_existing": 62,
+    "additional_passing_names": 2076
+  },
+  "assertion_regressions": [
+    {
+      "id": "WebIDL/ecmascript-binding/global-object-implicit-this-value.any.js|window|",
+      "names": [
+        "Global object's setter throws when called on incompatible object (document.all)"
+      ]
+    },
+    {
+      "id": "dom/nodes/MutationObserver-document.html|window|",
+      "names": [
+        "parser insertion mutations",
+        "parser script insertion mutation",
+        "removal of parent during parsing"
+      ]
+    }
+  ],
+  "tracked_unobserved_assertion_count": 84,
+  "full_assertion_delta_artifact": {
+    "path": "artifacts/upstream-conformance/window-named-50993c3-full-audit.json",
+    "sha256": "c2dc5289fa6f016dc6ee097a01d02acfd54f51e3e1bb7bde93a94f4f706d0845"
+  },
+  "reconciliation_artifact": {
+    "path": "artifacts/upstream-conformance/window-named-50993c3-full-reconciliation.json",
+    "sha256": "ac84c51968711d9a33c355caf9d97a2a3bfe23e428703d15e48c021af55ac266"
+  },
+  "qualification": {
+    "complete": false,
+    "reason": "1092 failed executions, four observed assertion regressions, tracked missing assertions, and historical editing regressions remain."
+  }
+}
