@@ -11257,8 +11257,20 @@ fn join_first_editing_line(
     destination: NodeId,
     source: NodeId,
 ) -> Result<BoundaryPoint, V8BindingError> {
+    join_first_editing_line_before(state, destination, source, None)
+}
+
+fn join_first_editing_line_before(
+    state: &V8BindingState,
+    destination: NodeId,
+    source: NodeId,
+    before: Option<NodeId>,
+) -> Result<BoundaryPoint, V8BindingError> {
     let destination_mode = editing_white_space(state, destination)?;
-    let source_is_placeholder = node_is_placeholder_empty(&state.dom.borrow(), source)?;
+    let source_is_placeholder = matches!(
+        state.dom.borrow().arena().get(source)?.kind,
+        NodeKind::Element { .. }
+    ) && node_is_placeholder_empty(&state.dom.borrow(), source)?;
     let mut line_root = source;
     loop {
         let first = light_children(&state.dom.borrow(), line_root)?
@@ -11271,13 +11283,55 @@ fn join_first_editing_line(
         line_root = first;
     }
     let source_mode = editing_white_space(state, line_root)?;
+    let source_has_author_whitespace = {
+        let dom = state.dom.borrow();
+        let style_node = if matches!(
+            dom.arena().get(line_root)?.kind,
+            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+        ) {
+            dom.parent(line_root)?.unwrap_or(line_root)
+        } else {
+            line_root
+        };
+        state
+            .layout
+            .borrow()
+            .author_whitespace
+            .contains(&node_key(style_node))
+    };
+    // Reuse a single inline container when that preserves its computed mode
+    // without rewriting an existing inline declaration block.
+    let reusable_inline = light_children(&state.dom.borrow(), line_root)?
+        .first()
+        .copied()
+        .is_some_and(|node| {
+            let dom = state.dom.borrow();
+            let layout = state.layout.borrow();
+            matches!(
+                dom.arena().get(node).map(|n| &n.kind),
+                Ok(NodeKind::Element { .. })
+            ) && dom.attribute(node, "style").ok().flatten().is_none()
+                && layout.styles.get(&node_key(node)).is_some_and(|style| {
+                    style
+                        .get("display")
+                        .is_some_and(|display| display == "inline")
+                        && style.get("white-space") == Some(&source_mode)
+                })
+        });
     let mut end = BoundaryPoint {
         container: line_root,
         offset: boundary_length(&state.dom.borrow(), line_root)?,
     };
     let mut separator = None;
     let mut cleanup = Vec::new();
-    let mut line_nodes = light_children(&state.dom.borrow(), line_root)?;
+    let mut line_nodes = if matches!(
+        state.dom.borrow().arena().get(line_root)?.kind,
+        NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+    ) {
+        vec![line_root]
+    } else {
+        light_children(&state.dom.borrow(), line_root)?
+    };
     line_nodes.reverse();
     while let Some(node) = line_nodes.pop() {
         let kind = state.dom.borrow().arena().get(node)?.kind.clone();
@@ -11340,7 +11394,11 @@ fn join_first_editing_line(
         }
     }
     let mut dom = state.dom.borrow_mut();
-    let caret_offset = editing_caret_end(&dom, destination)?;
+    let caret_offset = if let Some(before) = before {
+        relative_boundary(&dom, before, false)?.1
+    } else {
+        editing_caret_end(&dom, destination)?
+    };
     let fragment = range_contents(
         &mut dom,
         &RangeRecord {
@@ -11378,31 +11436,41 @@ fn join_first_editing_line(
     };
     if !moving.is_empty() {
         // A final placeholder is replaced by the joined line.
-        if let Some(last) = light_children(&dom, destination)?.last().copied()
+        if before.is_none()
+            && let Some(last) = light_children(&dom, destination)?.last().copied()
             && element_local_name(&dom, last) == Some("br")
         {
             dom.remove_child(destination, last)?;
         }
-        let target = if source_mode != destination_mode
-            && state
-                .layout
-                .borrow()
-                .author_whitespace
-                .contains(&node_key(line_root))
-        {
-            let span = dom.create_element("span");
-            dom.set_attribute(span, "style", format!("white-space: {source_mode};"))?;
-            dom.append_child(destination, span)?;
-            span
+        let target = if source_mode != destination_mode && source_has_author_whitespace {
+            if reusable_inline
+                && moving.len() == 1
+                && matches!(dom.arena().get(moving[0])?.kind, NodeKind::Element { .. })
+            {
+                dom.set_attribute(moving[0], "style", format!("white-space: {source_mode};"))?;
+                destination
+            } else {
+                let span = dom.create_element("span");
+                dom.set_attribute(span, "style", format!("white-space: {source_mode};"))?;
+                dom.insert_before(destination, span, before)?;
+                span
+            }
         } else {
             destination
         };
         for child in moving {
-            dom.append_child(target, child)?;
+            dom.insert_before(
+                target,
+                child,
+                if target == destination { before } else { None },
+            )?;
         }
     }
     let mut empty = line_root;
-    while light_children(&dom, empty)?.is_empty() {
+    while match &dom.arena().get(empty)?.kind {
+        NodeKind::Text { data } | NodeKind::CDataSection { data } => data.is_empty(),
+        _ => light_children(&dom, empty)?.is_empty(),
+    } {
         let Some(parent) = dom.parent(empty)? else {
             break;
         };
@@ -11951,6 +12019,216 @@ fn editing_input_target_range(
     Ok(range)
 }
 
+// Lists, tables, controls and document sections have their own editing rules.
+// Ordinary rendered paragraph discovery must not flatten those structures.
+fn editing_join_structural_boundary(dom: &DomRuntime, node: NodeId) -> bool {
+    is_preserved_editing_boundary(dom, node)
+        || matches!(
+            element_local_name(dom, node),
+            Some(
+                "html"
+                    | "head"
+                    | "body"
+                    | "meta"
+                    | "link"
+                    | "base"
+                    | "template"
+                    | "title"
+                    | "style"
+                    | "script"
+                    | "table"
+                    | "thead"
+                    | "tbody"
+                    | "tfoot"
+                    | "tr"
+                    | "td"
+                    | "th"
+                    | "caption"
+                    | "ul"
+                    | "ol"
+                    | "dl"
+                    | "br"
+            )
+        )
+}
+
+fn editing_join_ignored(state: &V8BindingState, node: NodeId) -> Result<bool, V8BindingError> {
+    let dom = state.dom.borrow();
+    let layout = state.layout.borrow();
+    let record = dom.arena().get(node)?;
+    Ok(match &record.kind {
+        NodeKind::Text { data } | NodeKind::CDataSection { data } => {
+            let mode = record
+                .parent
+                .and_then(|id| layout.styles.get(&node_key(id)))
+                .and_then(|style| style.get("white-space"))
+                .map_or("normal", String::as_str);
+            !editing_text_has_visible_content(data, mode)
+        }
+        NodeKind::Comment { .. } => true,
+        _ => layout
+            .styles
+            .get(&node_key(node))
+            .and_then(|style| style.get("display"))
+            .map_or_else(
+                || is_ignored_editing_sibling(&dom, node),
+                |display| display == "none",
+            ),
+    })
+}
+
+// Resolve the two sibling units bounding a caret, ascending through an empty
+// side of inline/nested paragraph containers. Stop if ordinary inline content
+// intervenes: that is character deletion, not a paragraph join.
+fn rendered_editing_boundary(
+    state: &V8BindingState,
+    mut point: BoundaryPoint,
+    host: NodeId,
+    forward: bool,
+) -> Result<Option<(NodeId, NodeId)>, V8BindingError> {
+    loop {
+        let text = matches!(
+            state.dom.borrow().arena().get(point.container)?.kind,
+            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+        );
+        if text {
+            let edge = if forward {
+                boundary_length(&state.dom.borrow(), point.container)?
+            } else {
+                0
+            };
+            if point.offset != edge {
+                return Ok(None);
+            }
+        } else {
+            if point.container != host
+                && editing_join_structural_boundary(&state.dom.borrow(), point.container)
+            {
+                return Ok(None);
+            }
+            let children = light_children(&state.dom.borrow(), point.container)?;
+            let index = (point.offset as usize).min(children.len());
+            let mut left = None;
+            let mut right = None;
+            for node in children[..index].iter().rev() {
+                if !editing_join_ignored(state, *node)? {
+                    left = Some(*node);
+                    break;
+                }
+            }
+            for node in &children[index..] {
+                if !editing_join_ignored(state, *node)? {
+                    right = Some(*node);
+                    break;
+                }
+            }
+            if let (Some(left), Some(right)) = (left, right) {
+                if editing_join_structural_boundary(&state.dom.borrow(), left)
+                    || editing_join_structural_boundary(&state.dom.borrow(), right)
+                {
+                    return Ok(None);
+                }
+                let left_block = nearest_rendered_editing_block(state, left, host)? == left;
+                let right_block = nearest_rendered_editing_block(state, right, host)? == right;
+                return Ok((left_block || right_block).then_some((left, right)));
+            }
+            if point.container == host
+                || (forward && right.is_some())
+                || (!forward && left.is_some())
+            {
+                return Ok(None);
+            }
+        }
+        let (container, offset) = relative_boundary(&state.dom.borrow(), point.container, forward)?;
+        point = BoundaryPoint { container, offset };
+    }
+}
+
+fn join_rendered_editing_boundary(
+    state: &V8BindingState,
+    range: &RangeRecord,
+    forward: bool,
+) -> Result<bool, V8BindingError> {
+    let Some(host) = editing_host(state)? else {
+        return Ok(false);
+    };
+    if element_local_name(&state.dom.borrow(), host) == Some("html") {
+        return Ok(false);
+    }
+    refresh_layout(state)?;
+    let selected =
+        range.start_container != range.end_container || range.start_offset != range.end_offset;
+    let start = BoundaryPoint {
+        container: range.start_container,
+        offset: range.start_offset,
+    };
+    let Some((left, right)) = rendered_editing_boundary(state, start, host, selected || forward)?
+    else {
+        return Ok(false);
+    };
+    if selected {
+        let end = BoundaryPoint {
+            container: range.end_container,
+            offset: range.end_offset,
+        };
+        if rendered_editing_boundary(state, end, host, false)? != Some((left, right)) {
+            return Ok(false);
+        }
+    }
+    let parent = state
+        .dom
+        .borrow()
+        .parent(left)?
+        .ok_or(V8BindingError::Allocation("editing boundary parent"))?;
+    let left_is_block = nearest_rendered_editing_block(state, left, host)? == left;
+    let (mut destination, before) = if left_is_block {
+        (left, None)
+    } else {
+        (parent, Some(right))
+    };
+    if left_is_block {
+        loop {
+            let children = light_children(&state.dom.borrow(), destination)?;
+            let mut last = None;
+            for child in children.into_iter().rev() {
+                if !editing_join_ignored(state, child)? {
+                    last = Some(child);
+                    break;
+                }
+            }
+            let Some(last) = last else {
+                break;
+            };
+            if editing_join_structural_boundary(&state.dom.borrow(), last)
+                || nearest_rendered_editing_block(state, last, host)? != last
+            {
+                break;
+            }
+            destination = last;
+        }
+    }
+    let children = light_children(&state.dom.borrow(), parent)?;
+    let left_index = children
+        .iter()
+        .position(|node| *node == left)
+        .ok_or(V8BindingError::Allocation("editing left unit"))?;
+    let right_index = children
+        .iter()
+        .position(|node| *node == right)
+        .ok_or(V8BindingError::Allocation("editing right unit"))?;
+    for node in &children[left_index + 1..right_index] {
+        if matches!(
+            state.dom.borrow().arena().get(*node)?.kind,
+            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+        ) {
+            state.dom.borrow_mut().remove_child(parent, *node)?;
+        }
+    }
+    let point = join_first_editing_line_before(state, destination, right, before)?;
+    set_selection_boundaries(state, point, point)?;
+    Ok(true)
+}
+
 fn editing_point_is_at_block_edge(
     dom: &DomRuntime,
     mut point: BoundaryPoint,
@@ -11991,6 +12269,9 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
         (range.end_container, range.end_offset),
     )? != 0
     {
+        if join_rendered_editing_boundary(state, &range, forward)? {
+            return Ok(());
+        }
         // Selecting only the boundary between adjacent paragraphs has the
         // same line-joining behavior as deleting at either collapsed endpoint.
         if let Some(host) = editing_host(state)? {
@@ -12063,6 +12344,9 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
                 set_selection_boundaries(state, point, point)?;
                 return Ok(());
             }
+            if join_rendered_editing_boundary(state, &range, forward)? {
+                return Ok(());
+            }
             return merge_adjacent_editing_block(state, range.start_container, forward).map(|_| ());
         }
         state.dom.borrow_mut().replace_character_data(
@@ -12087,6 +12371,9 @@ fn delete_selection_direction(state: &V8BindingState, forward: bool) -> Result<(
         };
         set_selection_boundaries(state, point, point)?;
     } else {
+        if join_rendered_editing_boundary(state, &range, forward)? {
+            return Ok(());
+        }
         if node_is_placeholder_empty(&state.dom.borrow(), range.start_container)?
             && merge_adjacent_editing_block(state, range.start_container, forward)?
         {

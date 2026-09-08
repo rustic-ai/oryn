@@ -1,0 +1,37 @@
+{
+  "baseline_runtime": "cdead0af1aec384ba5ccb2a491fe883d57656fc2",
+  "overall_measured": {
+    "passed": 2728,
+    "total": 4022,
+    "candidate_measured": false
+  },
+  "change": "Resolve paragraph joins through nested and inline container edges; preserve inherited whitespace for bare text and reuse suitable inline formatting containers. Preserve structural metadata, list and table boundaries.",
+  "new_native_cases": 300,
+  "validation": {
+    "layout_passed": 48,
+    "bindings_passed": 148,
+    "bindings_existing_ignored": 2,
+    "native_editing_and_related_filters": "passed",
+    "strict_clippy": [
+      "oryn-layout",
+      "oryn-js",
+      "oryn-native"
+    ]
+  },
+  "validation_failures_fixed": [
+    "New matrix exposed lost inherited author whitespace when moving a bare text node; provenance is now captured from its parent before extraction.",
+    "Existing binding test exposed a visibly styled metadata element being joined; structural boundary guards now include metadata elements."
+  ],
+  "source_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "b097346a1fb9c701d1ae599a369e11b19b81546aaba9cbca6f1e391d6b416aa5",
+    "crates/oryn-native/src/runtime.rs": "8c2591cdee15b70adf6b6d1035e2fa871a6e0d0fce44dc73cf1c97ea8dbdb55a"
+  },
+  "logs": {
+    "artifacts/native-shared-editing/oryn-rendered-boundary-initial-tests.log": "2417ea1fadc94dda9ff395ed735f3472f4cf3ae047be2867560e66da10ed4a51",
+    "artifacts/native-shared-editing/oryn-rendered-boundary-matrix.log": "a39377ee08008787888167552f0dd649700715de50b20a22cb36c0766ec4437f",
+    "artifacts/native-shared-editing/oryn-rendered-boundary-matrix-v2.log": "09ab278358214a51636787c652f893019a182ad0deea87e8e06da1eee5da0c30",
+    "artifacts/native-shared-editing/oryn-rendered-boundary-broad.log": "48cb4dfb226a30174a92d8dbf5e80db2e84b50fcf2f2cc61c51c4ab046f95547",
+    "artifacts/native-shared-editing/oryn-rendered-boundary-broad-v2.log": "a63c2416abbcd3b77c84d4844edf8aa8242e212544a586b453cb6b2917ba471f"
+  },
+  "next": "Measure all 704 editing executions against cdead0a, investigate every lost assertion and whole execution, then run the unchanged 4022 inventory. Native results are not an overall conformance gain."
+}

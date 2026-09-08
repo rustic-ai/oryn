@@ -10828,6 +10828,64 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn editing_join_resolves_nested_and_inline_paragraph_boundaries() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        page.load_html(
+            "https://editing.example.test/nested-join",
+            "<!doctype html><style id=rules></style><div id=host contenteditable></div>",
+        )
+        .await
+        .unwrap();
+        let result = page.evaluate(r#"(() => {
+          const host = document.getElementById('host');
+          const rules = document.getElementById('rules');
+          let checked = 0;
+          for (const leftMode of ['normal','nowrap','pre','pre-wrap','pre-line']) {
+            for (const rightMode of ['normal','nowrap','pre','pre-wrap','pre-line']) {
+              if (leftMode === rightMode) continue;
+              rules.textContent = '.left{white-space:' + leftMode + '} .right{white-space:' + rightMode + '}';
+              for (const shape of ['nested-right','inline-left','text-left','inline-right','text-right']) {
+                for (const direction of ['backward','forward','selection']) {
+                  host.style.whiteSpace = shape === 'text-right' ? rightMode : leftMode;
+                  const leftMarkup = shape === 'inline-left' ? '<span class="left">abc</span>' : shape === 'text-left' ? 'abc' : '<div class="left">abc</div>';
+                  const rightMarkup = shape === 'nested-right' ? '<div class="right"><div><b>def</b></div>ghi</div>' : shape === 'inline-right' ? '<span class="right"><b>def<br>ghi</b></span>' : shape === 'text-right' ? 'def' : '<div class="right"><b>def<br>ghi</b></div>';
+                  host.innerHTML = leftMarkup + rightMarkup;
+                  const left = host.firstChild;
+                  let leftText = left, rightText = host.lastChild;
+                  while (leftText.nodeType !== 3) leftText = leftText.firstChild;
+                  while (rightText.nodeType !== 3) rightText = rightText.firstChild;
+                  host.focus();
+                  const range = document.createRange();
+                  if (direction === 'backward') { range.setStart(rightText, 0); range.collapse(true); }
+                  else { range.setStart(leftText, 3); if (direction === 'forward') range.collapse(true); else range.setEnd(rightText, 0); }
+                  getSelection().removeAllRanges(); getSelection().addRange(range);
+                  document.execCommand(direction === 'forward' ? 'forwardDelete' : 'delete');
+                  const details = () => JSON.stringify({shape,direction,leftMode,rightMode,actual:host.innerHTML});
+                  const inlineLeft = shape === 'inline-left' || shape === 'text-left';
+                  const destination = inlineLeft ? host : left;
+                  if (inlineLeft ? host.textContent !== 'abcdefghi' : left.textContent !== 'abcdef') throw new Error('join failed ' + details());
+                  if (shape === 'inline-left' && (left.parentNode !== host || left.textContent !== 'abc')) throw new Error('left inline container changed ' + details());
+                  if (shape !== 'text-right' && host.lastChild.textContent !== 'ghi') throw new Error('remainder changed ' + details());
+                  const walker = document.createTreeWalker(destination, NodeFilter.SHOW_TEXT);
+                  let moved;
+                  while (walker.nextNode()) if (walker.currentNode.data.includes('def')) moved = walker.currentNode;
+                  if (!moved || getComputedStyle(moved.parentElement).whiteSpace !== rightMode) throw new Error('whitespace changed ' + details());
+                  if (shape !== 'text-right' && !moved.parentElement.closest('b')) throw new Error('bold lost ' + details());
+                  document.execCommand('insertText', false, 'X');
+                  if (inlineLeft ? host.textContent !== 'abcXdefghi' : left.textContent !== 'abcXdef') throw new Error('caret misplaced ' + details());
+                  checked++;
+                }
+              }
+            }
+          }
+          return String(checked);
+        })()"#).await.unwrap();
+        assert_eq!(result, "300");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_join_preserves_first_line_whitespace_and_remaining_lines() {
         let context = Browser::new().new_context();
         let page = context.new_page();
