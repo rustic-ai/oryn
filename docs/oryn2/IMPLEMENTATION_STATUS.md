@@ -15,7 +15,10 @@ run exposes **one assertion regression** in
 tag is processed before an earlier script. Stylesheet preparation must precede scripts,
 while meta tags and scripts require ordered post-connection processing. The subsequent
 correction passes native fetch-policy integration tests and final strict Clippy. Signed
-WPT recovery is pending; the correction is not part of the measured `8844fd5` candidate.
+selected WPT at `8839674` confirms recovery: CSSOM **89/190**, DOM nodes **168/288**,
+with one recovered whole test and no losses, assertion regressions, or missing prior
+passing assertions across these 478 cases. [Retention evidence](CONFORMANCE-PAGE-CONTEXT-RETENTION-2026-09-07.json).
+This is not a full-inventory measurement; the overall score remains bound to `8844fd5`.
 
 The Range audit finds **27 newly unobserved prior passing assertions**: 24 appendData,
 one deleteData and two insertData. All **46 older unobserved assertions remain absent**,

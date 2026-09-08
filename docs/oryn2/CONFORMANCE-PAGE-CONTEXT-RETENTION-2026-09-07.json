@@ -1,0 +1,219 @@
+{
+  "scope": "Selected retention only; overall remains 2915/4022 at 8844fd5.",
+  "candidate": "883967446facd8ee5be8657b54b8be091a9fa562",
+  "audit_sha256": "184607ea382cd6f3d54f16e2c53eac7ecfa5c73f0311465cf9aa9b50d518c501",
+  "audit": {
+    "baseline_sha256": "03ac49f0596963f024cb8b057c2eece37039b842e50d1386a8bc647e31c5db9b",
+    "reports": {
+      "cssom": {
+        "ledger": "artifacts/upstream-conformance/page-context-cssom-8839674.json",
+        "sha256": "d1a76004a549451ea3226d57bac52af696522595ad364b7fbc014a77110e6f6e",
+        "outcome": {
+          "required_finished": 190,
+          "required_passed": 89,
+          "required_total": 190,
+          "status": "failed"
+        },
+        "source": {
+          "commit": "883967446facd8ee5be8657b54b8be091a9fa562",
+          "dirty": false,
+          "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "untracked_file_count": 0,
+          "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "binary": {
+          "sha256": "7e5ad03183cf884fde8abcedf0c66a41f53de06178846b5b36543f3f412cf228",
+          "size_bytes": 6991488
+        },
+        "runtime_metadata": {
+          "binding_abi_version": 3,
+          "box_engine_version": "taffy-0.14",
+          "build_profile": "release",
+          "capabilities": [
+            "native_dom",
+            "html5ever",
+            "rustls_network_broker",
+            "oil",
+            "semantic_v3_compat",
+            "semantic_v4",
+            "execution_domain_handoff",
+            "trace_recording",
+            "network_record_replay",
+            "sealed_context_checkpoint",
+            "replay_branching",
+            "v8_javascript",
+            "generated_webidl_registry",
+            "generated_web_platform_algorithms",
+            "typed_platform_host_operations",
+            "webassembly",
+            "same_site_cookies",
+            "csp3_agent_critical",
+            "trusted_types_core",
+            "intl_full_icu",
+            "computed_style",
+            "layout_box",
+            "layout_inline_text",
+            "viewport_scroll",
+            "deterministic_embedded_font",
+            "paint_snapshot"
+          ],
+          "contract_version": 4,
+          "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+          "execution_mode": "sandboxed_worker",
+          "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+          "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+          "inline_engine_version": "parley-0.11.1",
+          "limits": {
+            "command_wall_ms": 10000,
+            "ipc_frame_bytes": 25165824,
+            "max_font_bytes": 8388608,
+            "max_layout_nodes": 100000,
+            "max_page_font_bytes": 33554432,
+            "max_resource_cache_bytes": 33554432,
+            "max_resource_cache_entries": 256,
+            "max_resource_cache_entry_bytes": 8388608,
+            "max_viewport_css_px": 16384,
+            "navigation_wall_ms": 30000,
+            "queue_capacity": 32,
+            "runtime_profile": "full",
+            "v8_heap_bytes": 268435456,
+            "worker_rss_bytes": 536870912
+          },
+          "native_v8": true,
+          "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+          "runtime_profile": "core_full",
+          "sandbox_state": "app_sandbox",
+          "sandboxed": true,
+          "semantic_graph_version": 2,
+          "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+          "streaming_parser": true,
+          "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+          "transport_mode": "async_streaming_parent_broker",
+          "v8_heap_sandbox": true,
+          "v8_version": "15.0.245.2-rusty",
+          "webidl_manifest_sha256": "23307c9c20c6d2b09a77b407a1c45d34204528441611931e67c61153f7848fa1",
+          "worker_binary_sha256": "952932efcd8656b2daff60df9f648e6463792da488257b87dd69db9a5144bcff",
+          "worker_bundle_id": "ai.rustic.oryn.page-worker",
+          "worker_protocol_version": 8,
+          "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+          "worker_team_id": "5HVA9VFF8K"
+        },
+        "exact_coverage": true,
+        "gains": [],
+        "losses": [],
+        "assertion_changes": [],
+        "needs_regression_investigation": false
+      },
+      "dom-nodes": {
+        "ledger": "artifacts/upstream-conformance/page-context-dom-nodes-8839674.json",
+        "sha256": "a66668bc1994973d8fea961ae93815486c395151a240aa71724694e6394de7c4",
+        "outcome": {
+          "required_finished": 288,
+          "required_passed": 168,
+          "required_total": 288,
+          "status": "failed"
+        },
+        "source": {
+          "commit": "883967446facd8ee5be8657b54b8be091a9fa562",
+          "dirty": false,
+          "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "untracked_file_count": 0,
+          "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "binary": {
+          "sha256": "7e5ad03183cf884fde8abcedf0c66a41f53de06178846b5b36543f3f412cf228",
+          "size_bytes": 6991488
+        },
+        "runtime_metadata": {
+          "binding_abi_version": 3,
+          "box_engine_version": "taffy-0.14",
+          "build_profile": "release",
+          "capabilities": [
+            "native_dom",
+            "html5ever",
+            "rustls_network_broker",
+            "oil",
+            "semantic_v3_compat",
+            "semantic_v4",
+            "execution_domain_handoff",
+            "trace_recording",
+            "network_record_replay",
+            "sealed_context_checkpoint",
+            "replay_branching",
+            "v8_javascript",
+            "generated_webidl_registry",
+            "generated_web_platform_algorithms",
+            "typed_platform_host_operations",
+            "webassembly",
+            "same_site_cookies",
+            "csp3_agent_critical",
+            "trusted_types_core",
+            "intl_full_icu",
+            "computed_style",
+            "layout_box",
+            "layout_inline_text",
+            "viewport_scroll",
+            "deterministic_embedded_font",
+            "paint_snapshot"
+          ],
+          "contract_version": 4,
+          "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+          "execution_mode": "sandboxed_worker",
+          "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+          "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+          "inline_engine_version": "parley-0.11.1",
+          "limits": {
+            "command_wall_ms": 10000,
+            "ipc_frame_bytes": 25165824,
+            "max_font_bytes": 8388608,
+            "max_layout_nodes": 100000,
+            "max_page_font_bytes": 33554432,
+            "max_resource_cache_bytes": 33554432,
+            "max_resource_cache_entries": 256,
+            "max_resource_cache_entry_bytes": 8388608,
+            "max_viewport_css_px": 16384,
+            "navigation_wall_ms": 30000,
+            "queue_capacity": 32,
+            "runtime_profile": "full",
+            "v8_heap_bytes": 268435456,
+            "worker_rss_bytes": 536870912
+          },
+          "native_v8": true,
+          "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+          "runtime_profile": "core_full",
+          "sandbox_state": "app_sandbox",
+          "sandboxed": true,
+          "semantic_graph_version": 2,
+          "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+          "streaming_parser": true,
+          "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+          "transport_mode": "async_streaming_parent_broker",
+          "v8_heap_sandbox": true,
+          "v8_version": "15.0.245.2-rusty",
+          "webidl_manifest_sha256": "23307c9c20c6d2b09a77b407a1c45d34204528441611931e67c61153f7848fa1",
+          "worker_binary_sha256": "952932efcd8656b2daff60df9f648e6463792da488257b87dd69db9a5144bcff",
+          "worker_bundle_id": "ai.rustic.oryn.page-worker",
+          "worker_protocol_version": 8,
+          "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+          "worker_team_id": "5HVA9VFF8K"
+        },
+        "exact_coverage": true,
+        "gains": [
+          "dom/nodes/insertion-removing-steps/Node-append-meta-referrer-and-script-from-fragment.html|window|"
+        ],
+        "losses": [],
+        "assertion_changes": [
+          {
+            "id": "dom/nodes/insertion-removing-steps/Node-append-meta-referrer-and-script-from-fragment.html|window|",
+            "missing_prior_passes": [],
+            "observed_pass_to_fail": [],
+            "corrected_existing": [
+              "<meta name=referrer> gets processed and applied in the post-insertion steps"
+            ]
+          }
+        ],
+        "needs_regression_investigation": false
+      }
+    }
+  }
+}
