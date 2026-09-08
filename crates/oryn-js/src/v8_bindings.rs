@@ -781,6 +781,22 @@ pub struct BindingRuleDeclarationMutation {
     pub rules: Option<Vec<BindingRuleView>>,
 }
 
+#[derive(Clone, Copy)]
+pub enum BindingRuleListEdit<'a> {
+    Insert { index: usize, text: &'a str },
+    Delete { index: usize },
+}
+
+/// Preserve the native CSSOM exception category across the layout boundary.
+#[derive(Debug, PartialEq, Eq)]
+pub enum BindingRuleMutationError {
+    Syntax,
+    IndexSize,
+    HierarchyRequest,
+    InvalidState,
+    InvalidContext(String),
+}
+
 pub struct BindingPageDeclarationMutation {
     pub previous_value: String,
     pub rule: Option<BindingRuleView>,
@@ -790,6 +806,18 @@ pub struct BindingPageDeclarationMutation {
 /// implementation lives in the page orchestrator so generated bindings keep
 /// using the same Rust DOM and Stylo/Taffy/Parley pipeline as observations.
 pub trait BindingLayoutProvider {
+    fn mutate_rule_list(
+        &self,
+        _source: &str,
+        _parent_path: &[usize],
+        _edit: BindingRuleListEdit<'_>,
+        _base_url: &str,
+        _quirks: bool,
+        _allow_imports: bool,
+    ) -> Option<Result<Vec<BindingRuleView>, BindingRuleMutationError>> {
+        None
+    }
+
     fn set_style_rule_selector(
         &self,
         _source: &str,
@@ -21486,6 +21514,81 @@ fn css_rule_object<'s>(
     Ok(rule)
 }
 
+fn css_rule_mutation_error(error: BindingRuleMutationError) -> V8BindingError {
+    let member = match error {
+        BindingRuleMutationError::Syntax => "SyntaxError",
+        BindingRuleMutationError::IndexSize => "IndexSizeError",
+        BindingRuleMutationError::HierarchyRequest => "HierarchyRequestError",
+        BindingRuleMutationError::InvalidState => "InvalidStateError",
+        BindingRuleMutationError::InvalidContext(message) => {
+            return V8BindingError::EventCallback(message);
+        }
+    };
+    V8BindingError::Unsupported {
+        interface: "CSSStyleSheet".into(),
+        member: member.into(),
+    }
+}
+
+/// Native parse, hierarchy validation and publication are one transaction. The
+/// cached list changes only after success, retaining every unaffected wrapper.
+fn edit_stylesheet_rule_list(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    edit: BindingRuleListEdit<'_>,
+) -> Result<(), V8BindingError> {
+    let source = state.dom.borrow().arena().stylesheet_text(node)?;
+    let base_url = cssom_base_url(scope)?;
+    let document = owner_document_for_node(state, node)?;
+    let quirks = state
+        .dom
+        .borrow()
+        .arena()
+        .get(document)?
+        .document_metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.quirks);
+    let allow_imports = !state.constructed_stylesheets.borrow().contains(&node);
+    let provider = state.layout_provider.borrow().clone();
+    let parsed = provider
+        .and_then(|p| p.mutate_rule_list(&source, &[], edit, &base_url, quirks, allow_imports));
+    let texts = if let Some(parsed) = parsed {
+        parsed
+            .map_err(css_rule_mutation_error)?
+            .into_iter()
+            .map(|r| r.css_text)
+            .collect::<Vec<_>>()
+    } else {
+        // Providerless binding tests retain their existing textual storage.
+        let mut texts = stylesheet_rule_texts(&source);
+        match edit {
+            BindingRuleListEdit::Insert { index, text } => {
+                if index > texts.len() {
+                    return Err(css_rule_mutation_error(BindingRuleMutationError::IndexSize));
+                }
+                texts.insert(index, text.into());
+            }
+            BindingRuleListEdit::Delete { index } => {
+                if index >= texts.len() {
+                    return Err(css_rule_mutation_error(BindingRuleMutationError::IndexSize));
+                }
+                texts.remove(index);
+            }
+        }
+        texts
+    };
+    publish_stylesheet_source(state, node, texts.join("\n"))?;
+    match edit {
+        BindingRuleListEdit::Insert { index, .. } => {
+            insert_cached_stylesheet_rule(scope, state, node, index)
+        }
+        BindingRuleListEdit::Delete { index } => {
+            delete_cached_stylesheet_rule(scope, state, node, index)
+        }
+    }
+}
+
 fn insert_cached_stylesheet_rule(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -24365,10 +24468,10 @@ fn call_operation<'s>(
                     .transpose()?
             };
             if let Some(children) = fragment_children {
-                for fragment_child in children {
+                for &fragment_child in &children {
                     state.dom.borrow_mut().append_child(node, fragment_child)?;
-                    prepare_dynamic_script_subtree(scope, state, fragment_child)?;
                 }
+                prepare_dynamic_script_subtrees(scope, state, &children)?;
             } else {
                 state.dom.borrow_mut().append_child(node, child)?;
                 prepare_dynamic_script_subtree(scope, state, child)?;
@@ -24386,13 +24489,13 @@ fn call_operation<'s>(
                     .transpose()?
             };
             if let Some(children) = fragment_children {
-                for fragment_child in children {
+                for &fragment_child in &children {
                     state
                         .dom
                         .borrow_mut()
                         .insert_before(node, fragment_child, reference)?;
-                    prepare_dynamic_script_subtree(scope, state, fragment_child)?;
                 }
+                prepare_dynamic_script_subtrees(scope, state, &children)?;
             } else {
                 state
                     .dom
@@ -24447,9 +24550,7 @@ fn call_operation<'s>(
                         .borrow_mut()
                         .insert_before(node, *fragment_child, reference)?;
                 }
-                for fragment_child in children {
-                    prepare_dynamic_script_subtree(scope, state, fragment_child)?;
-                }
+                prepare_dynamic_script_subtrees(scope, state, &children)?;
             } else {
                 state
                     .dom
@@ -24535,6 +24636,7 @@ fn call_operation<'s>(
                     .copied()
                     .unwrap_or_else(|| state.dom.borrow().document())
             };
+            let mut insertions = Vec::new();
             for index in 0..args.length() {
                 let value = args.get(index);
                 let child = if value.is_object() {
@@ -24556,12 +24658,13 @@ fn call_operation<'s>(
                         .then(|| dom.arena().get(child).map(|record| record.children.clone()))
                         .transpose()?
                 };
-                for inserted in fragment_children.unwrap_or_else(|| vec![child]) {
-                    state.node_documents.borrow_mut().insert(inserted, owner);
-                    state.dom.borrow_mut().append_child(node, inserted)?;
-                    prepare_dynamic_script_subtree(scope, state, inserted)?;
-                }
+                insertions.extend(fragment_children.unwrap_or_else(|| vec![child]));
             }
+            for &inserted in &insertions {
+                state.node_documents.borrow_mut().insert(inserted, owner);
+                state.dom.borrow_mut().append_child(node, inserted)?;
+            }
+            prepare_dynamic_script_subtrees(scope, state, &insertions)?;
             Ok(None)
         }
         ("Node", "prepend") => {
@@ -24616,14 +24719,14 @@ fn call_operation<'s>(
             // check happen before the first mutation. This is observable for
             // Document.prepend(), where no prefix may survive a later invalid
             // argument.
-            for inserted in insertions {
+            for &inserted in &insertions {
                 state.node_documents.borrow_mut().insert(inserted, owner);
                 state
                     .dom
                     .borrow_mut()
                     .insert_before(node, inserted, reference)?;
-                prepare_dynamic_script_subtree(scope, state, inserted)?;
             }
+            prepare_dynamic_script_subtrees(scope, state, &insertions)?;
             Ok(None)
         }
         ("Node", "replaceChildren") => {
@@ -24675,11 +24778,11 @@ fn call_operation<'s>(
             for child in children {
                 state.dom.borrow_mut().remove_child(node, child)?;
             }
-            for child in replacements {
+            for &child in &replacements {
                 state.node_documents.borrow_mut().insert(child, owner);
                 state.dom.borrow_mut().append_child(node, child)?;
-                prepare_dynamic_script_subtree(scope, state, child)?;
             }
+            prepare_dynamic_script_subtrees(scope, state, &replacements)?;
             Ok(None)
         }
         ("Node", "before" | "after") => {
@@ -24712,13 +24815,13 @@ fn call_operation<'s>(
                     .transpose()?
             };
             let children = fragment_children.unwrap_or_else(|| vec![inserted]);
-            for child in children {
+            for &child in &children {
                 state
                     .dom
                     .borrow_mut()
                     .insert_before(parent, child, reference)?;
-                prepare_dynamic_script_subtree(scope, state, child)?;
             }
+            prepare_dynamic_script_subtrees(scope, state, &children)?;
             Ok(None)
         }
         ("Node", "replaceWith") => {
@@ -24777,13 +24880,13 @@ fn call_operation<'s>(
                 validate_tree_insertion(&state.dom.borrow(), parent, *replacement)?;
             }
             state.dom.borrow_mut().remove_child(parent, node)?;
-            for replacement in replacements {
+            for &replacement in &replacements {
                 state
                     .dom
                     .borrow_mut()
                     .insert_before(parent, replacement, reference)?;
-                prepare_dynamic_script_subtree(scope, state, replacement)?;
             }
+            prepare_dynamic_script_subtrees(scope, state, &replacements)?;
             Ok(None)
         }
         ("Node", "remove") => {
@@ -25249,103 +25352,61 @@ fn call_operation<'s>(
             Ok(Some(v8::Boolean::new(scope, next).into()))
         }
         ("CSSStyleSheet", "insertRule") => {
-            let mut rule = required_string(scope, args, 0)?;
-            if !rule.trim_start().starts_with('@')
-                && let Some((selector, body)) = rule.split_once('{')
-                && let Some(provider) = state.layout_provider.borrow().as_ref()
-            {
-                let selector = provider
-                    .canonicalize_selector(selector.trim())
-                    .map_err(|_| V8BindingError::Unsupported {
-                        interface: "CSSStyleSheet".into(),
-                        member: "SyntaxError".into(),
-                    })?;
-                rule = format!("{selector} {{{body}");
-            }
-            let current = state.dom.borrow().arena().stylesheet_text(node)?;
-            let mut rules = stylesheet_rules_for_owner(scope, state, node, &current, true)?;
-            let index = if args.length() > 1 {
-                args.get(1).uint32_value(scope).unwrap_or(0) as usize
+            let rule = required_string(scope, args, 0)?;
+            let index = if args.length() > 1 && !args.get(1).is_undefined() {
+                args.get(1)
+                    .uint32_value(scope)
+                    .ok_or(V8BindingError::JavaScriptException)? as usize
             } else {
                 0
             };
-            if index > rules.len() {
-                return Err(V8BindingError::Unsupported {
-                    interface: "CSSStyleSheet".into(),
-                    member: "IndexSizeError".into(),
-                });
-            }
-            rules.insert(index, rule);
-            publish_stylesheet_source(state, node, rules.join("\n"))?;
-            insert_cached_stylesheet_rule(scope, state, node, index)?;
+            edit_stylesheet_rule_list(
+                scope,
+                state,
+                node,
+                BindingRuleListEdit::Insert { index, text: &rule },
+            )?;
             Ok(Some(
                 v8::Integer::new_from_unsigned(scope, index as u32).into(),
             ))
         }
-        ("CSSStyleSheet", "deleteRule") => {
-            let index = args.get(0).uint32_value(scope).unwrap_or(0) as usize;
-            let current = state.dom.borrow().arena().stylesheet_text(node)?;
-            let mut rules = stylesheet_rules_for_owner(scope, state, node, &current, true)?;
-            if index >= rules.len() {
-                return Err(V8BindingError::Unsupported {
-                    interface: "CSSStyleSheet".into(),
-                    member: "IndexSizeError".into(),
-                });
-            }
-            rules.remove(index);
-            publish_stylesheet_source(state, node, rules.join("\n"))?;
-            delete_cached_stylesheet_rule(scope, state, node, index)?;
-            Ok(None)
-        }
-        ("CSSStyleSheet", "removeRule") => {
-            let index = if args.length() > 0 {
-                args.get(0).uint32_value(scope).unwrap_or(0) as usize
+        ("CSSStyleSheet", "deleteRule" | "removeRule") => {
+            let index = if args.length() > 0 && !args.get(0).is_undefined() {
+                args.get(0)
+                    .uint32_value(scope)
+                    .ok_or(V8BindingError::JavaScriptException)? as usize
             } else {
                 0
             };
-            let current = state.dom.borrow().arena().stylesheet_text(node)?;
-            let mut rules = stylesheet_rules_for_owner(scope, state, node, &current, true)?;
-            if index >= rules.len() {
-                return Err(V8BindingError::Unsupported {
-                    interface: "CSSStyleSheet".into(),
-                    member: "IndexSizeError".into(),
-                });
-            }
-            rules.remove(index);
-            publish_stylesheet_source(state, node, rules.join("\n"))?;
-            delete_cached_stylesheet_rule(scope, state, node, index)?;
+            edit_stylesheet_rule_list(scope, state, node, BindingRuleListEdit::Delete { index })?;
             Ok(None)
         }
         ("CSSStyleSheet", "addRule") => {
             let selector = if args.length() > 0 {
-                args.get(0).to_rust_string_lossy(scope)
+                cssom_string(scope, args.get(0), false)?
             } else {
                 "undefined".into()
             };
-            let mut declarations = if args.length() > 1 {
-                args.get(1).to_rust_string_lossy(scope)
+            let declarations = if args.length() > 1 {
+                cssom_string(scope, args.get(1), false)?
             } else {
-                String::new()
+                "undefined".into()
             };
-            if !declarations.trim().is_empty() && !declarations.trim_end().ends_with(';') {
-                declarations.push(';');
-            }
-            let current = state.dom.borrow().arena().stylesheet_text(node)?;
-            let mut rules = stylesheet_rules_for_owner(scope, state, node, &current, true)?;
-            let index = if args.length() > 2 {
-                args.get(2).uint32_value(scope).unwrap_or(0) as usize
+            let index = if args.length() > 2 && !args.get(2).is_undefined() {
+                args.get(2)
+                    .uint32_value(scope)
+                    .ok_or(V8BindingError::JavaScriptException)? as usize
             } else {
-                rules.len()
+                let current = state.dom.borrow().arena().stylesheet_text(node)?;
+                stylesheet_rules_for_owner(scope, state, node, &current, true)?.len()
             };
-            if index > rules.len() {
-                return Err(V8BindingError::Unsupported {
-                    interface: "CSSStyleSheet".into(),
-                    member: "IndexSizeError".into(),
-                });
-            }
-            rules.insert(index, format!("{selector} {{ {declarations} }}"));
-            publish_stylesheet_source(state, node, rules.join("\n"))?;
-            insert_cached_stylesheet_rule(scope, state, node, index)?;
+            let rule = format!("{selector} {{ {declarations} }}");
+            edit_stylesheet_rule_list(
+                scope,
+                state,
+                node,
+                BindingRuleListEdit::Insert { index, text: &rule },
+            )?;
             Ok(Some(v8::Integer::new(scope, -1).into()))
         }
         ("CSSStyleSheet", "replaceSync") | ("CSSStyleSheet", "replace") => {
@@ -26099,11 +26160,30 @@ fn prepare_dynamic_script_subtree(
     state: &Rc<V8BindingState>,
     root: NodeId,
 ) -> Result<(), V8BindingError> {
-    prepare_dynamic_referrer_meta(scope, state, root)?;
-    prepare_dynamic_frame_subtree(state, root)?;
-    prepare_dynamic_image_subtree(scope, state, root)?;
-    prepare_dynamic_stylesheet_subtree(state, root)?;
-    for script in state.dynamic_script_candidates(root)? {
+    prepare_dynamic_script_subtrees(scope, state, &[root])
+}
+
+/// Complete insertion-side preparation for the whole batch before running any
+/// post-connection scripts. A script must see later siblings already connected
+/// with their stylesheet state initialized.
+fn prepare_dynamic_script_subtrees(
+    scope: &mut v8::PinScope<'_, '_>,
+    state: &Rc<V8BindingState>,
+    roots: &[NodeId],
+) -> Result<(), V8BindingError> {
+    let mut scripts = Vec::new();
+    for &root in roots {
+        prepare_dynamic_referrer_meta(scope, state, root)?;
+        prepare_dynamic_frame_subtree(state, root)?;
+        prepare_dynamic_image_subtree(scope, state, root)?;
+        prepare_dynamic_stylesheet_subtree(state, root)?;
+        scripts.extend(state.dynamic_script_candidates(root)?);
+    }
+    for script in scripts {
+        // An earlier post-connection script may have removed a later one.
+        if !state.dom.borrow().is_connected(script).unwrap_or(false) {
+            continue;
+        }
         if state.prepared_scripts.borrow().contains(&script) {
             continue;
         }

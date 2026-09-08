@@ -784,7 +784,7 @@ impl<'a, 'i> AtRuleParser<'i> for NestedRuleParser<'a, 'i> {
                 let bounds = ScopeBounds::parse(&self.context, input, self.parse_relative())?;
                 AtRulePrelude::Scope(bounds)
             },
-            "starting-style" if static_prefs::pref!("layout.css.starting-style-at-rules.enabled") => {
+            "starting-style" if cfg!(feature = "servo") || static_prefs::pref!("layout.css.starting-style-at-rules.enabled") => {
                 AtRulePrelude::StartingStyle
             },
             "appearance-base" if self.context.chrome_rules_enabled() => {

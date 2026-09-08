@@ -1,4 +1,6 @@
 //! CSSOM declaration operations backed by the same Stylo parser as layout.
+mod rule_mutations;
+pub use rule_mutations::{RuleListEdit, RuleMutationError, mutate_rule_list};
 use style::{
     context::QuirksMode,
     properties::declaration_block::{

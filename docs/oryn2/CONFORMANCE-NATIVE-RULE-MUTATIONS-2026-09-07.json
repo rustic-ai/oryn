@@ -1,0 +1,90 @@
+{
+  "scope": "Native CSS rule-list mutation transactions and DOM batch post-connection ordering; not a full conformance result.",
+  "baseline_runtime": "c43d732ba8ba3cff36c2b079a1f3d29b59566314",
+  "integrated_source_files": [
+    {
+      "path": "crates/oryn-layout/src/cssom.rs",
+      "baseline_sha256": "048608880fa303875e2420f1f491da2fff8e32e0d0e0489faf765e82d26d57e8",
+      "candidate_sha256": "1f612b7cfc27cffa8585729f74cfca2e00f5c7c511c9af193aed5e2ad61c06ad"
+    },
+    {
+      "path": "crates/oryn-layout/src/cssom/rule_mutations.rs",
+      "baseline_sha256": null,
+      "candidate_sha256": "2f2e0c57c19ebaa2aad539c229e153d6f28e44435e5240029f3260c464f7946b"
+    },
+    {
+      "path": "crates/oryn-js/src/v8_bindings.rs",
+      "baseline_sha256": "e1d315a809f8602e1487b1f64a233f9d40fe94be6ac66fcd89c251bda8c040a5",
+      "candidate_sha256": "e0b80a7c9298f6f94ab2cf7444f865ad5016eb200f2bc56f2ed8011ec4e0382c"
+    },
+    {
+      "path": "crates/oryn-native/src/rust_executable.rs",
+      "baseline_sha256": "094d2ed55f318a7d10733c25e8e98451200e6e3ca39eff6c5e394c6499d6a979",
+      "candidate_sha256": "e0ba8f00f15d6d2ceab12e52d05cd4728fc9896b583be8affc804949c326ee28"
+    },
+    {
+      "path": "vendor/stylo/stylesheets/rule_parser.rs",
+      "baseline_sha256": "f79b8cfd34c198dea85cb828b93eba300a9fee01ccb53ec180a6f8b6371a077a",
+      "candidate_sha256": "b4b23d046e7205b55a05e883d65e258d5599d7053b5ba509ed8d6fae85ed3866"
+    }
+  ],
+  "native_validation": {
+    "layout": {
+      "passed": 59,
+      "failed": 0
+    },
+    "v8_bindings": {
+      "passed": 130,
+      "failed": 0,
+      "existing_ignored": 2,
+      "filtered_other_tests": 18
+    },
+    "cssom": {
+      "passed": 26,
+      "failed": 0
+    },
+    "strict_clippy": [
+      "oryn-layout --lib -D warnings",
+      "oryn-native --features v8-host,v8-sandbox,core-full --lib -D warnings"
+    ],
+    "script_iframe_retention": {
+      "passed": 8,
+      "failed": 1,
+      "failure": "executable::tests::parser_iframe_exposes_stable_window_proxy_before_child_commit",
+      "observed": "pending",
+      "expected": "true|true|https://child.example.test|reply:early",
+      "prior_evidence": "docs/oryn2/CONFORMANCE-NATIVE-OBSERVER-SCHEDULING-2026-09-06.json",
+      "prior_evidence_sha256": "e01754cc3972c5ae0177f85c7ee22e98c588b459cef2dc6384b0446d86479ac6",
+      "qualification": "Same failure is recorded in the earlier native baseline. It remains open; the retention run is not wholly passing."
+    }
+  },
+  "artifacts": [
+    {
+      "path": "artifacts/upstream-conformance/native-rule-mutations/oryn-native-rule-mutations-validation-v2.log",
+      "sha256": "f8001db47108e59775bb859d4b69f06ac707bdfe58395cfbba8f1c3805064dd4"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-rule-mutations/oryn-batch-insertion-retention-v1.log",
+      "sha256": "3146ee889fe4a9ce1e62a86a678c61a2173d2f7e8cd9b08f982d9fa56a24540f"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-rule-mutations/oryn-test-native-rule-mutations.py",
+      "sha256": "bfff5f6849167c5eb3245afe4220b1a190b61907dcb52e0eeed4aafbb5aaa21c"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-rule-mutations/oryn-test-batch-insertion-retention.py",
+      "sha256": "dc93f5b1f823c470e07de379c64fb024b95b10ff9276aeed5f5bc65a67050f3d"
+    }
+  ],
+  "behavior": [
+    "Native Stylo insert/remove validates the complete stylesheet, namespaces, ancestor nesting context, rule hierarchy and exception precedence.",
+    "Stylesheet insertRule/deleteRule and legacy aliases preserve unaffected wrapper identities and propagate conversion exceptions.",
+    "Native Servo starting-style parser branch is enabled; grouping list tests exercise media, supports, container, layer, scope and starting-style.",
+    "DOM multi-node insertion connects the batch and prepares resources before post-connection scripts; disconnected later scripts are skipped."
+  ],
+  "remaining": [
+    "Nested JavaScript rule ownership, live nested rule collections and generated typed grouping interfaces remain incomplete.",
+    "A signed full-inventory run must verify regression recovery and whole-suite retention.",
+    "All 4022 executions twice on one frozen candidate and all remaining qualification gates are still required."
+  ]
+}

@@ -37,6 +37,46 @@ struct LiveLayoutProvider {
 }
 
 impl BindingLayoutProvider for LiveLayoutProvider {
+    fn mutate_rule_list(
+        &self,
+        source: &str,
+        parent_path: &[usize],
+        edit: oryn_js::v8_bindings::BindingRuleListEdit<'_>,
+        base_url: &str,
+        quirks: bool,
+        allow_imports: bool,
+    ) -> Option<
+        Result<
+            Vec<oryn_js::v8_bindings::BindingRuleView>,
+            oryn_js::v8_bindings::BindingRuleMutationError,
+        >,
+    > {
+        use oryn_js::v8_bindings::{BindingRuleListEdit, BindingRuleMutationError as BindingError};
+        use oryn_layout::cssom::{RuleListEdit, RuleMutationError};
+        let edit = match edit {
+            BindingRuleListEdit::Insert { index, text } => RuleListEdit::Insert { index, text },
+            BindingRuleListEdit::Delete { index } => RuleListEdit::Delete { index },
+        };
+        Some(
+            oryn_layout::cssom::mutate_rule_list(
+                source,
+                parent_path,
+                edit,
+                base_url,
+                quirks,
+                allow_imports,
+            )
+            .map(|rules| rules.into_iter().map(binding_rule_view).collect())
+            .map_err(|error| match error {
+                RuleMutationError::Syntax => BindingError::Syntax,
+                RuleMutationError::IndexSize => BindingError::IndexSize,
+                RuleMutationError::HierarchyRequest => BindingError::HierarchyRequest,
+                RuleMutationError::InvalidState => BindingError::InvalidState,
+                RuleMutationError::InvalidContext(message) => BindingError::InvalidContext(message),
+            }),
+        )
+    }
+
     fn set_style_rule_selector(
         &self,
         source: &str,
@@ -5754,6 +5794,136 @@ mod tests {
         assert_eq!(
             page.evaluate("order.join('|')").unwrap(),
             "handler:5:true|listener:true|after"
+        );
+    }
+
+    #[test]
+    fn cssom_batch_post_connection_skips_scripts_removed_by_an_earlier_script() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body></body>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            globalThis.batchScriptCount = 0;
+            for (const method of ['appendChild', 'append', 'prepend', 'replaceChildren']) {
+                const host = document.createElement('div'); document.body.appendChild(host);
+                const first = document.createElement('script');
+                globalThis.batchRemovedScript = document.createElement('script');
+                first.textContent = 'batchRemovedScript.remove(); batchScriptCount++;';
+                batchRemovedScript.textContent = 'batchScriptCount += 100;';
+                const fragment = document.createDocumentFragment();
+                fragment.appendChild(first); fragment.appendChild(batchRemovedScript);
+                if (method === 'appendChild') host.appendChild(fragment);
+                else host[method](first, batchRemovedScript);
+                host.remove();
+            }
+            batchScriptCount
+        "#
+            )
+            .unwrap(),
+            "4"
+        );
+    }
+
+    #[test]
+    fn cssom_batch_insertion_prepares_later_stylesheets_before_scripts() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body></body>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const failures = [];
+            for (const tag of ['style', 'link']) {
+                for (const method of ['appendChild', 'insertBefore', 'replaceChild', 'append', 'prepend', 'replaceChildren', 'before', 'after', 'replaceWith']) {
+                    const host = document.createElement('div'), marker = document.createElement('span');
+                    host.appendChild(marker); document.body.appendChild(host);
+                    globalThis.batchLater = document.createElement(tag);
+                    globalThis.batchObserved = [];
+                    if (tag === 'style') batchLater.textContent = 'body {}';
+                    else { batchLater.rel = 'stylesheet'; batchLater.href = 'data:text/css,'; }
+                    const script = document.createElement('script');
+                    script.textContent = `
+                        batchObserved.push(batchLater.isConnected, !!batchLater.sheet);
+                        if (batchLater.tagName === 'STYLE') {
+                            batchLater.appendChild(document.createTextNode('body {}'));
+                            batchObserved.push(batchLater.sheet.cssRules.length === 2);
+                        }
+                    `;
+                    const fragment = document.createDocumentFragment();
+                    fragment.appendChild(script); fragment.appendChild(batchLater);
+                    if (method === 'insertBefore') host.insertBefore(fragment, marker);
+                    else if (method === 'replaceChild') host.replaceChild(fragment, marker);
+                    else if (method === 'before' || method === 'after' || method === 'replaceWith') marker[method](fragment);
+                    else if (method === 'append' || method === 'prepend' || method === 'replaceChildren') host[method](script, batchLater);
+                    else host.appendChild(fragment);
+                    if (batchObserved.length !== (tag === 'style' ? 3 : 2) || !batchObserved.every(Boolean)) failures.push(tag + ':' + method);
+                    host.remove();
+                }
+            }
+            failures.join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
+    fn cssom_stylesheet_mutations_use_native_hierarchy_and_preserve_rule_identity() {
+        let mut page = RustExecutableDocument::load(r#"<!doctype html><style>@namespace svg url(http://www.w3.org/2000/svg); svg|rect { color: red; }</style>"#).unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const sheet = document.styleSheets[0], list = sheet.cssRules, original = list[1];
+            const checks = [];
+            function rejects(name, fn) {
+                const before = Array.from(list, r => r.cssText).join('\n');
+                try { fn(); checks.push(false); }
+                catch (error) { checks.push(error.name === name); }
+                checks.push(Array.from(list, r => r.cssText).join('\n') === before);
+            }
+            rejects('IndexSizeError', () => sheet.insertRule('???', 3));
+            rejects('SyntaxError', () => sheet.insertRule('svg|circle {} garbage', 2));
+            rejects('SyntaxError', () => sheet.insertRule('svg|circle {} svg|path {}', 2));
+            rejects('HierarchyRequestError', () => sheet.insertRule('@import url(other.css);', 2));
+            rejects('InvalidStateError', () => sheet.deleteRule(0));
+            rejects('InvalidStateError', () => sheet.removeRule(0));
+            const inserted = sheet.insertRule('svg|circle { color: blue; }', 1);
+            checks.push(inserted === 1, list === sheet.cssRules, list[2] === original,
+                list[1].selectorText === 'svg|circle', list[1].style.color === 'blue');
+            sheet.deleteRule(1);
+            checks.push(list.length === 2, list[1] === original);
+            original.style.color = 'green';
+            checks.push(original.style.color === 'green', list[1] === original);
+            const constructed = new CSSStyleSheet();
+            try { constructed.insertRule('@import url(other.css);'); checks.push(false); }
+            catch (error) { checks.push(error.name === 'SyntaxError'); }
+            checks.push(constructed.cssRules.length === 0);
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#
+            )
+            .unwrap(),
+            ""
+        );
+    }
+
+    #[test]
+    fn cssom_stylesheet_index_conversion_precedes_native_validation() {
+        let mut page =
+            RustExecutableDocument::load("<!doctype html><style>a {} b {}</style>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const sheet = document.styleSheets[0], list = sheet.cssRules, first = list[0];
+            const sentinel = {}, checks = [];
+            try { sheet.insertRule('c {}', { valueOf() { throw sentinel; } }); checks.push(false); }
+            catch (error) { checks.push(error === sentinel); }
+            checks.push(list.length === 2, list[0] === first);
+            try { sheet.deleteRule({ valueOf() { throw sentinel; } }); checks.push(false); }
+            catch (error) { checks.push(error === sentinel); }
+            checks.push(list.length === 2);
+            try {
+                sheet.insertRule('???', { valueOf() { sheet.deleteRule(1); return 2; } });
+                checks.push(false);
+            } catch (error) { checks.push(error.name === 'IndexSizeError'); }
+            checks.push(list.length === 1, list[0] === first);
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#
+            )
+            .unwrap(),
+            ""
         );
     }
 

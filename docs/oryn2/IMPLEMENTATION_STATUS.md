@@ -13,8 +13,9 @@ The full audit finds **3 observed assertion regressions** in the lost DOM execut
 `Node-appendChild-script-and-style.html`. Fragment and multi-node insertion run an
 earlier script before a later stylesheet sibling is connected. The new stylesheet
 lifetime checks expose this insertion-order defect; the regression is not waived.
-An isolated fix attaches and prepares the full insertion batch before executing its
-post-connection scripts. It is pending validation and is not part of this measured candidate.
+The subsequent implementation attaches and prepares the full insertion batch before
+executing post-connection scripts. Native regression tests pass; recovery in a signed
+full-inventory run is still pending. It is not part of the measured `c43d732` candidate.
 
 There are **45 newly unobserved prior passing assertions** in incomplete Range
 runs (25 dataChange, 9 insertData, 11 replaceData). Five history assertion-name changes
@@ -36,10 +37,11 @@ identity survives owner replacement and detachment. Both first-line selector spe
 use the native parser. Full-run CSS totals are cascade 49/97, CSSOM 85/190 and selectors
 162/277. Editing retains 389/704, including all 180 whitespace-join executions.
 
-The immediate work is to fix the insertion-order regression and validate the shared
-native rule-list mutation path. The isolated draft routes stylesheet insert/delete
-through Stylo's parser and hierarchy checks, with tests for namespaces, error precedence,
-conversion side effects and wrapper identity. Then complete nested rule ownership,
+The shared native rule-list mutation path now routes stylesheet insert/delete through
+Stylo's parser and hierarchy checks. Validation passes 59 layout, 130 binding and 26
+native CSSOM tests plus strict Clippy. Eight script/iframe retention checks pass; one
+reproduces a documented earlier failure and remains open. [Native evidence](CONFORMANCE-NATIVE-RULE-MUTATIONS-2026-09-07.json) records exact source and log hashes.
+The immediate next step is signed full-inventory verification. Then complete nested rule ownership,
 live child collections, grouping mutations and generated typed interfaces. Media lists,
 other CSSOM interfaces, Range resource failures and the remaining inventory stay open.
 
