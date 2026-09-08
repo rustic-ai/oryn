@@ -2,84 +2,59 @@
 
 > **Current priority: complete conformance. Not a release candidate.**
 > Follow the [active execution plan](COMPLETE-CONFORMANCE-PLAN-2026-09-06.md).
-> Latest full measurement: **2,915/4,022 (72.5%)**, **1,107 remaining**.
+> Latest full measurement: **2,925/4,022 (72.7%)**, **1,097 remaining**.
 
-The next CSSOM batch has passed native validation: **32 CSSOM**, **63 layout**,
-**131 JavaScript binding** tests (two existing ignores), **9 WebIDL** tests,
-canonical generation, and strict Clippy. It adds live nested rule ownership,
-full-context mutations, generated grouping/declaration interfaces, and rule-owned
-media lists. [Native evidence](CONFORMANCE-NESTED-CSSOM-NATIVE-2026-09-07.json).
-Signed full-inventory measurement is pending; this does not change the overall score.
+The complete signed-worker run at `fff8d56` measures **2,925/4,022 (72.7%)**,
+with **1,097 failing executions**. Compared with `8844fd5`, **10 whole tests improve**
+and **none regress**. The assertion audit finds **71 corrected existing assertions**
+and **zero observed passing-to-failing assertions**. These are full-inventory results.
 
-The latest complete signed-worker run at `8844fd5` measures **2,915/4,022 (72.5%)**,
-with **1,107 failing executions**. Compared with `c43d732`, it gains **10 whole-test
-passes** and loses **1**, for a net gain of **9**. CSS gains five executions; DOM gains
-five and loses one. These are full-inventory results, not selected-run overlays.
+The earlier meta/script processing regression now passes in the full run. Five
+history assertion-name changes reconcile only after complete normalized name/status
+multisets match. Four newly missing prior passing assertions remain in the incomplete
+`Range-mutations-appendData.html` execution. Of the 73 previously tracked unobserved
+assertions, 17 now pass and 56 remain absent: **60 tracked unobserved assertions remain**
+after adding the four new gaps. All **11 historical editing assertion regressions still
+fail**. Missing assertions are not counted as passes or waived by the net score gain.
 
-All three earlier stylesheet-insertion assertion regressions now pass. The new full
-run exposes **one assertion regression** in
-`Node-append-meta-referrer-and-script-from-fragment.html`: a later referrer-policy meta
-tag is processed before an earlier script. Stylesheet preparation must precede scripts,
-while meta tags and scripts require ordered post-connection processing. The subsequent
-correction passes native fetch-policy integration tests and final strict Clippy. Signed
-selected WPT at `8839674` confirms recovery: CSSOM **89/190**, DOM nodes **168/288**,
-with one recovered whole test and no losses, assertion regressions, or missing prior
-passing assertions across these 478 cases. [Retention evidence](CONFORMANCE-PAGE-CONTEXT-RETENTION-2026-09-07.json).
-This is not a full-inventory measurement; the overall score remains bound to `8844fd5`.
-
-The Range audit finds **27 newly unobserved prior passing assertions**: 24 appendData,
-one deleteData and two insertData. All **46 older unobserved assertions remain absent**,
-for 73 tracked gaps across the comparison chain. These executions remain incomplete
-under the unchanged worker limits. Five history assertion-name changes reconcile only
-after complete normalized name/status multisets match. All **11 historical editing
-assertion regressions remain failing**. None of these gaps is closed by a net score gain.
-
-The audit verifies all 4,022 unique IDs, nonempty successful passing completions,
-frozen source/binary fingerprints, and unchanged inventory, limits and sandbox boundaries.
-[Full evidence](CONFORMANCE-RULE-MUTATIONS-FULL-2026-09-07.json) retains gains, losses,
-assertion changes, explicit prior-regression recovery, and historical gap tracking.
+The audit verifies all 4,022 unique inventory IDs, nonempty successful passing
+completions, frozen source/binary fingerprints, and unchanged limits and sandbox
+boundaries. [Full evidence](CONFORMANCE-NESTED-CSSOM-FULL-2026-09-07.json) retains
+whole-test changes, assertion reconciliation and historical gap tracking.
 Complete conformance and release qualification remain unachieved.
 
-Stylo remains the CSS engine. Stylesheet insert/delete and their legacy aliases now use
-native parsing, namespace context, rule hierarchy checks and exception categories.
-Unaffected rule wrappers retain their identity. Batch insertion connects the full sequence
-before scripts run. Native validation passes 59 layout, 130 binding and 26 CSSOM tests plus
-strict Clippy; eight script/iframe retention checks pass and one reproduces a documented
-older failure. [Native evidence](CONFORMANCE-NATIVE-RULE-MUTATIONS-2026-09-07.json) records
-the exact source hashes, logs and that open failure. Full-run CSS totals are cascade
-50/97, CSSOM 89/190 and selectors 162/277. DOM reaches 396/662; editing retains 389/704.
+Stylo remains the CSS engine. This batch adds native nested rule ownership, live
+child lists, full-context grouping/declaration mutations, generated style/page and
+conditional interfaces, and rule-owned media lists. Native checks pass **32 CSSOM**,
+**63 layout**, **131 JavaScript binding** tests (two existing ignores), **9 WebIDL**
+tests, canonical generation and strict Clippy.
+[Native evidence](CONFORMANCE-NESTED-CSSOM-NATIVE-2026-09-07.json) binds these checks
+to the integrated source. An older iframe parser retention failure remains open;
+these checks do not establish release qualification.
 
-The meta/script correction and full-context page-rule mutations pass 61 layout, 131
-binding and 27 native CSSOM tests. [Correction evidence](CONFORMANCE-PAGE-CONTEXT-META-2026-09-07.json)
-records final source hashes and strict checks after removal of an unused helper. Verify
-the affected CSSOM and DOM-node tests on the signed worker next. Then complete nested rule
-ownership, live child collections, grouping mutations and generated typed interfaces,
-and measure the broader candidate with the full inventory.
-Media lists, remaining CSSOM interfaces, Range resource failures, historical regressions
-and every other failing inventory execution remain in scope.
+The full run identifies an unnamed-container serialization defect; a correction
+and regression test are drafted but not yet validated. The next shared runtime gap
+is live Window named-property resolution: static startup publication fails for
+later insertions, removals and renames. Implement the native named-properties object,
+correct prototype shadowing and live duplicate collections, then measure its impact.
+Remaining media interfaces and ownership, Range resource failures, historical editing
+regressions and every other failing inventory execution stay in scope.
 
 | Root | Passed / required |
 |---|---:|
 | IndexedDB | 341/456 |
 | WebIDL | 30/58 |
 | accname | 15/19 |
-| css/css-cascade | 50/97 |
-| css/cssom | 89/190 |
-| css/selectors | 162/277 |
-| dom | 396/662 |
+| css/css-cascade | 53/97 |
+| css/cssom | 94/190 |
+| css/selectors | 163/277 |
+| dom | 397/662 |
 | editing | 389/704 |
 | html/browsers/history | 32/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,107 failed IDs from this run.
-
-This status is intentionally capability-based. It records implemented behavior and
-does not imply that later browser-conformance work is complete.
-
-Committed result payloads retain the source fingerprints and versioned field
-names from the runs that produced them. The capability-naming refactor does not
-rewrite those historical payloads or present them as a new validation run.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 1,097 failed IDs from this run.
 
 ## P0 — complete
 
