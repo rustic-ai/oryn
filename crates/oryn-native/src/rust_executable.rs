@@ -5758,6 +5758,22 @@ mod tests {
     }
 
     #[test]
+    fn cssom_style_rule_selector_accepts_first_line_without_matching_the_host() {
+        let mut page = RustExecutableDocument::load("<!doctype html><style>.unused { background-color: blue; } #probe { background-color: red; }</style><div id='probe'>text</div>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const rule = document.styleSheets[0].cssRules[0], target = document.getElementById('probe');
+            const checks = [];
+            for (const selector of ['::first-line', ':first-line', '#probe::first-line', '#probe:first-line']) {
+                rule.selectorText = selector;
+                const expected = selector.replace(/(?<!:):first-line$/, '::first-line');
+                checks.push(rule.selectorText === expected, rule.style.backgroundColor === 'blue',
+                    getComputedStyle(target).backgroundColor === 'rgb(255, 0, 0)');
+            }
+            checks.every(Boolean)
+        "#).unwrap(), "true");
+    }
+
+    #[test]
     fn cssom_reconnecting_style_preserves_old_sheets_and_reparses_authored_text() {
         let mut page = RustExecutableDocument::load("<!doctype html><div id='host'><style id='styles'>#probe { width: 10px; }</style></div><div id='probe'></div>").unwrap();
         assert_eq!(page.evaluate(r#"
