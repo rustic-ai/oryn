@@ -103,10 +103,11 @@ pub(super) fn for_node(
     {
         return Ok(Some(sheet));
     }
-    let (source, revision, connected) = {
+    let (source, media, revision, connected) = {
         let dom = state.dom.borrow();
         (
             dom.arena().stylesheet_text(node)?,
+            dom.arena().stylesheet_media(node)?,
             dom.arena().stylesheet_revision(node)?,
             dom.is_connected(node)?,
         )
@@ -119,6 +120,7 @@ pub(super) fn for_node(
         let mut dom = state.dom.borrow_mut();
         let sheet = dom.create_element("style");
         dom.arena_mut().get_mut(sheet)?.stylesheet_override = Some(source);
+        dom.arena_mut().get_mut(sheet)?.stylesheet_media = Some(media);
         dom.retain_native(sheet)?;
         sheet
     };
@@ -182,4 +184,33 @@ pub(super) fn sweep(state: &V8BindingState) -> usize {
         .borrow_mut()
         .retain(|node, _| dom.arena().get(*node).is_ok());
     released
+}
+
+/// Refresh a live sheet from its owner, retaining the last value after detachment.
+pub(super) fn media_text(state: &V8BindingState, sheet: NodeId) -> Result<String, V8BindingError> {
+    if let Some(owner) = active_owner(state, sheet)? {
+        let text = state.dom.borrow().arena().stylesheet_media(owner)?;
+        state
+            .dom
+            .borrow_mut()
+            .arena_mut()
+            .get_mut(sheet)?
+            .stylesheet_media = Some(text.clone());
+        return Ok(text);
+    }
+    Ok(state.dom.borrow().arena().stylesheet_media(sheet)?)
+}
+
+pub(super) fn set_media_text(
+    state: &V8BindingState,
+    sheet: NodeId,
+    text: String,
+) -> Result<(), V8BindingError> {
+    let owner = active_owner(state, sheet)?;
+    let mut dom = state.dom.borrow_mut();
+    dom.set_stylesheet_media(sheet, text.clone())?;
+    if let Some(owner) = owner {
+        dom.set_stylesheet_media(owner, text)?;
+    }
+    Ok(())
 }

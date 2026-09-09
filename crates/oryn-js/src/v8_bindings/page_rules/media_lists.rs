@@ -57,21 +57,111 @@ pub(crate) fn wrap<'s>(
     Ok(list)
 }
 
+pub(crate) fn wrap_sheet<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    sheet: v8::Local<v8::Object>,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    if let Ok(list) = private_object(scope, sheet, "oryn.css.media.list") {
+        return Ok(list);
+    }
+    let template = state
+        .instance_templates
+        .borrow()
+        .get("MediaList")
+        .cloned()
+        .ok_or(V8BindingError::MissingInterface("MediaList"))?;
+    let list = v8::Local::new(scope, template)
+        .new_instance(scope)
+        .ok_or(V8BindingError::Allocation("stylesheet MediaList"))?;
+    let owner = private_object(scope, sheet, "oryn.associated.owner")?;
+    for (object, name, value) in [
+        (list, "oryn.css.media.sheet", sheet),
+        (list, "oryn.associated.owner", owner),
+        (sheet, "oryn.css.media.list", list),
+    ] {
+        let name = v8::String::new(scope, name)
+            .ok_or(V8BindingError::Allocation("stylesheet MediaList edge"))?;
+        let key = v8::Private::for_api(scope, Some(name));
+        object.set_private(scope, key, value.into());
+    }
+    Ok(list)
+}
+
+fn sheet_node(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    object: v8::Local<v8::Object>,
+) -> Result<Option<NodeId>, V8BindingError> {
+    if object.is_proxy() {
+        return Err(invalid());
+    }
+    let Ok(sheet) = private_object(scope, object, "oryn.css.media.sheet") else {
+        return Ok(None);
+    };
+    resolve_receiver(scope, state, sheet, "CSSStyleSheet").map(Some)
+}
+
+fn sheet_edit(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    sheet: NodeId,
+    edit: BindingMediaListEdit<'_>,
+) -> Result<BindingStylesheetMediaMutation, V8BindingError> {
+    let text = stylesheet_ownership::media_text(state, sheet)?;
+    let base_url = cssom_base_url(scope)?;
+    let document = owner_document_for_node(state, sheet)?;
+    let quirks = state
+        .dom
+        .borrow()
+        .arena()
+        .get(document)?
+        .document_metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.quirks);
+    let provider = state
+        .layout_provider
+        .borrow()
+        .clone()
+        .ok_or(V8BindingError::Allocation("stylesheet MediaList provider"))?;
+    provider
+        .mutate_stylesheet_media(&text, edit, &base_url, quirks)
+        .ok_or(V8BindingError::Allocation("stylesheet MediaList mutation"))?
+        .map_err(V8BindingError::EventCallback)
+}
+
+fn query_texts(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    object: v8::Local<v8::Object>,
+) -> Result<Vec<String>, V8BindingError> {
+    if let Some(sheet) = sheet_node(scope, state, object)? {
+        let text = stylesheet_ownership::media_text(state, sheet)?;
+        return sheet_edit(scope, state, sheet, BindingMediaListEdit::Replace(&text))
+            .map(|result| result.queries);
+    }
+    let rule = rule(scope, object)?;
+    let identity = id(scope, rule).ok_or_else(invalid)?;
+    Ok(state
+        .page_rules
+        .borrow()
+        .get(&identity)
+        .ok_or_else(invalid)?
+        .view
+        .media_queries
+        .clone())
+}
+
 pub(crate) fn attribute<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
     object: v8::Local<v8::Object>,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    let rule = rule(scope, object)?;
-    let identity = id(scope, rule).ok_or_else(invalid)?;
-    let records = state.page_rules.borrow();
-    let view = &records.get(&identity).ok_or_else(invalid)?.view;
+    let queries = query_texts(scope, state, object)?;
     match member {
-        "length" => {
-            Ok(v8::Integer::new_from_unsigned(scope, view.media_queries.len() as u32).into())
-        }
-        "mediaText" | "toString" => v8_string(scope, &view.media_queries.join(", ")),
+        "length" => Ok(v8::Integer::new_from_unsigned(scope, queries.len() as u32).into()),
+        "mediaText" | "toString" => v8_string(scope, &queries.join(", ")),
         _ => Err(invalid()),
     }
 }
@@ -82,6 +172,19 @@ fn mutate(
     object: v8::Local<v8::Object>,
     edit: BindingMediaListEdit<'_>,
 ) -> Result<(), V8BindingError> {
+    if let Some(sheet) = sheet_node(scope, state, object)? {
+        let result = sheet_edit(scope, state, sheet, edit)?;
+        if result.not_found {
+            return Err(V8BindingError::Unsupported {
+                interface: "MediaList".into(),
+                member: "NotFoundError".into(),
+            });
+        }
+        if result.changed {
+            stylesheet_ownership::set_media_text(state, sheet, result.queries.join(", "))?;
+        }
+        return Ok(());
+    }
     let rule = rule(scope, object)?;
     let identity = id(scope, rule).ok_or_else(invalid)?;
     let (source, path) = mutation_context(scope, state, identity)?;
@@ -124,7 +227,7 @@ pub(crate) fn set_text(
     object: v8::Local<v8::Object>,
     input: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
-    rule(scope, object)?;
+    query_texts(scope, state, object)?;
     let text = cssom_string(scope, input, true)?;
     mutate(scope, state, object, BindingMediaListEdit::Replace(&text))
 }
@@ -135,7 +238,7 @@ pub(crate) fn operation<'s>(
     args: &v8::FunctionCallbackArguments,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    rule(scope, args.this())?;
+    query_texts(scope, state, args.this())?;
     if member == "toString" {
         return attribute(scope, state, args.this(), member);
     }
@@ -164,19 +267,13 @@ fn entries<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     object: v8::Local<v8::Object>,
 ) -> Result<Option<Vec<v8::Local<'s, v8::Value>>>, V8BindingError> {
-    let Ok(rule) = rule(scope, object) else {
+    let Some(state) = binding_state_for_receiver(scope, object) else {
         return Ok(None);
     };
-    let state = binding_state_for_receiver(scope, object).ok_or_else(invalid)?;
-    let identity = id(scope, rule).ok_or_else(invalid)?;
-    let queries = state
-        .page_rules
-        .borrow()
-        .get(&identity)
-        .ok_or_else(invalid)?
-        .view
-        .media_queries
-        .clone();
+    if sheet_node(scope, &state, object)?.is_none() && rule(scope, object).is_err() {
+        return Ok(None);
+    }
+    let queries = query_texts(scope, &state, object)?;
     queries
         .iter()
         .map(|text| v8_string(scope, text))

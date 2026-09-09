@@ -51,6 +51,31 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         )
     }
 
+    fn mutate_stylesheet_media(
+        &self,
+        text: &str,
+        edit: oryn_js::v8_bindings::BindingMediaListEdit<'_>,
+        base_url: &str,
+        quirks: bool,
+    ) -> Option<Result<oryn_js::v8_bindings::BindingStylesheetMediaMutation, String>> {
+        use oryn_js::v8_bindings::{BindingMediaListEdit, BindingStylesheetMediaMutation};
+        use oryn_layout::cssom::MediaListEdit;
+        let edit = match edit {
+            BindingMediaListEdit::Replace(text) => MediaListEdit::Replace(text),
+            BindingMediaListEdit::Append(text) => MediaListEdit::Append(text),
+            BindingMediaListEdit::Delete(text) => MediaListEdit::Delete(text),
+        };
+        Some(
+            oryn_layout::cssom::mutate_stylesheet_media(text, edit, base_url, quirks).map(
+                |result| BindingStylesheetMediaMutation {
+                    queries: result.queries,
+                    changed: result.changed,
+                    not_found: result.not_found,
+                },
+            ),
+        )
+    }
+
     fn mutate_media_list(
         &self,
         source: &str,
@@ -5973,6 +5998,40 @@ mod tests {
             )
             .unwrap(),
             "4"
+        );
+    }
+
+    #[test]
+    fn stylesheet_media_is_live_and_obsolete_sheets_are_isolated() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body></body>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const owner = document.createElement('style');
+            owner.setAttribute('media', 'screen');
+            owner.textContent = 'body { color: rgb(1, 2, 3) }';
+            document.head.appendChild(owner);
+            const sheet = owner.sheet, media = sheet.media;
+            const checks = [media === sheet.media, sheet instanceof StyleSheet,
+                media.mediaText === 'screen', media[0] === 'screen'];
+            media.mediaText = 'not all';
+            checks.push(owner.getAttribute('media') === 'screen');
+            checks.push(getComputedStyle(document.body).color !== 'rgb(1, 2, 3)');
+            owner.setAttribute('media', 'screen');
+            checks.push(media.mediaText === 'screen');
+            checks.push(getComputedStyle(document.body).color === 'rgb(1, 2, 3)');
+            sheet.media = 'not all';
+            checks.push(media.mediaText === 'not all');
+            owner.textContent = 'body { color: rgb(4, 5, 6) }';
+            const replacement = owner.sheet;
+            media.mediaText = 'print';
+            checks.push(replacement !== sheet, replacement.media.mediaText === 'screen');
+            checks.push(getComputedStyle(document.body).color === 'rgb(4, 5, 6)');
+            checks.every(Boolean)
+        "#
+            )
+            .unwrap(),
+            "true"
         );
     }
 

@@ -207,6 +207,9 @@ pub struct LayoutNode {
 pub struct LayoutInput {
     pub nodes: Vec<LayoutNode>,
     pub stylesheets: Vec<String>,
+    /// CSSOM media text keyed by stylesheet position in cascade order.
+    #[serde(default)]
+    pub stylesheet_media: BTreeMap<usize, String>,
     /// Rust-owned `ElementInternals.states` keyed by the stable DOM node id.
     /// These are selector state, not serialized HTML attributes.
     #[serde(default)]
@@ -1076,7 +1079,7 @@ fn stylo_computed_values_with_provenance(
     // is owned by LayoutInput and can differ from that text; keeping both would
     // duplicate declarations and establish stale cascade-layer ordering.
     document.clear_author_stylesheets();
-    for stylesheet in &input.stylesheets {
+    for (sheet_index, stylesheet) in input.stylesheets.iter().enumerate() {
         let style_node = {
             let mut mutator = document.mutate();
             mutator.create_element(
@@ -1091,6 +1094,35 @@ fn stylo_computed_values_with_provenance(
         // modified by this compatibility bridge.
         let stylesheet = rewrite_custom_state_selectors(stylesheet);
         let stylesheet = document.make_stylesheet(&stylesheet, Origin::Author);
+        if let Some(text) = input.stylesheet_media.get(&sheet_index) {
+            use style::{
+                context::QuirksMode,
+                stylesheets::{CssRuleType, StylesheetInDocument},
+            };
+            use style_traits::ParsingMode;
+            let url_data = {
+                let guard = document.guard().read();
+                stylesheet.contents(&guard).url_data.clone()
+            };
+            let mut context = style::parser::ParserContext::new(
+                Origin::Author,
+                &url_data,
+                Some(CssRuleType::Media),
+                ParsingMode::DEFAULT,
+                QuirksMode::NoQuirks,
+                Default::default(),
+                None,
+                None,
+                Default::default(),
+            );
+            let mut input = cssparser::ParserInput::new(text);
+            let media = style::media_queries::MediaList::parse(
+                &mut context,
+                &mut cssparser::Parser::new(&mut input),
+            );
+            let mut guard = document.guard().write();
+            *stylesheet.0.media.write_with(&mut guard) = media;
+        }
         document.add_stylesheet_for_node(stylesheet, style_node);
     }
     // This mirror supplies computed values only. Running Blitz's layout and
@@ -2628,6 +2660,7 @@ mod tests {
                 target,
             ],
             stylesheets: vec![String::new(), rules.into()],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -2660,6 +2693,7 @@ mod tests {
         let input = LayoutInput {
             nodes: vec![node(1, None, "#text", "before"), node(2, None, "html", "")],
             stylesheets: vec!["html { color: rgb(1, 2, 3) }".into()],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -2689,6 +2723,7 @@ mod tests {
         let mut input = LayoutInput {
             nodes: vec![root, hidden, child, node(4, Some(3), "span", "")],
             stylesheets: vec!["section { display: none; color: red; opacity: .5 } div { color: green; width: 37px } div.changed { color: lime } span { background-color: blue }".into()],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -2729,6 +2764,7 @@ mod tests {
                 node(3, Some(1), "div", ""),
             ],
             stylesheets: vec!["div { color: blue } div:empty { color: red }".into()],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -2754,6 +2790,7 @@ mod tests {
                 node(3, Some(1), "button", "Second"),
             ],
             stylesheets: vec!["button { width: 120px; height: 30px; margin: 4px }".into()],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -2792,6 +2829,7 @@ mod tests {
                 "#subject { background-color: #f00 } my-element:state(--green) { color: #0f0 } #subject:has(:state(--green)) { background-color: #0f0 }"
                     .into(),
             ],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::from([(2, BTreeSet::from(["--green".into()]))]),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -2845,6 +2883,7 @@ mod tests {
                 "my-element::part(inner) { background-color: #f00 } my-element::part(inner):dir(rtl) { background-color: #00f }"
                     .into(),
             ],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -2872,6 +2911,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, input_node, node(3, Some(1), "span", "Result")],
                 stylesheets: vec!["div { font-family: Arial }".into()],
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -2920,6 +2960,7 @@ mod tests {
                     node(4, Some(2), "td", "Value"),
                 ],
                 stylesheets: vec!["table{width:300px} td{padding:4px}".into()],
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -2952,6 +2993,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, child],
                 stylesheets: vec!["div { width: 100px; min-height: 20px }".into()],
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -2994,6 +3036,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, outside, inside],
                 stylesheets: Vec::new(),
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3046,6 +3089,7 @@ mod tests {
             stylesheets: vec![
                 "* {color:black; outline-color:black} :focus-within {color:red} :focus {color:blue} :focus-visible {outline-color:green}".into(),
             ],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: Some(2), focus_visible: true,
             viewport: ViewportState::default(),
@@ -3091,6 +3135,7 @@ mod tests {
         let mut input = LayoutInput {
             nodes,
             stylesheets: vec!["main {color:black} main:has(> .hot + .cold) {color:green} div {width:10px} div:nth-child(2 of .hot) {width:73px}".into()],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -3123,6 +3168,7 @@ mod tests {
         let input = LayoutInput {
             nodes: vec![root, html, svg, unqualified],
             stylesheets: vec!["@namespace svg url(http://www.w3.org/2000/svg); circle {color:red} svg|circle {color:green} |circle {color:blue}".into()],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -3155,6 +3201,7 @@ mod tests {
         let mut input = LayoutInput {
             nodes: vec![root, html, svg, unqualified],
             stylesheets: vec!["* {color:red} [type=foo] {color:green}".into()],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3199,6 +3246,7 @@ mod tests {
                 "p {color:blue} @scope (.scope) to (.stop) { p {color:green} :scope {width:73px} }"
                     .into(),
             ],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3230,6 +3278,7 @@ mod tests {
         let mut input = LayoutInput {
             nodes: vec![child, sibling, pre, root],
             stylesheets: Vec::new(),
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3296,6 +3345,7 @@ mod tests {
         let mut input = LayoutInput {
             nodes: vec![root, child],
             stylesheets: Vec::new(),
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3349,6 +3399,7 @@ mod tests {
                      @media (min-width: 600px) { #app > button { height: 33px } }"
                         .into(),
                 ],
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3386,6 +3437,7 @@ mod tests {
                 // traversal must still see inherited parent ComputedValues.
                 nodes: vec![child, parent],
                 stylesheets: Vec::new(),
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3426,6 +3478,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, child],
                 stylesheets: vec!["button { color: black !important }".into()],
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3444,10 +3497,40 @@ mod tests {
     }
 
     #[test]
+    fn stylesheet_media_changes_invalidate_computed_style() {
+        let mut input = LayoutInput {
+            nodes: vec![node(1, None, "button", "Save")],
+            stylesheets: vec![
+                "button { color: red }".into(),
+                "button { color: blue }".into(),
+            ],
+            stylesheet_media: BTreeMap::from([(1, "print".into())]),
+            custom_states: BTreeMap::new(),
+            focused_node: None,
+            focus_visible: false,
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        let mut engine = StyleEngine::default();
+        let first = engine.compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(first.computed_styles[&1]["color"], "rgb(255, 0, 0)");
+        input.stylesheet_media.insert(1, "screen".into());
+        let second = engine.compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(second.computed_styles[&1]["color"], "rgb(0, 0, 255)");
+        input.stylesheet_media.insert(1, "not all".into());
+        let third = engine.compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(third.computed_styles[&1]["color"], "rgb(255, 0, 0)");
+    }
+
+    #[test]
     fn persistent_style_engine_reuses_and_invalidates_stylesheets() {
         let input = |color: &str| LayoutInput {
             nodes: vec![node(1, None, "button", "Save")],
             stylesheets: vec![format!("button {{ color: {color} }}")],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3482,6 +3565,7 @@ mod tests {
                     node(3, Some(1), "button", "Two"),
                 ],
                 stylesheets: Vec::new(),
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3516,6 +3600,7 @@ mod tests {
                     node(4, Some(1), "span", "Three"),
                 ],
                 stylesheets: vec!["span{height:20px}".into()],
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3546,6 +3631,7 @@ mod tests {
         let input = LayoutInput {
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", ""), node(4, Some(1), "div", ""), node(5, Some(1), "div", ""), node(6, Some(1), "span", "")],
             stylesheets: vec!["div { width: 200px } div > div { width: 50%; height: 100px; padding: 5px; border: 2px solid } div > div:nth-child(1) { transform: scale(2) } div > div:nth-child(2) { box-sizing: border-box } div > div:nth-child(3) { visibility: hidden } div > div:nth-child(4) { display: none } span { width: 50%; height: 100px }".into()],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -3581,6 +3667,7 @@ mod tests {
         let input = LayoutInput {
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", ""), node(4, Some(1), "div", "")],
             stylesheets: vec!["div > div {width:100px;height:20px;padding:5px;border:2px solid} div > div:first-child {visibility:hidden} div > div:last-child {display:none}".into()],
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -3646,6 +3733,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, absolute, fixed, moved],
                 stylesheets: Vec::new(),
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3689,6 +3777,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![root, floated, cleared],
                 stylesheets: Vec::new(),
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3713,6 +3802,7 @@ mod tests {
             &LayoutInput {
                 nodes: vec![node(1, None, "p", "Measured")],
                 stylesheets: vec!["p{font-family:Fixture Font}".into()],
+                stylesheet_media: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3739,6 +3829,7 @@ mod tests {
         let fixture = |sha256: &str| LayoutInput {
             nodes: vec![node(1, None, "p", "Measured")],
             stylesheets: Vec::new(),
+            stylesheet_media: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,

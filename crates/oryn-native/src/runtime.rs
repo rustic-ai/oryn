@@ -8920,25 +8920,31 @@ pub(crate) fn layout_input(
             })
         })
         .collect();
-    let mut stylesheets: Vec<String> = elements
+    let mut sheets = elements
         .iter()
         .filter_map(|(id, _)| {
             let node = document.dom.get(*id).ok()?;
             matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "style")
-                .then(|| document.dom.stylesheet_text(*id).ok())
-                .flatten()
+                .then_some(*id)
         })
-        .collect();
+        .collect::<Vec<_>>();
     if let Ok(root) = document.dom.get(document.document) {
-        stylesheets.extend(
-            root.adopted_stylesheets
-                .iter()
-                .filter_map(|sheet| document.dom.stylesheet_text(*sheet).ok()),
-        );
+        sheets.extend(root.adopted_stylesheets.iter().copied());
+    }
+    let mut stylesheets = Vec::new();
+    let mut stylesheet_media = BTreeMap::new();
+    for sheet in sheets {
+        if let Ok(source) = document.dom.stylesheet_text(sheet) {
+            if let Ok(media) = document.dom.stylesheet_media(sheet) {
+                stylesheet_media.insert(stylesheets.len(), media);
+            }
+            stylesheets.push(source);
+        }
     }
     oryn_layout::LayoutInput {
         nodes,
         stylesheets,
+        stylesheet_media,
         custom_states: BTreeMap::new(),
         focused_node: None,
         focus_visible: false,

@@ -142,6 +142,8 @@ pub struct Node {
     pub adopted_stylesheets: Vec<NodeId>,
     /// Native CSSOM source, independent of the owner's DOM text children.
     pub stylesheet_override: Option<String>,
+    /// Native CSSOM media text, independent of the owner element attribute.
+    pub stylesheet_media: Option<String>,
     /// Inert template contents, outside the light DOM tree.
     pub template_content: Option<NodeId>,
     pub value: Option<String>,
@@ -423,6 +425,14 @@ impl DomArena {
         }
     }
 
+    pub fn stylesheet_media(&self, id: NodeId) -> Result<String, DomError> {
+        let node = self.get(id)?;
+        Ok(node
+            .stylesheet_media
+            .clone()
+            .unwrap_or_else(|| node.attributes.get("media").cloned().unwrap_or_default()))
+    }
+
     /// DOM stylesheet generations are arena bookkeeping, not structural node data.
     pub fn stylesheet_revision(&self, node: NodeId) -> Result<u64, DomError> {
         self.get(node)?;
@@ -441,6 +451,7 @@ impl DomArena {
             let sheet = matches!(&record.kind, NodeKind::Element { name } if matches!(name.local.as_ref(), "style" | "link"));
             if sheet {
                 record.stylesheet_override = None;
+                record.stylesheet_media = None;
             }
             pending.extend(record.children.iter().copied());
             if sheet {
@@ -460,6 +471,7 @@ impl DomArena {
             let sheet = matches!(&record.kind, NodeKind::Element { name } if matches!(name.local.as_ref(), "style" | "link"));
             node = record.parent;
             if sheet {
+                self.get_mut(id)?.stylesheet_media = None;
                 self.bump_stylesheet_revision(id);
             }
         }
@@ -506,6 +518,7 @@ fn new_node(kind: NodeKind) -> Node {
         event_listeners: BTreeSet::new(),
         adopted_stylesheets: Vec::new(),
         stylesheet_override: None,
+        stylesheet_media: None,
         template_content: None,
         value: None,
         sensitive_value: false,
@@ -1221,6 +1234,13 @@ impl DomRuntime {
         self.insert_before(parent, replacement, reference)
     }
 
+    /// Publish CSSOM media without changing HTML attributes or DOM records.
+    pub fn set_stylesheet_media(&mut self, node: NodeId, media: String) -> Result<(), DomError> {
+        self.arena.get_mut(node)?.stylesheet_media = Some(media);
+        self.mutations.push(Mutation::StyleSheets { node });
+        Ok(())
+    }
+
     /// Publish CSSOM source without rewriting DOM text or emitting DOM records.
     pub fn set_stylesheet_text(&mut self, node: NodeId, source: String) -> Result<(), DomError> {
         self.arena.get_mut(node)?.stylesheet_override = Some(source);
@@ -1304,6 +1324,9 @@ impl DomRuntime {
             .get_mut(node)?
             .attributes
             .insert(name.clone(), value.clone());
+        if name == "media" && namespace.is_none() {
+            self.arena.get_mut(node)?.stylesheet_media = None;
+        }
         if name == "id" {
             if let Some(old) = &old_value
                 && self.ids.get(old) == Some(&node)
@@ -1385,6 +1408,9 @@ impl DomRuntime {
             && self.ids.get(old) == Some(&node)
         {
             self.ids.remove(old);
+        }
+        if name == "media" && namespace.is_none() && old_value.is_some() {
+            self.arena.get_mut(node)?.stylesheet_media = None;
         }
         if old_value.is_some() {
             if name == "name" && namespace.is_none() {

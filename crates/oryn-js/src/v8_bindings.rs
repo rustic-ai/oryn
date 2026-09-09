@@ -810,6 +810,12 @@ pub enum BindingMediaListEdit<'a> {
     Delete(&'a str),
 }
 
+pub struct BindingStylesheetMediaMutation {
+    pub queries: Vec<String>,
+    pub changed: bool,
+    pub not_found: bool,
+}
+
 pub struct BindingMediaListMutation {
     pub rules: Option<Vec<BindingRuleView>>,
     pub not_found: bool,
@@ -848,6 +854,16 @@ pub trait BindingLayoutProvider {
         _base_url: &str,
         _quirks: bool,
     ) -> Option<Result<Option<Vec<BindingRuleView>>, String>> {
+        None
+    }
+
+    fn mutate_stylesheet_media(
+        &self,
+        _text: &str,
+        _edit: BindingMediaListEdit<'_>,
+        _base_url: &str,
+        _quirks: bool,
+    ) -> Option<Result<BindingStylesheetMediaMutation, String>> {
         None
     }
 
@@ -9156,6 +9172,15 @@ fn generated_attribute_getter(
         }
         return;
     }
+    if interface == "StyleSheet" && member == "media" {
+        let result = resolve_receiver(scope, &state, args.this(), "CSSStyleSheet")
+            .and_then(|_| page_rules::media_lists::wrap_sheet(scope, &state, args.this()));
+        match result {
+            Ok(value) => return_value.set(value.into()),
+            Err(error) => throw_binding_error(scope, &error),
+        }
+        return;
+    }
     if interface == "MediaList" {
         match page_rules::media_lists::attribute(scope, &state, args.this(), member) {
             Ok(value) => return_value.set(value),
@@ -9356,6 +9381,15 @@ fn generated_attribute_setter_impl(
                 .and_then(|()| {
                     page_rules::set_declaration_attribute(scope, args.this(), member, args.get(0))
                 });
+        if let Err(error) = result {
+            throw_binding_error(scope, &error);
+        }
+        return;
+    }
+    if interface == "StyleSheet" && member == "media" {
+        let result = resolve_receiver(scope, &state, args.this(), "CSSStyleSheet")
+            .and_then(|_| page_rules::media_lists::wrap_sheet(scope, &state, args.this()))
+            .and_then(|list| page_rules::media_lists::set_text(scope, &state, list, args.get(0)));
         if let Err(error) = result {
             throw_binding_error(scope, &error);
         }

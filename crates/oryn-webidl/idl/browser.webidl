@@ -1269,7 +1269,12 @@ interface MediaList {
 };
 
 [Exposed=Window]
-interface CSSStyleSheet {
+interface StyleSheet {
+  [SameObject, PutForwards=mediaText] readonly attribute MediaList media;
+};
+
+[Exposed=Window]
+interface CSSStyleSheet : StyleSheet {
   constructor();
   [SameObject] readonly attribute CSSRuleList cssRules;
   [SameObject] readonly attribute CSSRuleList rules;

@@ -13,6 +13,83 @@ pub struct MediaListMutation {
     pub not_found: bool,
 }
 
+fn edit_native_media_list(
+    media: &mut style::media_queries::MediaList,
+    context: &mut style::parser::ParserContext<'_>,
+    edit: MediaListEdit<'_>,
+) -> (bool, bool) {
+    use style::media_queries::{MediaList, MediaQuery};
+    let mut not_found = false;
+    let changed = match edit {
+        MediaListEdit::Replace(text) => {
+            let mut input = cssparser::ParserInput::new(text);
+            *media = MediaList::parse(context, &mut cssparser::Parser::new(&mut input));
+            true
+        }
+        MediaListEdit::Append(text) | MediaListEdit::Delete(text) => {
+            let mut input = cssparser::ParserInput::new(text);
+            let mut parser = cssparser::Parser::new(&mut input);
+            if parser
+                .parse_entirely(|input| MediaQuery::parse(context, input))
+                .is_err()
+            {
+                false
+            } else if matches!(edit, MediaListEdit::Append(_)) {
+                media.append_medium(context, text)
+            } else {
+                let deleted = media.delete_medium(context, text);
+                not_found = !deleted;
+                deleted
+            }
+        }
+    };
+    (changed, not_found)
+}
+
+pub struct StylesheetMediaMutation {
+    pub queries: Vec<String>,
+    pub changed: bool,
+    pub not_found: bool,
+}
+
+/// Parse and mutate a stylesheet's own media without fabricating a CSS rule.
+pub fn mutate_stylesheet_media(
+    text: &str,
+    edit: MediaListEdit<'_>,
+    base_url: &str,
+    quirks: bool,
+) -> Result<StylesheetMediaMutation, String> {
+    use style::{media_queries::MediaList, parser::ParserContext};
+    let url_data = UrlExtraData::from(url::Url::parse(base_url).map_err(|e| e.to_string())?);
+    let mut context = ParserContext::new(
+        Origin::Author,
+        &url_data,
+        Some(CssRuleType::Media),
+        ParsingMode::DEFAULT,
+        if quirks {
+            QuirksMode::Quirks
+        } else {
+            QuirksMode::NoQuirks
+        },
+        Default::default(),
+        None,
+        None,
+        Default::default(),
+    );
+    let mut input = cssparser::ParserInput::new(text);
+    let mut media = MediaList::parse(&mut context, &mut cssparser::Parser::new(&mut input));
+    let (changed, not_found) = edit_native_media_list(&mut media, &mut context, edit);
+    Ok(StylesheetMediaMutation {
+        queries: media
+            .media_queries
+            .iter()
+            .map(|query| query.to_css_string())
+            .collect(),
+        changed,
+        not_found,
+    })
+}
+
 pub fn mutate_media_list(
     source: &str,
     path: &[usize],
@@ -21,7 +98,7 @@ pub fn mutate_media_list(
     quirks: bool,
 ) -> Result<MediaListMutation, String> {
     use style::{
-        media_queries::{MediaList, MediaQuery},
+        media_queries::MediaList,
         parser::ParserContext,
         servo_arc::Arc,
         shared_lock::SharedRwLock,
@@ -76,33 +153,9 @@ pub fn mutate_media_list(
         None,
         Default::default(),
     );
-    let mut not_found = false;
-    let changed = {
+    let (changed, not_found) = {
         let mut guard = lock.write();
-        let media = media.write_with(&mut guard);
-        match edit {
-            MediaListEdit::Replace(text) => {
-                let mut input = cssparser::ParserInput::new(text);
-                *media = MediaList::parse(&mut context, &mut cssparser::Parser::new(&mut input));
-                true
-            }
-            MediaListEdit::Append(text) | MediaListEdit::Delete(text) => {
-                let mut input = cssparser::ParserInput::new(text);
-                let mut parser = cssparser::Parser::new(&mut input);
-                if parser
-                    .parse_entirely(|input| MediaQuery::parse(&context, input))
-                    .is_err()
-                {
-                    false
-                } else if matches!(edit, MediaListEdit::Append(_)) {
-                    media.append_medium(&context, text)
-                } else {
-                    let deleted = media.delete_medium(&context, text);
-                    not_found = !deleted;
-                    deleted
-                }
-            }
-        }
+        edit_native_media_list(media.write_with(&mut guard), &mut context, edit)
     };
     let rules = if changed {
         let guard = lock.read();
@@ -125,6 +178,32 @@ pub fn mutate_media_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stylesheet_media_deletes_all_equivalent_queries_and_rejects_lists() {
+        let base = "https://example.test/style.css";
+        let removed = mutate_stylesheet_media(
+            "screen, print, screen",
+            MediaListEdit::Delete(" screen "),
+            base,
+            false,
+        )
+        .unwrap();
+        assert_eq!(removed.queries, ["print"]);
+        assert!(removed.changed && !removed.not_found);
+        let invalid = mutate_stylesheet_media(
+            "screen",
+            MediaListEdit::Append("print, screen"),
+            base,
+            false,
+        )
+        .unwrap();
+        assert_eq!(invalid.queries, ["screen"]);
+        assert!(!invalid.changed && !invalid.not_found);
+        let absent =
+            mutate_stylesheet_media("screen", MediaListEdit::Delete("print"), base, false).unwrap();
+        assert!(!absent.changed && absent.not_found);
+    }
 
     #[test]
     fn media_mutation_preserves_nested_rules_and_namespace_context() {

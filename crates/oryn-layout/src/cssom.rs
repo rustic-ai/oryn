@@ -1,7 +1,10 @@
 //! CSSOM declaration operations backed by the same Stylo parser as layout.
 mod media_lists;
 mod rule_mutations;
-pub use media_lists::{MediaListEdit, MediaListMutation, mutate_media_list};
+pub use media_lists::{
+    MediaListEdit, MediaListMutation, StylesheetMediaMutation, mutate_media_list,
+    mutate_stylesheet_media,
+};
 pub use rule_mutations::{RuleListEdit, RuleMutationError, mutate_rule_list};
 use style::{
     context::QuirksMode,

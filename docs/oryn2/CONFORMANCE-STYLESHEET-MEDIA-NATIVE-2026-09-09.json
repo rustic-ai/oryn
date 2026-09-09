@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "fb6f09bdf41cece6e5ea49c3033ade1409760f03",
+  "baseline_signed_passes": 3066,
+  "inventory_required": 4022,
+  "implementation": [
+    "Canonical StyleSheet media inheritance and generated bindings",
+    "Traced live MediaList sheet ownership and mutation via Stylo",
+    "Independent native sheet media state and owner synchronization",
+    "Native Stylo stylesheet applicability in computed style"
+  ],
+  "native_suite": {
+    "required": 622,
+    "passed": 382,
+    "gains": [
+      "css/cssom/medialist-appendmedium-parse-single-and-dedup.html|window|",
+      "css/cssom/medialist-deletemedium-parse-and-remove-all.html|window|",
+      "css/cssom/medialist-interfaces-001.html|window|",
+      "css/cssom/medialist-interfaces-002.html|window|",
+      "css/cssom/medialist-interfaces-004.html|window|"
+    ],
+    "losses": [],
+    "assertion_counts": {
+      "missing_prior_passes": 52,
+      "regressed_prior_passes": 0,
+      "corrected_existing": 34
+    }
+  },
+  "reconciliation": {
+    "raw_missing_prior_passes": 52,
+    "reconciled_executions": 5,
+    "unresolved_ids": [],
+    "method": "Explicit ordinal mapping, equal counts and complete runs. Each renamed title differs only by ASCII whitespace or U+00A0 runs and has equal status. Raw audit preserved."
+  },
+  "validation": {
+    "layout_tests_passed": 69,
+    "end_to_end_media_test_passed": true,
+    "binding_tests_passed": 184,
+    "binding_existing_ignored": 2,
+    "strict_clippy_passed": true,
+    "generated_bindings_fresh": true
+  },
+  "frozen_files": {
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-dom/src/lib.rs": "cd89451ff093e98e62ea54939de10437b0ad8c55f2727b33b7ed2130d9331896",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-js/src/generated/browser.rs": "4d0a7a8ca99c39bfd187c6bb4e78c9fc17ae0cf0c5afb7fd2810b7cd64d5f68f",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-js/src/v8_bindings.rs": "6d0d70a60a36a2657a4d8f57233aeea18ee2089c27b81b1f3cf7961606a76de7",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-js/src/v8_bindings/page_rules/media_lists.rs": "09002059e13a84ca2ecddddd9acc4b57ca18bdb979765b30e9f56085576c4a0f",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-js/src/v8_bindings/stylesheet_ownership.rs": "35ab05f3be4817bf1ee0779420d3f626f241a5a8e80a09c83477cb9ac93e46b9",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-layout/src/cssom.rs": "1cec6e97d3dd84f03c6de9c6c27d4fd432f5f595ec2d496390138aaa2cdc2ce3",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-layout/src/cssom/media_lists.rs": "e7ac3c36ea50cb284383bb1297e29154c0d21458b803a987b3ffcc0fc8516daa",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-layout/src/lib.rs": "b8302adf25b07245aeabb7b45310e854c1ddf01bca3d28350e48bebd4fb6159b",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/src/runtime.rs": "e3861f7f103129a1ca148d6e0b8776996c930a763578bbef75ba8c5c08bbb010",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/src/rust_executable.rs": "4101a76a07cadd8d6f533f4f5ee4181aac193e330e6f4563ef459a8d9df95dd4",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-webidl/idl/browser.webidl": "6dcfe1f78ab0d31e217a72506d8c03ebb6ffd3ce9f8e716f710df78bda940d81",
+    "/private/tmp/oryn-global-event-prototype-target/release/examples/conformance_focus_context_probe": "583cc95007dfce928da20a799d9eb313abe89609154bade2cc88d7cc8ab70de1",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/examples/conformance_focus_context_probe.rs": "6dca1b4feb5be0e7eeb0430163eee86c59fabfe8d27ca368dbfa9acb2760debf"
+  },
+  "evidence_files": {
+    "artifacts/upstream-conformance/native-sheet-media-v1/oryn-sheet-media-v1-focus.log": "0c5635056bf2259243a7a44540c7630fe36e4c7e76f17c844a80c0048e180389",
+    "artifacts/upstream-conformance/native-sheet-media-v1/oryn-sheet-media-v1-focus-audit.json": "8e3c0de803e8ea3bf869af6bee38225cd1f5beaa22bb0b93909ac34e35f01ef0",
+    "artifacts/upstream-conformance/native-sheet-media-v1/oryn-sheet-media-v1-css-webidl.log": "e3323f94e4f0101aca09370a4fb9549f46b6313e45e0f7e5097679ab15cbfe31",
+    "artifacts/upstream-conformance/native-sheet-media-v1/oryn-sheet-media-v1-css-webidl-audit.json": "78550bd0178eb0d44516d133d593aa13d71ac2ff63066344fb51af506b761958",
+    "artifacts/upstream-conformance/native-sheet-media-v1/oryn-sheet-media-v1-css-webidl-name-reconciliation.json": "384fb192ebb01f599c83a942a0127962953f37c4dfb5fc923d61809edc880b53",
+    "artifacts/upstream-conformance/native-sheet-media-v1/oryn-test-sheet-media-layout-all.log": "a21ccaa95eea8e1fbd1be2857a875395d049e37ac880f48632e31c712446930f",
+    "artifacts/upstream-conformance/native-sheet-media-v1/oryn-test-sheet-media-e2e.log": "b0d426e5e87998a9c0a1760f99bac345867ae73b2939c4e6a1fdc5d0be7fa716",
+    "artifacts/upstream-conformance/native-sheet-media-v1/oryn-validate-sheet-media-bindings.log": "97c7f6dca8ac4a11240affea842ff32bbe7b53553e728fb8067bbbde754e1c0d"
+  },
+  "qualification_gaps": [
+    "Native evidence only; signed full 4022 execution measurement pending.",
+    "Other StyleSheet attributes, implicit scope ownership, and remaining CSS failures remain in scope.",
+    "Historical six editing regressions and 14 unobserved assertions remain open.",
+    "Broader release/profile/security qualification and two complete signed passing runs remain required."
+  ]
+}
