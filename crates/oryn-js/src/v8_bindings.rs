@@ -4868,6 +4868,49 @@ fn idb_value_to_json(
     idb_value_to_json_inner(scope, state, value, 0)
 }
 
+// Cloning can run author getters. Make their transaction inactive without
+// holding a native record borrow across JavaScript re-entry, then restore it
+// even when serialization throws. A getter may abort the transaction.
+fn idb_clone_transaction_value(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    transaction_id: u64,
+    value: v8::Local<v8::Value>,
+) -> Result<serde_json::Value, V8BindingError> {
+    {
+        let mut record = platform_object_mut(state, transaction_id)?;
+        let PlatformObjectRecord::IdbTransaction(transaction) = &mut *record else {
+            return Err(V8BindingError::Allocation("IDBTransaction record"));
+        };
+        if !transaction.active || transaction.aborted || transaction.finished {
+            return Err(V8BindingError::Unsupported {
+                interface: "IDBTransaction".into(),
+                member: "TransactionInactiveError".into(),
+            });
+        }
+        transaction.active = false;
+    }
+    let result = idb_value_to_json(scope, state, value);
+    {
+        let mut record = platform_object_mut(state, transaction_id)?;
+        let PlatformObjectRecord::IdbTransaction(transaction) = &mut *record else {
+            return Err(V8BindingError::Allocation("IDBTransaction record"));
+        };
+        if !transaction.aborted && !transaction.finished {
+            transaction.active = true;
+        } else if result.is_ok() {
+            // A getter may abort while serialization is in progress. Preserve
+            // a thrown getter exception, but never submit a successfully cloned
+            // value to the now-finished transaction.
+            return Err(V8BindingError::Unsupported {
+                interface: "IDBTransaction".into(),
+                member: "TransactionInactiveError".into(),
+            });
+        }
+    }
+    result
+}
+
 use crate::indexed_db::Key as IdbKey;
 
 fn idb_key_from_value(
@@ -18140,7 +18183,7 @@ fn call_platform_operation<'s>(
                 if transaction.aborted
                     || transaction.explicit_commit
                     || transaction.completion_queued
-                    || !transaction.active
+                    || transaction.finished
                 {
                     return Err(V8BindingError::Unsupported {
                         interface: "IDBTransaction".into(),
@@ -18180,7 +18223,7 @@ fn call_platform_operation<'s>(
         ("IDBObjectStore", "add" | "put") => {
             let (database, store, transaction_id) = idb_store_context(state, id)?;
             ensure_idb_transaction_writable(state, transaction_id)?;
-            let value = idb_value_to_json(scope, state, args.get(0))?;
+            let value = idb_clone_transaction_value(scope, state, transaction_id, args.get(0))?;
             let explicit_key = !args.get(1).is_undefined();
             let mut key = if !explicit_key {
                 None
@@ -18834,7 +18877,7 @@ fn call_platform_operation<'s>(
                 (current.primary_key.clone(), current.value.clone())
             };
             let update_value = (member == "update")
-                .then(|| idb_value_to_json(scope, state, args.get(0)))
+                .then(|| idb_clone_transaction_value(scope, state, transaction_id, args.get(0)))
                 .transpose()?;
             if let Some(update_value) = &update_value {
                 let key_path = match &*platform_object(state, store_id)? {
@@ -29101,6 +29144,17 @@ mod tests {
             operation_id: HostOperationId,
             request: PlatformHostRequest,
         ) -> Result<(), String> {
+            // The mock models command results, not backend transaction storage.
+            let request = match request {
+                PlatformHostRequest::IndexedDb {
+                    origin,
+                    command: IdbHostCommand::Transaction { inner, .. },
+                } => PlatformHostRequest::IndexedDb {
+                    origin,
+                    command: *inner,
+                },
+                request => request,
+            };
             let result = match request {
                 PlatformHostRequest::HttpStart { request } => PlatformHostResult::HttpStarted {
                     stream_id: 7,
@@ -29131,6 +29185,7 @@ mod tests {
                         | IdbHostCommand::DeleteDatabase { .. }
                         | IdbHostCommand::RenameObjectStore { .. }
                         | IdbHostCommand::AbortUpgrade { .. }
+                        | IdbHostCommand::AbortTransaction { .. }
                         | IdbHostCommand::CommitUpgrade { .. },
                     ..
                 } => PlatformHostResult::IndexedDb {
@@ -29162,6 +29217,21 @@ mod tests {
                         },
                     }
                 }
+                PlatformHostRequest::IndexedDb {
+                    command: IdbHostCommand::Batch { writes, .. },
+                    ..
+                } => PlatformHostResult::IndexedDb {
+                    response: crate::platform::IdbHostResponse {
+                        key: writes.first().and_then(|write| write.key.clone()),
+                        ..Default::default()
+                    },
+                },
+                PlatformHostRequest::IndexedDb {
+                    command: IdbHostCommand::Get { .. },
+                    ..
+                } => PlatformHostResult::IndexedDb {
+                    response: Default::default(),
+                },
                 PlatformHostRequest::IndexedDb {
                     command: IdbHostCommand::ListDatabases,
                     ..
@@ -30183,6 +30253,121 @@ mod tests {
             } finally {delete Array.prototype[0]}
             return true;
         })()"#,
+        );
+    }
+
+    #[test]
+    fn indexeddb_value_getters_observe_inactive_transaction() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source = v8::String::new(scope, r#"
+            globalThis.location.href='https://example.test/';
+            const cloneStates=[];
+            const cloningOpen=indexedDB.open('clone-transaction-state',2);
+            cloningOpen.onupgradeneeded=()=>{
+                const store=cloningOpen.result.createObjectStore('records');
+                function value(label) { return {get property(){
+                    try {store.get('key');cloneStates.push(label+':active')}
+                    catch(error){cloneStates.push(label+':'+error.name)}
+                    return 'value';
+                }}; }
+                try {store.add(value('add'),'key')} catch(error){cloneStates.push('add-error:'+error.name+':'+error.message);return}
+                try {store.put(value('put'),'key')} catch(error){cloneStates.push('put-error:'+error.name+':'+error.message);return}
+                const marker={};
+                try {store.put({get property(){throw marker}},'key')}
+                catch(error){cloneStates.push(error===marker?'original-error':'wrong-error')}
+                try {store.get('key');cloneStates.push('restored')}
+                catch(error){cloneStates.push('not-restored:'+error.name)}
+                const request=store.openCursor();
+                request.onsuccess=()=>{
+                    if(!request.result){cloneStates.push('missing-cursor');return}
+                    request.result.update(value('update'));
+                };
+            };
+        "#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..64 {
+            state.drain_platform_completions(scope, 1).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source = v8::String::new(scope, "cloneStates.join('|')").unwrap();
+        let actual = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            actual,
+            "add:TransactionInactiveError|put:TransactionInactiveError|original-error|restored|update:TransactionInactiveError"
+        );
+    }
+
+    #[test]
+    fn indexeddb_clone_getter_abort_does_not_reactivate_transaction() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source = v8::String::new(scope, r#"
+            globalThis.location.href='https://example.test/';
+            const cloneStates=[];
+            for (const operation of ['add','put','update']) {
+                const opening=indexedDB.open('abort-clone-'+operation,2);
+                opening.onupgradeneeded=()=>opening.result.createObjectStore('records');
+                opening.onsuccess=()=>{
+                    const transaction=opening.result.transaction('records','readwrite');
+                    const store=transaction.objectStore('records');
+                    function run(cursor) {
+                        const value={get property(){transaction.abort();cloneStates.push(operation+':aborted');return 'value'}};
+                        try {
+                            if(cursor)cursor.update(value);else store[operation](value,'key');
+                            cloneStates.push(operation+':accepted');
+                        } catch(error){cloneStates.push(operation+':'+error.name)}
+                        try {store.get('key');cloneStates.push(operation+':reactivated')}
+                        catch(error){cloneStates.push(operation+':after:'+error.name)}
+                    }
+                    if(operation==='update') {
+                        const request=store.openCursor();request.onsuccess=()=>run(request.result);
+                    } else run();
+                };
+            }
+        "#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        for _ in 0..64 {
+            state.drain_platform_completions(scope, 1).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source = v8::String::new(scope, "cloneStates.sort().join('|')").unwrap();
+        let actual = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            actual,
+            "add:TransactionInactiveError|add:aborted|add:after:TransactionInactiveError|put:TransactionInactiveError|put:aborted|put:after:TransactionInactiveError|update:TransactionInactiveError|update:aborted|update:after:TransactionInactiveError"
         );
     }
 

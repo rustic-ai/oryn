@@ -3118,14 +3118,14 @@ impl RustExecutableDocument {
         // Run a bounded page-wide fixed point instead of relying on an
         // unrelated future command to tick that realm.
         for _ in 0..8 {
-            self.host.drain_async_fetches(true)?;
+            self.host.drain_async_fetches(false)?;
             self.drain_dynamic_referrer_policies()?;
             self.drain_default_actions()?;
             self.drain_frame_location_navigations()?;
             self.drain_dynamic_frames()?;
             self.drain_dynamic_stylesheets()?;
             self.drain_dynamic_scripts()?;
-            self.host.drain_async_fetches(true)?;
+            self.host.drain_async_fetches(false)?;
             for realm in self.host.realm_ids() {
                 self.host.activate_realm(realm)?;
                 self.host.execute("__oryn_drain()")?;

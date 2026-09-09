@@ -1,0 +1,59 @@
+{
+  "baseline_ledger_sha256": "428400ffd9df33f4bc64970546c2f7a186186634bdc9cbc888eacfe14e7c594d",
+  "log_sha256": "7998f332b248a68e089b67af5edf4a325b06b68f15fffa175b4bebd8bcfd084d",
+  "exact_selected_coverage": true,
+  "required": 456,
+  "passed": 416,
+  "gains": [
+    "IndexedDB/idbfactory-origin-isolation.html|window|",
+    "IndexedDB/keygenerator.any.js|dedicatedworker|",
+    "IndexedDB/keygenerator.any.js|window|",
+    "IndexedDB/large-requests-abort.any.js|dedicatedworker|",
+    "IndexedDB/large-requests-abort.any.js|window|",
+    "IndexedDB/nested-cloning-large-multiple.any.js|dedicatedworker|",
+    "IndexedDB/nested-cloning-large-multiple.any.js|window|",
+    "IndexedDB/nested-cloning-large.any.js|dedicatedworker|",
+    "IndexedDB/nested-cloning-large.any.js|window|",
+    "IndexedDB/request-event-ordering-large-mixed-with-small-values.any.js|dedicatedworker|",
+    "IndexedDB/request-event-ordering-large-mixed-with-small-values.any.js|window|",
+    "IndexedDB/structured-clone-transaction-state.any.js|window|",
+    "IndexedDB/structured-clone-transaction-state.any.js|dedicatedworker|"
+  ],
+  "losses": [],
+  "assertion_counts": {
+    "missing_prior_passes": 24,
+    "regressed_prior_passes": 0,
+    "corrected_existing": 12
+  },
+  "qualification": "Focused native comparison only; not signed full-suite qualification.",
+  "candidate_sources": {
+    "crates/oryn-js/src/v8_bindings.rs": "2fa095dd1f90cbc2da13294ed84eb9f26285feac20bca2042a531b40eaba676a",
+    "crates/oryn-native/src/rust_executable.rs": "d83de50173a0ced0dfc3f13ead677ee450f63b22e79005317346678d680a0e21"
+  },
+  "evidence": {
+    "artifacts/upstream-conformance/native-idb-clone-checkpoint-v1/oryn-bounded-idb-v1.log": "7998f332b248a68e089b67af5edf4a325b06b68f15fffa175b4bebd8bcfd084d",
+    "artifacts/upstream-conformance/native-idb-clone-checkpoint-v1/oryn-bounded-idb-v1-audit.json": "84c3334af4af089a7c05416265da1a3bae9bf76c87ac0c9aa01a07380a60cb4c",
+    "artifacts/upstream-conformance/native-idb-clone-checkpoint-v1/oryn-bounded-idb-v1-name-reconciliation.json": "b2137143f2c72770f2b70507ad3b19c9c8e6d8612285ad4eb5b439cfa2440d9c",
+    "artifacts/upstream-conformance/native-idb-clone-checkpoint-v1/oryn-bounded-idb-bindings-v1.log": "eaa0514234e3e23229b234c1d18373dc3c2ad9fd3de31c527973c92da8b9b654",
+    "artifacts/upstream-conformance/native-idb-clone-checkpoint-v1/oryn-build-bounded-idb-v1.log": "95580bba6528602456c126293b52f52235fc00550a4ac3a93dab2b0bfcb6d3b8"
+  },
+  "reconciled_missing_names": 24,
+  "unresolved_missing_names": 0,
+  "checks": {
+    "binding_passed": 183,
+    "binding_failed": 0,
+    "binding_existing_ignored": 2,
+    "fmt": "passed",
+    "strict_clippy": "passed",
+    "probe_build": "passed"
+  },
+  "qualification_gaps": [
+    "Signed full 4022 run pending; native gains do not update overall score.",
+    "Existing native executable test failures: contextless Blob identity mismatch and timer blocking expectation; fixes archived with unfinished stream work, not qualified in this batch.",
+    "Earlier broad native run produced1501 results plus Range-insertNode stack overflow; no observed whole losses/assertion regressions,44fewer observations in incomplete Range-mutations-dataChange.",
+    "Six historical editing assertion regressions and14trackedunobserved remain in signedbaseline.",
+    "Generated/native/profile/security release gates and repeated4022pass remain incomplete."
+  ],
+  "scope": "Transaction inactive during cloning; restore after exceptions, respect getter aborts; poll ready asynchronous work in bounded page checkpoints.",
+  "signed_baseline": "693a74519b57b0a726aea0f2ef7a66b1c9cba9a5"
+}

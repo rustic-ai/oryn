@@ -54,85 +54,47 @@ IDs, production paths and unresolved later blockers; routing labels alone are no
 root causes. Validate complete affected suites before batching verified fixes for
 another signed run. The Range ownership-iteration follow-up produced no additional
 whole passes and was rejected; it is no longer the next implementation step.
-The IndexedDB clone-inactivity draft needs abort/error-path verification. Thirteen
-editing variant-state cases need reference verification; skipped command callbacks
-may explain their first failures, but this is not yet a confirmed runtime diagnosis.
+The bounded IndexedDB cloning/checkpoint candidate has been revalidated across
+all 456 native executions: 416 pass, 13 whole gains, zero whole losses and zero
+observed assertion regressions. All 24 raw missing titles reconcile explicitly.
+The getter-abort checks pass in the 183-test binding suite; formatting and strict
+Clippy pass. [Native evidence](CONFORMANCE-IDB-CLONE-CHECKPOINT-NATIVE-2026-09-08.json)
+records remaining qualification gaps. The immediate next action is the signed
+full measurement of this batch. Unfinished stream, timer and DOM changes are
+preserved separately and must not expand this candidate before measurement.
+The editing document-settings experiment remains rejected (five whole losses).
 Preserve all tests, assertions and resource caps. Completion still requires
 4,022/4,022 twice on one frozen signed candidate and every qualification gate.
 
-## Strategy correction: require a production path and whole-execution evidence
+## Current execution strategy
 
-The second review found that the backlog is complete as an inventory but not as
-a diagnosis: all 992 entries initially had a null `confirmed_root_cause`. Five Location causes
-are now recorded against the signed baseline after the production-path milestone. Routing labels
-must not be treated as demonstrated shared causes. Of these outcomes, 811 are
-assertion failures, 135 harness failures, 42 runtime failures, 3 incomplete and
-1 timeout. The 181 non-assertion outcomes need diagnosis; they are not evidence
-that the harness itself is defective, and remain failures.
+Use the immediate sequence at the end of this document as the single active
+queue. Earlier milestone sections below preserve historical evidence and subsystem
+requirements; their dated counts and completed experiments do not override the
+693a745 baseline above.
 
-Native URL, URLSearchParams and Location are now integrated into the production
-page path, with bootstrap constructor replacements removed and explicit navigation
-requests connected to the page runtime. The corrected native run covers all 136
-history executions through canonical Window routing: 13 whole gains, zero whole
-losses and 68 corrected assertions. Five raw missing names reconcile through the
-server port and three exact whitespace title mappings; none remain missing in this
-selection. This does not clear historical full-suite missing observations.
+The principal throughput failure has been treating assertion repairs and removal
+of first blockers as evidence that a batch will complete fixtures. They are useful
+correctness work, but the last signed batch added zero whole passes. In addition,
+the regenerated backlog has no confirmed root causes populated. Routing categories
+and similar error messages cannot substitute for a reproduced dependency map.
 
-The candidate passes 180 binding tests (two existing ignores), strict Clippy,
-Location/frame/history/srcdoc integration checks and 30 worker checks. One worker
-failure is also recorded in older native matrices and remains open for release
-qualification. See [integrated evidence](CONFORMANCE-NATIVE-LOCATION-INTEGRATION-2026-09-08.json).
-Earlier direct JavaScript navigation probes do not qualify JavaScript fixtures;
-the current run uses the canonical HTML wrapper. The signed full run now confirms 14 whole gains and no whole losses. This batch
-is measured; proceed to the next reproduced shared cause.
+Before implementing a new mechanism, record exact affected IDs, the production
+path, a representative complete fixture, every known later blocker and the whole
+fixture acceptance criterion. Rank demonstrated completion paths ahead of apparent
+family size. Concentrate investigation on DOM, editing and CSS (786 failures),
+while closing the bounded candidate already under validation.
 
-Execute these milestones in order:
+Run complete affected native suites and relevant passing coverage before promotion.
+After two unsuccessful implementation/validation cycles, revisit the causal model;
+do not extend an experiment indefinitely. Batch compatible verified changes before
+an expensive signed run. Keep mandatory regression repairs visible separately from
+new whole passes. No test, assertion, inventory, limit or exclusion changes.
 
-1. **Close the production URL/Location path.** Wire canonical generated Location
-   bindings, remove the bootstrap URL replacements, and connect initial URL
-   hydration, committed history updates and requested navigation to native state.
-   Preserve distinct replace/reload behavior, realm ownership, security checks,
-   blob URL operations and the distinction between URL origin and security origin.
-   Start with the five complete target fixtures below. Read every assertion and
-   dependency before expanding implementation; do not count first-error removal
-   as fixture completion.
-2. **Measure the integrated candidate.** Run the five unchanged pinned fixtures
-   through the production page path, then all 136 history executions and relevant
-   passing regression coverage. Record every whole gain/loss and assertion loss
-   or missing observation. If two implementation/verification cycles produce no
-   whole gain, diagnose the remaining blockers before another expansion. Preserve
-   the useful patch separately if another dependency must be fixed first.
-3. **Re-rank from evidence.** Diagnose representative failures in DOM (260),
-   editing (311), CSS (218) and IndexedDB (55), recording reproduced causes,
-   complete fixture blockers, production ownership and exact affected IDs.
-   Prioritize shared causes with demonstrated whole-execution impact. Investigate
-   the 181 non-assertion outcomes alongside their owning subsystem. Do not promise
-   that a URL fix clears all 104 history failures: frames, traversal, document
-   lifecycle, scrolling and ancestor origins are separate dependencies.
-4. **Promote coherent, measured batches.** After focused checks establish gains
-   and regressions are addressed, commit a clean candidate and run the signed full
-   4,022 inventory. Only this result changes the published overall score. Carry
-   forward all 85 missing observations and 11 historical assertion regressions.
-   Keep unfinished Range/formatBlock changes isolated. Stylo remains the CSS engine.
-5. **Finish qualification.** Repeat until every required execution passes, then
-   rerun the same frozen signed candidate and complete all gates specified above.
-
-The initial five target fixtures under
-`html/browsers/history/the-location-interface/` are:
-
-- `location-tojson.html`
-- `location-non-configurable-toString-valueOf.html`
-- `location-symbol-toprimitive.html`
-- `location-valueof.html`
-- `location-prototype-no-toString-valueOf.html`
-
-These fixtures were read in full and fail in the signed baseline. They exercise
-native object ownership and descriptors without depending on frame navigation.
-They are an initial acceptance milestone, not an inventory reduction. Five local whole gains are now established;
-no signed overall gain is claimed. See
-[the milestone evidence](CONFORMANCE-NATIVE-LOCATION-MILESTONE-2026-09-08.json). In contrast, `location_hash.html` also requires srcdoc
-fragment scrolling, and `location-protocol-setter.html` requires data/srcdoc frame
-messaging. Parser corrections alone cannot establish either whole fixture passing.
+The native URL/Location production milestone is complete and its signed gains are
+already included in the baseline. It is not an immediate implementation task.
+Remaining frame, traversal, scrolling and origin ownership requirements remain
+open where individual pinned tests demonstrate them.
 
 Progress reports must lead with the signed whole-execution count, followed by
 unqualified local gains, regressions and the next exact acceptance gate. Unit-test
@@ -256,8 +218,9 @@ new behavior. No fixture changes, exclusions, assertion substitutions, or cap ch
 
 ## Throughput correction after the IndexedDB batch
 
-The current backlog has 975 failures outside IndexedDB: editing 315, DOM 262,
-CSS 250, HTML 104, WebIDL 28, referrer policy 8, and accessibility 8. Repeatedly
+At signed baseline 693a745, 920 of 973 failures are outside IndexedDB:
+editing 311, DOM 257, CSS 218, history 91, WebIDL 27, referrer policy 8,
+and accessibility 8. Repeatedly
 extending IndexedDB work leaves most of the overall score unchanged. Native
 passes are validation of a candidate, not additions to the full-run pass count.
 
@@ -657,19 +620,25 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. Recover the eight SVG filter/marker resource regressions through native Stylo
-   support. Validate the isolated stylesheet source/rule batch against pinned CSSOM
-   failures, including live mutations, identity, ownership and parser behavior. Prove selected WPT gains before integrating. Keep MessagePort work parked until a pinned failure needs it.
-2. Prioritize shared causes in the current failing ledger. Each batch must name
-   affected pinned IDs, preserve existing passes, and deliver signed-worker
-   evidence; native unit tests alone do not increase overall conformance.
-3. Correct the remaining frame regressions and missing Range assertions while
-   preserving limits and requiring actual testharness completion. Continue all
-   document, CSS, event, editing, history and IndexedDB workstreams.
-4. Integrate validated batches and rerun the full inventory on a frozen candidate.
-   Refresh the backlog from that complete ledger. Require all 4,022 executions
-   to pass twice on one candidate plus the native/profile/security gates before
-   declaring completion.
+1. **Measure the bounded candidate.** Commit the two validated runtime files and
+   native proof, build/sign the clean candidate, run all 4,022 pinned executions,
+   audit exact IDs and assertion coverage, and refresh the backlog. Native proof
+   establishes 13 candidate gains; only this signed measurement can establish an
+   overall score change. Preserve every failure and qualification gap explicitly.
+2. **Populate an actionable diagnosis index.** Carry reproduced causes into the
+   current backlog with evidence links and exact IDs. Investigate representative
+   complete failing fixtures in DOM, editing and CSS, including harness/runtime
+   failures. Choose the next shared mechanism only after identifying its remaining
+   completion blockers. Keep Stylo; determine whether CSS failures arise in its
+   integration before implementing CSS behavior elsewhere.
+3. **Deliver measured batches.** Promote only coherent changes with passing
+   required checks, no unexplained lost observations and no new regressions.
+   Measure a frozen signed 4,022-execution candidate and refresh the backlog.
+   Lead reports with signed whole-test movement; report native gains separately.
+4. **Repeat to the actual finish gate.** Clear all remaining failures, six
+   historical assertion regressions and 14 tracked unobserved assertions. Require
+   4,022/4,022 twice on the same frozen signed candidate and all generated-binding,
+   native, profile and security qualification gates before claiming completion.
 
 The existing release/product/platform action plan still applies independently.
 A paid evaluation, deployment, or publication is not necessary to claim that this
