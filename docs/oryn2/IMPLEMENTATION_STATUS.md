@@ -1,39 +1,36 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,086/4,022 (76.7%)**, **936 remaining**.
+> Latest full measurement: **3,096/4,022 (77.0%)**, **926 remaining**.
 
-The signed run at `5d785f0` passes **3,086/4,022 (76.7%)**, with **936 remaining**.
-It gains three editing executions versus `bcf3bb9`, with zero whole-execution losses
-and 310 corrected existing assertions. The complete typing-whitespace matrix now
-passes. Stylo remains the CSS engine.
+The signed run at `00632d5` passes **3,096/4,022 (77.0%)**, with **926 remaining**.
+It gains ten OpaqueRange executions versus `5d785f0`, with zero whole-execution losses,
+zero observed assertion regressions and 120 corrected existing assertions. Stylo
+remains the CSS engine.
 
-One observed assertion regression reproduces the tracked IndexedDB cross-origin
-failure. Six historical editing regressions remain failing. Range timeouts leave
-86 additional prior passing assertions unobserved; none of the older 93 missing
-assertions recovered, so 179 remain unobserved. No failure or coverage gap is waived.
+Six historical editing regressions remain failing. The tracked intermittent
+IndexedDB assertion passes this time, without proving the intermittency resolved.
+Range timeouts leave 28 newly unobserved assertions; 46 older missing assertions
+were observed again and 133 remain missing, leaving 161 total unobserved assertions.
+No failure or coverage gap is waived.
 
-[Full evidence](CONFORMANCE-TYPING-WHITESPACE-FULL-2026-09-09.json) identifies the
-terminal signed audit and reconciliation. Exact inventory coverage, source/binary
-fingerprints, unchanged limits, sandbox settings, and successful completion of
-passing executions are verified. This is not complete conformance or release
-qualification.
+[Full evidence](CONFORMANCE-OPAQUE-RANGE-FULL-2026-09-09.json) records the terminal
+signed audit and reconciliation: exact inventory coverage, source/binary hashes,
+unchanged limits and sandbox settings, and successful completion of every passing
+execution. Complete conformance and release qualification remain unmet.
 
-OpaqueRange/control-value integration now passes 10 of all 19 pinned family
-executions in the native v2 probe, with 119 corrected existing assertions and no
-selected regressions. All 704 editing executions were measured: 416 pass, with no
-whole losses or assertion regressions after explicit title reconciliation. These
-are native results, not signed full-suite gains. The argument-conversion fixes retain those ten gains in native v3. Combined
-DOM/editing validation observes 1,365/1,366 executions, with 831 passes, ten gains
-and no observed regressions. Range-insertNode emits no result after a native stack
-overflow; this missing execution is not waived. Native evidence is recorded in
-[the candidate report](CONFORMANCE-OPAQUE-RANGE-NATIVE-2026-09-09.json). Lifecycle, geometry and highlights remain open;
-geometry requires live control values and shaped text positions.
-Profile Range/Selection synchronization to recover missing observations and investigate
-the IndexedDB intermittency. Native stylesheet import integration and the preserved
-popup navigation/lifecycle work remain open. Choose batches by complete-fixture
-results, not missing-API counts. Completion requires 4,022/4,022 twice on one frozen
-signed candidate and every qualification gate.
+OpaqueRange now passes 10 of 19 pinned family executions in the signed full run.
+Its remaining lifecycle/adoption, geometry and highlight behavior is incomplete.
+[Native evidence](CONFORMANCE-OPAQUE-RANGE-NATIVE-2026-09-09.json) preserves the
+separate probe results, including the Range-insertNode native stack overflow.
+
+Next, address shared font-loading and CSSFontFaceRule gaps using Stylo's descriptor
+parser and native rule ownership. Measure whole fixtures after both loading and API
+behavior are implemented. Profile Range/Selection synchronization under unchanged
+caps to recover missing observations, and retain the IndexedDB intermittency and
+historical editing regressions. Stylesheet imports and preserved popup lifecycle
+work remain open. Completion requires 4,022/4,022 twice on one frozen signed candidate
+and every qualification gate.
 
 | Root | Passed / required |
 |---|---:|
@@ -43,7 +40,7 @@ signed candidate and every qualification gate.
 | css/css-cascade | 58/97 |
 | css/cssom | 100/190 |
 | css/selectors | 197/277 |
-| dom | 405/662 |
+| dom | 415/662 |
 | editing | 416/704 |
 | html/browsers/history | 45/136 |
 | referrer-policy | 1383/1391 |

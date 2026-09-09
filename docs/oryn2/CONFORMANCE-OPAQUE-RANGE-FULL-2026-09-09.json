@@ -1,0 +1,499 @@
+{
+  "schema_version": 1,
+  "source_commit": "00632d5efa6e60efb48bf1851c10e0fc8e28bd20",
+  "qualification": "Terminal signed full inventory measurement; complete conformance and release qualification remain unmet.",
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 3096,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "counts_by_root": {
+    "IndexedDB": {
+      "passed": 408,
+      "required": 456
+    },
+    "WebIDL": {
+      "passed": 31,
+      "required": 58
+    },
+    "accname": {
+      "passed": 15,
+      "required": 19
+    },
+    "css/css-cascade": {
+      "passed": 58,
+      "required": 97
+    },
+    "css/cssom": {
+      "passed": 100,
+      "required": 190
+    },
+    "css/selectors": {
+      "passed": 197,
+      "required": 277
+    },
+    "dom": {
+      "passed": 415,
+      "required": 662
+    },
+    "editing": {
+      "passed": 416,
+      "required": 704
+    },
+    "html/browsers/history": {
+      "passed": 45,
+      "required": 136
+    },
+    "referrer-policy": {
+      "passed": 1383,
+      "required": 1391
+    },
+    "wai-aria": {
+      "passed": 28,
+      "required": 32
+    }
+  },
+  "gains": [
+    "dom/ranges/tentative/OpaqueRange-basic.html|window|",
+    "dom/ranges/tentative/OpaqueRange-interactive-basic.html|window|",
+    "dom/ranges/tentative/OpaqueRange-interactive-overlap-and-selection.html|window|",
+    "dom/ranges/tentative/OpaqueRange-offset.html|window|",
+    "dom/ranges/tentative/OpaqueRange-programmatic-updates.html|window|",
+    "dom/ranges/tentative/OpaqueRange-range-updates.html|window|",
+    "dom/ranges/tentative/OpaqueRange-supported-elements.html|window|",
+    "dom/ranges/tentative/OpaqueRange-unsupported-elements.html|window|",
+    "dom/ranges/tentative/OpaqueRange-update-event-order.html|window|",
+    "dom/ranges/tentative/OpaqueRange-validation.html|window|"
+  ],
+  "losses": [],
+  "assertion_regressions": [],
+  "corrected_existing_assertions": 120,
+  "source_tree_sha256": "b1c07b2413593802d598b1e020a8024fb759053570e3105077e1362010eea2ed",
+  "ledger_sha256": "c6da14d42c93ff2147a0d5d8e69489e924fb80ac9f3b613e611917617a54eedd",
+  "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+  "evidence": {
+    "artifacts/upstream-conformance/opaque-range-00632d5-full-audit.json": "389b7440132cbfed9027e4d0440f2de57cb681524934755395aaa8a3462f6936",
+    "artifacts/upstream-conformance/opaque-range-00632d5-full-reconciliation.json": "b254663dc43c14e8550ef28eb8901876017dc0634173b0d301c9f33866f6b47f",
+    "artifacts/upstream-conformance/conformance-worker-full-dom-boundaries-00632d5.json": "c6da14d42c93ff2147a0d5d8e69489e924fb80ac9f3b613e611917617a54eedd",
+    "artifacts/upstream-conformance/native-cssom-stylo/signed-00632d5-hashes.json": "4a84515db3d057a62d7e932a195b366d0e48a5ccc007a859eb0d16c9ac2d08e8"
+  },
+  "gaps": {
+    "remaining_executions": 926,
+    "new_unobserved_assertions": 28,
+    "older_unobserved_assertions": 133,
+    "total_unobserved_assertions": 161,
+    "older_recovered_assertions": 46,
+    "historical_editing_regressions_still_failing": 6,
+    "indexeddb_cross_origin_intermittent_regression_reproduced": false,
+    "note": "No gaps waived. The tracked intermittent IndexedDB assertion passes in this run; this does not prove the intermittency fixed."
+  },
+  "unresolved_missing_prior_passes": [
+    {
+      "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+      "names": [
+        "comment.replaceData(376, 0, \"foo\"), with selected range on comment from 0 to 1",
+        "comment.replaceData(0, 0, \"foo\"), with unselected range collapsed at (comment, 0)",
+        "comment.replaceData(0, 0, \"foo\"), with selected range collapsed at (comment, 0)",
+        "comment.replaceData(1, 0, \"foo\"), with unselected range collapsed at (comment, 1)",
+        "comment.replaceData(1, 0, \"foo\"), with selected range collapsed at (comment, 1)",
+        "comment.replaceData(comment.length, 0, \"foo\"), with unselected range collapsed at (comment, comment.length)",
+        "comment.replaceData(comment.length, 0, \"foo\"), with selected range collapsed at (comment, comment.length)",
+        "comment.replaceData(1, 0, \"foo\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(1, 0, \"foo\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(2, 0, \"foo\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(2, 0, \"foo\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(3, 0, \"foo\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(3, 0, \"foo\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(376, 0, \"\"), with unselected range on comment from 0 to 1",
+        "comment.replaceData(376, 0, \"\"), with selected range on comment from 0 to 1",
+        "comment.replaceData(0, 0, \"\"), with unselected range collapsed at (comment, 0)",
+        "comment.replaceData(0, 0, \"\"), with selected range collapsed at (comment, 0)",
+        "comment.replaceData(1, 0, \"\"), with unselected range collapsed at (comment, 1)",
+        "comment.replaceData(1, 0, \"\"), with selected range collapsed at (comment, 1)",
+        "comment.replaceData(comment.length, 0, \"\"), with unselected range collapsed at (comment, comment.length)",
+        "comment.replaceData(comment.length, 0, \"\"), with selected range collapsed at (comment, comment.length)",
+        "comment.replaceData(1, 0, \"\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(1, 0, \"\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(2, 0, \"\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(2, 0, \"\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(3, 0, \"\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(3, 0, \"\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(376, 1, \"foo\"), with unselected range on comment from 0 to 1"
+      ],
+      "complete": false,
+      "failure_domain": "runtime"
+    }
+  ],
+  "prior_missing_recovery": [
+    {
+      "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+      "observed_passing_now": [
+        "foreignTextNode.textContent += \"foo\", with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.textContent += \"foo\", with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.textContent += foreignTextNode.textContent, with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.textContent += foreignTextNode.textContent, with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = \"\", with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = \"\", with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = \"foo\", with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = \"foo\", with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += \"\", with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += \"\", with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += \"foo\", with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += \"foo\", with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "foreignTextNode.data = \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data = \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data = \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data = \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data = foreignTextNode.data, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data = foreignTextNode.data, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data += \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data += \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data += \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data += \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data += foreignTextNode.data, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data += foreignTextNode.data, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent = \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent = \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent = \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent = \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent = foreignTextNode.textContent, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent = foreignTextNode.textContent, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent += \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent += \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent += \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent += \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent += foreignTextNode.textContent, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.textContent += foreignTextNode.textContent, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with selected range on foreignTextNode from 1 to foreignTextNode.length"
+      ],
+      "observed_failing_now": [],
+      "still_unobserved": [
+        "foreignTextNode.nodeValue += \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "foreignTextNode.data = \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data = \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data = \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data = \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data = foreignTextNode.data, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data = foreignTextNode.data, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data += \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data += \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data += \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data += \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data += foreignTextNode.data, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.data += foreignTextNode.data, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent = \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent = \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent = \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent = \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent = foreignTextNode.textContent, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent = foreignTextNode.textContent, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent += \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent += \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent += \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent += \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent += foreignTextNode.textContent, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.textContent += foreignTextNode.textContent, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue = \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue = \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue = \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue = \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue += \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue += \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue += \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue += \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "xmlTextNode.data = \"\", with unselected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data = \"\", with selected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data = \"foo\", with unselected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data = \"foo\", with selected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data = xmlTextNode.data, with unselected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data = xmlTextNode.data, with selected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data += \"\", with unselected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data += \"\", with selected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data += \"foo\", with unselected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data += \"foo\", with selected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data += xmlTextNode.data, with unselected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.data += xmlTextNode.data, with selected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.textContent = \"\", with unselected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.textContent = \"\", with selected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.textContent = \"foo\", with unselected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.textContent = \"foo\", with selected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.textContent = xmlTextNode.textContent, with unselected range collapsed at (xmlTextNode, 0)",
+        "xmlTextNode.textContent = xmlTextNode.textContent, with selected range collapsed at (xmlTextNode, 0)"
+      ],
+      "current_run_complete": false
+    },
+    {
+      "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+      "observed_passing_now": [],
+      "observed_failing_now": [],
+      "still_unobserved": [
+        "comment.replaceData(376, 1, \"foo\"), with selected range on comment from 0 to 1",
+        "comment.replaceData(0, 1, \"foo\"), with unselected range collapsed at (comment, 0)",
+        "comment.replaceData(0, 1, \"foo\"), with selected range collapsed at (comment, 0)",
+        "comment.replaceData(1, 1, \"foo\"), with unselected range collapsed at (comment, 1)",
+        "comment.replaceData(1, 1, \"foo\"), with selected range collapsed at (comment, 1)",
+        "comment.replaceData(comment.length, 1, \"foo\"), with unselected range collapsed at (comment, comment.length)",
+        "comment.replaceData(comment.length, 1, \"foo\"), with selected range collapsed at (comment, comment.length)",
+        "comment.replaceData(1, 1, \"foo\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(1, 1, \"foo\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(2, 1, \"foo\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(2, 1, \"foo\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(3, 1, \"foo\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(3, 1, \"foo\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(376, 1, \"\"), with unselected range on comment from 0 to 1",
+        "comment.replaceData(376, 1, \"\"), with selected range on comment from 0 to 1",
+        "comment.replaceData(0, 1, \"\"), with unselected range collapsed at (comment, 0)",
+        "comment.replaceData(0, 1, \"\"), with selected range collapsed at (comment, 0)",
+        "comment.replaceData(1, 1, \"\"), with unselected range collapsed at (comment, 1)",
+        "comment.replaceData(1, 1, \"\"), with selected range collapsed at (comment, 1)",
+        "comment.replaceData(comment.length, 1, \"\"), with unselected range collapsed at (comment, comment.length)",
+        "comment.replaceData(comment.length, 1, \"\"), with selected range collapsed at (comment, comment.length)",
+        "comment.replaceData(1, 1, \"\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(1, 1, \"\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(2, 1, \"\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(2, 1, \"\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(3, 1, \"\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(3, 1, \"\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(376, 47, \"foo\"), with unselected range on comment from 0 to 1",
+        "comment.replaceData(376, 47, \"foo\"), with selected range on comment from 0 to 1",
+        "comment.replaceData(0, 47, \"foo\"), with unselected range collapsed at (comment, 0)",
+        "comment.replaceData(0, 47, \"foo\"), with selected range collapsed at (comment, 0)",
+        "comment.replaceData(1, 47, \"foo\"), with unselected range collapsed at (comment, 1)",
+        "comment.replaceData(1, 47, \"foo\"), with selected range collapsed at (comment, 1)",
+        "comment.replaceData(comment.length, 47, \"foo\"), with unselected range collapsed at (comment, comment.length)",
+        "comment.replaceData(comment.length, 47, \"foo\"), with selected range collapsed at (comment, comment.length)",
+        "comment.replaceData(1, 47, \"foo\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(1, 47, \"foo\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(2, 47, \"foo\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(2, 47, \"foo\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(3, 47, \"foo\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(3, 47, \"foo\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(376, 47, \"\"), with unselected range on comment from 0 to 1",
+        "comment.replaceData(376, 47, \"\"), with selected range on comment from 0 to 1",
+        "comment.replaceData(0, 47, \"\"), with unselected range collapsed at (comment, 0)",
+        "comment.replaceData(0, 47, \"\"), with selected range collapsed at (comment, 0)",
+        "comment.replaceData(1, 47, \"\"), with unselected range collapsed at (comment, 1)",
+        "comment.replaceData(1, 47, \"\"), with selected range collapsed at (comment, 1)",
+        "comment.replaceData(comment.length, 47, \"\"), with unselected range collapsed at (comment, comment.length)",
+        "comment.replaceData(comment.length, 47, \"\"), with selected range collapsed at (comment, comment.length)",
+        "comment.replaceData(1, 47, \"\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(1, 47, \"\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(2, 47, \"\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(2, 47, \"\"), with selected range on comment from 1 to 3",
+        "comment.replaceData(3, 47, \"\"), with unselected range on comment from 1 to 3",
+        "comment.replaceData(3, 47, \"\"), with selected range on comment from 1 to 3",
+        "foreignComment.replaceData(376, 0, \"foo\"), with unselected range on foreignComment from 0 to 1",
+        "foreignComment.replaceData(376, 0, \"foo\"), with selected range on foreignComment from 0 to 1",
+        "foreignComment.replaceData(0, 0, \"foo\"), with unselected range collapsed at (foreignComment, 0)",
+        "foreignComment.replaceData(0, 0, \"foo\"), with selected range collapsed at (foreignComment, 0)"
+      ],
+      "current_run_complete": false
+    },
+    {
+      "id": "IndexedDB/transaction-lifetime.any.js|window|",
+      "observed_passing_now": [],
+      "observed_failing_now": [],
+      "still_unobserved": [
+        "No Blocked event"
+      ],
+      "current_run_complete": false
+    },
+    {
+      "id": "IndexedDB/structured-clone.any.js|window|?101-last",
+      "observed_passing_now": [],
+      "observed_failing_now": [],
+      "still_unobserved": [
+        "Not serializable: Object: [object Object]"
+      ],
+      "current_run_complete": true
+    },
+    {
+      "id": "dom/events/passive-by-default.html|window|",
+      "observed_passing_now": [],
+      "observed_failing_now": [],
+      "still_unobserved": [
+        "touchstart listener is non-passive with {passive:false} for Object",
+        "touchstart listener is passive with {passive:true} for Object",
+        "touchmove listener is non-passive with {passive:false} for Object",
+        "touchmove listener is passive with {passive:true} for Object",
+        "wheel listener is non-passive with {passive:false} for Object",
+        "wheel listener is passive with {passive:true} for Object",
+        "mousewheel listener is non-passive with {passive:false} for Object",
+        "mousewheel listener is passive with {passive:true} for Object",
+        "touchend listener is non-passive by default for Object",
+        "touchend listener is non-passive with {passive:undefined} for Object",
+        "touchend listener is non-passive with {passive:false} for Object",
+        "touchend listener is passive with {passive:true} for Object"
+      ],
+      "current_run_complete": true
+    }
+  ],
+  "historical_editing_regression_status": [
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<p contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<p contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline-block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<p contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<span contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<span contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline-block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<span contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    }
+  ],
+  "historical_assertion_regression_status": [
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<p contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<p contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline-block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<p contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<span contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<span contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline-block&command=insertText",
+      "observed_passing_now": [],
+      "observed_failing_now": [
+        "<span contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>"
+      ],
+      "still_unobserved": [],
+      "current_run_complete": true
+    },
+    {
+      "id": "IndexedDB/database-names-by-origin.html|window|",
+      "observed_passing_now": [
+        "closed database names don't leak to cross-origin iframe"
+      ],
+      "observed_failing_now": [],
+      "still_unobserved": [],
+      "current_run_complete": true
+    }
+  ],
+  "previous_candidate_regression_status": [
+    {
+      "id": "IndexedDB/database-names-by-origin.html|window|",
+      "observed_passing_now": [
+        "closed database names don't leak to cross-origin iframe"
+      ],
+      "observed_failing_now": [],
+      "still_unobserved": [],
+      "current_run_complete": true
+    }
+  ],
+  "verified_server_port_reconciliations": [
+    {
+      "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+      "complete_normalized_name_status_multisets_equal": true,
+      "normalized_assertion_count": 7,
+      "reconciled_prior_passing_names": [
+        "http://localhost:56255/common/blank.html to http://localhost:56255/common/blank.html#newhash should work",
+        "http://localhost:56255/common/blank.html to http://localhost:56255/common/blank.html?newsearch should work",
+        "http://localhost:56255/common/blank.html to http://localhost:56255/newpath should work",
+        "http://localhost:56255/common/blank.html to about:blank should not work",
+        "http://localhost:56255/common/blank.html to about:srcdoc should not work"
+      ]
+    }
+  ],
+  "verified_editing_name_reconciliations": [],
+  "renamed_assertion_regressions": [],
+  "renamed_assertion_corrections": []
+}

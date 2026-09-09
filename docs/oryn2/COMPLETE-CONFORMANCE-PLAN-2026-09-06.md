@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `5d785f0`, measured on 2026-09-09.
+Current full-run evidence: signed candidate `00632d5`, measured on 2026-09-09.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,37 +32,34 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `5d785f0` passes **3,086/4,022 (76.7%)**, with **936 remaining**.
-It gains three editing executions versus `bcf3bb9`, with zero whole-execution losses
-and 310 corrected existing assertions. The complete typing-whitespace matrix now
-passes. Stylo remains the CSS engine.
+The signed run at `00632d5` passes **3,096/4,022 (77.0%)**, with **926 remaining**.
+It gains ten OpaqueRange executions versus `5d785f0`, with zero whole-execution losses,
+zero observed assertion regressions and 120 corrected existing assertions. Stylo
+remains the CSS engine.
 
-One observed assertion regression reproduces the tracked IndexedDB cross-origin
-failure. Six historical editing regressions remain failing. Range timeouts leave
-86 additional prior passing assertions unobserved; none of the older 93 missing
-assertions recovered, so 179 remain unobserved. No failure or coverage gap is waived.
+Six historical editing regressions remain failing. The tracked intermittent
+IndexedDB assertion passes this time, without proving the intermittency resolved.
+Range timeouts leave 28 newly unobserved assertions; 46 older missing assertions
+were observed again and 133 remain missing, leaving 161 total unobserved assertions.
+No failure or coverage gap is waived.
 
-[Full evidence](CONFORMANCE-TYPING-WHITESPACE-FULL-2026-09-09.json) identifies the
-terminal signed audit and reconciliation. Exact inventory coverage, source/binary
-fingerprints, unchanged limits, sandbox settings, and successful completion of
-passing executions are verified. This is not complete conformance or release
-qualification.
+[Full evidence](CONFORMANCE-OPAQUE-RANGE-FULL-2026-09-09.json) records the terminal
+signed audit and reconciliation: exact inventory coverage, source/binary hashes,
+unchanged limits and sandbox settings, and successful completion of every passing
+execution. Complete conformance and release qualification remain unmet.
 
-OpaqueRange/control-value integration now passes 10 of all 19 pinned family
-executions in the native v2 probe, with 119 corrected existing assertions and no
-selected regressions. All 704 editing executions were measured: 416 pass, with no
-whole losses or assertion regressions after explicit title reconciliation. These
-are native results, not signed full-suite gains. The argument-conversion fixes retain those ten gains in native v3. Combined
-DOM/editing validation observes 1,365/1,366 executions, with 831 passes, ten gains
-and no observed regressions. Range-insertNode emits no result after a native stack
-overflow; this missing execution is not waived. Native evidence is recorded in
-[the candidate report](CONFORMANCE-OPAQUE-RANGE-NATIVE-2026-09-09.json). Lifecycle, geometry and highlights remain open;
-geometry requires live control values and shaped text positions.
-Profile Range/Selection synchronization to recover missing observations and investigate
-the IndexedDB intermittency. Native stylesheet import integration and the preserved
-popup navigation/lifecycle work remain open. Choose batches by complete-fixture
-results, not missing-API counts. Completion requires 4,022/4,022 twice on one frozen
-signed candidate and every qualification gate.
+OpaqueRange now passes 10 of 19 pinned family executions in the signed full run.
+Its remaining lifecycle/adoption, geometry and highlight behavior is incomplete.
+[Native evidence](CONFORMANCE-OPAQUE-RANGE-NATIVE-2026-09-09.json) preserves the
+separate probe results, including the Range-insertNode native stack overflow.
+
+Next, address shared font-loading and CSSFontFaceRule gaps using Stylo's descriptor
+parser and native rule ownership. Measure whole fixtures after both loading and API
+behavior are implemented. Profile Range/Selection synchronization under unchanged
+caps to recover missing observations, and retain the IndexedDB intermittency and
+historical editing regressions. Stylesheet imports and preserved popup lifecycle
+work remain open. Completion requires 4,022/4,022 twice on one frozen signed candidate
+and every qualification gate.
 
 ## Current execution strategy
 
@@ -618,25 +615,22 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. **Typing whitespace batch measured.** Signed `5d785f0` completes all 4022
-   executions with 3086 passes, three gains, 310 corrected assertions and no whole
-   losses. The intermittent cross-origin IndexedDB assertion fails again. Terminal
-   audits are complete; 86 newly missing plus 93 older missing assertions remain.
-2. **Qualify measured control-value gains and finish the subsystem.** The native
-   store, generated bindings and edit integration pass 10/19 OpaqueRange fixtures.
-   The v2 editing guard passes 416/704 without regressions. Finish native/DOM guards
-   and measure the argument-conversion fixes, then qualify the candidate with a
-   signed full run. Resolve adoption/type-change lifecycle, live-value layout,
-   shaped-text geometry and highlights. The family has 19 executions; 17 was only
-   the earlier missing-createValueRange message cluster. Constructor-only and
-   zero-geometry placeholders do not establish completion.
+1. **OpaqueRange batch measured.** Signed `00632d5` completes all 4022 executions
+   with 3096 passes, ten gains, 120 corrected assertions and no observed regressions.
+   Audits are complete. There are 161 unobserved assertions and six historical
+   editing failures; the intermittent IndexedDB assertion passes in this run.
+2. **Complete shared CSS font behavior.** Recover document loading after font
+   network failures while preserving limits. Expose CSSFontFaceRule descriptors
+   through Stylo's native parser, getters, mutations and ownership. Test downstream
+   complete fixtures, not only removal of navigation blockers. OpaqueRange's nine
+   remaining lifecycle/geometry/highlight executions remain in the full backlog.
 3. **Resolve shared runtime and CSS gaps.** Profile bulk Range/Selection cache
-   synchronization under unchanged caps, retaining all 179 unobserved assertions.
+   synchronization under unchanged caps, retaining all 161 unobserved assertions.
    Diagnose the recurring IndexedDB cross-origin failure. Restore native stylesheet
    import ownership/loading and CSSOM rule families; font HTTP404 navigation aborts
    are a separate known blocker. Preserved popup work still needs navigation and
    lifecycle correctness. Missing-API cluster sizes are not projected gains.
-4. **Repeat to the actual finish gate.** Clear all 936 remaining failures, the six
+4. **Repeat to the actual finish gate.** Clear all 926 remaining failures, the six
    historical editing regressions, the recurring IndexedDB failure and all missing
    observations. Require 4,022/4,022 twice on the same frozen signed candidate and
    all generated, native, profile and security qualification gates.
