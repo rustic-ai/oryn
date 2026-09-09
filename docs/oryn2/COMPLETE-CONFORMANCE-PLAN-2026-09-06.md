@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `17447de`, measured on 2026-09-08.
+Current full-run evidence: signed candidate `ebe7899`, measured on 2026-09-08.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,29 +32,31 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `17447de` passes **3,046/4,022 (75.7%)**, with **976 remaining**.
-It gains two whole executions and loses zero versus `9d7af7b`: IndexedDB string-list
-ordering in Window and dedicated worker contexts. Index names now use UTF-16
-code-unit order, matching the existing object-store and transaction name lists.
-Stylo remains the CSS engine.
+The signed run at `ebe7899` passes **3,049/4,022 (75.8%)**, with **973 remaining**.
+It gains three whole executions and loses zero versus `17447de`: Range mutations
+for appendData, deleteData and insertData. Wrapper retention graph refresh now
+limits work to affected native components. Stylo remains the CSS engine.
 
 The audit verifies exact coverage, passing testharness completions, signed source
 and binary fingerprints, and unchanged resource limits and sandbox settings.
-It records zero observed passing-to-failing assertions and two corrected assertions.
-Of 39 raw missing prior passing names, five reconcile through server-port changes.
-Nine older missing assertions reappear passing; 121 remain unobserved across
-tracked generations. Eleven historical assertion regressions remain failing.
-The missing Range observations remain an unresolved runtime/performance concern.
+It records zero observed passing-to-failing assertions and 1,298 additional passing
+observations. All five raw missing prior passing names reconcile through server-port
+changes. Of 121 older unobserved assertions, 107 reappear passing and 14 remain
+unobserved. Eleven historical assertion regressions remain failing.
+Range dataChange and replaceData still exceed runtime limits; the batch does not
+establish complete Range conformance.
 
-[Full evidence](CONFORMANCE-IDB-ORDERING-FULL-2026-09-08.json) links the complete
+[Full evidence](CONFORMANCE-RANGE-COMPONENTS-FULL-2026-09-08.json) links the complete
 assertion audit and cumulative reconciliation. This is one measured full run,
 not complete conformance or broader release qualification.
 
-Next: diagnose shared causes in the remaining IndexedDB failures and Range runtime
-failures, verifying complete unchanged fixtures before promotion. Keep unfinished
-Range/formatBlock drafts isolated. Completion still requires 4,022/4,022 twice on
-one frozen signed candidate and every qualification gate. All 976 failures remain
-in scope.
+Next: validate the isolated ownership-iteration follow-up against complete unchanged
+Range fixtures, measuring its effect before promotion. Diagnose shared causes in
+DOM and editing using production-path evidence; similar error messages alone do
+not prove a common fix. Restore the 11 historical assertion regressions and resolve
+the 14 missing observations. Keep unfinished Range/formatBlock drafts isolated.
+Completion still requires 4,022/4,022 twice on one frozen signed candidate and every
+qualification gate. All 973 failures remain in scope.
 
 ## Strategy correction: require a production path and whole-execution evidence
 
