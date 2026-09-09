@@ -2792,6 +2792,52 @@ mod tests {
         network::{NetworkError, NetworkStreamResponse, SharedNetworkBroker},
     };
 
+    #[test]
+    fn indexeddb_request_envelope_preserves_numeric_keys_and_values() {
+        use crate::storage::{IdbCommand, IdbWrite, StorageRequest};
+
+        for number in [9007199254740991.0_f64, 9007199254740992.0, 0.1, -0.1] {
+            let envelope = RequestEnvelope {
+                protocol_version: 1,
+                message_id: 7,
+                request: ContextServiceRequest::Storage {
+                    request: StorageRequest::IndexedDb {
+                        origin: "https://example.test".into(),
+                        command: IdbCommand::Batch {
+                            database: "precision".into(),
+                            writes: vec![IdbWrite {
+                                store: "records".into(),
+                                key: Some(serde_json::json!(number)),
+                                value: serde_json::json!({"id": number}),
+                                add_only: true,
+                            }],
+                        },
+                    },
+                },
+            };
+            let bytes = serde_json::to_vec(&envelope).unwrap();
+            let decoded: RequestEnvelope = serde_json::from_slice(&bytes).unwrap();
+            let ContextServiceRequest::Storage {
+                request:
+                    StorageRequest::IndexedDb {
+                        command: IdbCommand::Batch { writes, .. },
+                        ..
+                    },
+            } = decoded.request
+            else {
+                panic!("unexpected request after transport");
+            };
+            assert_eq!(
+                writes[0].key.as_ref().unwrap().as_f64().unwrap().to_bits(),
+                number.to_bits()
+            );
+            assert_eq!(
+                writes[0].value["id"].as_f64().unwrap().to_bits(),
+                number.to_bits()
+            );
+        }
+    }
+
     struct FixtureNetwork;
 
     impl NetworkBroker for FixtureNetwork {
