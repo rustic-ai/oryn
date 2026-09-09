@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `093a846`, measured on 2026-09-09.
+Current full-run evidence: signed candidate `9faec9a`, measured on 2026-09-09.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,34 +32,38 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `093a846` passes **3,101/4,022 (77.1%)**, with **921 remaining**.
-It gains five CSSOM executions versus `00632d5`, with zero whole-execution losses,
-zero observed assertion regressions and ten corrected existing assertions. Stylo
-remains the CSS engine; font-face descriptors now use its native grammar and rule ownership.
+The signed run at `9faec9a` passes **3,109/4,022 (77.3%)**, with **913 remaining**.
+It gains eight IndexedDB executions versus `093a846`, with zero whole-execution
+losses and zero observed assertion regressions. Atomic batch rollback, exact
+incremental quota accounting, compact binary storage and fair completion scheduling
+now have regression coverage. Stylo remains the CSS engine.
 
-Six historical editing regressions remain. Four prior passing assertions were not
-observed in this run. Of the preceding 161 missing assertions, 52 were recovered
-and 109 remain missing, leaving 113 total unobserved assertions. No gap is waived.
+Six historical editing regressions remain. This run did not observe 42 previously
+passing Range assertions. Four of the preceding 113 missing assertions recovered;
+109 remain missing, leaving **151 total unobserved assertions**. No gap is waived.
 
-[Full evidence](CONFORMANCE-FONT-FACE-FULL-2026-09-09.json) records exact inventory
+[Full evidence](CONFORMANCE-IDB-FULL-2026-09-09.json) records exact inventory
 coverage, signed source/binary identity, unchanged limits and assertion reconciliation.
-[Native evidence](CONFORMANCE-FONT-FACE-NATIVE-2026-09-09.json) records the separate
-287-execution CSSOM/cascade comparison. Complete conformance remains unmet.
+[Native evidence](CONFORMANCE-IDB-NATIVE-2026-09-09.json) records 420/456 native
+IndexedDB passes and 20/20 worker commit repeats. The signed run passes 416/456:
+two cursor executions exceed worker RSS and two exceed the context-frame capacity.
+Complete conformance remains unmet.
 
-Font source ordering, fallback, FontFaceSet readiness and live font invalidation
-remain open. OpaqueRange still has nine failing lifecycle/geometry/highlight executions.
-Next, reproduce and profile the shared IndexedDB write/cursor costs under unchanged
-limits, including atomic rollback checks, and compare its payoff with the native
-DOMTokenList binding gaps. Range missing observations, editing regressions,
-stylesheet imports and popup lifecycle remain in scope. Completion requires
-4,022/4,022 twice on one frozen signed candidate and every qualification gate.
+Next, implement bounded cursor retrieval with continuation keys and mutation-aware
+iteration. Preserve key ordering, duplicate index keys, advance/continue semantics,
+transaction ordering and full-result APIs; keep all limits unchanged. Paragraph
+creation at block editing hosts is the next candidate identified in source review, with whole
+fixture gains still unverified. Range observations, editing regressions, stylesheet
+imports, font readiness/fallback, DOMTokenList, OpaqueRange geometry and popup
+lifecycle remain in scope. Completion requires 4,022/4,022 twice on one frozen
+signed candidate and every qualification gate.
 
 ## Current execution strategy
 
 Use the immediate sequence at the end of this document as the single active
 queue. Earlier milestone sections below preserve historical evidence and subsystem
 requirements; their dated counts and completed experiments do not override the
-5d785f0 measurement above.
+9faec9a measurement above.
 
 The principal throughput failure has been treating assertion repairs and removal
 of first blockers as evidence that a batch will complete fixtures. They are useful
@@ -608,26 +612,24 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. **Font-face batch measured.** Signed `093a846` completes all4022 executions
-   with3101 passes, five gains, ten corrected assertions and no observed regressions.
-   Audits are complete. There are113 unobserved assertions and six historical
-   editing failures; retain the tracked IndexedDB intermittent assertion status.
-2. **Measure shared IndexedDB costs.** Reproduce the14 platform-timeout executions
-   through representative small/large cases; profile ordinary write rollback,
-   exact quota accounting and cursor response cloning. Add missing multi-write
-   atomic failure checks before optimization. Compare measured payoff with live
-   DOMTokenList indexed access and attribute-specific identity. Font source
-   ordering/FontFaceSet and OpaqueRange's nine remaining executions remain open.
-3. **Resolve shared runtime and CSS gaps.** Profile bulk Range/Selection cache
-   synchronization under unchanged caps, retaining all 113 unobserved assertions.
-   Diagnose the recurring IndexedDB cross-origin failure. Restore native stylesheet
-   import ownership/loading and CSSOM rule families; font HTTP404 navigation aborts
-   are a separate known blocker. Preserved popup work still needs navigation and
-   lifecycle correctness. Missing-API cluster sizes are not projected gains.
-4. **Repeat to the actual finish gate.** Clear all 921 remaining failures, the six
-   historical editing regressions, the recurring IndexedDB failure and all missing
-   observations. Require 4,022/4,022 twice on the same frozen signed candidate and
-   all generated, native, profile and security qualification gates.
+1. **IndexedDB batch measured.** Signed `9faec9a` completes all 4,022 executions
+   with 3,109 passes, eight gains and no whole-execution losses. Audits are complete.
+   Retain all 151 unobserved assertions and six historical editing regressions.
+2. **Bound cursor retrieval.** Native cursor probes pass, but signed small cursors
+   exceed 512 MiB RSS and large responses exceed the 24 MiB context-frame limit.
+   Retrieve bounded pages with key/primary-key continuation; clone only returned
+   values. Preserve live mutation visibility, directions, duplicate keys, advance,
+   continuePrimaryKey, update/delete, request ordering and full-result APIs.
+3. **Resolve shared runtime, editing and CSS gaps.** Investigate Range missing
+   observations, then implement paragraph creation at block editing hosts with
+   selection, formatting and containment semantics. Verify suspicious pinned
+   newline expectations against reference behavior before attributing all paragraph
+   failures to runtime bugs. Native stylesheet imports, DOMTokenList, font readiness,
+   OpaqueRange geometry and popup lifecycle remain open. Screening counts are not
+   projected gains.
+4. **Repeat to the actual finish gate.** Clear all 913 remaining failures, historical
+   regressions and missing observations. Require 4,022/4,022 twice on the same frozen
+   signed candidate and all generated, native, profile and security gates.
 
 The existing release/product/platform action plan still applies independently.
 A paid evaluation, deployment, or publication is not necessary to claim that this

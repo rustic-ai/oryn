@@ -1,33 +1,37 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,101/4,022 (77.1%)**, **921 remaining**.
+> Latest full measurement: **3,109/4,022 (77.3%)**, **913 remaining**.
 
-The signed run at `093a846` passes **3,101/4,022 (77.1%)**, with **921 remaining**.
-It gains five CSSOM executions versus `00632d5`, with zero whole-execution losses,
-zero observed assertion regressions and ten corrected existing assertions. Stylo
-remains the CSS engine; font-face descriptors now use its native grammar and rule ownership.
+The signed run at `9faec9a` passes **3,109/4,022 (77.3%)**, with **913 remaining**.
+It gains eight IndexedDB executions versus `093a846`, with zero whole-execution
+losses and zero observed assertion regressions. Atomic batch rollback, exact
+incremental quota accounting, compact binary storage and fair completion scheduling
+now have regression coverage. Stylo remains the CSS engine.
 
-Six historical editing regressions remain. Four prior passing assertions were not
-observed in this run. Of the preceding 161 missing assertions, 52 were recovered
-and 109 remain missing, leaving 113 total unobserved assertions. No gap is waived.
+Six historical editing regressions remain. This run did not observe 42 previously
+passing Range assertions. Four of the preceding 113 missing assertions recovered;
+109 remain missing, leaving **151 total unobserved assertions**. No gap is waived.
 
-[Full evidence](CONFORMANCE-FONT-FACE-FULL-2026-09-09.json) records exact inventory
+[Full evidence](CONFORMANCE-IDB-FULL-2026-09-09.json) records exact inventory
 coverage, signed source/binary identity, unchanged limits and assertion reconciliation.
-[Native evidence](CONFORMANCE-FONT-FACE-NATIVE-2026-09-09.json) records the separate
-287-execution CSSOM/cascade comparison. Complete conformance remains unmet.
+[Native evidence](CONFORMANCE-IDB-NATIVE-2026-09-09.json) records 420/456 native
+IndexedDB passes and 20/20 worker commit repeats. The signed run passes 416/456:
+two cursor executions exceed worker RSS and two exceed the context-frame capacity.
+Complete conformance remains unmet.
 
-Font source ordering, fallback, FontFaceSet readiness and live font invalidation
-remain open. OpaqueRange still has nine failing lifecycle/geometry/highlight executions.
-Next, reproduce and profile the shared IndexedDB write/cursor costs under unchanged
-limits, including atomic rollback checks, and compare its payoff with the native
-DOMTokenList binding gaps. Range missing observations, editing regressions,
-stylesheet imports and popup lifecycle remain in scope. Completion requires
-4,022/4,022 twice on one frozen signed candidate and every qualification gate.
+Next, implement bounded cursor retrieval with continuation keys and mutation-aware
+iteration. Preserve key ordering, duplicate index keys, advance/continue semantics,
+transaction ordering and full-result APIs; keep all limits unchanged. Paragraph
+creation at block editing hosts is the next candidate identified in source review, with whole
+fixture gains still unverified. Range observations, editing regressions, stylesheet
+imports, font readiness/fallback, DOMTokenList, OpaqueRange geometry and popup
+lifecycle remain in scope. Completion requires 4,022/4,022 twice on one frozen
+signed candidate and every qualification gate.
 
 | Root | Passed / required |
 |---|---:|
-| IndexedDB | 408/456 |
+| IndexedDB | 416/456 |
 | WebIDL | 31/58 |
 | accname | 15/19 |
 | css/css-cascade | 58/97 |
