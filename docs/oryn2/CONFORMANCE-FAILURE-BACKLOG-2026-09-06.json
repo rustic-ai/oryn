@@ -51,7 +51,7 @@
   },
   "diagnosis_source": {
     "path": "docs/oryn2/CONFORMANCE-DIAGNOSES.json",
-    "sha256": "885f2eaf42d9a95ca20bf4175112e63da34582ad82ebd435505cf084a1c569f0"
+    "sha256": "ef828e358f043d252ccf8f0a013858a6d08494931386b358949acbd2f3b0a500"
   },
   "entries": [
     {
@@ -2271,7 +2271,37 @@
       "failure_domain": "assertion",
       "first_failing_test": "appendMedium with a comma-separated list is a no-op",
       "first_failure_message": "Cannot read properties of undefined (reading 'appendMedium')",
-      "confirmed_root_cause": null
+      "confirmed_root_cause": "CSSStyleSheet has no media attribute or StyleSheet inheritance in canonical IDL; native MediaList wrappers only support CSSMediaRule owners. This explains the observed missing receiver, not a guarantee that adding the attribute completes the fixture.",
+      "diagnosis": {
+        "id": "css/cssom/medialist-appendmedium-parse-single-and-dedup.html|window|",
+        "cause": "CSSStyleSheet has no media attribute or StyleSheet inheritance in canonical IDL; native MediaList wrappers only support CSSMediaRule owners. This explains the observed missing receiver, not a guarantee that adding the attribute completes the fixture.",
+        "observations": [
+          {
+            "ledger_sha256": "4e9f1ebcbb083217d685d7e4cdaec373d7735a5f51bae6f33caf02ab12f2d636",
+            "source_commit": "fb6f09bdf41cece6e5ea49c3033ade1409760f03",
+            "assertion_names": [
+              "appendMedium with a comma-separated list is a no-op",
+              "appendMedium with a comma-separated list leaves an existing list unchanged",
+              "appendMedium does not append a duplicate medium"
+            ],
+            "evidence": [
+              "docs/oryn2/CONFORMANCE-INSERTHTML-OVERRIDES-FULL-2026-09-08.json",
+              "crates/oryn-webidl/idl/browser.webidl: CSSStyleSheet declaration lacks media and StyleSheet inheritance.",
+              "crates/oryn-js/src/v8_bindings/page_rules/media_lists.rs: rule() requires the oryn.css.media.rule traced edge."
+            ]
+          }
+        ],
+        "remaining_completion_requirements": [
+          "Initial media from style element before insertion",
+          "Ordered comma-space serialization, length and indexed item",
+          "Append a single query, ignore multi-query argument, suppress duplicates",
+          "Delete parsed equivalent query despite whitespace, remove all duplicates",
+          "NotFoundError for valid absent query without mutation",
+          "Required argument TypeError through actual MediaList binding"
+        ],
+        "acceptance": "All unchanged fixture assertions execute and pass; verify actual required-argument behavior, stylesheet applicability, and complete CSSOM/cascade regressions.",
+        "state": "confirmed_for_this_run"
+      }
     },
     {
       "id": "css/cssom/medialist-deletemedium-parse-and-remove-all.html|window|",
@@ -2282,7 +2312,36 @@
       "failure_domain": "assertion",
       "first_failing_test": "deleteMedium matches a query that differs only in whitespace",
       "first_failure_message": "Cannot set properties of undefined (setting 'mediaText')",
-      "confirmed_root_cause": null
+      "confirmed_root_cause": "CSSStyleSheet has no media attribute or StyleSheet inheritance in canonical IDL; native MediaList wrappers only support CSSMediaRule owners. This explains the observed missing receiver, not a guarantee that adding the attribute completes the fixture.",
+      "diagnosis": {
+        "id": "css/cssom/medialist-deletemedium-parse-and-remove-all.html|window|",
+        "cause": "CSSStyleSheet has no media attribute or StyleSheet inheritance in canonical IDL; native MediaList wrappers only support CSSMediaRule owners. This explains the observed missing receiver, not a guarantee that adding the attribute completes the fixture.",
+        "observations": [
+          {
+            "ledger_sha256": "4e9f1ebcbb083217d685d7e4cdaec373d7735a5f51bae6f33caf02ab12f2d636",
+            "source_commit": "fb6f09bdf41cece6e5ea49c3033ade1409760f03",
+            "assertion_names": [
+              "deleteMedium matches a query that differs only in whitespace",
+              "deleteMedium removes every matching query, not only the first"
+            ],
+            "evidence": [
+              "docs/oryn2/CONFORMANCE-INSERTHTML-OVERRIDES-FULL-2026-09-08.json",
+              "crates/oryn-webidl/idl/browser.webidl: CSSStyleSheet declaration lacks media and StyleSheet inheritance.",
+              "crates/oryn-js/src/v8_bindings/page_rules/media_lists.rs: rule() requires the oryn.css.media.rule traced edge."
+            ]
+          }
+        ],
+        "remaining_completion_requirements": [
+          "Initial media from style element before insertion",
+          "Ordered comma-space serialization, length and indexed item",
+          "Append a single query, ignore multi-query argument, suppress duplicates",
+          "Delete parsed equivalent query despite whitespace, remove all duplicates",
+          "NotFoundError for valid absent query without mutation",
+          "Required argument TypeError through actual MediaList binding"
+        ],
+        "acceptance": "All unchanged fixture assertions execute and pass; verify actual required-argument behavior, stylesheet applicability, and complete CSSOM/cascade regressions.",
+        "state": "confirmed_for_this_run"
+      }
     },
     {
       "id": "css/cssom/medialist-interfaces-001.html|window|",
@@ -2293,7 +2352,38 @@
       "failure_domain": "assertion",
       "first_failing_test": "mediatest_medialist_serialize_element",
       "first_failure_message": "Cannot read properties of undefined (reading 'mediaText')",
-      "confirmed_root_cause": null
+      "confirmed_root_cause": "CSSStyleSheet has no media attribute or StyleSheet inheritance in canonical IDL; native MediaList wrappers only support CSSMediaRule owners. This explains the observed missing receiver, not a guarantee that adding the attribute completes the fixture.",
+      "diagnosis": {
+        "id": "css/cssom/medialist-interfaces-001.html|window|",
+        "cause": "CSSStyleSheet has no media attribute or StyleSheet inheritance in canonical IDL; native MediaList wrappers only support CSSMediaRule owners. This explains the observed missing receiver, not a guarantee that adding the attribute completes the fixture.",
+        "observations": [
+          {
+            "ledger_sha256": "4e9f1ebcbb083217d685d7e4cdaec373d7735a5f51bae6f33caf02ab12f2d636",
+            "source_commit": "fb6f09bdf41cece6e5ea49c3033ade1409760f03",
+            "assertion_names": [
+              "mediatest_medialist_serialize_element",
+              "mediatest_medialist_serialize_comma",
+              "mediatest_medialist_serialize_empty",
+              "mediatest_medialist_serialize_order"
+            ],
+            "evidence": [
+              "docs/oryn2/CONFORMANCE-INSERTHTML-OVERRIDES-FULL-2026-09-08.json",
+              "crates/oryn-webidl/idl/browser.webidl: CSSStyleSheet declaration lacks media and StyleSheet inheritance.",
+              "crates/oryn-js/src/v8_bindings/page_rules/media_lists.rs: rule() requires the oryn.css.media.rule traced edge."
+            ]
+          }
+        ],
+        "remaining_completion_requirements": [
+          "Initial media from style element before insertion",
+          "Ordered comma-space serialization, length and indexed item",
+          "Append a single query, ignore multi-query argument, suppress duplicates",
+          "Delete parsed equivalent query despite whitespace, remove all duplicates",
+          "NotFoundError for valid absent query without mutation",
+          "Required argument TypeError through actual MediaList binding"
+        ],
+        "acceptance": "All unchanged fixture assertions execute and pass; verify actual required-argument behavior, stylesheet applicability, and complete CSSOM/cascade regressions.",
+        "state": "confirmed_for_this_run"
+      }
     },
     {
       "id": "css/cssom/medialist-interfaces-002.html|window|",
@@ -2304,7 +2394,36 @@
       "failure_domain": "assertion",
       "first_failing_test": "deleteMedium_removes_correct_medium",
       "first_failure_message": "Cannot read properties of undefined (reading 'appendMedium')",
-      "confirmed_root_cause": null
+      "confirmed_root_cause": "CSSStyleSheet has no media attribute or StyleSheet inheritance in canonical IDL; native MediaList wrappers only support CSSMediaRule owners. This explains the observed missing receiver, not a guarantee that adding the attribute completes the fixture.",
+      "diagnosis": {
+        "id": "css/cssom/medialist-interfaces-002.html|window|",
+        "cause": "CSSStyleSheet has no media attribute or StyleSheet inheritance in canonical IDL; native MediaList wrappers only support CSSMediaRule owners. This explains the observed missing receiver, not a guarantee that adding the attribute completes the fixture.",
+        "observations": [
+          {
+            "ledger_sha256": "4e9f1ebcbb083217d685d7e4cdaec373d7735a5f51bae6f33caf02ab12f2d636",
+            "source_commit": "fb6f09bdf41cece6e5ea49c3033ade1409760f03",
+            "assertion_names": [
+              "deleteMedium_removes_correct_medium",
+              "deleteMedium_no_matching_medium_to_remove"
+            ],
+            "evidence": [
+              "docs/oryn2/CONFORMANCE-INSERTHTML-OVERRIDES-FULL-2026-09-08.json",
+              "crates/oryn-webidl/idl/browser.webidl: CSSStyleSheet declaration lacks media and StyleSheet inheritance.",
+              "crates/oryn-js/src/v8_bindings/page_rules/media_lists.rs: rule() requires the oryn.css.media.rule traced edge."
+            ]
+          }
+        ],
+        "remaining_completion_requirements": [
+          "Initial media from style element before insertion",
+          "Ordered comma-space serialization, length and indexed item",
+          "Append a single query, ignore multi-query argument, suppress duplicates",
+          "Delete parsed equivalent query despite whitespace, remove all duplicates",
+          "NotFoundError for valid absent query without mutation",
+          "Required argument TypeError through actual MediaList binding"
+        ],
+        "acceptance": "All unchanged fixture assertions execute and pass; verify actual required-argument behavior, stylesheet applicability, and complete CSSOM/cascade regressions.",
+        "state": "confirmed_for_this_run"
+      }
     },
     {
       "id": "css/cssom/medialist-interfaces-004.html|window|",
@@ -2315,7 +2434,36 @@
       "failure_domain": "assertion",
       "first_failing_test": "appendMedium_correctly_appends_medium_to_empty_MediaList",
       "first_failure_message": "Cannot read properties of undefined (reading 'appendMedium')",
-      "confirmed_root_cause": null
+      "confirmed_root_cause": "CSSStyleSheet has no media attribute or StyleSheet inheritance in canonical IDL; native MediaList wrappers only support CSSMediaRule owners. This explains the observed missing receiver, not a guarantee that adding the attribute completes the fixture.",
+      "diagnosis": {
+        "id": "css/cssom/medialist-interfaces-004.html|window|",
+        "cause": "CSSStyleSheet has no media attribute or StyleSheet inheritance in canonical IDL; native MediaList wrappers only support CSSMediaRule owners. This explains the observed missing receiver, not a guarantee that adding the attribute completes the fixture.",
+        "observations": [
+          {
+            "ledger_sha256": "4e9f1ebcbb083217d685d7e4cdaec373d7735a5f51bae6f33caf02ab12f2d636",
+            "source_commit": "fb6f09bdf41cece6e5ea49c3033ade1409760f03",
+            "assertion_names": [
+              "appendMedium_correctly_appends_medium_to_empty_MediaList",
+              "appendMedium_correctly_appends_medium_to_nonempty_MediaList"
+            ],
+            "evidence": [
+              "docs/oryn2/CONFORMANCE-INSERTHTML-OVERRIDES-FULL-2026-09-08.json",
+              "crates/oryn-webidl/idl/browser.webidl: CSSStyleSheet declaration lacks media and StyleSheet inheritance.",
+              "crates/oryn-js/src/v8_bindings/page_rules/media_lists.rs: rule() requires the oryn.css.media.rule traced edge."
+            ]
+          }
+        ],
+        "remaining_completion_requirements": [
+          "Initial media from style element before insertion",
+          "Ordered comma-space serialization, length and indexed item",
+          "Append a single query, ignore multi-query argument, suppress duplicates",
+          "Delete parsed equivalent query despite whitespace, remove all duplicates",
+          "NotFoundError for valid absent query without mutation",
+          "Required argument TypeError through actual MediaList binding"
+        ],
+        "acceptance": "All unchanged fixture assertions execute and pass; verify actual required-argument behavior, stylesheet applicability, and complete CSSOM/cascade regressions.",
+        "state": "confirmed_for_this_run"
+      }
     },
     {
       "id": "css/cssom/page-descriptors.html|window|",
