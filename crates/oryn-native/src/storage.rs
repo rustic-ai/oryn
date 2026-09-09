@@ -126,6 +126,16 @@ pub struct IdbWrite {
     pub add_only: bool,
 }
 
+/// A bounded cursor request. Position pairs use index key then primary key.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IdbCursorStep {
+    pub after: Option<(serde_json::Value, serde_json::Value)>,
+    pub target: Option<(serde_json::Value, Option<serde_json::Value>)>,
+    pub advance: u32,
+    pub unique: bool,
+    pub with_value: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum IdbCommand {
@@ -218,6 +228,14 @@ pub enum IdbCommand {
         index: Option<String>,
         query: Option<serde_json::Value>,
         reverse: bool,
+    },
+    CursorStep {
+        database: String,
+        store: String,
+        index: Option<String>,
+        query: Option<serde_json::Value>,
+        reverse: bool,
+        step: IdbCursorStep,
     },
 }
 
@@ -892,7 +910,8 @@ fn execute_idb_transactional(
                 IdbCommand::Get { database, .. }
                 | IdbCommand::GetAll { database, .. }
                 | IdbCommand::Count { database, .. }
-                | IdbCommand::Cursor { database, .. } => (database, BTreeSet::new()),
+                | IdbCommand::Cursor { database, .. }
+                | IdbCommand::CursorStep { database, .. } => (database, BTreeSet::new()),
                 _ => {
                     return Err(StorageError::Persistent(
                         "Invalid transactional command".into(),
@@ -988,6 +1007,33 @@ fn execute_idb(
     command: IdbCommand,
     limit: usize,
 ) -> Result<IdbResponse, StorageError> {
+    let (command, cursor_step) = match command {
+        IdbCommand::CursorStep {
+            database,
+            store,
+            index,
+            query,
+            reverse,
+            step,
+        } => {
+            if step.advance == 0 {
+                return Err(StorageError::Persistent(
+                    "Cursor advance must be positive".into(),
+                ));
+            }
+            (
+                IdbCommand::Cursor {
+                    database,
+                    store,
+                    index,
+                    query,
+                    reverse,
+                },
+                Some(step),
+            )
+        }
+        command => (command, None),
+    };
     // Quota is affected only by schema/data mutations. Re-serializing an
     // origin's complete database after every get/count/cursor request made
     // high-volume index scans quadratic even though reads cannot increase
@@ -1383,34 +1429,113 @@ fn execute_idb(
                         || vec![record.key.clone()],
                         |definition| indexed_record_keys(&record.value, definition),
                     );
-                    cursor_keys.retain(|key| encode_key(key).is_ok());
+                    cursor_keys.retain(|key| oryn_js::indexed_db::Key::from_json(key).is_some());
                     cursor_keys.sort_by(compare_indexed_db_keys);
                     cursor_keys
                         .dedup_by(|left, right| compare_indexed_db_keys(left, right).is_eq());
-                    cursor_keys.into_iter().filter_map(|cursor_key| {
+                    let query = query.as_ref();
+                    cursor_keys.into_iter().filter_map(move |cursor_key| {
                         query
                             .as_ref()
                             .is_none_or(|query| indexed_db_key_matches(query, &cursor_key))
-                            .then(|| IdbRecord {
-                                key: cursor_key,
-                                primary_key: record.key.clone(),
-                                value: record.value.clone(),
-                            })
+                            .then_some((cursor_key, record))
                     })
                 })
                 .collect::<Vec<_>>();
-            records.sort_by(|left, right| {
-                compare_indexed_db_keys(&left.key, &right.key)
-                    .then_with(|| compare_indexed_db_keys(&left.primary_key, &right.primary_key))
-            });
-            if reverse {
-                records.reverse();
+            let compare = |left: &(serde_json::Value, &RecordData),
+                           right: &(serde_json::Value, &RecordData)| {
+                compare_indexed_db_keys(&left.0, &right.0)
+                    .then_with(|| compare_indexed_db_keys(&left.1.key, &right.1.key))
+            };
+            // Choose the lowest primary key for unique traversal before
+            // reversing; prevunique reverses keys, not the representative.
+            if cursor_step.as_ref().is_some_and(|step| step.unique) {
+                records.sort_by(compare);
+                records.dedup_by(|right, left| compare_indexed_db_keys(&left.0, &right.0).is_eq());
             }
+            let selected = if let Some(step) = &cursor_step {
+                records.retain(|(key, record)| {
+                    let after =
+                        step.after
+                            .as_ref()
+                            .is_none_or(|(previous_key, previous_primary)| {
+                                let order = compare_indexed_db_keys(key, previous_key);
+                                let order = if step.unique {
+                                    order
+                                } else {
+                                    order.then_with(|| {
+                                        compare_indexed_db_keys(&record.key, previous_primary)
+                                    })
+                                };
+                                if reverse {
+                                    order.is_lt()
+                                } else {
+                                    order.is_gt()
+                                }
+                            });
+                    let target = step
+                        .target
+                        .as_ref()
+                        .is_none_or(|(target_key, target_primary)| {
+                            let order = compare_indexed_db_keys(key, target_key);
+                            let order = order.then_with(|| {
+                                target_primary
+                                    .as_ref()
+                                    .map_or(std::cmp::Ordering::Equal, |primary| {
+                                        compare_indexed_db_keys(&record.key, primary)
+                                    })
+                            });
+                            if reverse {
+                                order.is_le()
+                            } else {
+                                order.is_ge()
+                            }
+                        });
+                    after && target
+                });
+                let position = step.advance.saturating_sub(1) as usize;
+                if position >= records.len() {
+                    Vec::new()
+                } else {
+                    // A step needs one position, not a sorted copy of every
+                    // remaining key. Select in linear time rather than sorting
+                    // the store again on each continue()/advance() request.
+                    records.select_nth_unstable_by(position, |left, right| {
+                        if reverse {
+                            compare(right, left)
+                        } else {
+                            compare(left, right)
+                        }
+                    });
+                    vec![records.swap_remove(position)]
+                }
+            } else {
+                records.sort_by(compare);
+                if reverse {
+                    records.reverse();
+                }
+                records
+            };
+            // Only returned values are cloned. A cursor response never owns
+            // copies of all the values it skipped while locating its position.
+            let records = selected
+                .into_iter()
+                .map(|(key, record)| IdbRecord {
+                    key,
+                    primary_key: record.key.clone(),
+                    value: if cursor_step.as_ref().is_none_or(|step| step.with_value) {
+                        record.value.clone()
+                    } else {
+                        serde_json::Value::Null
+                    },
+                })
+                .collect();
             IdbResponse {
                 records,
                 ..IdbResponse::default()
             }
         }
+        IdbCommand::CursorStep { .. } => unreachable!("cursor step normalized above"),
     };
     if changes_usage && !upgrade_mutation && indexed_db_origin_bytes(databases, origin)? > limit {
         return Err(StorageError::QuotaExceeded {
@@ -1442,7 +1567,8 @@ fn idb_command_changes_storage(command: &IdbCommand) -> bool {
         | IdbCommand::Get { .. }
         | IdbCommand::GetAll { .. }
         | IdbCommand::Count { .. }
-        | IdbCommand::Cursor { .. } => false,
+        | IdbCommand::Cursor { .. }
+        | IdbCommand::CursorStep { .. } => false,
     }
 }
 
@@ -1739,6 +1865,188 @@ fn indexed_db_origin_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn indexed_db_cursor_steps_bound_values_and_preserve_positions() {
+        use serde_json::json;
+        let mut store = ObjectStoreData::default();
+        store.indexes.insert(
+            "group".into(),
+            IndexDefinition {
+                name: "group".into(),
+                key_path: "group".into(),
+                unique: false,
+                multi_entry: false,
+            },
+        );
+        for (key, group) in [(1, "a"), (2, "a"), (3, "b")] {
+            store.records.insert(
+                encode_key(&json!(key)).unwrap(),
+                RecordData {
+                    key: json!(key),
+                    value: json!({"group":group,"payload":"x".repeat(256*1024)}),
+                },
+            );
+        }
+        let mut databases = BTreeMap::from([(
+            ("origin".into(), "db".into()),
+            DatabaseData {
+                stores: BTreeMap::from([("records".into(), store)]),
+                ..Default::default()
+            },
+        )]);
+        let read = |databases: &mut BTreeMap<(String, String), DatabaseData>, reverse, step| {
+            execute_idb(
+                databases,
+                "origin",
+                IdbCommand::CursorStep {
+                    database: "db".into(),
+                    store: "records".into(),
+                    index: Some("group".into()),
+                    query: None,
+                    reverse,
+                    step,
+                },
+                64 * 1024 * 1024,
+            )
+            .unwrap()
+        };
+        let first = IdbCursorStep {
+            after: None,
+            target: None,
+            advance: 1,
+            unique: false,
+            with_value: true,
+        };
+        let response = read(&mut databases, false, first.clone());
+        assert_eq!(response.records.len(), 1);
+        assert_eq!(response.records[0].primary_key, json!(1));
+        assert!(serde_json::to_vec(&response).unwrap().len() < 270 * 1024);
+        let second = IdbCursorStep {
+            after: Some((json!("a"), json!(1))),
+            ..first.clone()
+        };
+        assert_eq!(
+            read(&mut databases, false, second.clone()).records[0].primary_key,
+            json!(2)
+        );
+        assert_eq!(
+            read(
+                &mut databases,
+                false,
+                IdbCursorStep {
+                    advance: 2,
+                    ..first.clone()
+                }
+            )
+            .records[0]
+                .primary_key,
+            json!(2)
+        );
+        assert_eq!(
+            read(
+                &mut databases,
+                false,
+                IdbCursorStep {
+                    target: Some((json!("a"), Some(json!(2)))),
+                    ..first.clone()
+                }
+            )
+            .records[0]
+                .primary_key,
+            json!(2)
+        );
+        assert_eq!(
+            read(
+                &mut databases,
+                false,
+                IdbCursorStep {
+                    unique: true,
+                    ..second.clone()
+                }
+            )
+            .records[0]
+                .primary_key,
+            json!(3)
+        );
+        let backwards = IdbCursorStep {
+            after: Some((json!("b"), json!(3))),
+            ..first.clone()
+        };
+        assert_eq!(
+            read(&mut databases, true, backwards.clone()).records[0].primary_key,
+            json!(2)
+        );
+        assert_eq!(
+            read(
+                &mut databases,
+                true,
+                IdbCursorStep {
+                    unique: true,
+                    ..backwards
+                }
+            )
+            .records[0]
+                .primary_key,
+            json!(1)
+        );
+        assert!(
+            read(
+                &mut databases,
+                false,
+                IdbCursorStep {
+                    after: Some((json!("b"), json!(3))),
+                    ..first.clone()
+                }
+            )
+            .records
+            .is_empty()
+        );
+        let keys = read(
+            &mut databases,
+            false,
+            IdbCursorStep {
+                with_value: false,
+                ..first.clone()
+            },
+        );
+        assert!(keys.records[0].value.is_null());
+        assert!(serde_json::to_vec(&keys).unwrap().len() < 1024);
+        let all = execute_idb(
+            &mut databases,
+            "origin",
+            IdbCommand::Cursor {
+                database: "db".into(),
+                store: "records".into(),
+                index: None,
+                query: None,
+                reverse: false,
+            },
+            64 * 1024 * 1024,
+        )
+        .unwrap();
+        assert_eq!(all.records.len(), 3);
+        assert!(serde_json::to_vec(&all).unwrap().len() > 768 * 1024);
+        // Steps see writes between requests, without an old cursor snapshot.
+        let store = databases
+            .get_mut(&("origin".into(), "db".into()))
+            .unwrap()
+            .stores
+            .get_mut("records")
+            .unwrap();
+        store.records.remove(&encode_key(&json!(2)).unwrap());
+        store.records.insert(
+            encode_key(&json!(1.5)).unwrap(),
+            RecordData {
+                key: json!(1.5),
+                value: json!({"group":"a"}),
+            },
+        );
+        assert_eq!(
+            read(&mut databases, false, second).records[0].primary_key,
+            json!(1.5)
+        );
+    }
 
     fn scope(page: u64) -> StorageScope {
         StorageScope {

@@ -26,7 +26,7 @@ use crate::{
         generated_interface, generated_member_by_id,
     },
     platform::{
-        HostOperationId, IdbHostCommand, IdbHostResponse, IdbIndexDefinition,
+        HostOperationId, IdbCursorStep, IdbHostCommand, IdbHostResponse, IdbIndexDefinition,
         IdbObjectStoreDefinition, IdbWrite, PlatformHost, PlatformHostCompletion,
         PlatformHostRequest, PlatformHostResult, PlatformHttpRequest, PlatformWebSocketFrame,
     },
@@ -446,7 +446,6 @@ struct IdbCursorRecord {
     source_id: u64,
     direction: String,
     query: Option<serde_json::Value>,
-    mutation_revision: u64,
     records: Vec<crate::platform::IdbHostRecord>,
     index: usize,
     got_value: bool,
@@ -637,10 +636,6 @@ enum DeferredPlatformTask {
         url: String,
         blob: BlobRecord,
     },
-    AdvanceIdbCursor {
-        cursor_id: u64,
-        request_id: u64,
-    },
     FinalizeIdbTransaction {
         transaction_id: u64,
         commit: bool,
@@ -682,12 +677,6 @@ enum IdbCompletionAction {
     },
     CursorRefresh {
         cursor_id: u64,
-        mutation_revision: u64,
-        current_key: serde_json::Value,
-        current_primary_key: serde_json::Value,
-        requested_key: Option<serde_json::Value>,
-        requested_primary_key: Option<serde_json::Value>,
-        advance_count: Option<u32>,
     },
     TransactionFinalized {
         transaction_id: u64,
@@ -1087,7 +1076,6 @@ pub struct V8BindingState {
     blob_urls: RefCell<BTreeMap<String, u64>>,
     next_blob_url_id: Cell<u64>,
     idb_transactions_to_deactivate: RefCell<BTreeSet<u64>>,
-    idb_transaction_mutation_revisions: RefCell<BTreeMap<u64, u64>>,
     node_documents: RefCell<BTreeMap<NodeId, NodeId>>,
     next_traversal_id: Cell<u64>,
     traversals: RefCell<BTreeMap<u64, TraversalRecord>>,
@@ -1226,13 +1214,13 @@ impl V8BindingState {
         // Alternate queue priority across bounded checkpoints. A keep-alive
         // request can always have a host result ready; always taking that
         // result first would starve another transaction's completion event.
-        // Conversely, cached cursor tasks must not starve host results.
+        // Conversely, a chain of deferred tasks must not starve host results.
         let prefer_deferred =
             self.prefer_deferred_platform_tasks.replace(false) && deferred_budget > 0;
         let mut count = 0;
         while count < limit && !prefer_deferred {
-            // Host completion arrival and cached cursor readiness are separate
-            // mechanisms. Neither may overtake an earlier transaction request.
+            // Host completion arrival must not overtake an earlier transaction
+            // request, including a cursor step submitted before another read.
             let ready = self
                 .ready_platform_completions
                 .borrow()
@@ -1266,13 +1254,6 @@ impl V8BindingState {
             let Some(task) = self.deferred_platform_tasks.borrow_mut().pop_front() else {
                 break;
             };
-            if let DeferredPlatformTask::AdvanceIdbCursor { request_id, .. } = &task
-                && !idb_request_delivery_ready(self, *request_id)
-            {
-                self.deferred_platform_tasks.borrow_mut().push_back(task);
-                deferred_processed += 1;
-                continue;
-            }
             let completing_transaction = match &task {
                 DeferredPlatformTask::Event {
                     target_id,
@@ -1383,42 +1364,6 @@ impl V8BindingState {
                 } => self.finalize_idb_open(scope, request_id, database_id, transaction_id)?,
                 DeferredPlatformTask::CompleteBlobXhr { xhr_id, url, blob } => {
                     self.complete_blob_xhr(scope, xhr_id, url, blob)?
-                }
-                DeferredPlatformTask::AdvanceIdbCursor {
-                    cursor_id,
-                    request_id,
-                } => {
-                    remove_idb_request_from_queue(self, request_id)?;
-                    let value = {
-                        let mut record = platform_object_mut(self, cursor_id)?;
-                        let PlatformObjectRecord::IdbCursor(cursor) = &mut *record else {
-                            return Err(V8BindingError::Allocation("IDBCursor record"));
-                        };
-                        cursor.iteration_pending = false;
-                        cursor.got_value = cursor.index < cursor.records.len();
-                        cursor.key_value = None;
-                        cursor.primary_key_value = None;
-                        cursor.record_value = None;
-                        cursor.got_value.then_some((cursor_id, cursor.with_value))
-                    };
-                    let value = match value {
-                        Some((cursor_id, with_value)) => new_platform_object(
-                            scope,
-                            self,
-                            if with_value {
-                                "IDBCursorWithValue"
-                            } else {
-                                "IDBCursor"
-                            },
-                            cursor_id,
-                        )?
-                        .into(),
-                        None => v8::null(scope).into(),
-                    };
-                    set_idb_request_result(scope, self, request_id, value)?;
-                    self.activate_idb_request_transaction(request_id)?;
-                    dispatch_platform_event(scope, self, request_id, "success", None)?;
-                    finish_idb_request(self, request_id)?;
                 }
                 DeferredPlatformTask::FinalizeIdbTransaction {
                     transaction_id,
@@ -2507,15 +2452,7 @@ impl V8BindingState {
                         response.count.unwrap_or(response.records.len() as u64) as f64,
                     )
                     .into(),
-                    IdbCompletionAction::CursorRefresh {
-                        cursor_id,
-                        mutation_revision,
-                        current_key,
-                        current_primary_key,
-                        requested_key,
-                        requested_primary_key,
-                        advance_count,
-                    } => {
+                    IdbCompletionAction::CursorRefresh { cursor_id } => {
                         let (direction, with_value) = {
                             let record = platform_object(self, cursor_id)?;
                             let PlatformObjectRecord::IdbCursor(cursor) = &*record else {
@@ -2524,52 +2461,13 @@ impl V8BindingState {
                             (cursor.direction.clone(), cursor.with_value)
                         };
                         let records = normalize_idb_cursor_records(response.records, &direction);
-                        let reverse = direction.starts_with("prev");
-                        let after_current = |record: &crate::platform::IdbHostRecord| {
-                            let key_order = compare_idb_json_keys(&record.key, &current_key);
-                            let primary_order =
-                                compare_idb_json_keys(&record.primary_key, &current_primary_key);
-                            if reverse {
-                                key_order.is_lt() || (key_order.is_eq() && primary_order.is_lt())
-                            } else {
-                                key_order.is_gt() || (key_order.is_eq() && primary_order.is_gt())
-                            }
-                        };
-                        let mut matching = records.iter().enumerate().filter(|(_, record)| {
-                            if let Some(requested_key) = &requested_key {
-                                let key_order = compare_idb_json_keys(&record.key, requested_key);
-                                let key_matches = if reverse {
-                                    key_order.is_le()
-                                } else {
-                                    key_order.is_ge()
-                                };
-                                key_matches
-                                    && requested_primary_key.as_ref().is_none_or(|primary| {
-                                        if !key_order.is_eq() {
-                                            true
-                                        } else {
-                                            let primary_order =
-                                                compare_idb_json_keys(&record.primary_key, primary);
-                                            if reverse {
-                                                primary_order.is_le()
-                                            } else {
-                                                primary_order.is_ge()
-                                            }
-                                        }
-                                    })
-                            } else {
-                                after_current(record)
-                            }
-                        });
-                        let skip = advance_count.unwrap_or(1).saturating_sub(1) as usize;
-                        let next_index = matching.nth(skip).map(|(index, _)| index);
+                        let next_index = (!records.is_empty()).then_some(0);
                         {
                             let mut record = platform_object_mut(self, cursor_id)?;
                             let PlatformObjectRecord::IdbCursor(cursor) = &mut *record else {
                                 return Err(V8BindingError::Allocation("IDBCursor record"));
                             };
                             cursor.records = records;
-                            cursor.mutation_revision = mutation_revision;
                             cursor.index = next_index.unwrap_or(cursor.records.len());
                             cursor.got_value = next_index.is_some();
                             cursor.iteration_pending = false;
@@ -2609,10 +2507,6 @@ impl V8BindingState {
                                     source_id,
                                     direction,
                                     query,
-                                    mutation_revision: idb_transaction_mutation_revision(
-                                        self,
-                                        cursor_source_transaction_id(self, source_id)?,
-                                    ),
                                     records,
                                     index: 0,
                                     got_value: true,
@@ -3295,7 +3189,6 @@ pub fn install_generated_bindings_with_root_for_global(
         blob_urls: RefCell::new(BTreeMap::new()),
         next_blob_url_id: Cell::new(1),
         idb_transactions_to_deactivate: RefCell::new(BTreeSet::new()),
-        idb_transaction_mutation_revisions: RefCell::new(BTreeMap::new()),
         node_documents: RefCell::new(BTreeMap::from([(document, document)])),
         next_traversal_id: Cell::new(1),
         traversals: RefCell::new(BTreeMap::new()),
@@ -5112,44 +5005,6 @@ fn normalize_idb_cursor_records(
     }
 }
 
-fn idb_json_key_matches_query(query: Option<&serde_json::Value>, key: &serde_json::Value) -> bool {
-    let Some(range) = query.and_then(serde_json::Value::as_object) else {
-        return query.is_none_or(|query| compare_idb_json_keys(query, key).is_eq());
-    };
-    if range
-        .get("__oryn_key_range")
-        .and_then(|value| value.as_bool())
-        != Some(true)
-    {
-        return compare_idb_json_keys(query.expect("query exists"), key).is_eq();
-    }
-    if let Some(lower) = range.get("lower").filter(|value| !value.is_null()) {
-        let ordering = compare_idb_json_keys(key, lower);
-        if ordering.is_lt()
-            || (ordering.is_eq()
-                && range
-                    .get("lower_open")
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(false))
-        {
-            return false;
-        }
-    }
-    if let Some(upper) = range.get("upper").filter(|value| !value.is_null()) {
-        let ordering = compare_idb_json_keys(key, upper);
-        if ordering.is_gt()
-            || (ordering.is_eq()
-                && range
-                    .get("upper_open")
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(false))
-        {
-            return false;
-        }
-    }
-    true
-}
-
 const COMPOUND_KEY_PATH_PREFIX: &str = "__oryn_compound_key_path__:";
 
 fn idb_json_key_path(value: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
@@ -5984,36 +5839,6 @@ fn revoke_staged_idb_auto_commit(
     Ok(())
 }
 
-fn idb_transaction_mutation_revision(state: &V8BindingState, transaction_id: u64) -> u64 {
-    state
-        .idb_transaction_mutation_revisions
-        .borrow()
-        .get(&transaction_id)
-        .copied()
-        .unwrap_or(0)
-}
-
-fn mark_idb_mutation(state: &V8BindingState, transaction_id: u64) {
-    let mut revisions = state.idb_transaction_mutation_revisions.borrow_mut();
-    let revision = revisions.entry(transaction_id).or_default();
-    *revision = revision.wrapping_add(1);
-}
-
-fn cursor_source_transaction_id(
-    state: &V8BindingState,
-    source_id: u64,
-) -> Result<u64, V8BindingError> {
-    let store_id = match &*platform_object(state, source_id)? {
-        PlatformObjectRecord::IdbIndex(index) => index.object_store_id,
-        PlatformObjectRecord::IdbObjectStore(_) => source_id,
-        _ => return Err(V8BindingError::Allocation("IDBCursor source record")),
-    };
-    match &*platform_object(state, store_id)? {
-        PlatformObjectRecord::IdbObjectStore(store) => Ok(store.transaction_id),
-        _ => Err(V8BindingError::Allocation("IDBCursor object store record")),
-    }
-}
-
 fn idb_request_delivery_ready(state: &V8BindingState, request_id: u64) -> bool {
     let objects = state.platform_objects.borrow();
     let Some(PlatformObjectRecord::IdbRequest(request)) = objects.get(&request_id) else {
@@ -6078,8 +5903,6 @@ fn cancel_idb_transaction_requests(
     }
     state.queued_idb_operations.borrow_mut().retain(|operation|
         !matches!(&operation.pending, PendingPlatformOperation::IndexedDb { request_id, .. } if ids.contains(request_id)));
-    state.deferred_platform_tasks.borrow_mut().retain(|task|
-        !matches!(task, DeferredPlatformTask::AdvanceIdbCursor { request_id, .. } if ids.contains(request_id)));
     for request_id in requests {
         let internal = matches!(&*platform_object(state, request_id)?, PlatformObjectRecord::IdbRequest(request) if request.internal);
         if internal {
@@ -18987,7 +18810,6 @@ fn call_platform_operation<'s>(
                 },
                 IdbCompletionAction::Key,
             )?;
-            mark_idb_mutation(state, transaction_id);
             return Ok(Some(
                 new_platform_object(scope, state, "IDBRequest", request_id)?.into(),
             ));
@@ -19013,7 +18835,6 @@ fn call_platform_operation<'s>(
             };
             let request_id = new_idb_request_for_source(state, Some(transaction_id), Some(id));
             submit_idb(scope, state, request_id, command, IdbCompletionAction::Unit)?;
-            mark_idb_mutation(state, transaction_id);
             return Ok(Some(
                 new_platform_object(scope, state, "IDBRequest", request_id)?.into(),
             ));
@@ -19325,8 +19146,6 @@ fn call_platform_operation<'s>(
                 current_value,
                 with_value,
                 query,
-                current_index,
-                mutation_revision,
             ) = {
                 let record = platform_object(state, id)?;
                 let PlatformObjectRecord::IdbCursor(cursor) = &*record else {
@@ -19355,8 +19174,6 @@ fn call_platform_operation<'s>(
                     current.value.clone(),
                     cursor.with_value,
                     cursor.query.clone(),
-                    cursor.index,
-                    cursor.mutation_revision,
                 )
             };
             let reverse = direction.starts_with("prev");
@@ -19407,78 +19224,6 @@ fn call_platform_operation<'s>(
                         .get_or_insert_with(|| v8::Global::new(scope, retained_value));
                 }
             }
-            if mutation_revision == idb_transaction_mutation_revision(state, transaction_id) {
-                revoke_staged_idb_auto_commit(state, transaction_id)?;
-                let next_index = {
-                    let record = platform_object(state, id)?;
-                    let PlatformObjectRecord::IdbCursor(cursor) = &*record else {
-                        return Err(V8BindingError::Allocation("IDBCursor record"));
-                    };
-                    if let Some(count) = advance_count {
-                        current_index.saturating_add(count as usize)
-                    } else if let Some(requested_key) = &requested_key {
-                        cursor
-                            .records
-                            .iter()
-                            .enumerate()
-                            .skip(current_index.saturating_add(1))
-                            .find(|(_, record)| {
-                                let key_order = compare_idb_json_keys(&record.key, requested_key);
-                                let key_matches = if reverse {
-                                    key_order.is_le()
-                                } else {
-                                    key_order.is_ge()
-                                };
-                                key_matches
-                                    && requested_primary.as_ref().is_none_or(|primary| {
-                                        if !key_order.is_eq() {
-                                            true
-                                        } else {
-                                            let primary_order =
-                                                compare_idb_json_keys(&record.primary_key, primary);
-                                            if reverse {
-                                                primary_order.is_le()
-                                            } else {
-                                                primary_order.is_ge()
-                                            }
-                                        }
-                                    })
-                            })
-                            .map_or(cursor.records.len(), |(index, _)| index)
-                    } else {
-                        current_index.saturating_add(1)
-                    }
-                };
-                {
-                    let mut record = platform_object_mut(state, id)?;
-                    let PlatformObjectRecord::IdbCursor(cursor) = &mut *record else {
-                        return Err(V8BindingError::Allocation("IDBCursor record"));
-                    };
-                    cursor.index = next_index.min(cursor.records.len());
-                    cursor.got_value = false;
-                    cursor.iteration_pending = true;
-                }
-                {
-                    let mut record = platform_object_mut(state, request_id)?;
-                    let PlatformObjectRecord::IdbRequest(request) = &mut *record else {
-                        return Err(V8BindingError::Allocation("IDBRequest record"));
-                    };
-                    request.done = false;
-                }
-                if let PlatformObjectRecord::IdbTransaction(transaction) =
-                    &mut *platform_object_mut(state, transaction_id)?
-                {
-                    transaction.pending_requests = transaction.pending_requests.saturating_add(1);
-                    transaction.request_queue.push_back(request_id);
-                }
-                state.deferred_platform_tasks.borrow_mut().push_back(
-                    DeferredPlatformTask::AdvanceIdbCursor {
-                        cursor_id: id,
-                        request_id,
-                    },
-                );
-                return Ok(None);
-            }
             let (database, store, _) = idb_store_context(state, store_id)?;
             let index = match &*platform_object(state, source_id)? {
                 PlatformObjectRecord::IdbIndex(index) => Some(index.name.clone()),
@@ -19504,22 +19249,21 @@ fn call_platform_operation<'s>(
                 scope,
                 state,
                 request_id,
-                IdbHostCommand::Cursor {
+                IdbHostCommand::CursorStep {
                     database,
                     store,
                     index,
                     query,
                     reverse,
+                    step: IdbCursorStep {
+                        after: Some((current_key, current_primary_key)),
+                        target: requested_key.map(|key| (key, requested_primary)),
+                        advance: advance_count.unwrap_or(1),
+                        unique: direction.ends_with("unique"),
+                        with_value,
+                    },
                 },
-                IdbCompletionAction::CursorRefresh {
-                    cursor_id: id,
-                    mutation_revision: idb_transaction_mutation_revision(state, transaction_id),
-                    current_key,
-                    current_primary_key,
-                    requested_key,
-                    requested_primary_key: requested_primary,
-                    advance_count,
-                },
+                IdbCompletionAction::CursorRefresh { cursor_id: id },
             )?;
             return Ok(None);
         }
@@ -19631,46 +19375,6 @@ fn call_platform_operation<'s>(
                     IdbCompletionAction::Key
                 },
             )?;
-            let index_configuration = match &*platform_object(state, source_id)? {
-                PlatformObjectRecord::IdbIndex(index) => {
-                    Some((index.key_path.clone(), index.multi_entry))
-                }
-                _ => None,
-            };
-            if member == "update"
-                && let Some(update_value) = update_value
-                && let Some((index_key_path, multi_entry)) = index_configuration
-            {
-                let index_keys =
-                    crate::indexed_db::index_keys(&update_value, &index_key_path, multi_entry);
-                let mut record = platform_object_mut(state, id)?;
-                let PlatformObjectRecord::IdbCursor(cursor) = &mut *record else {
-                    return Err(V8BindingError::Allocation("IDBCursor record"));
-                };
-                let query = cursor.query.as_ref();
-                let mut future = cursor.records.split_off(cursor.index.saturating_add(1));
-                future.extend(index_keys.into_iter().filter_map(|key| {
-                    idb_json_key_matches_query(query, &key).then(|| {
-                        crate::platform::IdbHostRecord {
-                            key,
-                            primary_key: primary_key.clone(),
-                            value: update_value.clone(),
-                        }
-                    })
-                }));
-                future.sort_by(|left, right| {
-                    compare_idb_json_keys(&left.key, &right.key)
-                        .then_with(|| compare_idb_json_keys(&left.primary_key, &right.primary_key))
-                });
-                future.dedup_by(|left, right| {
-                    compare_idb_json_keys(&left.key, &right.key).is_eq()
-                        && compare_idb_json_keys(&left.primary_key, &right.primary_key).is_eq()
-                });
-                if cursor.direction.starts_with("prev") {
-                    future.reverse();
-                }
-                cursor.records.extend(future);
-            }
             return Ok(Some(
                 new_platform_object(scope, state, "IDBRequest", request_id)?.into(),
             ));
@@ -20786,12 +20490,19 @@ fn idb_source_request<'s>(
             IdbCompletionAction::Count,
         ),
         "openCursor" | "openKeyCursor" => (
-            IdbHostCommand::Cursor {
+            IdbHostCommand::CursorStep {
                 database,
                 store,
                 index,
                 query: query.clone(),
                 reverse: direction.starts_with("prev"),
+                step: IdbCursorStep {
+                    after: None,
+                    target: None,
+                    advance: 1,
+                    unique: direction.ends_with("unique"),
+                    with_value: member == "openCursor",
+                },
             },
             IdbCompletionAction::Cursor {
                 source_id,
@@ -30047,6 +29758,33 @@ mod tests {
                 },
                 request => request,
             };
+            let (request, cursor_step) = match request {
+                PlatformHostRequest::IndexedDb {
+                    origin,
+                    command:
+                        IdbHostCommand::CursorStep {
+                            database,
+                            store,
+                            index,
+                            query,
+                            reverse,
+                            step,
+                        },
+                } => (
+                    PlatformHostRequest::IndexedDb {
+                        origin,
+                        command: IdbHostCommand::Cursor {
+                            database,
+                            store,
+                            index,
+                            query,
+                            reverse,
+                        },
+                    },
+                    Some(step),
+                ),
+                request => (request, None),
+            };
             let result = match request {
                 PlatformHostRequest::HttpStart { request } => PlatformHostResult::HttpStarted {
                     stream_id: 7,
@@ -30102,6 +29840,45 @@ mod tests {
                     ];
                     if reverse {
                         records.reverse();
+                    }
+                    if let Some(step) = cursor_step {
+                        records.retain(|record| {
+                            let after = step.after.as_ref().is_none_or(|(key, primary)| {
+                                let order =
+                                    compare_idb_json_keys(&record.key, key).then_with(|| {
+                                        compare_idb_json_keys(&record.primary_key, primary)
+                                    });
+                                if reverse {
+                                    order.is_lt()
+                                } else {
+                                    order.is_gt()
+                                }
+                            });
+                            let target = step.target.as_ref().is_none_or(|(key, primary)| {
+                                let order =
+                                    compare_idb_json_keys(&record.key, key).then_with(|| {
+                                        primary.as_ref().map_or(std::cmp::Ordering::Equal, |key| {
+                                            compare_idb_json_keys(&record.primary_key, key)
+                                        })
+                                    });
+                                if reverse {
+                                    order.is_le()
+                                } else {
+                                    order.is_ge()
+                                }
+                            });
+                            after && target
+                        });
+                        records = records
+                            .into_iter()
+                            .nth(step.advance.saturating_sub(1) as usize)
+                            .into_iter()
+                            .collect();
+                        if !step.with_value {
+                            for record in &mut records {
+                                record.value = serde_json::Value::Null;
+                            }
+                        }
                     }
                     PlatformHostResult::IndexedDb {
                         response: crate::platform::IdbHostResponse {
@@ -30871,7 +30648,7 @@ mod tests {
     }
 
     #[test]
-    fn indexeddb_cached_cursor_and_host_requests_preserve_submission_order() {
+    fn indexeddb_cursor_and_host_requests_preserve_submission_order() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(
             html::parse("<body></body>").into_runtime().unwrap(),

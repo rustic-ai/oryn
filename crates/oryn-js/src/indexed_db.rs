@@ -139,7 +139,13 @@ impl Key {
 }
 
 pub fn compare_json(a: &Value, b: &Value) -> Option<Ordering> {
-    Some(Key::from_json(a)?.compare(&Key::from_json(b)?))
+    // Cursor scans compare ordinary keys repeatedly. Their ordering can be
+    // computed without allocating an owned key for each side of every comparison.
+    match (a, b) {
+        (Value::String(a), Value::String(b)) => Some(a.encode_utf16().cmp(b.encode_utf16())),
+        (Value::Number(a), Value::Number(b)) => a.as_f64()?.partial_cmp(&b.as_f64()?),
+        _ => Some(Key::from_json(a)?.compare(&Key::from_json(b)?)),
+    }
 }
 
 /// Convert a stored clone value into a key, preserving its type.
@@ -325,6 +331,45 @@ fn property(value: &Value, name: &str) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ordinary_json_key_comparisons_preserve_utf16_and_numeric_order() {
+        assert_eq!(
+            super::compare_json(&serde_json::json!("𐀀"), &serde_json::json!("\u{e000}")),
+            Some(std::cmp::Ordering::Less)
+        );
+        assert_eq!(
+            super::compare_json(&serde_json::json!(1), &serde_json::json!(1.0)),
+            Some(std::cmp::Ordering::Equal)
+        );
+        assert_eq!(
+            super::compare_json(&serde_json::json!(-0.0), &serde_json::json!(0)),
+            Some(std::cmp::Ordering::Equal)
+        );
+        let keys = [
+            serde_json::json!(""),
+            serde_json::json!("a"),
+            serde_json::json!("aa"),
+            serde_json::json!("💡"),
+            serde_json::json!("\u{e000}"),
+            serde_json::json!({"__oryn_idb_key_type":"string","units":[55296]}),
+            serde_json::json!(-3),
+            serde_json::json!(0),
+            serde_json::json!(1.0),
+        ];
+        for left in &keys {
+            for right in &keys {
+                assert_eq!(
+                    super::compare_json(left, right),
+                    Some(
+                        super::Key::from_json(left)
+                            .unwrap()
+                            .compare(&super::Key::from_json(right).unwrap())
+                    )
+                );
+            }
+        }
+    }
+
     use super::*;
     #[test]
     fn generated_key_injection_rejects_existing_primitive_parents() {

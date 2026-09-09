@@ -48,6 +48,16 @@ pub struct IdbWrite {
     pub add_only: bool,
 }
 
+/// A bounded cursor request. Position pairs use index key then primary key.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IdbCursorStep {
+    pub after: Option<(serde_json::Value, serde_json::Value)>,
+    pub target: Option<(serde_json::Value, Option<serde_json::Value>)>,
+    pub advance: u32,
+    pub unique: bool,
+    pub with_value: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum IdbHostCommand {
@@ -140,6 +150,14 @@ pub enum IdbHostCommand {
         index: Option<String>,
         query: Option<serde_json::Value>,
         reverse: bool,
+    },
+    CursorStep {
+        database: String,
+        store: String,
+        index: Option<String>,
+        query: Option<serde_json::Value>,
+        reverse: bool,
+        step: IdbCursorStep,
     },
 }
 

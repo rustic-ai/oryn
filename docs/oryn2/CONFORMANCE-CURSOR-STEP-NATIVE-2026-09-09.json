@@ -1,0 +1,4948 @@
+{
+  "schema_version": 1,
+  "qualification": "Focused native evidence only; signed cursor resource validation and full-inventory qualification remain pending.",
+  "baseline_commit": "9faec9a11ac28d8304bc2058ea092739c88b5a81",
+  "frozen_files": {
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-js/src/indexed_db.rs": "23d0249c65c8af4b28b801e08b5783d3215688f9421a2a4b077416e04a6ba803",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-js/src/platform.rs": "ac3acacaeeead39f40097280e8a4e07883fb93ac2dcaf11105fd48c64ae990c9",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-js/src/v8_bindings.rs": "0693f241093642d720cfd0cab4ffa51d8565108cca12592508be51265172aded",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/src/storage.rs": "e0f0b4fa53ee4a569ca1e53ca1537bf9303f9458477aeccf5f16beac6b798a2d",
+    "/private/tmp/oryn-global-event-prototype-target/release/examples/conformance_focus_context_probe": "f0471013c2ee6b868e007d958f0b19c9b9ef08550041ca7df3b72cf96b7249e1",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/examples/conformance_focus_context_probe.rs": "6dca1b4feb5be0e7eeb0430163eee86c59fabfe8d27ca368dbfa9acb2760debf"
+  },
+  "implementation": [
+    "CursorStep retrieves one record using key and primary-key continuation, requested target, direction, uniqueness and advance count.",
+    "Storage selects using keys and record references, then clones only the returned value. Key-only cursor responses omit values.",
+    "Bulk APIs retain their full-result Cursor path. Cursor steps query live transaction data instead of retaining whole-store caches.",
+    "Ordinary steps select a position in linear time; string comparison preserves UTF-16 order without temporary key vectors; validation does not serialize storage IDs."
+  ],
+  "validation": {
+    "javascript_tests_passed": 190,
+    "javascript_tests_ignored": 2,
+    "storage_tests_passed": 24,
+    "strict_js_native_clippy": "passed",
+    "native_probe_build": "passed",
+    "cursor_tests": "Four unchanged executions pass; eight assertions pass.",
+    "large_cursor_elapsed_seconds": {
+      "window": 5.733191874809563,
+      "dedicatedworker": 5.2458049999549985
+    }
+  },
+  "native_audit": {
+    "baseline_ledger_sha256": "e0a5e98d60cbf66415412d7170296fa231b1b3ae009f66d122dacb3225a89f40",
+    "log_sha256": "7a100ba08bc50af36acc2eac5d8fca0855790dd02464141ead59ad599f9fc958",
+    "exact_selected_coverage": true,
+    "required": 456,
+    "passed": 420,
+    "gains": [
+      "IndexedDB/interleaved-cursors-large.any.js|dedicatedworker|",
+      "IndexedDB/interleaved-cursors-large.any.js|window|",
+      "IndexedDB/interleaved-cursors-small.any.js|dedicatedworker|",
+      "IndexedDB/interleaved-cursors-small.any.js|window|"
+    ],
+    "losses": [],
+    "assertion_counts": {
+      "missing_prior_passes": 24,
+      "regressed_prior_passes": 0,
+      "corrected_existing": 0
+    },
+    "historical_regressions": [],
+    "rows": [
+      {
+        "id": "IndexedDB/abort-in-initial-upgradeneeded.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/abort-in-initial-upgradeneeded.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/back-forward-cache-open-connection.window.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/back-forward-cache-open-transaction.window.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/bindings-inject-keys-bypass.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/bindings-inject-keys-bypass.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/bindings-inject-values-bypass.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/bindings-inject-values-bypass.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-composite-blob-reads.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-composite-blob-reads.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-contenttype.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-contenttype.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-delete-objectstore-db.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-delete-objectstore-db.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-valid-after-abort.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-valid-after-abort.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-valid-after-deletion.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-valid-after-deletion.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-valid-before-commit.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/blob-valid-before-commit.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/clone-before-keypath-eval.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/clone-before-keypath-eval.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/close-in-upgradeneeded.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/close-in-upgradeneeded.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/crashtests/create-index.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/crashtests/create-index.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/cursor-overloads.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/cursor-overloads.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/database-names-by-origin.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/delete-range.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/delete-range.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/delete-request-queue.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/delete-request-queue.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/error-attributes.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/error-attributes.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/event-dispatch-active-flag.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/event-dispatch-active-flag.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/file_support.sub.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/fire-error-event-exception.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 17,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/fire-error-event-exception.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 17,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/fire-success-event-exception.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/fire-success-event-exception.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/fire-upgradeneeded-event-exception.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/fire-upgradeneeded-event-exception.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/get-databases.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/get-databases.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/globalscope-indexedDB-SameObject.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/globalscope-indexedDB-SameObject.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/historical.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 15,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/historical.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 15,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-binary-key-detached.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-binary-key-detached.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-binary-key-roundtrip.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 16,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-binary-key-roundtrip.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 16,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-explicit-commit-throw.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-explicit-commit-throw.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-explicit-commit.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 12,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-explicit-commit.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 12,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-partitioned-basic.sub.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-partitioned-coverage.sub.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 31,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb-partitioned-persistence.sub.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb_binary_key_conversion.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb_binary_key_conversion.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idb_webworkers.htm|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-advance-continue-async.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-advance-continue-async.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-advance-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-advance-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-advance-invalid.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-advance-invalid.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-advance.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-advance.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-continue-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-continue-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-continue.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-continue.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 13,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 13,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-continuePrimaryKey-exceptions.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-continuePrimaryKey-exceptions.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-continuePrimaryKey.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-continuePrimaryKey.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-delete-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-delete-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-direction-index-keyrange.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-direction-index-keyrange.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-direction-index.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-direction-index.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-direction-objectstore-keyrange.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-direction-objectstore-keyrange.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-direction-objectstore.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-direction-objectstore.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-direction.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-direction.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-iterating-update.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-iterating-update.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-key.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-key.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-primarykey.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-primarykey.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-request-source.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-request-source.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-request.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-request.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-reused.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-reused.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-source.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-source.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-update-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor-update-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_advance_index.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_advance_index.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_advance_objectstore.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_advance_objectstore.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_continue_delete_objectstore.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_continue_delete_objectstore.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_continue_index.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 10,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_continue_index.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 10,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_continue_invalid.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_continue_invalid.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_continue_objectstore.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_continue_objectstore.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_delete_index.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_delete_index.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_delete_objectstore.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_delete_objectstore.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_iterating.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_iterating.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_update_index.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 9,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_update_index.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 9,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_update_objectstore.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 9,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbcursor_update_objectstore.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 9,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase-createObjectStore-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase-createObjectStore-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase-deleteObjectStore-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase-deleteObjectStore-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase-transaction-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase-transaction-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase_close.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase_close.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase_createObjectStore.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 27,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase_createObjectStore.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 27,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase_deleteObjectStore.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase_deleteObjectStore.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase_transaction.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbdatabase_transaction.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-databases-opaque-origin.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-deleteDatabase-opaque-origin.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-deleteDatabase-request-success.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-deleteDatabase-request-success.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-open-error-properties.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-open-error-properties.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-open-opaque-origin.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-open-request-error.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-open-request-error.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-open-request-success.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-open-request-success.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory-origin-isolation.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory_cmp.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 12,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory_cmp.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 12,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory_deleteDatabase.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory_deleteDatabase.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory_open.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 29,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbfactory_open.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 29,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-cross-realm-methods.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-getAll-enforcerange.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-getAll-enforcerange.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-getAllKeys-enforcerange.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-getAllKeys-enforcerange.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-multientry.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-multientry.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-objectStore-SameObject.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-objectStore-SameObject.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-query-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 12,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-query-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 12,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-rename-abort.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-rename-abort.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-rename-errors.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-rename-errors.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-rename.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 9,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-rename.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 9,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-request-source.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex-request-source.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_count.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_count.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_get.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_get.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getAll-options.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 30,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getAll-options.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 30,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getAll.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 19,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getAll.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 19,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getAllKeys-options.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 29,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getAllKeys-options.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 29,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getAllKeys.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 18,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getAllKeys.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 18,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getAllRecords.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 29,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getAllRecords.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 29,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getKey.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_getKey.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_indexNames.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_indexNames.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_keyPath.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_keyPath.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_openCursor.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_openCursor.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_openKeyCursor.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_openKeyCursor.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_reverse_cursor.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_reverse_cursor.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_tombstones.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbindex_tombstones.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbkeyrange-includes.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 11,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbkeyrange-includes.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 11,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbkeyrange.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 10,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbkeyrange.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 10,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbkeyrange_incorrect.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [
+          "IDBKeyRange.bound(noExistingVariable, 1 / goodVariable, noExistingVariable) - noExistingVariable is not defined."
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbkeyrange_incorrect.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [
+          "IDBKeyRange.bound(noExistingVariable, 1 / goodVariable, noExistingVariable) - noExistingVariable is not defined."
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-add-put-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-add-put-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-clear-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-clear-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-cross-realm-methods.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 11,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-delete-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-delete-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-deleteIndex-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-deleteIndex-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-getAll-enforcerange.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-getAll-enforcerange.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-getAllKeys-enforcerange.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-getAllKeys-enforcerange.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-index-finished.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-index-finished.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-put-unique-index-constraint-is-atomic.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-put-unique-index-constraint-is-atomic.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-query-exception-order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 12,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-query-exception-order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 12,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-rename-abort.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-rename-abort.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-rename-errors.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-rename-errors.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-rename-store.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 11,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-rename-store.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 11,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-request-source.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 11,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-request-source.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 11,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-transaction-SameObject.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore-transaction-SameObject.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_add.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 16,
+        "missing_prior_passes": [
+          "Attempt to 'add()' a record that does not meet the constraints of an object store's inline key requirements",
+          "Attempt to 'add()' a record where the record's in-line key is not defined"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_add.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 16,
+        "missing_prior_passes": [
+          "Attempt to 'add()' a record that does not meet the constraints of an object store's inline key requirements",
+          "Attempt to 'add()' a record where the record's in-line key is not defined"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_clear.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_clear.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_count.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_count.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_createIndex.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": false,
+        "observed_assertions": 0,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_createIndex.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 20,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_delete.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_delete.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_deleteIndex.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_deleteIndex.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_get.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_get.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAll-options.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 24,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAll-options.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 24,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAll.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 18,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAll.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 18,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAllKeys-options.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 23,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAllKeys-options.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 23,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAllKeys.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 16,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAllKeys.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 16,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAllRecords.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 25,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAllRecords.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 25,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getKey.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 17,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getKey.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 17,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_index.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_index.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_keyPath.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_keyPath.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_openCursor.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_openCursor.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_openCursor_invalid.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_openCursor_invalid.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_openKeyCursor.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_openKeyCursor.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_put.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 16,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_put.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 16,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbrequest-onupgradeneeded.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbrequest-onupgradeneeded.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbrequest_error.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbrequest_error.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbrequest_result.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbrequest_result.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction-db-SameObject.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction-db-SameObject.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction-objectStore-exception-order.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": false,
+        "observed_assertions": 0,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction-objectStore-exception-order.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 0,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction-objectStore-finished.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction-objectStore-finished.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction-oncomplete.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction-oncomplete.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction_abort.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction_abort.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction_objectStoreNames.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbtransaction_objectStoreNames.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbversionchangeevent.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idbversionchangeevent.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idlharness.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 207,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/idlharness.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 207,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/index_sort_order.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/index_sort_order.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/interleaved-cursors-large.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/interleaved-cursors-large.any.js|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/interleaved-cursors-small.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/interleaved-cursors-small.any.js|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/key-conversion-exceptions.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 27,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/key-conversion-exceptions.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 27,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/key_invalid.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 34,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/key_invalid.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 35,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/key_valid.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 18,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/key_valid.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 18,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keygenerator.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 21,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keygenerator.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 21,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keyorder.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 24,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keyorder.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 24,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keypath-exceptions.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keypath-exceptions.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keypath-special-identifiers.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keypath-special-identifiers.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keypath.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 20,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keypath.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 20,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keypath_invalid.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 24,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keypath_invalid.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 24,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keypath_maxsize.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/keypath_maxsize.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/large-requests-abort.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/large-requests-abort.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/list_ordering.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/list_ordering.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/name-scopes.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/name-scopes.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/nested-cloning-basic.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/nested-cloning-basic.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/nested-cloning-large-multiple.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/nested-cloning-large-multiple.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/nested-cloning-large.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/nested-cloning-large.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 7,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/nested-cloning-small.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/nested-cloning-small.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/objectstore_keyorder.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/objectstore_keyorder.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/open-request-queue.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/open-request-queue.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/parallel-cursors-upgrade.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/parallel-cursors-upgrade.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-indexes-cursors.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-indexes-cursors.any.js|serviceworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-indexes-cursors.any.js|sharedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-indexes-cursors.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-indexes.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-indexes.any.js|serviceworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-indexes.any.js|sharedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-indexes.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-store-cursors.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-store-cursors.any.js|serviceworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-store-cursors.any.js|sharedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-store-cursors.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-store.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-store.any.js|serviceworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-store.any.js|sharedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/reading-autoincrement-store.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/ready-state-destroyed-execution-context.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request-abort-ordering.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request-abort-ordering.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request-event-ordering-large-mixed-with-small-values.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request-event-ordering-large-mixed-with-small-values.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request-event-ordering-large-then-small-values.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request-event-ordering-large-then-small-values.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request-event-ordering-large-values.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request-event-ordering-large-values.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request-event-ordering-small-values.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request-event-ordering-small-values.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request_bubble-and-capture.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/request_bubble-and-capture.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/resources/idb-partitioned-coverage-iframe.html|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 31,
+        "missing_prior_passes": [
+          "Query with empty range where first key < upperBound"
+        ],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/serialize-sharedarraybuffer-throws.https.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/storage-buckets.https.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/storage-buckets.https.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/string-list-ordering.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/string-list-ordering.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone-transaction-state.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone-transaction-state.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|dedicatedworker|?1-20",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|dedicatedworker|?101-last",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|dedicatedworker|?21-40",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|dedicatedworker|?41-60",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|dedicatedworker|?61-80",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|dedicatedworker|?81-100",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|window|?1-20",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 20,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|window|?101-last",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 25,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|window|?21-40",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 20,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|window|?41-60",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 20,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|window|?61-80",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 20,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/structured-clone.any.js|window|?81-100",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 20,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-abort-generator-revert.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-abort-generator-revert.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-abort-index-metadata-revert.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-abort-index-metadata-revert.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-abort-multiple-metadata-revert.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-abort-multiple-metadata-revert.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-abort-object-store-metadata-revert.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-abort-object-store-metadata-revert.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-abort-request-error.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-abort-request-error.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-create_in_versionchange.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-create_in_versionchange.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-deactivation-timing.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-deactivation-timing.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-lifetime-empty.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": false,
+        "observed_assertions": 0,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-lifetime-empty.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 0,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-lifetime.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": false,
+        "observed_assertions": 0,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-lifetime.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": false,
+        "observed_assertions": 0,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-relaxed-durability.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-relaxed-durability.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-requestqueue.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-requestqueue.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-across-connections.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-across-connections.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-across-databases.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-across-databases.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-mixed-scopes.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-mixed-scopes.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-ordering.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-ordering.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-ro-waits-for-rw.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-ro-waits-for-rw.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-rw-scopes.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-rw-scopes.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-within-database.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction-scheduling-within-database.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction_bubble-and-capture.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/transaction_bubble-and-capture.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/upgrade-transaction-deactivation-timing.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/upgrade-transaction-deactivation-timing.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/upgrade-transaction-lifecycle-backend-aborted.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/upgrade-transaction-lifecycle-backend-aborted.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/upgrade-transaction-lifecycle-committed.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/upgrade-transaction-lifecycle-committed.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/upgrade-transaction-lifecycle-user-aborted.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/upgrade-transaction-lifecycle-user-aborted.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/value.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/value.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/value_recursive.any.js|dedicatedworker|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/value_recursive.any.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/worker-termination-aborts-upgrade.window.js|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/writer-starvation.any.js|dedicatedworker|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "IndexedDB/writer-starvation.any.js|window|",
+        "passed": true,
+        "baseline_passed": true,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      }
+    ],
+    "qualification": "Focused native comparison only; not signed full-suite qualification."
+  },
+  "name_reconciliation": {
+    "log_sha256": "7a100ba08bc50af36acc2eac5d8fca0855790dd02464141ead59ad599f9fc958",
+    "baseline_ledger_sha256": "e0a5e98d60cbf66415412d7170296fa231b1b3ae009f66d122dacb3225a89f40",
+    "method": "Complete executions with equal sets of unique names normalized only for ASCII whitespace, NBSP and EM SPACE; order independent; all status changes retained. Raw audit preserved.",
+    "raw_missing": 24,
+    "reconciled_missing": 24,
+    "unresolved": [],
+    "rows": [
+      {
+        "id": "IndexedDB/idb-partitioned-coverage.sub.html|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbindex_getAll-options.any.js|dedicatedworker|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbindex_getAll-options.any.js|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbindex_getAll.any.js|dedicatedworker|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbindex_getAll.any.js|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbindex_getAllKeys-options.any.js|dedicatedworker|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbindex_getAllKeys-options.any.js|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbindex_getAllKeys.any.js|dedicatedworker|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbindex_getAllKeys.any.js|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbkeyrange_incorrect.any.js|dedicatedworker|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "IDBKeyRange.bound(noExistingVariable, 1 / goodVariable, noExistingVariable) - noExistingVariable is not defined.",
+            "after": "IDBKeyRange.bound(noExistingVariable, 1 / goodVariable, noExistingVariable) -    noExistingVariable is not defined."
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbkeyrange_incorrect.any.js|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "IDBKeyRange.bound(noExistingVariable, 1 / goodVariable, noExistingVariable) - noExistingVariable is not defined.",
+            "after": "IDBKeyRange.bound(noExistingVariable, 1 / goodVariable, noExistingVariable) -    noExistingVariable is not defined."
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_add.any.js|dedicatedworker|",
+        "reconciled_missing_count": 2,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Attempt to 'add()' a record that does not meet the constraints of an object store's inline key requirements",
+            "after": "Attempt to 'add()' a record that does not meet the constraints of an   object store's inline key requirements"
+          },
+          {
+            "before": "Attempt to 'add()' a record where the record's in-line key is not defined",
+            "after": "Attempt to 'add()' a record where the record's in-line key is not  defined"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_add.any.js|window|",
+        "reconciled_missing_count": 2,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Attempt to 'add()' a record that does not meet the constraints of an object store's inline key requirements",
+            "after": "Attempt to 'add()' a record that does not meet the constraints of an   object store's inline key requirements"
+          },
+          {
+            "before": "Attempt to 'add()' a record where the record's in-line key is not defined",
+            "after": "Attempt to 'add()' a record where the record's in-line key is not  defined"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAll-options.any.js|dedicatedworker|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAll-options.any.js|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAll.any.js|dedicatedworker|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAll.any.js|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAllKeys-options.any.js|dedicatedworker|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAllKeys-options.any.js|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAllKeys.any.js|dedicatedworker|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/idbobjectstore_getAllKeys.any.js|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      },
+      {
+        "id": "IndexedDB/resources/idb-partitioned-coverage-iframe.html|window|",
+        "reconciled_missing_count": 1,
+        "equal_unique_normalized_names": true,
+        "status_changes": [],
+        "renamed": [
+          {
+            "before": "Query with empty range where first key < upperBound",
+            "after": "Query with empty range where  first key < upperBound"
+          }
+        ]
+      }
+    ]
+  },
+  "limits": "Unchanged heap, RSS, command/navigation deadlines, storage quota and context-frame capacity.",
+  "limitations": [
+    "Native probe does not prove signed-worker RSS or frame behavior.",
+    "The authoritative full baseline remains 3109/4022 with 913 failures,151 unobserved assertions and six historical editing regressions.",
+    "Earlier bounded-query variants timed out on both large fixtures; raw logs are retained and do not qualify as passes."
+  ]
+}
