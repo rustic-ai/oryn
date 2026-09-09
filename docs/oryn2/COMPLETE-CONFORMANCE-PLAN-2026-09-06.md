@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `9d7af7b`, measured on 2026-09-08.
+Current full-run evidence: signed candidate `17447de`, measured on 2026-09-08.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,29 +32,29 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `9d7af7b` passes **3,044/4,022 (75.7%)**, with **978 remaining**.
-It gains 14 whole executions and loses zero versus `a3acd6c`: 13 history fixtures
-and one worker WebIDL iterator-prototype fixture. Native URL, URLSearchParams and
-Location now run through the production page path. Stylo remains the CSS engine.
+The signed run at `17447de` passes **3,046/4,022 (75.7%)**, with **976 remaining**.
+It gains two whole executions and loses zero versus `9d7af7b`: IndexedDB string-list
+ordering in Window and dedicated worker contexts. Index names now use UTF-16
+code-unit order, matching the existing object-store and transaction name lists.
+Stylo remains the CSS engine.
 
 The audit verifies exact coverage, passing testharness completions, signed source
 and binary fingerprints, and unchanged resource limits and sandbox settings.
-It records zero observed passing-to-failing assertions, 69 corrected assertions
-and 29 additional passing names. Of 34 raw missing prior passing names, five are
-explicitly reconciled server-port changes. Eighteen older missing observations
-reappear passing; 96 remain unobserved across tracked generations. Eleven historical
-assertion regressions remain failing. Missing observations are not passes.
+It records zero observed passing-to-failing assertions and two corrected assertions.
+Of 39 raw missing prior passing names, five reconcile through server-port changes.
+Nine older missing assertions reappear passing; 121 remain unobserved across
+tracked generations. Eleven historical assertion regressions remain failing.
+The missing Range observations remain an unresolved runtime/performance concern.
 
-[Full evidence](CONFORMANCE-NATIVE-LOCATION-FULL-2026-09-08.json) links the full
+[Full evidence](CONFORMANCE-IDB-ORDERING-FULL-2026-09-08.json) links the complete
 assertion audit and cumulative reconciliation. This is one measured full run,
 not complete conformance or broader release qualification.
 
-Next: reproduce and fix the IndexedDB index-name ordering inconsistency in both
-Window and worker contexts, then address shared causes that prevent complete
-executions. Retain the unfinished Range/formatBlock work separately; Range runtime
-failures and missing observations need performance and lifecycle diagnosis.
-Completion still requires 4,022/4,022 twice on the same frozen signed candidate
-and every qualification gate. All 978 failures remain in scope.
+Next: diagnose shared causes in the remaining IndexedDB failures and Range runtime
+failures, verifying complete unchanged fixtures before promotion. Keep unfinished
+Range/formatBlock drafts isolated. Completion still requires 4,022/4,022 twice on
+one frozen signed candidate and every qualification gate. All 976 failures remain
+in scope.
 
 ## Strategy correction: require a production path and whole-execution evidence
 
@@ -136,7 +136,7 @@ counts and corrected assertions are supporting evidence, not overall conformance
 
 | Root | Passed / required |
 |---|---:|
-| IndexedDB | 401/456 |
+| IndexedDB | 403/456 |
 | WebIDL | 31/58 |
 | accname | 15/19 |
 | css/css-cascade | 54/97 |
