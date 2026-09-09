@@ -1,0 +1,91 @@
+{
+  "baseline_ledger_sha256": "c853233673ed2d7bb18f893e1b6242c80c33b60771864ea347c8b7f71ca0889e",
+  "log_sha256": "5326ddb36858dc2ca150c93e6a4a8b7cce74cebb7413c9c1480d136769bec2f5",
+  "exact_selected_coverage": true,
+  "required": 704,
+  "passed": 407,
+  "gains": [
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=bold&stylesInserting=italic",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=bold&stylesInserting=strikethrough",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=bold&stylesInserting=subscript",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=bold&stylesInserting=superscript",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=bold&stylesInserting=underline",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=bold,italic&stylesInserting=strikethrough,underline",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=fontname&stylesInserting=bold",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=forecolor&stylesInserting=bold",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=hilitecolor&stylesInserting=bold",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=italic&stylesInserting=bold",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=strikethrough&stylesInserting=bold",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=subscript&stylesInserting=bold",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=superscript&stylesInserting=bold",
+    "editing/other/inserthtml-do-not-preserve-inline-styles.html|window|?stylesAtInsertionPoint=underline&stylesInserting=bold"
+  ],
+  "losses": [],
+  "assertion_counts": {
+    "missing_prior_passes": 501,
+    "regressed_prior_passes": 0,
+    "corrected_existing": 52
+  },
+  "historical_regressions": [
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=block&command=insertText",
+      "name": "<p contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+      "status": 1
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline&command=insertText",
+      "name": "<p contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+      "status": 1
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline-block&command=insertText",
+      "name": "<p contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+      "status": 1
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=block&command=insertText",
+      "name": "<span contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+      "status": 1
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline&command=insertText",
+      "name": "<span contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+      "status": 1
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline-block&command=insertText",
+      "name": "<span contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+      "status": 1
+    }
+  ],
+  "qualification": "Focused native comparison only; not signed full-suite qualification.",
+  "evidence": {
+    "artifacts/upstream-conformance/native-inserthtml-overrides-v3/oryn-inserthtml-overrides-v3-all.log": "5326ddb36858dc2ca150c93e6a4a8b7cce74cebb7413c9c1480d136769bec2f5",
+    "artifacts/upstream-conformance/native-inserthtml-overrides-v3/oryn-inserthtml-overrides-v3-all-audit.json": "36261a4e77484099404003ac68b584c89cd0b1b0b760c86147302ed5e996dd87",
+    "artifacts/upstream-conformance/native-inserthtml-overrides-v3/oryn-inserthtml-overrides-v3-all-name-reconciliation.json": "9795c87f2a0471a6d58d76cda50230c0c0efe8872f827f4b6d8b13045dbe2194",
+    "artifacts/upstream-conformance/native-inserthtml-overrides-v3/oryn-test-inserthtml-overrides-v3.log": "bba1e5cf0fcbb8a8a233bf2a5d46a09600cf2792d728c7d482fdb90e91ba432d",
+    "artifacts/upstream-conformance/native-inserthtml-overrides-v3/oryn-build-inserthtml-overrides-v3.log": "6840ffec48babd08fb779531b1227720a3496274f7028f3ae761e62b4a370a58",
+    "artifacts/upstream-conformance/native-inserthtml-overrides-v3/oryn-inserthtml-inline-reference.json": "c464a3f06868f87b2eff8efd1488c4c6ebafe2697477d112aff601f0fcb71957",
+    "artifacts/upstream-conformance/native-inserthtml-overrides-v3/oryn-inserthtml-mixed-reference.json": "e0f96eaf4ba03ed0fe086059f15fef707b88b775bb9a514faf7471c0a7f7d30d"
+  },
+  "candidate_sources": {
+    "crates/oryn-js/src/v8_bindings.rs": "2484df848989988d245b95602097dc4a845a62b3cece5f4d502e801314008cd2"
+  },
+  "reconciled_missing_names": 501,
+  "unresolved_missing_names": 0,
+  "checks": {
+    "binding_passed": 184,
+    "binding_failed": 0,
+    "binding_existing_ignored": 2,
+    "fmt": "passed",
+    "strict_clippy": "passed",
+    "probe_build": "passed"
+  },
+  "remaining_gaps": [
+    "Signed full4022 pending;14nativegains are not signed gains.",
+    "Six historical editing regressions and14older missing observations remain.",
+    "Three font command-value target variants and one malformed highlight-color expectation remain failing.",
+    "Existing formatting-toggle semantics remain incomplete;this batch preserves positive/value overrides produced by existing commands.",
+    "Native/profile/security and repeated4022 release gates remain incomplete."
+  ]
+}

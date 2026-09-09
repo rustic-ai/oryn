@@ -214,6 +214,7 @@ struct EditingSnapshot {
     host: NodeId,
     nodes: Vec<EditingNodeSnapshot>,
     selection: SelectionSnapshot,
+    overrides: BTreeMap<String, String>,
     serialized_bytes: usize,
 }
 
@@ -1086,6 +1087,7 @@ pub struct V8BindingState {
     design_mode: Cell<bool>,
     focus_transition_revision: Cell<u64>,
     style_with_css: Cell<bool>,
+    editing_overrides: RefCell<BTreeMap<String, String>>,
     default_paragraph_separator: RefCell<String>,
     undo_history: RefCell<UndoHistory>,
     pending_split_undo: Cell<Option<(NodeId, NodeId)>>,
@@ -3279,6 +3281,7 @@ pub fn install_generated_bindings_with_root_for_global(
         design_mode: Cell::new(false),
         focus_transition_revision: Cell::new(0),
         style_with_css: Cell::new(false),
+        editing_overrides: RefCell::new(BTreeMap::new()),
         default_paragraph_separator: RefCell::new("div".into()),
         undo_history: RefCell::new(UndoHistory::default()),
         pending_split_undo: Cell::new(None),
@@ -11254,6 +11257,7 @@ fn synchronize_live_ranges(state: &V8BindingState) -> Result<(), V8BindingError>
         .copied()
         .collect::<Vec<_>>();
     drop(static_ranges);
+    let previous_selection = selection_snapshot(state);
     let selection_id = state.selection_range.get();
     let selection_was_backward = state.selection_backward.get();
     let dom = state.dom.borrow();
@@ -11279,6 +11283,9 @@ fn synchronize_live_ranges(state: &V8BindingState) -> Result<(), V8BindingError>
             state.selection_anchor.set(Some(start));
             state.selection_focus.set(Some(end));
         }
+    }
+    if selection_snapshot(state) != previous_selection {
+        state.editing_overrides.borrow_mut().clear();
     }
     Ok(())
 }
@@ -11509,6 +11516,7 @@ fn set_selection_boundaries(
     state.selection_anchor.set(Some(anchor));
     state.selection_focus.set(Some(focus));
     if previous != (Some(anchor), Some(focus)) {
+        state.editing_overrides.borrow_mut().clear();
         state
             .selection_revision
             .set(state.selection_revision.get().saturating_add(1));
@@ -11517,6 +11525,7 @@ fn set_selection_boundaries(
 }
 
 fn clear_selection(state: &V8BindingState) {
+    state.editing_overrides.borrow_mut().clear();
     let changed = state.selection_anchor.get().is_some() || state.selection_focus.get().is_some();
     state.selection_range.set(None);
     state.selection_backward.set(false);
@@ -11658,6 +11667,7 @@ fn capture_editing_snapshot(
         host,
         nodes,
         selection: selection_snapshot(state),
+        overrides: state.editing_overrides.borrow().clone(),
         serialized_bytes,
     })
 }
@@ -11727,6 +11737,7 @@ fn restore_editing_snapshot(
         }
         _ => clear_selection(state),
     }
+    *state.editing_overrides.borrow_mut() = snapshot.overrides.clone();
     Ok(())
 }
 
@@ -11877,6 +11888,11 @@ fn undo_edit(state: &V8BindingState, redo: bool) -> Result<bool, V8BindingError>
         release_editing_snapshot(&mut state.dom.borrow_mut(), &unit.after)?;
         return Err(error);
     }
+    *state.editing_overrides.borrow_mut() = if redo {
+        unit.after.overrides.clone()
+    } else {
+        unit.before.overrides.clone()
+    };
     let mut history = state.undo_history.borrow_mut();
     if redo {
         history.undo.push_back(unit);
@@ -11936,6 +11952,18 @@ fn edit_command_enabled_without_selection(command: &str) -> bool {
 }
 
 fn selection_format_value(state: &V8BindingState, command: &str) -> Option<String> {
+    let key = if command == "backcolor" {
+        "hilitecolor"
+    } else {
+        command
+    };
+    if let Some(value) = state.editing_overrides.borrow().get(key) {
+        return (value != "false").then(|| value.clone());
+    }
+    selection_dom_format_value(state, command)
+}
+
+fn selection_dom_format_value(state: &V8BindingState, command: &str) -> Option<String> {
     let dom = state.dom.borrow();
     let mut current = state.selection_anchor.get().map(|point| point.container);
     while let Some(node) = current {
@@ -14088,21 +14116,37 @@ fn nearest_rendered_editing_block(
     }
 }
 
+fn apply_typing_overrides(
+    state: &V8BindingState,
+    overrides: &BTreeMap<String, String>,
+) -> Result<(), V8BindingError> {
+    for (command, value) in overrides {
+        if selection_dom_format_value(state, command).as_ref() != Some(value) {
+            apply_inline_format(state, command, value)?;
+        }
+    }
+    Ok(())
+}
+
 fn insert_editing_text(state: &V8BindingState, text: &str) -> Result<(), V8BindingError> {
+    let overrides = state.editing_overrides.borrow().clone();
     let mut lines = text.split('\n');
     let first = lines.next().unwrap_or_default();
     replace_selection_with_text(state, "")?;
     if !first.is_empty() {
+        apply_typing_overrides(state, &overrides)?;
         remove_editing_placeholder_before_typing(state, first)?;
         replace_selection_with_text(state, first)?;
     }
     for line in lines {
         split_editing_paragraph(state)?;
         if !line.is_empty() {
+            apply_typing_overrides(state, &overrides)?;
             remove_editing_placeholder_before_typing(state, line)?;
             replace_selection_with_text(state, line)?;
         }
     }
+    *state.editing_overrides.borrow_mut() = overrides;
     Ok(())
 }
 
@@ -14342,7 +14386,87 @@ fn insert_editing_line_break(state: &V8BindingState) -> Result<(), V8BindingErro
     Ok(())
 }
 
-fn replace_selection_with_html(state: &V8BindingState, markup: &str) -> Result<(), V8BindingError> {
+// Pasted markup carries its own inline formatting. Split the containing inline
+// ancestors up to the rendered block, preserving the content on either side.
+fn html_insertion_boundary(
+    state: &V8BindingState,
+    mut point: BoundaryPoint,
+) -> Result<BoundaryPoint, V8BindingError> {
+    let Some(host) = editing_host(state)? else {
+        return Ok(point);
+    };
+    let mut block = nearest_rendered_editing_block(state, point.container, host)?;
+    // A non-rendered ancestor is not an inline formatting container. Keep
+    // programmatic insertion inside it instead of exposing its content.
+    {
+        let dom = state.dom.borrow();
+        let layout = state.layout.borrow();
+        let mut current = point.container;
+        while current != block {
+            if layout
+                .styles
+                .get(&node_key(current))
+                .and_then(|style| style.get("display"))
+                .is_some_and(|display| display == "none")
+            {
+                block = current;
+                break;
+            }
+            let Some(parent) = dom.parent(current)? else {
+                break;
+            };
+            current = parent;
+        }
+    }
+    let mut dom = state.dom.borrow_mut();
+    if let NodeKind::Text { data } | NodeKind::CDataSection { data } =
+        dom.arena().get(point.container)?.kind.clone()
+    {
+        let length = data.encode_utf16().count() as u32;
+        if point.offset == 0 || point.offset == length {
+            let (container, offset) = relative_boundary(&dom, point.container, point.offset != 0)?;
+            point = BoundaryPoint { container, offset };
+        } else {
+            let units = data.encode_utf16().collect::<Vec<_>>();
+            let offset = point.offset as usize;
+            dom.set_text(point.container, String::from_utf16_lossy(&units[..offset]))?;
+            let right = dom.create_text(String::from_utf16_lossy(&units[offset..]));
+            let parent = dom
+                .parent(point.container)?
+                .ok_or(V8BindingError::Allocation("HTML insertion parent"))?;
+            insert_after_node(&mut dom, parent, point.container, right)?;
+            let (container, offset) = relative_boundary(&dom, right, false)?;
+            point = BoundaryPoint { container, offset };
+        }
+    }
+    while point.container != block {
+        let children = light_children(&dom, point.container)?;
+        let after = point.offset as usize == children.len();
+        if point.offset == 0 || after {
+            let (container, offset) = relative_boundary(&dom, point.container, after)?;
+            point = BoundaryPoint { container, offset };
+        } else {
+            let right = clone_editing_element(&mut dom, point.container)?;
+            for child in children[point.offset as usize..].iter().copied() {
+                dom.append_child(right, child)?;
+            }
+            let parent = dom
+                .parent(point.container)?
+                .ok_or(V8BindingError::Allocation("HTML insertion ancestor"))?;
+            insert_after_node(&mut dom, parent, point.container, right)?;
+            let (container, offset) = relative_boundary(&dom, right, false)?;
+            point = BoundaryPoint { container, offset };
+        }
+    }
+    Ok(point)
+}
+
+fn replace_selection_with_html(
+    state: &V8BindingState,
+    markup: &str,
+    pasted_markup: bool,
+) -> Result<(), V8BindingError> {
+    let overrides = state.editing_overrides.borrow().clone();
     replace_selection_with_text(state, "")?;
     let id = state
         .selection_range
@@ -14368,6 +14492,13 @@ fn replace_selection_with_html(state: &V8BindingState, markup: &str) -> Result<(
         container: range.start_container,
         offset: range.start_offset,
     };
+    if children.is_empty() {
+        return Ok(());
+    }
+    if pasted_markup {
+        point = html_insertion_boundary(state, point)?;
+    }
+    let mut last_inserted = None;
     for child in children {
         let imported = state.dom.borrow_mut().import_subtree(&parsed.dom, child)?;
         insert_at_boundary(
@@ -14376,10 +14507,27 @@ fn replace_selection_with_html(state: &V8BindingState, markup: &str) -> Result<(
             point.offset,
             imported,
         )?;
+        last_inserted = Some(imported);
         let (container, offset) = relative_boundary(&state.dom.borrow(), imported, true)?;
         point = BoundaryPoint { container, offset };
     }
+    if pasted_markup && let Some(mut last) = last_inserted {
+        let dom = state.dom.borrow();
+        while let Some(child) = light_children(&dom, last)?.last().copied() {
+            last = child;
+        }
+        if matches!(
+            dom.arena().get(last)?.kind,
+            NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+        ) {
+            point = BoundaryPoint {
+                container: last,
+                offset: boundary_length(&dom, last)?,
+            };
+        }
+    }
     set_selection_boundaries(state, point, point)?;
+    *state.editing_overrides.borrow_mut() = overrides;
     Ok(())
 }
 
@@ -14461,6 +14609,9 @@ fn apply_inline_format(
     command: &str,
     value: &str,
 ) -> Result<(), V8BindingError> {
+    let collapsed = state.selection_anchor.get().is_some()
+        && state.selection_anchor.get() == state.selection_focus.get();
+    let mut overrides = state.editing_overrides.borrow().clone();
     let css = state.style_with_css.get();
     let (tag, attribute) = match command {
         "bold" if css => ("span", Some(("style", "font-weight: bold"))),
@@ -14511,6 +14662,17 @@ fn apply_inline_format(
         _ => attribute.into_iter().collect(),
     };
     insert_editing_element(state, tag, &attributes)?;
+    if collapsed {
+        if let Some(value) = selection_dom_format_value(state, command) {
+            let key = if command == "backcolor" {
+                "hilitecolor"
+            } else {
+                command
+            };
+            overrides.insert(key.to_string(), value);
+        }
+        *state.editing_overrides.borrow_mut() = overrides;
+    }
     Ok(())
 }
 
@@ -20894,6 +21056,7 @@ fn call_stateful_operation<'s>(
                 {
                     return Ok(None);
                 }
+                state.editing_overrides.borrow_mut().clear();
                 state.selection_range.set(Some(id));
                 state.selection_backward.set(false);
                 state.selection_anchor.set(Some(BoundaryPoint {
@@ -20954,6 +21117,11 @@ fn call_stateful_operation<'s>(
                         container: collapsed,
                         offset,
                     };
+                    if state.selection_anchor.get() != Some(point)
+                        || state.selection_focus.get() != Some(point)
+                    {
+                        state.editing_overrides.borrow_mut().clear();
+                    }
                     state.selection_backward.set(false);
                     state.selection_anchor.set(Some(point));
                     state.selection_focus.set(Some(point));
@@ -21085,6 +21253,11 @@ fn call_stateful_operation<'s>(
                     container: point,
                     offset,
                 };
+                if state.selection_anchor.get() != Some(point)
+                    || state.selection_focus.get() != Some(point)
+                {
+                    state.editing_overrides.borrow_mut().clear();
+                }
                 state.selection_backward.set(false);
                 state.selection_anchor.set(Some(point));
                 state.selection_focus.set(Some(point));
@@ -25505,14 +25678,17 @@ fn call_operation<'s>(
                                 let text = parsed.dom.text_content(parsed.document)?;
                                 replace_selection_with_text(state, &text)?;
                             }
-                            "inserthtml" => replace_selection_with_html(state, &value)?,
+                            "inserthtml" => replace_selection_with_html(state, &value, true)?,
                             "insertlinebreak" => insert_editing_line_break(state)?,
                             "insertparagraph" => split_editing_paragraph(state)?,
-                            "inserthorizontalrule" => replace_selection_with_html(state, "<hr>")?,
+                            "inserthorizontalrule" => {
+                                replace_selection_with_html(state, "<hr>", false)?
+                            }
                             "insertimage" => {
                                 replace_selection_with_html(
                                     state,
                                     &format!("<img src=\"{}\">", html_attribute_escape(&value)),
+                                    false,
                                 )?;
                             }
                             "delete" => delete_selection_direction(state, false)?,
@@ -25818,6 +25994,7 @@ fn call_operation<'s>(
             optional_node(scope, state, found).map(Some)
         }
         ("Document", "open") => {
+            state.editing_overrides.borrow_mut().clear();
             if state.parser_input_active.get() {
                 state
                     .parser_input_commands
@@ -31063,6 +31240,48 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(result, "ok");
+    }
+
+    #[test]
+    fn explicit_editing_overrides_survive_paste_and_clear_on_selection_changes() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main contenteditable>hello</main><aside contenteditable>world</aside>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const check=(ok,message)=>{if(!ok)throw new Error(message)};
+            const host=document.querySelector('main'),other=document.querySelector('aside'),selection=document.getSelection();
+            selection.collapse(host.firstChild,2);
+            document.execCommand('bold');
+            check(document.queryCommandState('bold'),'explicit bold');
+            document.execCommand('insertHTML',false,'x<i>y</i>z');
+            check(document.queryCommandState('bold'),'paste preserves override');
+            document.execCommand('insertText',false,'Q');
+            check(document.queryCommandState('bold'),'typing preserves override');
+            const caretElement=selection.anchorNode.nodeType===1?selection.anchorNode:selection.anchorNode.parentElement;
+            check(caretElement.closest('b,strong')?.textContent==='Q','typed text has actual bold formatting');
+            selection.collapse(other.firstChild,1);
+            check(!document.queryCommandState('bold'),'moving selection clears override');
+            document.execCommand('italic');
+            document.execCommand('insertHTML',false,'plain');
+            check(document.queryCommandState('italic'),'explicit italic survives paste');
+            selection.removeAllRanges();
+            check(!document.queryCommandState('italic'),'empty selection clears override');
+            'ok'
+        "#).unwrap();
+        let actual = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(actual, "ok");
     }
 
     #[test]

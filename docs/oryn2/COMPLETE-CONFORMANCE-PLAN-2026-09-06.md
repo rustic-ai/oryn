@@ -617,11 +617,15 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. **Close the production IndexedDB discrepancy.** The bounded candidate is now
-   signed and audited at 3,052/4,022, three gains and zero whole losses. Reproduce
-   numeric transport around 2^53 across the real context envelope, then profile
-   large-value operations under the existing limits. Require complete affected
-   native and signed coverage; keep the ten native-only gains unqualified.
+1. **Measure the insertion/override batch.** Native editing validation covers
+   all 704 executions: 407 pass, 14 gains, zero whole losses and zero new observed
+   assertion regressions. All 501 raw missing names reconcile. Binding tests pass
+   184/184 with two existing ignores; formatting and strict Clippy pass.
+   [Native evidence](CONFORMANCE-INSERTHTML-OVERRIDES-NATIVE-2026-09-08.json) records
+   the full qualification gaps. Promote the bounded runtime change, sign the clean
+   candidate, run and audit all 4,022 executions before changing the overall score.
+   Keep font-value queries, existing toggle semantics, the IndexedDB transport
+   discrepancy and archived stream/DOM work separate from this measurement.
 2. **Populate an actionable diagnosis index.** Carry reproduced causes into the
    current backlog with evidence links and exact IDs. Investigate representative
    complete failing fixtures in DOM, editing and CSS, including harness/runtime
