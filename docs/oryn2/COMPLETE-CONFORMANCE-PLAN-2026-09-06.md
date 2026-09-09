@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `793b68d`, measured on 2026-09-09.
+Current full-run evidence: signed candidate `4fca373`, measured on 2026-09-09.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,39 +32,36 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `793b68d` passes **3,073/4,022 (76.4%)**, with **949 remaining**.
-It gains five stylesheet MediaList executions and two IndexedDB key-generator
-executions versus `fb6f09b`, with zero whole-execution losses. Stylo remains the
-CSS engine. The audit verifies exact inventory coverage and signed artifacts.
+The signed run at `4fca373` passes **3,077/4,022 (76.5%)**, with **945 remaining**.
+It gains four implicit-scope executions versus `793b68d`, with zero whole-execution
+losses and zero new observed assertion regressions. Stylo remains the CSS engine;
+native owner-root metadata now reaches its existing scope matching and cascade.
 
-This run is **not regression-clean**: one previously passing cross-origin
-IndexedDB assertion now fails, and 100 previously passing Range assertions are
-unobserved. Six historical editing regressions and 14 older unobserved assertions
-also remain open. No failing or unobserved assertion is waived.
+Coverage remains unresolved: 31 prior passing assertions are newly unobserved.
+Twenty-two older missing assertions reappeared, while 92 remain unobserved. Six
+historical editing regressions remain failing. The previously regressed IndexedDB
+cross-origin assertion passes this run, but intermittent message failures remain.
+No failing or unobserved assertion is waived.
 
-[Full evidence](CONFORMANCE-SHEET-MEDIA-PRECISION-FULL-2026-09-09.json) identifies
-the signed audit and reconciliation. This is a measured full run, not complete
-conformance or broader release qualification.
+[Full evidence](CONFORMANCE-IMPLICIT-SCOPE-FULL-2026-09-09.json) identifies the
+terminal signed audit and reconciliation. Exact inventory coverage, source/binary
+fingerprints, unchanged limits, sandbox settings, and successful completion of
+passing executions are verified. This is not complete conformance or release
+qualification. The external-scope fixture still times out on its second test.
 
-The current implicit-scope implementation has four native whole-execution gains
-and 19 corrected assertions across all 622 CSS/WebIDL executions, with no losses
-or observed regressions; 52 raw missing names reconcile by ordered whitespace-only
-renaming with equal counts and statuses. These gains are not yet signed full-run
-results. The external-scope fixture still times out waiting for its second test.
-
-Next, finish validation and promote the scope change, resolve the signed-run
-regression and coverage gaps, and replace stylesheet import flattening with native
-loading semantics. Import-related failures require individual causal validation;
-16 import-named failures do not establish 16 attainable gains. Preserve all tests
-and resource caps. Completion requires 4,022/4,022 twice on one frozen signed
-candidate and every qualification gate.
+Next, reproduce and fix popup/frame message addressing while preserving iframe
+opener identity; profile bulk Range/Selection synchronization to complete the
+resource-bound fixtures; and restore native stylesheet import semantics. Evaluate
+shared causes against complete failing fixtures rather than projecting gains from
+failure counts. Preserve all tests and resource caps. Completion requires
+4,022/4,022 twice on one frozen signed candidate and every qualification gate.
 
 ## Current execution strategy
 
 Use the immediate sequence at the end of this document as the single active
 queue. Earlier milestone sections below preserve historical evidence and subsystem
 requirements; their dated counts and completed experiments do not override the
-793b68d measurement above.
+4fca373 measurement above.
 
 The principal throughput failure has been treating assertion repairs and removal
 of first blockers as evidence that a batch will complete fixtures. They are useful
@@ -613,15 +610,16 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. **Promote the validated implicit-scope batch.** Native CSS/WebIDL evidence
-   covers 622 exact executions, with four gains, no whole losses or observed
-   regressions, and all 52 title differences reconciled. Layout tests (70), the
-   native owner lifecycle test, and strict Clippy pass. Commit the implementation
-   and evidence; qualify it through a frozen signed full run.
-2. **Resolve signed-run regression and coverage gaps.** Candidate `793b68d`
-   measures 3,073/4,022, seven gains versus `fb6f09b`, but introduces one observed
-   IndexedDB assertion regression and 100 newly unobserved Range assertions.
-   Resolve these without changing resource caps or discarding observations.
+1. **Implicit-scope batch measured.** Signed `4fca373` completes all 4022
+   executions with 3077 passes, four gains, no whole losses or new observed
+   assertion regressions. Terminal source/artifact audit and reconciliation pass.
+2. **Resolve message routing and Range completion.** Preserve iframe opener
+   identity when addressing popup replies. Validate the prepared native tests
+   against the source-level duplicate-delivery reproduction. Profile remaining
+   bulk Range/Selection cache synchronization before implementing its performance
+   fix. Track 31 newly unobserved assertions plus 92 older still missing; 22 older
+   missing assertions reappeared. Do not erase intermittent failures after one
+   passing attempt or change limits to accommodate the tests.
 3. **Implement shared mechanisms with measured reach.** The loader currently
    flattens external imports and discards inline imported content; restore native
    import semantics and lifecycle. Validate causal reach before promising gains.
