@@ -1,0 +1,64 @@
+{
+  "qualification": "Native candidate evidence only; signed full-suite qualification pending.",
+  "signed_baseline": "00632d5efa6e60efb48bf1851c10e0fc8e28bd20",
+  "signed_baseline_passed": 3096,
+  "inventory_required": 4022,
+  "selected_required": 287,
+  "selected_passed": 163,
+  "whole_gains": [
+    "css/cssom/cssom-fontfacerule-constructors.html|window|",
+    "css/cssom/cssom-fontfacerule.html|window|",
+    "css/cssom/cssom-ruleTypeAndOrder.html|window|",
+    "css/cssom/cssstyledeclaration-cssfontrule.tentative.html|window|",
+    "css/cssom/property-accessors.html|window|"
+  ],
+  "whole_losses": [],
+  "assertion_counts": {
+    "missing_prior_passes": 18,
+    "regressed_prior_passes": 0,
+    "corrected_existing": 10
+  },
+  "name_reconciliation": {
+    "raw_missing": 18,
+    "reconciled_executions": 3,
+    "unresolved_ids": [],
+    "renamed_status_changes": 0
+  },
+  "historical_coverage": "All 161 unobserved assertions and seven tracked assertion statuses are outside this selected run; no recovery claimed.",
+  "evidence": [
+    {
+      "path": "artifacts/upstream-conformance/native-font-face-v1/oryn-font-face-v1-focus.log",
+      "sha256": "fb7f03ee27e32bebc7cc0c3ad1259cc3c54c3014d658fcfefb47220741c5e3e6"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-font-face-v1/oryn-font-face-v1-focus-audit.json",
+      "sha256": "02d60dfd134d1ec7fac07f39d18469580089fa9a33d48fdc113bb1f9b7e53b41"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-font-face-v1/oryn-font-face-v1-css-guards.log",
+      "sha256": "f10842a9d82ae4c929dff7cf68970d1319a330624d3f9d1f3403975f44332633"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-font-face-v1/oryn-font-face-v1-css-guards-audit.json",
+      "sha256": "840f120c5222e071944d3367872b94a306d3fc2d9f30829304c7497fe13e5386"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-font-face-v1/oryn-font-face-v1-css-guards-name-reconciliation.json",
+      "sha256": "4d4af1ed7c6fdf3027c2735cc4ad90605dfc5ddf551ac1de9a105235cc08ecd2"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-font-face-v1/oryn-font-face-v1-css-guards-carry-forward.json",
+      "sha256": "b56944e048fd3b473e2cd696864c1fb37f6fde0df2513a3136f5404408cd5b4f"
+    }
+  ],
+  "remaining_font_work": [
+    "Ordered source selection and fallback still use the existing first-URL regex loader.",
+    "FontFaceSet/document.fonts loading and readiness are missing; layer-font-face-override remains failing.",
+    "Font technology/format handling, data URLs, matching and live font invalidation remain unqualified."
+  ],
+  "implementation": [
+    "Native Stylo font-face descriptor parsing and mutation.",
+    "Canonical CSSFontFaceRule/CSSFontFaceDescriptors bindings and receiver/ownership handling.",
+    "Font network errors leave document loading operational; resource limits still fail explicitly."
+  ]
+}

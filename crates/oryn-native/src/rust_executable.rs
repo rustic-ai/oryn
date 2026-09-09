@@ -188,6 +188,26 @@ impl BindingLayoutProvider for LiveLayoutProvider {
         )
     }
 
+    fn read_font_face_declaration(
+        &self,
+        request: &oryn_js::v8_bindings::BindingDeclarationRequest<'_>,
+    ) -> Option<Result<oryn_js::v8_bindings::BindingDeclarationView, String>> {
+        Some(
+            oryn_layout::cssom::read_font_face_declaration(
+                request.css_text,
+                request.property,
+                request.base_url,
+                request.quirks,
+            )
+            .map(|view| oryn_js::v8_bindings::BindingDeclarationView {
+                css_text: view.css_text,
+                names: view.names,
+                value: view.value,
+                important: view.important,
+            }),
+        )
+    }
+
     fn read_page_declaration(
         &self,
         request: &oryn_js::v8_bindings::BindingDeclarationRequest<'_>,
@@ -6149,6 +6169,35 @@ mod tests {
             try { matches.call(container); checks.push(false); } catch(e) { checks.push(e.name === 'TypeError'); }
             const name = Object.getOwnPropertyDescriptor(CSSContainerRule.prototype, 'containerName').get;
             try { name.call(yes); checks.push(false); } catch(e) { checks.push(e.name === 'TypeError'); }
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
+    fn cssom_font_face_descriptors_keep_native_identity_and_mutations() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><style>@font-face { font-family: Example; src: url(a.woff2); font-weight: 100 900; } p { color: red; }</style>",
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0], rule = sheet.cssRules[0], descriptor = rule.style;
+            const checks = [rule instanceof CSSFontFaceRule, rule instanceof CSSRule,
+                descriptor instanceof CSSFontFaceDescriptors, descriptor instanceof CSSStyleDeclaration,
+                descriptor === rule.style, descriptor.parentRule === rule, rule.parentStyleSheet === sheet,
+                descriptor.fontFamily === 'Example', descriptor.fontWeight === '100 900',
+                descriptor.src.includes('a.woff2'), descriptor.getPropertyValue('color') === ''];
+            descriptor.fontWeight = '400';
+            checks.push(descriptor.fontWeight === '400', rule === sheet.cssRules[0], descriptor === rule.style);
+            descriptor.fontWeight = '400 invalid';
+            checks.push(descriptor.fontWeight === '400');
+            checks.push(descriptor.removeProperty('font-weight') === '400', descriptor.fontWeight === '');
+            rule.style = 'font-family: Second; src: url(b.woff2)';
+            checks.push(descriptor.fontFamily === 'Second', descriptor.src.includes('b.woff2'));
+            const family = Object.getOwnPropertyDescriptor(CSSFontFaceDescriptors.prototype, 'fontFamily');
+            try { family.get.call(sheet.cssRules[1].style); checks.push(false); }
+            catch (e) { checks.push(e instanceof TypeError); }
+            sheet.deleteRule(0);
+            descriptor.fontFamily = 'Detached';
+            checks.push(rule.parentStyleSheet === null, descriptor.fontFamily === 'Detached', sheet.cssRules.length === 1);
             checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
         "#).unwrap(), "");
     }

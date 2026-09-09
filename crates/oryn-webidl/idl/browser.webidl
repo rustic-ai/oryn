@@ -1712,3 +1712,53 @@ interface IDBRecord {
   readonly attribute any primaryKey;
   readonly attribute any value;
 };
+
+[Exposed=Window]
+interface CSSFontFaceDescriptors : CSSStyleDeclaration {
+  [LegacyNullToEmptyString] attribute DOMString src;
+  [LegacyNullToEmptyString] attribute DOMString fontFamily;
+  [LegacyNullToEmptyString] attribute DOMString font-family;
+  [LegacyNullToEmptyString] attribute DOMString fontStyle;
+  [LegacyNullToEmptyString] attribute DOMString font-style;
+  [LegacyNullToEmptyString] attribute DOMString fontWeight;
+  [LegacyNullToEmptyString] attribute DOMString font-weight;
+  [LegacyNullToEmptyString] attribute DOMString fontStretch;
+  [LegacyNullToEmptyString] attribute DOMString font-stretch;
+  [LegacyNullToEmptyString] attribute DOMString fontWidth;
+  [LegacyNullToEmptyString] attribute DOMString font-width;
+  [LegacyNullToEmptyString] attribute DOMString fontSize;
+  [LegacyNullToEmptyString] attribute DOMString font-size;
+  [LegacyNullToEmptyString] attribute DOMString sizeAdjust;
+  [LegacyNullToEmptyString] attribute DOMString size-adjust;
+  [LegacyNullToEmptyString] attribute DOMString unicodeRange;
+  [LegacyNullToEmptyString] attribute DOMString unicode-range;
+  [LegacyNullToEmptyString] attribute DOMString fontFeatureSettings;
+  [LegacyNullToEmptyString] attribute DOMString font-feature-settings;
+  [LegacyNullToEmptyString] attribute DOMString fontVariationSettings;
+  [LegacyNullToEmptyString] attribute DOMString font-variation-settings;
+  [LegacyNullToEmptyString] attribute DOMString fontNamedInstance;
+  [LegacyNullToEmptyString] attribute DOMString font-named-instance;
+  [LegacyNullToEmptyString] attribute DOMString fontDisplay;
+  [LegacyNullToEmptyString] attribute DOMString font-display;
+  [LegacyNullToEmptyString] attribute DOMString fontLanguageOverride;
+  [LegacyNullToEmptyString] attribute DOMString font-language-override;
+  [LegacyNullToEmptyString] attribute DOMString ascentOverride;
+  [LegacyNullToEmptyString] attribute DOMString ascent-override;
+  [LegacyNullToEmptyString] attribute DOMString descentOverride;
+  [LegacyNullToEmptyString] attribute DOMString descent-override;
+  [LegacyNullToEmptyString] attribute DOMString lineGapOverride;
+  [LegacyNullToEmptyString] attribute DOMString line-gap-override;
+  [LegacyNullToEmptyString] attribute DOMString superscriptPositionOverride;
+  [LegacyNullToEmptyString] attribute DOMString superscript-position-override;
+  [LegacyNullToEmptyString] attribute DOMString subscriptPositionOverride;
+  [LegacyNullToEmptyString] attribute DOMString subscript-position-override;
+  [LegacyNullToEmptyString] attribute DOMString superscriptSizeOverride;
+  [LegacyNullToEmptyString] attribute DOMString superscript-size-override;
+  [LegacyNullToEmptyString] attribute DOMString subscriptSizeOverride;
+  [LegacyNullToEmptyString] attribute DOMString subscript-size-override;
+};
+
+[Exposed=Window]
+interface CSSFontFaceRule : CSSRule {
+  [SameObject, PutForwards=cssText] readonly attribute CSSFontFaceDescriptors style;
+};

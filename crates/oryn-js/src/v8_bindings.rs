@@ -911,6 +911,13 @@ pub trait BindingLayoutProvider {
         None
     }
 
+    fn read_font_face_declaration(
+        &self,
+        _request: &BindingDeclarationRequest<'_>,
+    ) -> Option<Result<BindingDeclarationView, String>> {
+        None
+    }
+
     fn read_page_declaration(
         &self,
         _request: &BindingDeclarationRequest<'_>,
@@ -3394,7 +3401,10 @@ pub fn install_generated_bindings_with_root_for_global(
             }
             if matches!(
                 interface.name,
-                "CSSStyleDeclaration" | "CSSStyleProperties" | "CSSPageDescriptors"
+                "CSSStyleDeclaration"
+                    | "CSSStyleProperties"
+                    | "CSSPageDescriptors"
+                    | "CSSFontFaceDescriptors"
             ) {
                 inline_styles::configure(instance);
             }
@@ -9224,7 +9234,10 @@ fn generated_attribute_getter(
         }
         return;
     }
-    if matches!(interface, "CSSStyleProperties" | "CSSPageDescriptors") {
+    if matches!(
+        interface,
+        "CSSStyleProperties" | "CSSPageDescriptors" | "CSSFontFaceDescriptors"
+    ) {
         let result =
             page_rules::validate_declaration_interface(scope, &state, args.this(), interface)
                 .and_then(|()| page_rules::declaration_attribute(scope, args.this(), member));
@@ -9384,7 +9397,10 @@ fn generated_attribute_setter_impl(
         }
         return;
     }
-    if matches!(interface, "CSSStyleProperties" | "CSSPageDescriptors") {
+    if matches!(
+        interface,
+        "CSSStyleProperties" | "CSSPageDescriptors" | "CSSFontFaceDescriptors"
+    ) {
         let result =
             page_rules::validate_declaration_interface(scope, &state, args.this(), interface)
                 .and_then(|()| {
@@ -23208,6 +23224,23 @@ pub fn deliver_selection_change(
 
 fn css_property_name(member: &str) -> &str {
     match member {
+        "fontFamily" => "font-family",
+        "fontStretch" => "font-stretch",
+        "fontWidth" => "font-width",
+        "sizeAdjust" => "size-adjust",
+        "unicodeRange" => "unicode-range",
+        "fontFeatureSettings" => "font-feature-settings",
+        "fontVariationSettings" => "font-variation-settings",
+        "fontNamedInstance" => "font-named-instance",
+        "fontDisplay" => "font-display",
+        "fontLanguageOverride" => "font-language-override",
+        "ascentOverride" => "ascent-override",
+        "descentOverride" => "descent-override",
+        "lineGapOverride" => "line-gap-override",
+        "superscriptPositionOverride" => "superscript-position-override",
+        "subscriptPositionOverride" => "subscript-position-override",
+        "superscriptSizeOverride" => "superscript-size-override",
+        "subscriptSizeOverride" => "subscript-size-override",
         "cssText" => "css-text",
         "backgroundClip" => "background-clip",
         "backgroundColor" => "background-color",

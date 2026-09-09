@@ -6281,11 +6281,25 @@ impl PageState {
             if !self.csp_allows_resource(&absolute, "font") {
                 continue;
             }
-            let bytes = self.fetch_external_resource_bytes(
+            let bytes = match self.fetch_external_resource_bytes(
                 absolute.clone(),
                 "font/woff2,font/woff,application/font-sfnt,*/*;q=0.1",
                 "web font",
-            )?;
+            ) {
+                Ok(bytes) => bytes,
+                Err(RuntimeError::Network(detail)) => {
+                    self.trace.push(
+                        Revision(self.revision),
+                        None,
+                        TraceEventKind::ScriptDiagnostic {
+                            capability: "font.load".into(),
+                            detail: format!("Font {absolute} could not be loaded: {detail}"),
+                        },
+                    );
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             if bytes.len() > self.config.max_font_bytes {
                 return Err(RuntimeError::WorkerLimitExceeded {
                     resource: format!(
@@ -10488,6 +10502,65 @@ mod tests {
                     if family == "Fixture Font" && sha256 == oryn_layout::DEFAULT_FONT_SHA256
             )
         }));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn font_network_failure_preserves_document_and_other_faces() {
+        struct FontBroker;
+        impl crate::network::NetworkBroker for FontBroker {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                let url = Url::parse(&request.url).unwrap();
+                let (status, body) = match url.path() {
+                    "/" => (200, br#"<style>@font-face {font-family: Missing; src:url('/missing.ttf')} @font-face {font-family: Available; src:url('/font.ttf')} button{font-family:Available}</style><button>Loaded</button>"#.to_vec()),
+                    "/missing.ttf" => (404, b"missing".to_vec()),
+                    "/font.ttf" => (200, oryn_layout::DEFAULT_FONT_BYTES.to_vec()),
+                    _ => (404, Vec::new()),
+                };
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status,
+                    headers: Vec::new(),
+                    body,
+                })
+            }
+        }
+        let context = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context_with_broker(
+                ContextOptions::default(),
+                SharedNetworkBroker::new(FontBroker),
+            );
+        let page = context.new_page();
+        page.goto("https://fonts.example.test/").await.unwrap();
+        let observation = page.observe().await.unwrap();
+        let target = observation
+            .nodes
+            .iter()
+            .find(|node| node.name == "Loaded")
+            .expect("document remains observable after font404")
+            .semantic_ref;
+        let style = page.computed_style(target).await.unwrap();
+        assert!(style.properties["font-family"].contains("Available"));
+        let trace = page.trace().await.unwrap();
+        assert!(trace.iter().any(|event| matches!(&event.kind,
+            TraceEventKind::ScriptDiagnostic { capability, .. } if capability == "font.load")));
+        assert!(trace.iter().any(|event| matches!(&event.kind,
+            TraceEventKind::FontLoaded { family, .. } if family == "Available")));
+        let config = BrowserConfig {
+            max_font_bytes: 1,
+            ..BrowserConfig::default()
+        };
+        let context = Browser::in_process_with_config(config).new_context_with_broker(
+            ContextOptions::default(),
+            SharedNetworkBroker::new(FontBroker),
+        );
+        assert!(matches!(
+            context.new_page().goto("https://fonts.example.test/").await,
+            Err(RuntimeError::WorkerLimitExceeded { .. })
+        ));
     }
 
     #[cfg(feature = "v8-host")]

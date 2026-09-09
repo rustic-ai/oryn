@@ -64,6 +64,7 @@ pub(super) fn create<'s>(
     let interface = match view.rule_type {
         1 => "CSSStyleRule",
         4 => "CSSMediaRule",
+        5 => "CSSFontFaceRule",
         6 => "CSSPageRule",
         10 => "CSSNamespaceRule",
         12 => "CSSSupportsRule",
@@ -131,6 +132,7 @@ pub(super) fn is_rule_interface(interface: &str) -> bool {
         interface,
         "CSSMediaRule"
             | "CSSStyleRule"
+            | "CSSFontFaceRule"
             | "CSSPageRule"
             | "CSSRule"
             | "CSSNamespaceRule"
@@ -148,6 +150,7 @@ fn supports_interface(kind: u16, interface: &str) -> bool {
     match interface {
         "CSSRule" => true,
         "CSSStyleRule" => kind == 1,
+        "CSSFontFaceRule" => kind == 5,
         "CSSPageRule" => kind == 6,
         "CSSMediaRule" => kind == 4,
         "CSSNamespaceRule" => kind == 10,
@@ -544,6 +547,8 @@ fn read_style(
     };
     let result = if kind == 1 {
         provider.read_declaration(&request)
+    } else if kind == 5 {
+        provider.read_font_face_declaration(&request)
     } else {
         provider.read_page_declaration(&request)
     };
@@ -587,7 +592,7 @@ fn mutate_style(
         .borrow()
         .get(&identity)
         .map(|r| r.view.rule_type);
-    if matches!(kind, Some(1 | 6)) {
+    if matches!(kind, Some(1 | 5 | 6)) {
         let (source, path) = mutation_context(scope, &state, identity)?;
         let mutation = provider
             .mutate_rule_declaration(
@@ -648,7 +653,9 @@ pub(super) fn validate_declaration_interface(
         .map(|record| record.view.rule_type);
     if matches!(
         (interface, kind),
-        ("CSSStyleProperties", Some(1)) | ("CSSPageDescriptors", Some(6))
+        ("CSSStyleProperties", Some(1))
+            | ("CSSPageDescriptors", Some(6))
+            | ("CSSFontFaceDescriptors", Some(5))
     ) {
         Ok(())
     } else {
@@ -759,6 +766,8 @@ fn style_object<'s>(
         .ok_or(V8BindingError::Allocation("CSS declaration rule record"))?;
     let interface = if kind == 1 {
         "CSSStyleProperties"
+    } else if kind == 5 {
+        "CSSFontFaceDescriptors"
     } else if kind == 6 {
         "CSSPageDescriptors"
     } else {

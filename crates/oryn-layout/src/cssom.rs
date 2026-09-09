@@ -1,4 +1,6 @@
 //! CSSOM declaration operations backed by the same Stylo parser as layout.
+mod font_faces;
+pub use font_faces::read_font_face_declaration;
 mod media_lists;
 mod rule_mutations;
 pub use media_lists::{
@@ -597,6 +599,39 @@ pub fn mutate_rule_declaration(
                 rules = rule.children(&guard);
             }
             let rule = rules.get(last).ok_or("CSS rule path out of bounds")?;
+            if let CssRule::FontFace(rule) = rule {
+                let rule = rule.clone();
+                let mut descriptors = rule.read_with(&guard).descriptors.clone();
+                drop(guard);
+                let (previous_value, changed) = font_faces::edit(
+                    &mut descriptors,
+                    property,
+                    value,
+                    priority,
+                    base_url,
+                    quirks,
+                )?;
+                if !changed {
+                    return Ok(RuleDeclarationMutation {
+                        previous_value,
+                        rules: None,
+                    });
+                }
+                rule.write_with(&mut lock.write()).descriptors = descriptors;
+                let guard = lock.read();
+                let rules = sheet
+                    .contents(&guard)
+                    .rules
+                    .read_with(&guard)
+                    .0
+                    .iter()
+                    .map(|rule| rule_view(rule, &guard))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(RuleDeclarationMutation {
+                    previous_value,
+                    rules: Some(rules),
+                });
+            }
             let block = match rule {
                 CssRule::Style(rule) => rule.read_with(&guard).block.clone(),
                 CssRule::Page(rule) => rule.read_with(&guard).block.clone(),
