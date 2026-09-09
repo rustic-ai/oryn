@@ -1,0 +1,43 @@
+{
+  "qualification": "Native focused production-path qualification, not signed full-inventory gain",
+  "baseline_commit": "17447dea15cbf7715ab9ba568b25fc0fba1d3b1e",
+  "candidate": {
+    "baseline": "17447dea15cbf7715ab9ba568b25fc0fba1d3b1e",
+    "file": "crates/oryn-js/src/v8_bindings/wrapper_graphs.rs",
+    "sha256": "2c49e85a013c9f720ad1a9c7d455680387b199ccbe505dd077685dd989cb9c67",
+    "probe_sha256": "b135a50361c6aa87744471b2fefff470a1e43dc34f29570e0f764e4b39ce883e",
+    "selection": [
+      "dom/ranges/Range-mutations-appendChild.html|window|",
+      "dom/ranges/Range-mutations-appendData.html|window|",
+      "dom/ranges/Range-mutations-dataChange.html|window|",
+      "dom/ranges/Range-mutations-deleteData.html|window|",
+      "dom/ranges/Range-mutations-insertBefore.html|window|",
+      "dom/ranges/Range-mutations-insertData.html|window|",
+      "dom/ranges/Range-mutations-removeChild.html|window|",
+      "dom/ranges/Range-mutations-replaceChild.html|window|",
+      "dom/ranges/Range-mutations-replaceData.html|window|",
+      "dom/ranges/Range-mutations-splitText.html|window|"
+    ]
+  },
+  "exact_execution_count": 10,
+  "whole_gains": [
+    "dom/ranges/Range-mutations-appendData.html|window|",
+    "dom/ranges/Range-mutations-deleteData.html|window|",
+    "dom/ranges/Range-mutations-insertData.html|window|"
+  ],
+  "whole_losses": [],
+  "missing_or_regressed_prior_passes": [],
+  "remaining_incomplete": [
+    "dom/ranges/Range-mutations-dataChange.html|window|",
+    "dom/ranges/Range-mutations-replaceData.html|window|"
+  ],
+  "validation": {
+    "bindings_passed": 180,
+    "bindings_failed": 0,
+    "existing_ignored": 2,
+    "strict_clippy": "passed",
+    "formatting": "passed"
+  },
+  "archive": "artifacts/upstream-conformance/native-range-components-v2",
+  "remaining_goal": "All 976 baseline failures remain in scope. Overall remains 3046/4022 until signed measurement. Completion requires 4022/4022 twice on one frozen signed candidate and all release gates."
+}

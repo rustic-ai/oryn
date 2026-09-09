@@ -94,7 +94,14 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
     }
     // A newly materialized owner-document wrapper must become reachable from
     // every existing detached component that exposes it through ownerDocument.
-    for (node, owner) in node_documents.iter().filter(|_| !new_nodes.is_empty()) {
+    // Ordinary new node wrappers cannot be an ownerDocument target. Avoid
+    // scanning every ownership entry for each newly materialized text/element.
+    let new_owner_document = new_nodes.iter().any(|node| {
+        dom.arena()
+            .get(*node)
+            .map_or(true, |record| matches!(record.kind, NodeKind::Document))
+    });
+    for (node, owner) in node_documents.iter().filter(|_| new_owner_document) {
         if new_nodes.contains(owner)
             && let Some(object) = wrappers
                 .lookup(state.realm, *node)
@@ -111,9 +118,28 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
         {
             affected.extend(object.retention_component);
         } else {
-            // An unwrapped structural endpoint has no cached former component.
-            // Fall back rather than risk leaving an old traced edge behind.
-            complete_rebuild = true;
+            // An unwrapped endpoint can still contain wrapped descendants.
+            // Their cached components identify the former trees without
+            // rebuilding every unrelated wrapper in this realm.
+            let mut pending = vec![node];
+            let mut seen = BTreeSet::new();
+            while let Some(descendant) = pending.pop() {
+                if !seen.insert(descendant) {
+                    continue;
+                }
+                if let Some(object) = wrappers
+                    .lookup(state.realm, descendant)
+                    .and_then(|id| objects.get(&id))
+                {
+                    affected.extend(object.retention_component);
+                }
+                let Ok(record) = dom.arena().get(descendant) else {
+                    complete_rebuild = true;
+                    break;
+                };
+                pending.extend(record.children.iter().copied());
+                pending.extend(dom.arena().attribute_node_ids(descendant));
+            }
         }
         affected.extend(native_root(&dom, node, &mut roots));
     }
