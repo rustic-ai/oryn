@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `1c8f550`, measured on 2026-09-08.
+Current full-run evidence: signed candidate `fb6f09b`, measured on 2026-09-08.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,54 +32,46 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `1c8f550` passes **3,052/4,022 (75.9%)**, with **970 remaining**.
-It gains three whole executions and loses zero versus `693a745`: IndexedDB origin
-isolation and structured-clone transaction state in window and dedicated-worker
-globals. Six existing assertions are corrected. Stylo remains the CSS engine.
+The signed run at `fb6f09b` passes **3,066/4,022 (76.2%)**, with **956 remaining**.
+It gains 14 whole editing executions and loses zero versus `1c8f550` through pasted
+inline-format boundaries and explicit formatting-state preservation. Fifty-two
+existing assertions are corrected. Stylo remains the CSS engine.
 
-The audit verifies exact coverage, complete passing harness results, signed source
-and binary fingerprints, and unchanged resource limits and sandbox settings.
-There are zero new observed assertion regressions. Five raw missing prior passing
-names reconcile through server-port changes. Fourteen older observations remain
+The audit verifies exact coverage, passing harness results, signed source and
+binary fingerprints, and unchanged resource limits and sandbox settings. There
+are zero new observed assertion regressions. Five raw missing prior passing names
+reconcile through server-port changes. Fourteen older observations remain
 unobserved, and six historical editing assertion regressions remain failing.
 
-[Full evidence](CONFORMANCE-IDB-CLONE-CHECKPOINT-FULL-2026-09-08.json) links the full
+[Full evidence](CONFORMANCE-INSERTHTML-OVERRIDES-FULL-2026-09-08.json) links the full
 assertion audit and reconciliation. This is one measured full run, not complete
 conformance or broader release qualification.
 
-The native IndexedDB candidate passed 416/456; the signed worker passes 406/456.
-Two key-generator executions still fail overflow assertions; eight large-value
-executions hit the generated-platform-operation time limit. Diagnose those actual
-production paths before claiming the ten native-only gains. The next bounded
-investigation is the brokered numeric round trip near 2^53, followed by profiling
-the large-value operation path under unchanged caps. Numeric precision is still a
-hypothesis, not a confirmed fix. Unfinished stream, timer and DOM work is preserved
-separately and remains unqualified. The editing document-settings experiment was
-rejected after five whole-test losses.
-
-DOM, editing and CSS account for 786 of the 970 failures. A source-and-fixture
-review identifies missing stylesheet media support in five CSSOM executions;
-implementation and complete-suite verification remain pending. Preserve all tests,
-assertions and resource caps. Completion requires 4,022/4,022 twice on one frozen
-signed candidate and every qualification gate.
+DOM, editing and CSS account for 772 of the 956 failures. The next investigation
+must establish complete-fixture paths for shared integration gaps. Stylesheet
+media support and implicit scope ownership are source-confirmed missing pieces;
+neither has demonstrated new passing executions. The signed/native IndexedDB
+numeric transport discrepancy and large-value time limits remain open. Preserve
+all tests, assertions and resource caps. Completion requires 4,022/4,022 twice on
+one frozen signed candidate and every qualification gate.
 
 ## Current execution strategy
 
 Use the immediate sequence at the end of this document as the single active
 queue. Earlier milestone sections below preserve historical evidence and subsystem
 requirements; their dated counts and completed experiments do not override the
-1c8f550 baseline above.
+fb6f09b baseline above.
 
 The principal throughput failure has been treating assertion repairs and removal
 of first blockers as evidence that a batch will complete fixtures. They are useful
-correctness work, but the latest signed batch added only three whole passes. In addition,
+correctness work, but the latest signed batch added 14 whole passes. In addition,
 the regenerated backlog has no confirmed root causes populated. Routing categories
 and similar error messages cannot substitute for a reproduced dependency map.
 
 Before implementing a new mechanism, record exact affected IDs, the production
 path, a representative complete fixture, every known later blocker and the whole
 fixture acceptance criterion. Rank demonstrated completion paths ahead of apparent
-family size. Concentrate investigation on DOM, editing and CSS (786 failures),
+family size. Concentrate investigation on DOM, editing and CSS (772 failures),
 while closing the reproduced signed/native IndexedDB discrepancy.
 
 Run complete affected native suites and relevant passing coverage before promotion.
@@ -617,15 +609,10 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. **Measure the insertion/override batch.** Native editing validation covers
-   all 704 executions: 407 pass, 14 gains, zero whole losses and zero new observed
-   assertion regressions. All 501 raw missing names reconcile. Binding tests pass
-   184/184 with two existing ignores; formatting and strict Clippy pass.
-   [Native evidence](CONFORMANCE-INSERTHTML-OVERRIDES-NATIVE-2026-09-08.json) records
-   the full qualification gaps. Promote the bounded runtime change, sign the clean
-   candidate, run and audit all 4,022 executions before changing the overall score.
-   Keep font-value queries, existing toggle semantics, the IndexedDB transport
-   discrepancy and archived stream/DOM work separate from this measurement.
+1. **Insertion/override batch measured.** Signed candidate `fb6f09b` passes
+   3,066/4,022: 14 gains, zero whole losses and zero new observed assertion
+   regressions. The terminal audit and reconciliation are complete. Use this
+   baseline for subsequent batches; broader release qualification remains open.
 2. **Populate an actionable diagnosis index.** Carry reproduced causes into the
    current backlog with evidence links and exact IDs. Investigate representative
    complete failing fixtures in DOM, editing and CSS, including harness/runtime

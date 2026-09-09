@@ -1,38 +1,30 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,052/4,022 (75.9%)**, **970 remaining**.
+> Latest full measurement: **3,066/4,022 (76.2%)**, **956 remaining**.
 
-The signed run at `1c8f550` passes **3,052/4,022 (75.9%)**, with **970 remaining**.
-It gains three whole executions and loses zero versus `693a745`: IndexedDB origin
-isolation and structured-clone transaction state in window and dedicated-worker
-globals. Six existing assertions are corrected. Stylo remains the CSS engine.
+The signed run at `fb6f09b` passes **3,066/4,022 (76.2%)**, with **956 remaining**.
+It gains 14 whole editing executions and loses zero versus `1c8f550` through pasted
+inline-format boundaries and explicit formatting-state preservation. Fifty-two
+existing assertions are corrected. Stylo remains the CSS engine.
 
-The audit verifies exact coverage, complete passing harness results, signed source
-and binary fingerprints, and unchanged resource limits and sandbox settings.
-There are zero new observed assertion regressions. Five raw missing prior passing
-names reconcile through server-port changes. Fourteen older observations remain
+The audit verifies exact coverage, passing harness results, signed source and
+binary fingerprints, and unchanged resource limits and sandbox settings. There
+are zero new observed assertion regressions. Five raw missing prior passing names
+reconcile through server-port changes. Fourteen older observations remain
 unobserved, and six historical editing assertion regressions remain failing.
 
-[Full evidence](CONFORMANCE-IDB-CLONE-CHECKPOINT-FULL-2026-09-08.json) links the full
+[Full evidence](CONFORMANCE-INSERTHTML-OVERRIDES-FULL-2026-09-08.json) links the full
 assertion audit and reconciliation. This is one measured full run, not complete
 conformance or broader release qualification.
 
-The native IndexedDB candidate passed 416/456; the signed worker passes 406/456.
-Two key-generator executions still fail overflow assertions; eight large-value
-executions hit the generated-platform-operation time limit. Diagnose those actual
-production paths before claiming the ten native-only gains. The next bounded
-investigation is the brokered numeric round trip near 2^53, followed by profiling
-the large-value operation path under unchanged caps. Numeric precision is still a
-hypothesis, not a confirmed fix. Unfinished stream, timer and DOM work is preserved
-separately and remains unqualified. The editing document-settings experiment was
-rejected after five whole-test losses.
-
-DOM, editing and CSS account for 786 of the 970 failures. A source-and-fixture
-review identifies missing stylesheet media support in five CSSOM executions;
-implementation and complete-suite verification remain pending. Preserve all tests,
-assertions and resource caps. Completion requires 4,022/4,022 twice on one frozen
-signed candidate and every qualification gate.
+DOM, editing and CSS account for 772 of the 956 failures. The next investigation
+must establish complete-fixture paths for shared integration gaps. Stylesheet
+media support and implicit scope ownership are source-confirmed missing pieces;
+neither has demonstrated new passing executions. The signed/native IndexedDB
+numeric transport discrepancy and large-value time limits remain open. Preserve
+all tests, assertions and resource caps. Completion requires 4,022/4,022 twice on
+one frozen signed candidate and every qualification gate.
 
 | Root | Passed / required |
 |---|---:|
@@ -43,7 +35,7 @@ signed candidate and every qualification gate.
 | css/cssom | 95/190 |
 | css/selectors | 197/277 |
 | dom | 405/662 |
-| editing | 393/704 |
+| editing | 407/704 |
 | html/browsers/history | 45/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
