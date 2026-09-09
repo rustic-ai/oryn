@@ -1,0 +1,1971 @@
+{
+  "qualification": "Native candidate evidence only, not signed full-suite conformance. One execution result is missing.",
+  "signed_baseline": "5d785f0a585aeb3fee6483ba7c18547f137d116e",
+  "signed_baseline_passed": 3086,
+  "inventory_required": 4022,
+  "focus": {
+    "baseline_ledger_sha256": "fd1f73d729a0c84105d8acaf93b23b0f3a29951d436170a93fbb99ae66ab334c",
+    "log_sha256": "145f70af72508c29feede6ae48ce29dcadadcee9a6496c9076a3d5af1a553a5b",
+    "exact_selected_coverage": true,
+    "required": 19,
+    "passed": 10,
+    "gains": [
+      "dom/ranges/tentative/OpaqueRange-basic.html|window|",
+      "dom/ranges/tentative/OpaqueRange-interactive-basic.html|window|",
+      "dom/ranges/tentative/OpaqueRange-interactive-overlap-and-selection.html|window|",
+      "dom/ranges/tentative/OpaqueRange-offset.html|window|",
+      "dom/ranges/tentative/OpaqueRange-programmatic-updates.html|window|",
+      "dom/ranges/tentative/OpaqueRange-range-updates.html|window|",
+      "dom/ranges/tentative/OpaqueRange-supported-elements.html|window|",
+      "dom/ranges/tentative/OpaqueRange-unsupported-elements.html|window|",
+      "dom/ranges/tentative/OpaqueRange-update-event-order.html|window|",
+      "dom/ranges/tentative/OpaqueRange-validation.html|window|"
+    ],
+    "losses": [],
+    "assertion_counts": {
+      "missing_prior_passes": 0,
+      "regressed_prior_passes": 0,
+      "corrected_existing": 119
+    },
+    "historical_regressions": [],
+    "rows": [
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-auto-disconnect.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 17,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "OpaqueRange disconnected on element removal (textarea)",
+          "All OpaqueRanges disconnected on element removal (textarea)",
+          "Element accepts new OpaqueRanges after re-insertion (textarea)",
+          "OpaqueRange disconnected on ancestor removal (textarea)",
+          "OpaqueRange disconnected on implicit removal via innerHTML (textarea)",
+          "No error when element removed after manual disconnect (textarea)",
+          "OpaqueRange disconnected on element removal (input)",
+          "All OpaqueRanges disconnected on element removal (input)",
+          "Element accepts new OpaqueRanges after re-insertion (input)",
+          "OpaqueRange disconnected on ancestor removal (input)",
+          "OpaqueRange disconnected on implicit removal via innerHTML (input)",
+          "No error when element removed after manual disconnect (input)"
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-basic.html|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 3,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "Tests createValueRange returns OpaqueRange that extends AbstractRange.",
+          "OpaqueRange handles createValueRange correctly.",
+          "OpaqueRange handles empty value correctly."
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-disconnect.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 5,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "disconnect() is idempotent.",
+          "disconnect() stops live offset updates.",
+          "disconnect() only affects the target range.",
+          "Element accepts new ranges after a prior range is disconnected."
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-display-none.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 18,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "createValueRange works on display:none element (input)",
+          "OpaqueRange offsets survive repeated display:none cycles (input)",
+          "element.value replacement updates range during display:none (input)",
+          "setRangeText updates range during display:none (input)",
+          "setRangeText insert before range works during display:none (input)",
+          "setRangeText overlapping delete works during display:none (input)",
+          "Collapsed range insertion during display:none (input)",
+          "disconnect() works during display:none (input)",
+          "createValueRange works on display:none element (textarea)",
+          "OpaqueRange offsets survive repeated display:none cycles (textarea)",
+          "element.value replacement updates range during display:none (textarea)",
+          "setRangeText updates range during display:none (textarea)",
+          "setRangeText insert before range works during display:none (textarea)",
+          "setRangeText overlapping delete works during display:none (textarea)",
+          "Collapsed range insertion during display:none (textarea)",
+          "disconnect() works during display:none (textarea)"
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-geometry-basic.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 14,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-geometry-complexity-and-visibility.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-geometry-multiline.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 13,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-geometry-mutations.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 12,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "Shrink/grow end offset clamping (input)",
+          "Shrink/grow end offset clamping (textarea)"
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-highlight.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 8,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-highlightsFromPoint.html|window|",
+        "passed": false,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 11,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": []
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-interactive-basic.html|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 16,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "Insertion: at start boundary keeps start; end extends (multi-char) (input).",
+          "Insertion: inside range extends end by length (input).",
+          "Insertion: at end boundary leaves offsets unchanged (multi-char) (input).",
+          "Equal-length replacement: single char inside range (input).",
+          "Deletion: backspace before range shifts both left (input).",
+          "Deletion: forward delete inside range contracts end by 1 (input).",
+          "Deletion: forward delete at end boundary no effect on range (input).",
+          "Deletion: backspace at control start is no-op (input).",
+          "Insertion: at start boundary keeps start; end extends (multi-char) (textarea).",
+          "Insertion: inside range extends end by length (textarea).",
+          "Insertion: at end boundary leaves offsets unchanged (multi-char) (textarea).",
+          "Equal-length replacement: single char inside range (textarea).",
+          "Deletion: backspace before range shifts both left (textarea).",
+          "Deletion: forward delete inside range contracts end by 1 (textarea).",
+          "Deletion: forward delete at end boundary no effect on range (textarea).",
+          "Deletion: backspace at control start is no-op (textarea)."
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-interactive-overlap-and-selection.html|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 10,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "Overlap: partial overlap at start (delete selection) (input).",
+          "Overlap: partial overlap at end (delete selection) (input).",
+          "Selection deletion: delete selection exactly equal to range (collapse) (input).",
+          "Selection deletion: delete subset inside range (contract end) (input).",
+          "Boundary forward delete shifts range left (input).",
+          "Overlap: partial overlap at start (delete selection) (textarea).",
+          "Overlap: partial overlap at end (delete selection) (textarea).",
+          "Selection deletion: delete selection exactly equal to range (collapse) (textarea).",
+          "Selection deletion: delete subset inside range (contract end) (textarea).",
+          "Boundary forward delete shifts range left (textarea)."
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-offset.html|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 11,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "createValueRange with single character in textarea.",
+          "createValueRange with empty control in textarea.",
+          "createValueRange boundary positions in textarea.",
+          "createValueRange with Unicode characters in textarea.",
+          "createValueRange with single character in input.",
+          "createValueRange with empty control in input.",
+          "createValueRange boundary positions in input.",
+          "createValueRange with Unicode characters in input.",
+          "createValueRange on textarea with whitespace in light DOM.",
+          "createValueRange works correctly with weirdly formed light DOM structure.",
+          "createValueRange ignores malformed input child nodes."
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-programmatic-updates.html|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 28,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "Full replace collapses to start (shorter & longer) (input)",
+          "Full replace from whole-old range collapses to 0 (input)",
+          "Full replace (equal length) collapses to 0 (input)",
+          "Partial replacement adjusts end (input)",
+          "No-op leaves range unchanged (input)",
+          "Insertion before range shifts both endpoints (input)",
+          "Interior deletion shrinks end (input)",
+          "Before-range shrink shifts left (input)",
+          "After-range grow leaves range unchanged (input)",
+          "Superset replacement collapses to change start (input)",
+          "Insert at range.start extends end (input)",
+          "Insert at range.end leaves range unchanged (input)",
+          "Surrogate pair expansion grows end (input)",
+          "Chained interior edits cumulatively adjust range (input)",
+          "Full replace collapses to start (shorter & longer) (textarea)",
+          "Full replace from whole-old range collapses to 0 (textarea)",
+          "Full replace (equal length) collapses to 0 (textarea)",
+          "Partial replacement adjusts end (textarea)",
+          "No-op leaves range unchanged (textarea)",
+          "Insertion before range shifts both endpoints (textarea)",
+          "Interior deletion shrinks end (textarea)",
+          "Before-range shrink shifts left (textarea)",
+          "After-range grow leaves range unchanged (textarea)",
+          "Superset replacement collapses to change start (textarea)",
+          "Insert at range.start extends end (textarea)",
+          "Insert at range.end leaves range unchanged (textarea)",
+          "Surrogate pair expansion grows end (textarea)",
+          "Chained interior edits cumulatively adjust range (textarea)"
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-range-updates.html|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "createValueRange creates independent ranges on same element.",
+          "createValueRange works on different form controls.",
+          "createValueRange works with disconnected form controls.",
+          "OpaqueRange collapses on full .value= replacement."
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-supported-elements.html|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 6,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "createValueRange should work on textarea.",
+          "createValueRange should work on input[type=text].",
+          "createValueRange should work on input[type=search].",
+          "createValueRange should work on input[type=password].",
+          "createValueRange should work on input[type=url].",
+          "createValueRange should work on input[type=tel]."
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-unsupported-elements.html|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 1,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "createValueRange throws NotSupportedError for unsupported input types."
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-update-event-order.html|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 4,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "Event order: OpaqueRange updates between beforeinput and input (input).",
+          "Canceled beforeinput leaves OpaqueRange unchanged (input).",
+          "Event order: OpaqueRange updates between beforeinput and input (textarea).",
+          "Canceled beforeinput leaves OpaqueRange unchanged (textarea)."
+        ]
+      },
+      {
+        "id": "dom/ranges/tentative/OpaqueRange-validation.html|window|",
+        "passed": true,
+        "baseline_passed": false,
+        "complete": true,
+        "observed_assertions": 2,
+        "missing_prior_passes": [],
+        "regressed_prior_passes": [],
+        "corrected_existing": [
+          "createValueRange throws IndexSizeError for out-of-bounds offsets.",
+          "createValueRange handles all range types correctly: forward, backwards, and out-of-bounds."
+        ]
+      }
+    ],
+    "qualification": "Focused native comparison only; not signed full-suite qualification."
+  },
+  "combined": {
+    "baseline_ledger_sha256": "fd1f73d729a0c84105d8acaf93b23b0f3a29951d436170a93fbb99ae66ab334c",
+    "log_sha256": "dbbe550889c784e479904d1892bf15eb82818b76eca07101c356976e997eb76f",
+    "exact_selected_coverage": false,
+    "required": 1366,
+    "observed": 1365,
+    "missing_execution_ids": [
+      "dom/ranges/Range-insertNode.html|window|"
+    ],
+    "passed": 831,
+    "gains": [
+      "dom/ranges/tentative/OpaqueRange-basic.html|window|",
+      "dom/ranges/tentative/OpaqueRange-interactive-basic.html|window|",
+      "dom/ranges/tentative/OpaqueRange-interactive-overlap-and-selection.html|window|",
+      "dom/ranges/tentative/OpaqueRange-offset.html|window|",
+      "dom/ranges/tentative/OpaqueRange-programmatic-updates.html|window|",
+      "dom/ranges/tentative/OpaqueRange-range-updates.html|window|",
+      "dom/ranges/tentative/OpaqueRange-supported-elements.html|window|",
+      "dom/ranges/tentative/OpaqueRange-unsupported-elements.html|window|",
+      "dom/ranges/tentative/OpaqueRange-update-event-order.html|window|",
+      "dom/ranges/tentative/OpaqueRange-validation.html|window|"
+    ],
+    "losses": [],
+    "assertion_counts": {
+      "missing_prior_passes": 811,
+      "regressed_prior_passes": 0,
+      "corrected_existing": 119
+    },
+    "historical_regressions": [
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=block&command=insertText",
+        "name": "<p contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+        "status": 1
+      },
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline&command=insertText",
+        "name": "<p contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+        "status": 1
+      },
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline-block&command=insertText",
+        "name": "<p contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+        "status": 1
+      },
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=block&command=insertText",
+        "name": "<span contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+        "status": 1
+      },
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline&command=insertText",
+        "name": "<span contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+        "status": 1
+      },
+      {
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline-block&command=insertText",
+        "name": "<span contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+        "status": 1
+      }
+    ],
+    "qualification": "Native comparison with one missing execution result; not complete coverage or signed full-suite qualification."
+  },
+  "name_reconciliation": {
+    "raw_missing_prior_passes": 811,
+    "reconciled_executions": 31,
+    "unresolved_ids": [],
+    "renamed_status_changes": []
+  },
+  "historical_coverage": {
+    "qualification": "Native selected run only; exact names for historical coverage; not_selected is not recovery.",
+    "rows": [
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += foreignTextNode.data, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = foreignTextNode.textContent, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = foreignTextNode.textContent, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += foreignTextNode.textContent, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += foreignTextNode.textContent, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = foreignTextNode.data, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = foreignTextNode.data, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += foreignTextNode.data, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += foreignTextNode.data, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = foreignTextNode.textContent, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent = foreignTextNode.textContent, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += foreignTextNode.textContent, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += foreignTextNode.textContent, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"foo\", with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"foo\", with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with unselected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with selected range collapsed at (foreignTextNode, foreignTextNode.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data = \"\", with unselected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data = \"\", with selected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data = \"foo\", with unselected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data = \"foo\", with selected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data = xmlTextNode.data, with unselected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data = xmlTextNode.data, with selected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data += \"\", with unselected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data += \"\", with selected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data += \"foo\", with unselected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data += \"foo\", with selected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data += xmlTextNode.data, with unselected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.data += xmlTextNode.data, with selected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.textContent = \"\", with unselected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.textContent = \"\", with selected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.textContent = \"foo\", with unselected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.textContent = \"foo\", with selected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.textContent = xmlTextNode.textContent, with unselected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "xmlTextNode.textContent = xmlTextNode.textContent, with selected range collapsed at (xmlTextNode, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "IndexedDB/transaction-lifetime.any.js|window|",
+        "name": "No Blocked event",
+        "status": "not_selected",
+        "fixture_complete": null,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "IndexedDB/structured-clone.any.js|window|?101-last",
+        "name": "Not serializable: Object: [object Object]",
+        "status": "not_selected",
+        "fixture_complete": null,
+        "harness": null
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "touchstart listener is non-passive with {passive:false} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "touchstart listener is passive with {passive:true} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "touchmove listener is non-passive with {passive:false} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "touchmove listener is passive with {passive:true} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "wheel listener is non-passive with {passive:false} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "wheel listener is passive with {passive:true} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "mousewheel listener is non-passive with {passive:false} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "mousewheel listener is passive with {passive:true} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "touchend listener is non-passive by default for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "touchend listener is non-passive with {passive:undefined} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "touchend listener is non-passive with {passive:false} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "prior_missing_recovery",
+        "id": "dom/events/passive-by-default.html|window|",
+        "name": "touchend listener is passive with {passive:true} for Object",
+        "status": "unobserved",
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += \"foo\", with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += \"foo\", with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += foreignTextNode.textContent, with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.textContent += foreignTextNode.textContent, with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"\", with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"\", with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"foo\", with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = \"foo\", with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue = foreignTextNode.nodeValue, with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"\", with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"\", with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"foo\", with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += \"foo\", with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with unselected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.nodeValue += foreignTextNode.nodeValue, with selected range on foreignTextNode from 0 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = foreignTextNode.data, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data = foreignTextNode.data, with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += \"\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += \"\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += \"foo\", with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += \"foo\", with selected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+        "name": "foreignTextNode.data += foreignTextNode.data, with unselected range on foreignTextNode from 1 to foreignTextNode.length",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(376, 1, \"foo\"), with selected range on comment from 0 to 1",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(0, 1, \"foo\"), with unselected range collapsed at (comment, 0)",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(0, 1, \"foo\"), with selected range collapsed at (comment, 0)",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 1, \"foo\"), with unselected range collapsed at (comment, 1)",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 1, \"foo\"), with selected range collapsed at (comment, 1)",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(comment.length, 1, \"foo\"), with unselected range collapsed at (comment, comment.length)",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(comment.length, 1, \"foo\"), with selected range collapsed at (comment, comment.length)",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 1, \"foo\"), with unselected range on comment from 1 to 3",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 1, \"foo\"), with selected range on comment from 1 to 3",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(2, 1, \"foo\"), with unselected range on comment from 1 to 3",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(2, 1, \"foo\"), with selected range on comment from 1 to 3",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(3, 1, \"foo\"), with unselected range on comment from 1 to 3",
+        "status": 0,
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(3, 1, \"foo\"), with selected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(376, 1, \"\"), with unselected range on comment from 0 to 1",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(376, 1, \"\"), with selected range on comment from 0 to 1",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(0, 1, \"\"), with unselected range collapsed at (comment, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(0, 1, \"\"), with selected range collapsed at (comment, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 1, \"\"), with unselected range collapsed at (comment, 1)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 1, \"\"), with selected range collapsed at (comment, 1)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(comment.length, 1, \"\"), with unselected range collapsed at (comment, comment.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(comment.length, 1, \"\"), with selected range collapsed at (comment, comment.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 1, \"\"), with unselected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 1, \"\"), with selected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(2, 1, \"\"), with unselected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(2, 1, \"\"), with selected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(3, 1, \"\"), with unselected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(3, 1, \"\"), with selected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(376, 47, \"foo\"), with unselected range on comment from 0 to 1",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(376, 47, \"foo\"), with selected range on comment from 0 to 1",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(0, 47, \"foo\"), with unselected range collapsed at (comment, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(0, 47, \"foo\"), with selected range collapsed at (comment, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 47, \"foo\"), with unselected range collapsed at (comment, 1)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 47, \"foo\"), with selected range collapsed at (comment, 1)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(comment.length, 47, \"foo\"), with unselected range collapsed at (comment, comment.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(comment.length, 47, \"foo\"), with selected range collapsed at (comment, comment.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 47, \"foo\"), with unselected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 47, \"foo\"), with selected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(2, 47, \"foo\"), with unselected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(2, 47, \"foo\"), with selected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(3, 47, \"foo\"), with unselected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(3, 47, \"foo\"), with selected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(376, 47, \"\"), with unselected range on comment from 0 to 1",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(376, 47, \"\"), with selected range on comment from 0 to 1",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(0, 47, \"\"), with unselected range collapsed at (comment, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(0, 47, \"\"), with selected range collapsed at (comment, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 47, \"\"), with unselected range collapsed at (comment, 1)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 47, \"\"), with selected range collapsed at (comment, 1)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(comment.length, 47, \"\"), with unselected range collapsed at (comment, comment.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(comment.length, 47, \"\"), with selected range collapsed at (comment, comment.length)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 47, \"\"), with unselected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(1, 47, \"\"), with selected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(2, 47, \"\"), with unselected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(2, 47, \"\"), with selected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(3, 47, \"\"), with unselected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "comment.replaceData(3, 47, \"\"), with selected range on comment from 1 to 3",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "foreignComment.replaceData(376, 0, \"foo\"), with unselected range on foreignComment from 0 to 1",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "foreignComment.replaceData(376, 0, \"foo\"), with selected range on foreignComment from 0 to 1",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "foreignComment.replaceData(0, 0, \"foo\"), with unselected range collapsed at (foreignComment, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "unresolved_missing_prior_passes",
+        "id": "dom/ranges/Range-mutations-replaceData.html|window|",
+        "name": "foreignComment.replaceData(0, 0, \"foo\"), with selected range collapsed at (foreignComment, 0)",
+        "status": "unobserved",
+        "fixture_complete": false,
+        "harness": null
+      },
+      {
+        "category": "historical_assertion_regression_status",
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=block&command=insertText",
+        "name": "<p contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+        "status": 1,
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "historical_assertion_regression_status",
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline&command=insertText",
+        "name": "<p contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+        "status": 1,
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "historical_assertion_regression_status",
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline-block&command=insertText",
+        "name": "<p contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+        "status": 1,
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "historical_assertion_regression_status",
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=block&command=insertText",
+        "name": "<span contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+        "status": 1,
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "historical_assertion_regression_status",
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline&command=insertText",
+        "name": "<span contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+        "status": 1,
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "historical_assertion_regression_status",
+        "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline-block&command=insertText",
+        "name": "<span contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+        "status": 1,
+        "fixture_complete": true,
+        "harness": 0
+      },
+      {
+        "category": "historical_assertion_regression_status",
+        "id": "IndexedDB/database-names-by-origin.html|window|",
+        "name": "closed database names don't leak to cross-origin iframe",
+        "status": "not_selected",
+        "fixture_complete": null,
+        "harness": null
+      }
+    ]
+  },
+  "validation": {
+    "js_tests_passed": 187,
+    "existing_js_tests_ignored": 2,
+    "dom_tests_passed": 58,
+    "native_keyboard_tests_passed": 4,
+    "strict_clippy": [
+      "oryn-dom",
+      "oryn-js",
+      "oryn-native"
+    ],
+    "generated_bindings_check": "passed"
+  },
+  "artifacts": [
+    {
+      "path": "artifacts/upstream-conformance/native-opaque-range-v3/oryn-opaque-range-v3-focus.log",
+      "sha256": "145f70af72508c29feede6ae48ce29dcadadcee9a6496c9076a3d5af1a553a5b"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-opaque-range-v3/oryn-opaque-range-v3-focus-audit.json",
+      "sha256": "c3e5cfacca77b3b462f9f7c6a6618ad3ffbe57aef5a1d14e91d7b0ee463abf57"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-opaque-range-v3/oryn-opaque-range-v3-dom-editing.log",
+      "sha256": "dbbe550889c784e479904d1892bf15eb82818b76eca07101c356976e997eb76f"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-opaque-range-v3/oryn-opaque-range-v3-dom-editing-audit.json",
+      "sha256": "aafd34bae42508431d2ce42e3ad369160c4eb3f31346a0a4a068eb453501bb9a"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-opaque-range-v3/oryn-opaque-range-v3-dom-editing-name-reconciliation.json",
+      "sha256": "c2cee7ea7583166020798aad315889777f2b25bee9509c259d469b6c82209604"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-opaque-range-v3/oryn-opaque-range-v3-dom-editing-carry-forward.json",
+      "sha256": "ee2921e76144ea2f706ad8918e8fd54537712620cf2b2299cba90d3ec60240dc"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-opaque-range-v3/oryn-opaque-range-v3-validation.log",
+      "sha256": "09f2cab60b1f394fc6ca9275b6bc9f0d33c652393930472caefa518c575f7d4c"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-opaque-range-v3/oryn-opaque-range-v3-guards.log",
+      "sha256": "32d5cb3f5094a6a38eecc2977ec6f8b591cb395b6b779579cd381d62404c54d2"
+    }
+  ],
+  "remaining": [
+    "Nine OpaqueRange family fixtures fail: lifecycle/adoption, geometry and highlights.",
+    "Native Range-insertNode result missing after stack overflow; not waived.",
+    "Full signed4022 execution measurement and all completion gates remain.",
+    "Control value UTF16 storage, sanitization and selection-event completeness remain open."
+  ]
+}

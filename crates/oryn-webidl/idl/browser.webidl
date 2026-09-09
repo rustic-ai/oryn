@@ -669,6 +669,8 @@ interface HTMLImageElement : HTMLElement {
   readonly attribute unsigned long clientHeight;
 };
 
+enum SelectionMode { "select", "start", "end", "preserve" };
+
 [Exposed=Window]
 interface HTMLInputElement : HTMLElement {
   attribute DOMString value;
@@ -685,6 +687,9 @@ interface HTMLInputElement : HTMLElement {
   attribute DOMString? selectionDirection;
   undefined select();
   undefined setSelectionRange(unsigned long start, unsigned long end, optional DOMString direction = "none");
+  undefined setRangeText(DOMString replacement);
+  undefined setRangeText(DOMString replacement, unsigned long start, unsigned long end, optional SelectionMode selectionMode = "preserve");
+  OpaqueRange createValueRange(unsigned long start, unsigned long end);
 };
 
 [Exposed=Window]
@@ -700,6 +705,9 @@ interface HTMLTextAreaElement : HTMLElement {
   attribute DOMString? selectionDirection;
   undefined select();
   undefined setSelectionRange(unsigned long start, unsigned long end, optional DOMString direction = "none");
+  undefined setRangeText(DOMString replacement);
+  undefined setRangeText(DOMString replacement, unsigned long start, unsigned long end, optional SelectionMode selectionMode = "preserve");
+  OpaqueRange createValueRange(unsigned long start, unsigned long end);
 };
 
 [Exposed=Window]
@@ -896,6 +904,11 @@ interface AbstractRange {
   readonly attribute Node endContainer;
   readonly attribute unsigned long endOffset;
   readonly attribute boolean collapsed;
+};
+
+[Exposed=Window]
+interface OpaqueRange : AbstractRange {
+  undefined disconnect();
 };
 
 dictionary StaticRangeInit {

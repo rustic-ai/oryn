@@ -48,9 +48,16 @@ fingerprints, unchanged limits, sandbox settings, and successful completion of
 passing executions are verified. This is not complete conformance or release
 qualification.
 
-Next, evaluate native OpaqueRange/control-value integration against all 17 pinned
-executions, including lifecycle, edits and geometry. The separate draft is uncompiled
-and unqualified; geometry requires live control values and shaped text positions.
+OpaqueRange/control-value integration now passes 10 of all 19 pinned family
+executions in the native v2 probe, with 119 corrected existing assertions and no
+selected regressions. All 704 editing executions were measured: 416 pass, with no
+whole losses or assertion regressions after explicit title reconciliation. These
+are native results, not signed full-suite gains. The argument-conversion fixes retain those ten gains in native v3. Combined
+DOM/editing validation observes 1,365/1,366 executions, with 831 passes, ten gains
+and no observed regressions. Range-insertNode emits no result after a native stack
+overflow; this missing execution is not waived. Native evidence is recorded in
+[the candidate report](CONFORMANCE-OPAQUE-RANGE-NATIVE-2026-09-09.json). Lifecycle, geometry and highlights remain open;
+geometry requires live control values and shaped text positions.
 Profile Range/Selection synchronization to recover missing observations and investigate
 the IndexedDB intermittency. Native stylesheet import integration and the preserved
 popup navigation/lifecycle work remain open. Choose batches by complete-fixture
@@ -615,12 +622,14 @@ records unresolved Range observations and all remaining conformance gates.
    executions with 3086 passes, three gains, 310 corrected assertions and no whole
    losses. The intermittent cross-origin IndexedDB assertion fails again. Terminal
    audits are complete; 86 newly missing plus 93 older missing assertions remain.
-2. **Complete a shared missing subsystem.** OpaqueRange has 17 pinned executions
-   blocked by missing APIs. A separate native store/value/removal draft exists but
-   has not been compiled. Integrate generated bindings, control edit/lifecycle
-   updates, and shaped-text geometry; reconcile the experimental API version before
-   exposing container attributes. Do not promote constructor-only or zero-geometry
-   placeholders. Measure all 17 complete fixtures and broader DOM/editing guards.
+2. **Qualify measured control-value gains and finish the subsystem.** The native
+   store, generated bindings and edit integration pass 10/19 OpaqueRange fixtures.
+   The v2 editing guard passes 416/704 without regressions. Finish native/DOM guards
+   and measure the argument-conversion fixes, then qualify the candidate with a
+   signed full run. Resolve adoption/type-change lifecycle, live-value layout,
+   shaped-text geometry and highlights. The family has 19 executions; 17 was only
+   the earlier missing-createValueRange message cluster. Constructor-only and
+   zero-geometry placeholders do not establish completion.
 3. **Resolve shared runtime and CSS gaps.** Profile bulk Range/Selection cache
    synchronization under unchanged caps, retaining all 179 unobserved assertions.
    Diagnose the recurring IndexedDB cross-origin failure. Restore native stylesheet

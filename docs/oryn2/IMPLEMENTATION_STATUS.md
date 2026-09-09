@@ -19,9 +19,16 @@ fingerprints, unchanged limits, sandbox settings, and successful completion of
 passing executions are verified. This is not complete conformance or release
 qualification.
 
-Next, evaluate native OpaqueRange/control-value integration against all 17 pinned
-executions, including lifecycle, edits and geometry. The separate draft is uncompiled
-and unqualified; geometry requires live control values and shaped text positions.
+OpaqueRange/control-value integration now passes 10 of all 19 pinned family
+executions in the native v2 probe, with 119 corrected existing assertions and no
+selected regressions. All 704 editing executions were measured: 416 pass, with no
+whole losses or assertion regressions after explicit title reconciliation. These
+are native results, not signed full-suite gains. The argument-conversion fixes retain those ten gains in native v3. Combined
+DOM/editing validation observes 1,365/1,366 executions, with 831 passes, ten gains
+and no observed regressions. Range-insertNode emits no result after a native stack
+overflow; this missing execution is not waived. Native evidence is recorded in
+[the candidate report](CONFORMANCE-OPAQUE-RANGE-NATIVE-2026-09-09.json). Lifecycle, geometry and highlights remain open;
+geometry requires live control values and shaped text positions.
 Profile Range/Selection synchronization to recover missing observations and investigate
 the IndexedDB intermittency. Native stylesheet import integration and the preserved
 popup navigation/lifecycle work remain open. Choose batches by complete-fixture

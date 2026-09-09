@@ -38,6 +38,7 @@ mod computed_styles;
 mod global_events;
 mod location;
 mod message_events;
+mod opaque_ranges;
 pub mod structured_clone;
 mod url_objects;
 pub mod window_proxy;
@@ -1036,6 +1037,7 @@ pub struct V8BindingState {
     ranges: Rc<RefCell<BTreeMap<u64, RangeRecord>>>,
     static_ranges: Rc<RefCell<BTreeSet<u64>>>,
     range_objects: Rc<RefCell<BTreeMap<u64, RangeWrapper>>>,
+    opaque_range_objects: RefCell<BTreeMap<u64, v8::Weak<v8::Object>>>,
     range_memory_delta: Rc<Cell<i64>>,
     node_lists: node_lists::Store,
     selection_range: Rc<Cell<Option<u64>>>,
@@ -3104,6 +3106,12 @@ fn dom_exception_value<'s>(
 
 impl Drop for V8BindingState {
     fn drop(&mut self) {
+        for id in self.opaque_range_objects.get_mut().keys() {
+            let _ = self
+                .dom
+                .borrow_mut()
+                .drop_opaque_range(oryn_dom::OpaqueRangeId(*id));
+        }
         let _ = self
             .wrappers
             .borrow_mut()
@@ -3222,6 +3230,7 @@ pub fn install_generated_bindings_with_root_for_global(
             || Rc::new(Cell::new(0)),
             |owner| owner.range_memory_delta.clone(),
         ),
+        opaque_range_objects: RefCell::new(BTreeMap::new()),
         node_lists: node_lists::Store::default(),
         selection_range,
         range_selections,
@@ -9783,6 +9792,7 @@ fn generated_operation_impl<'s>(
         interface,
         "Range"
             | "StaticRange"
+            | "OpaqueRange"
             | "Selection"
             | "NodeIterator"
             | "TreeWalker"
@@ -10548,6 +10558,11 @@ fn stateful_id(
     scope: &mut v8::PinScope,
     object: v8::Local<v8::Object>,
 ) -> Result<u64, V8BindingError> {
+    if opaque_ranges::id(scope, object).is_some() {
+        return Err(V8BindingError::Allocation(
+            "incompatible opaque range receiver",
+        ));
+    }
     object
         .get_internal_field(scope, 0)
         .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
@@ -11414,6 +11429,7 @@ fn collect_dead_ranges(
     state: &V8BindingState,
     include_unwrapped: bool,
 ) -> Result<usize, BindingError> {
+    let opaque_dead = opaque_ranges::collect(state)?;
     let (Ok(mut objects), Ok(mut ranges), Ok(mut statics), Ok(mut dom)) = (
         state.range_objects.try_borrow_mut(),
         state.ranges.try_borrow_mut(),
@@ -11455,7 +11471,7 @@ fn collect_dead_ranges(
             .range_memory_delta
             .set(state.range_memory_delta.get() - range_payload_bytes(is_static));
     }
-    Ok(dead.len())
+    Ok(dead.len() + opaque_dead)
 }
 
 fn register_live_range(state: &V8BindingState, range: RangeRecord) -> Result<u64, V8BindingError> {
@@ -16582,6 +16598,11 @@ fn get_stateful_attribute<'s>(
     if interface == "Selection" {
         synchronize_live_ranges(state)?;
     }
+    if interface == "AbstractRange"
+        && let Some(id) = opaque_ranges::id(scope, object)
+    {
+        return opaque_ranges::attribute(scope, state, id, member);
+    }
     if matches!(interface, "AbstractRange" | "Range" | "StaticRange") {
         let id = stateful_id(scope, object)?;
         // Native live ranges already track DOM mutations. Reading one endpoint
@@ -20807,6 +20828,19 @@ fn call_stateful_operation<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if interface == "OpaqueRange" {
+        let id = opaque_ranges::id(scope, object).ok_or(V8BindingError::Allocation(
+            "incompatible opaque range receiver",
+        ))?;
+        if member == "disconnect" {
+            state.dom.borrow_mut().disconnect_opaque_range(id)?;
+            return Ok(None);
+        }
+        return Err(V8BindingError::Unsupported {
+            interface: interface.into(),
+            member: member.into(),
+        });
+    }
     if interface == "DOMParser" && member == "parseFromString" {
         let media_type = args.get(1).to_rust_string_lossy(scope);
         if !matches!(
@@ -24801,6 +24835,9 @@ fn get_attribute_value<'s>(
             scope,
             record.attributes.get("value").map_or("", String::as_str),
         )?,
+        ("HTMLInputElement" | "HTMLTextAreaElement", "value") => {
+            v8_string(scope, &dom.control_value(node)?)?
+        }
         (interface, "value") if interface.starts_with("HTML") => v8_string(
             scope,
             dom.value(node)?
@@ -26172,6 +26209,148 @@ fn call_operation<'s>(
                 }
             };
             Ok(Some(v8::Boolean::new(scope, executed).into()))
+        }
+        ("HTMLInputElement" | "HTMLTextAreaElement", "setRangeText") => {
+            if args.length() == 0 || args.length() == 2 {
+                return Err(V8BindingError::Unsupported {
+                    interface: interface.into(),
+                    member: "TypeError".into(),
+                });
+            }
+            let replacement = args
+                .get(0)
+                .to_string(scope)
+                .ok_or(V8BindingError::Allocation("replacement text"))?
+                .to_rust_string_lossy(scope);
+            let explicit_offsets = if args.length() >= 3 {
+                Some((
+                    args.get(1)
+                        .uint32_value(scope)
+                        .ok_or(V8BindingError::Allocation("splice start"))?,
+                    args.get(2)
+                        .uint32_value(scope)
+                        .ok_or(V8BindingError::Allocation("splice end"))?,
+                ))
+            } else {
+                None
+            };
+            let mode = if args.get(3).is_undefined() {
+                "preserve".into()
+            } else {
+                args.get(3)
+                    .to_string(scope)
+                    .ok_or(V8BindingError::Allocation("selection mode"))?
+                    .to_rust_string_lossy(scope)
+            };
+            if !matches!(mode.as_str(), "select" | "start" | "end" | "preserve") {
+                return Err(V8BindingError::Unsupported {
+                    interface: interface.into(),
+                    member: "TypeError".into(),
+                });
+            }
+            {
+                let dom = state.dom.borrow();
+                let kind = dom
+                    .attribute(node, "type")?
+                    .unwrap_or("text")
+                    .to_ascii_lowercase();
+                if interface == "HTMLInputElement"
+                    && matches!(
+                        kind.as_str(),
+                        "hidden"
+                            | "date"
+                            | "month"
+                            | "week"
+                            | "time"
+                            | "datetime-local"
+                            | "number"
+                            | "range"
+                            | "color"
+                            | "checkbox"
+                            | "radio"
+                            | "file"
+                            | "submit"
+                            | "image"
+                            | "reset"
+                            | "button"
+                            | "email"
+                    )
+                {
+                    return Err(V8BindingError::Unsupported {
+                        interface: interface.into(),
+                        member: "InvalidStateError".into(),
+                    });
+                }
+            }
+            // Read live value and selection after argument conversions, which
+            // may execute author code and change the control.
+            let length = state
+                .dom
+                .borrow()
+                .control_value(node)?
+                .encode_utf16()
+                .count() as u32;
+            let (selection_start, selection_end, _) = state
+                .text_control_selections
+                .borrow()
+                .get(&node)
+                .cloned()
+                .unwrap_or((length, length, "none".into()));
+            let (start, end) = explicit_offsets
+                .unwrap_or((selection_start.min(length), selection_end.min(length)));
+            if start > end {
+                return Err(V8BindingError::Unsupported {
+                    interface: interface.into(),
+                    member: "IndexSizeError".into(),
+                });
+            }
+            let start = start.min(length);
+            let end = end.min(length);
+            let inserted = replacement.encode_utf16().count() as u32;
+            let new_end = start + inserted;
+            state
+                .dom
+                .borrow_mut()
+                .replace_control_value(node, start, end, &replacement)?;
+            let (new_start, new_selection_end) = match mode.as_str() {
+                "select" => (start, new_end),
+                "start" => (start, start),
+                "end" => (new_end, new_end),
+                _ => {
+                    let adjust = |point: u32, inside: u32| {
+                        let point = point.min(length);
+                        if point > end {
+                            point - (end - start) + inserted
+                        } else if point > start {
+                            inside
+                        } else {
+                            point
+                        }
+                    };
+                    (
+                        adjust(selection_start, start),
+                        adjust(selection_end, new_end),
+                    )
+                }
+            };
+            state
+                .text_control_selections
+                .borrow_mut()
+                .insert(node, (new_start, new_selection_end, "none".into()));
+            Ok(None)
+        }
+        ("HTMLInputElement" | "HTMLTextAreaElement", "createValueRange") => {
+            let start = args
+                .get(0)
+                .uint32_value(scope)
+                .ok_or(V8BindingError::Allocation("range start offset"))?;
+            let end = args
+                .get(1)
+                .uint32_value(scope)
+                .ok_or(V8BindingError::Allocation("range end offset"))?;
+            Ok(Some(
+                opaque_ranges::create(scope, state, node, start, end)?.into(),
+            ))
         }
         ("Document", "createRange") => {
             let id = register_live_range(
@@ -31559,6 +31738,131 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(value, "true|true|true|true|true|true|true");
+    }
+
+    #[test]
+    fn opaque_range_wrappers_release_native_records_at_safe_checkpoints() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<textarea id='control'>Hello</textarea>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            (() => {
+                const control = document.getElementById('control');
+                globalThis.keptOpaque = control.createValueRange(1, 4);
+                for (let i = 0; i < 128; i++) control.createValueRange(0, 5);
+            })();
+            true
+        "#,
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        assert_eq!(state.opaque_range_objects.borrow().len(), 1);
+        let source = v8::String::new(scope, "globalThis.keptOpaque = null").unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        apply_range_memory_accounting(scope, &state);
+        assert!(state.opaque_range_objects.borrow().is_empty());
+        assert_eq!(state.range_memory_delta.get(), 0);
+    }
+
+    #[test]
+    fn opaque_ranges_keep_native_offsets_identity_and_control_lifetime() {
+        initialize_v8();
+        let parsed = html::parse("<div id='host'><textarea id='control'>Hello</textarea></div>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            const control = document.getElementById('control');
+            for (const tag of ['input', 'textarea']) {
+                const edit = document.createElement(tag);
+                edit.value = 'A😀BCDE';
+                const tracked = edit.createValueRange(3, 6);
+                edit.setSelectionRange(3, 6, 'backward');
+                edit.setRangeText('XY', 1, 3, 'preserve');
+                if (edit.value !== 'AXYBCDE' || tracked.startOffset !== 1 || tracked.endOffset !== 6 ||
+                    edit.selectionStart !== 1 || edit.selectionEnd !== 6) throw Error('UTF16 splice/selection');
+                edit.setRangeText('Q', 0, 0, 'end');
+                if (tracked.startOffset !== 2 || tracked.endOffset !== 7 || edit.selectionStart !== 1) throw Error('insertion affinity');
+                for (const call of [() => edit.setRangeText(), () => edit.setRangeText('x', 0),
+                    () => edit.setRangeText('x', 0, 1, 'invalid')]) {
+                    const unchanged = edit.value;
+                    let rejected = false;
+                    try { call(); } catch (error) { rejected = error instanceof TypeError; }
+                    if (!rejected || edit.value !== unchanged) throw Error('overload/enum validation');
+                }
+                const before = edit.value;
+                let invalid = false;
+                try { edit.setRangeText('x', 5, 2); } catch (error) { invalid = error.name === 'IndexSizeError'; }
+                if (!invalid || edit.value !== before) throw Error('invalid splice mutated value');
+                edit.setSelectionRange(2, 4);
+                edit.setRangeText('Z');
+                if (edit.value !== 'QAZBCDE' || edit.selectionStart !== 2 || edit.selectionEnd !== 3) throw Error('selection overload');
+            }
+            const reentrant = document.createElement('textarea');
+            reentrant.value = 'old';
+            reentrant.setRangeText('X', {valueOf() { reentrant.value = 'abcdef'; return 4; }}, 5, 'end');
+            if (reentrant.value !== 'abcdXf' || reentrant.selectionStart !== 5) throw Error('conversion must precede state snapshot');
+            const ordinary = document.createRange();
+            const range = control.createValueRange(1, 4);
+            const results = [control.value === 'Hello', range instanceof OpaqueRange, range instanceof AbstractRange,
+                !(range instanceof Range), range.startContainer === undefined,
+                range.endContainer === undefined, range.startOffset === 1,
+                range.endOffset === 4, !range.collapsed];
+            let rejected = false;
+            try { Range.prototype.setStart.call(range, control, 0); }
+            catch (error) { rejected = error instanceof TypeError; }
+            results.push(rejected, ordinary.startOffset === 0);
+            control.value = 'Hello';
+            results.push(range.startOffset === 1 && range.endOffset === 4);
+            control.value = 'World';
+            results.push(range.collapsed && range.startOffset === 0);
+            const second = control.createValueRange(4, 1);
+            results.push(second.collapsed && second.startOffset === 4);
+            range.disconnect(); range.disconnect();
+            results.push(range.startOffset === 0 && second.startOffset === 4);
+            document.getElementById('host').remove();
+            results.push(second.startOffset === 0 && second.endOffset === 0);
+            let invalid = false;
+            try { control.createValueRange(0, 20); }
+            catch (error) { invalid = error.name === 'IndexSizeError'; }
+            results.push(invalid);
+            results.every(Boolean)
+        "#,
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        assert!(result.is_true());
     }
 
     #[test]

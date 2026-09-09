@@ -12,6 +12,8 @@ use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use serde::{Deserialize, Serialize};
 
 pub mod html;
+pub mod opaque_ranges;
+pub use opaque_ranges::{OpaqueRange, OpaqueRangeError, OpaqueRangeId, OpaqueRangeStore};
 pub mod xml;
 
 /// Thread-affine ownership shared by html5ever and the page's V8 isolate.
@@ -180,6 +182,8 @@ pub enum DomError {
     },
     #[error("unknown live range {0:?}")]
     UnknownRange(LiveRangeId),
+    #[error(transparent)]
+    OpaqueRange(#[from] OpaqueRangeError),
 }
 
 #[derive(Debug, Default, Clone)]
@@ -720,6 +724,7 @@ pub struct DomRuntime {
     focus_ring_suppressed: bool,
     next_range: u64,
     ranges: BTreeMap<LiveRangeId, LiveRange>,
+    opaque_ranges: OpaqueRangeStore,
 }
 
 impl DomRuntime {
@@ -767,6 +772,7 @@ impl DomRuntime {
         self.focus_ring_suppressed = false;
         self.next_range = 0;
         self.ranges.clear();
+        self.opaque_ranges = OpaqueRangeStore::default();
         self.restore_template_roots()?;
         self.rebuild_document_indexes()
     }
@@ -1096,6 +1102,7 @@ impl DomRuntime {
         }
         if former_parent.is_some() {
             self.retain_native(child)?;
+            self.disconnect_opaque_subtree(child)?;
             self.mutations.push(Mutation::Removed {
                 node: child,
                 former_parent,
@@ -1178,6 +1185,9 @@ impl DomRuntime {
         }
         if former_parent.is_some() {
             self.retain_native(child)?;
+            if !preserve_focus {
+                self.disconnect_opaque_subtree(child)?;
+            }
             self.mutations.push(Mutation::Removed {
                 node: child,
                 former_parent,
@@ -1799,6 +1809,9 @@ impl DomRuntime {
         self.retain_native(node)?;
         self.arena.detach(node)?;
         self.mark_disconnected(node)?;
+        if parent.is_some() {
+            self.disconnect_opaque_subtree(node)?;
+        }
         self.mutations.push(Mutation::Removed {
             node,
             former_parent: parent,
@@ -2117,8 +2130,101 @@ impl DomRuntime {
         Ok(())
     }
 
+    /// Native value before a control has acquired a dirty value override.
+    pub fn control_value(&self, node: NodeId) -> Result<String, DomError> {
+        let record = self.arena.get(node)?;
+        if let Some(value) = &record.value {
+            return Ok(value.clone());
+        }
+        if self.is_element(node, "http://www.w3.org/1999/xhtml", "textarea") {
+            return self.arena.text_content(node);
+        }
+        Ok(record.attributes.get("value").cloned().unwrap_or_default())
+    }
+
+    pub fn create_opaque_range(
+        &mut self,
+        owner: NodeId,
+        start: u32,
+        end: u32,
+    ) -> Result<OpaqueRangeId, DomError> {
+        let length = u32::try_from(self.control_value(owner)?.encode_utf16().count())
+            .map_err(|_| OpaqueRangeError::InvalidOffset)?;
+        let id = self.opaque_ranges.create(owner, start, end, length)?;
+        self.retain_native(owner)?;
+        Ok(id)
+    }
+
+    pub fn opaque_range(&self, id: OpaqueRangeId) -> Result<OpaqueRange, DomError> {
+        Ok(self.opaque_ranges.get(id)?)
+    }
+
+    pub fn disconnect_opaque_range(&mut self, id: OpaqueRangeId) -> Result<(), DomError> {
+        let owner = self.opaque_ranges.get(id)?.owner;
+        self.opaque_ranges.disconnect(id)?;
+        if let Some(owner) = owner {
+            self.release_native(owner)?;
+        }
+        Ok(())
+    }
+
+    /// Called after a successful removal, with the mutation's node lease held.
+    /// Include shadow descendants: value ranges disconnect when their control
+    /// leaves the document even though ordinary Range endpoints stay in a
+    /// removed shadow tree.
+    pub fn disconnect_opaque_subtree(&mut self, root: NodeId) -> Result<(), DomError> {
+        if !self.opaque_ranges.has_live_ranges() {
+            return Ok(());
+        }
+        self.retain_native(root)?;
+        let result = (|| {
+            let mut pending = vec![root];
+            while let Some(node) = pending.pop() {
+                pending.extend(self.arena.get(node)?.children.iter().copied());
+                for id in self.opaque_ranges.owner_ids(node) {
+                    self.disconnect_opaque_range(id)?;
+                }
+            }
+            Ok(())
+        })();
+        self.release_native(root)?;
+        result
+    }
+
+    pub fn drop_opaque_range(&mut self, id: OpaqueRangeId) -> Result<(), DomError> {
+        self.disconnect_opaque_range(id)?;
+        self.opaque_ranges.drop_range(id)?;
+        Ok(())
+    }
+
     pub fn value(&self, node: NodeId) -> Result<Option<&str>, DomError> {
         Ok(self.arena.get(node)?.value.as_deref())
+    }
+
+    /// Replace a control-value interval without losing the edit boundaries.
+    pub fn replace_control_value(
+        &mut self,
+        node: NodeId,
+        start: u32,
+        end: u32,
+        replacement: &str,
+    ) -> Result<(), DomError> {
+        let previous = self.control_value(node)?;
+        let mut units: Vec<u16> = previous.encode_utf16().collect();
+        let old_length = u32::try_from(units.len()).map_err(|_| OpaqueRangeError::InvalidOffset)?;
+        if start > end || end > old_length {
+            return Err(OpaqueRangeError::InvalidOffset.into());
+        }
+        let inserted = u32::try_from(replacement.encode_utf16().count())
+            .map_err(|_| OpaqueRangeError::InvalidOffset)?;
+        units.splice(start as usize..end as usize, replacement.encode_utf16());
+        // Match the existing DOM character-data storage's UTF-16 conversion.
+        let value = String::from_utf16_lossy(&units);
+        self.opaque_ranges
+            .replace(node, start, end - start, inserted, old_length)?;
+        self.arena.get_mut(node)?.value = Some(value);
+        self.mutations.push(Mutation::FormState { node });
+        Ok(())
     }
 
     pub fn set_value(
@@ -2127,8 +2233,20 @@ impl DomRuntime {
         value: impl Into<String>,
         sensitive: bool,
     ) -> Result<(), DomError> {
+        let value = value.into();
+        if self.opaque_ranges.has_owner(node) {
+            let previous = self.control_value(node)?;
+            if previous != value {
+                let old_length = u32::try_from(previous.encode_utf16().count())
+                    .map_err(|_| OpaqueRangeError::InvalidOffset)?;
+                let new_length = u32::try_from(value.encode_utf16().count())
+                    .map_err(|_| OpaqueRangeError::InvalidOffset)?;
+                self.opaque_ranges
+                    .replace(node, 0, old_length, new_length, old_length)?;
+            }
+        }
         let record = self.arena.get_mut(node)?;
-        record.value = Some(value.into());
+        record.value = Some(value);
         record.sensitive_value = sensitive;
         self.mutations.push(Mutation::FormState { node });
         Ok(())
@@ -3737,5 +3855,63 @@ mod tests {
         assert_eq!(dom.children(parent).unwrap(), &[child]);
         assert_eq!(dom.parent(child).unwrap(), Some(parent));
         assert!(dom.mutations_since(cursor).mutations.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod opaque_runtime_tests {
+    use super::*;
+
+    #[test]
+    fn assigned_value_and_ancestor_removal_update_native_ranges() {
+        let mut dom = DomRuntime::new();
+        let host = dom.create_element("div");
+        let control = dom.create_element("textarea");
+        dom.append_child(dom.document(), host).unwrap();
+        dom.append_child(host, control).unwrap();
+        dom.set_value(control, "Hello", false).unwrap();
+        let range = dom.create_opaque_range(control, 1, 4).unwrap();
+        dom.set_value(control, "Hello", false).unwrap();
+        assert_eq!(dom.opaque_range(range).unwrap().start, 1);
+        dom.set_value(control, "World", false).unwrap();
+        assert_eq!(
+            dom.opaque_range(range).unwrap(),
+            OpaqueRange {
+                owner: Some(control),
+                start: 0,
+                end: 0
+            }
+        );
+        dom.remove(host).unwrap();
+        assert_eq!(
+            dom.opaque_range(range).unwrap(),
+            OpaqueRange {
+                owner: None,
+                start: 0,
+                end: 0
+            }
+        );
+        dom.drop_opaque_range(range).unwrap();
+    }
+
+    #[test]
+    fn failed_reparent_does_not_disconnect_a_control_range() {
+        let mut dom = DomRuntime::new();
+        let host = dom.create_element("div");
+        let control = dom.create_element("input");
+        let unrelated = dom.create_element("span");
+        dom.append_child(dom.document(), host).unwrap();
+        dom.append_child(host, control).unwrap();
+        dom.set_value(control, "Hello", false).unwrap();
+        let range = dom.create_opaque_range(control, 1, 4).unwrap();
+        assert!(dom.insert_before(host, control, Some(unrelated)).is_err());
+        assert_eq!(
+            dom.opaque_range(range).unwrap(),
+            OpaqueRange {
+                owner: Some(control),
+                start: 1,
+                end: 4
+            }
+        );
     }
 }
