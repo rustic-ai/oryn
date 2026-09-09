@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `00632d5`, measured on 2026-09-09.
+Current full-run evidence: signed candidate `093a846`, measured on 2026-09-09.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,34 +32,27 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `00632d5` passes **3,096/4,022 (77.0%)**, with **926 remaining**.
-It gains ten OpaqueRange executions versus `5d785f0`, with zero whole-execution losses,
-zero observed assertion regressions and 120 corrected existing assertions. Stylo
-remains the CSS engine.
+The signed run at `093a846` passes **3,101/4,022 (77.1%)**, with **921 remaining**.
+It gains five CSSOM executions versus `00632d5`, with zero whole-execution losses,
+zero observed assertion regressions and ten corrected existing assertions. Stylo
+remains the CSS engine; font-face descriptors now use its native grammar and rule ownership.
 
-Six historical editing regressions remain failing. The tracked intermittent
-IndexedDB assertion passes this time, without proving the intermittency resolved.
-Range timeouts leave 28 newly unobserved assertions; 46 older missing assertions
-were observed again and 133 remain missing, leaving 161 total unobserved assertions.
-No failure or coverage gap is waived.
+Six historical editing regressions remain. Four prior passing assertions were not
+observed in this run. Of the preceding 161 missing assertions, 52 were recovered
+and 109 remain missing, leaving 113 total unobserved assertions. No gap is waived.
 
-[Full evidence](CONFORMANCE-OPAQUE-RANGE-FULL-2026-09-09.json) records the terminal
-signed audit and reconciliation: exact inventory coverage, source/binary hashes,
-unchanged limits and sandbox settings, and successful completion of every passing
-execution. Complete conformance and release qualification remain unmet.
+[Full evidence](CONFORMANCE-FONT-FACE-FULL-2026-09-09.json) records exact inventory
+coverage, signed source/binary identity, unchanged limits and assertion reconciliation.
+[Native evidence](CONFORMANCE-FONT-FACE-NATIVE-2026-09-09.json) records the separate
+287-execution CSSOM/cascade comparison. Complete conformance remains unmet.
 
-OpaqueRange now passes 10 of 19 pinned family executions in the signed full run.
-Its remaining lifecycle/adoption, geometry and highlight behavior is incomplete.
-[Native evidence](CONFORMANCE-OPAQUE-RANGE-NATIVE-2026-09-09.json) preserves the
-separate probe results, including the Range-insertNode native stack overflow.
-
-Next, address shared font-loading and CSSFontFaceRule gaps using Stylo's descriptor
-parser and native rule ownership. Measure whole fixtures after both loading and API
-behavior are implemented. Profile Range/Selection synchronization under unchanged
-caps to recover missing observations, and retain the IndexedDB intermittency and
-historical editing regressions. Stylesheet imports and preserved popup lifecycle
-work remain open. Completion requires 4,022/4,022 twice on one frozen signed candidate
-and every qualification gate.
+Font source ordering, fallback, FontFaceSet readiness and live font invalidation
+remain open. OpaqueRange still has nine failing lifecycle/geometry/highlight executions.
+Next, reproduce and profile the shared IndexedDB write/cursor costs under unchanged
+limits, including atomic rollback checks, and compare its payoff with the native
+DOMTokenList binding gaps. Range missing observations, editing regressions,
+stylesheet imports and popup lifecycle remain in scope. Completion requires
+4,022/4,022 twice on one frozen signed candidate and every qualification gate.
 
 ## Current execution strategy
 
@@ -615,22 +608,23 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. **OpaqueRange batch measured.** Signed `00632d5` completes all 4022 executions
-   with 3096 passes, ten gains, 120 corrected assertions and no observed regressions.
-   Audits are complete. There are 161 unobserved assertions and six historical
-   editing failures; the intermittent IndexedDB assertion passes in this run.
-2. **Complete shared CSS font behavior.** Recover document loading after font
-   network failures while preserving limits. Expose CSSFontFaceRule descriptors
-   through Stylo's native parser, getters, mutations and ownership. Test downstream
-   complete fixtures, not only removal of navigation blockers. OpaqueRange's nine
-   remaining lifecycle/geometry/highlight executions remain in the full backlog.
+1. **Font-face batch measured.** Signed `093a846` completes all4022 executions
+   with3101 passes, five gains, ten corrected assertions and no observed regressions.
+   Audits are complete. There are113 unobserved assertions and six historical
+   editing failures; retain the tracked IndexedDB intermittent assertion status.
+2. **Measure shared IndexedDB costs.** Reproduce the14 platform-timeout executions
+   through representative small/large cases; profile ordinary write rollback,
+   exact quota accounting and cursor response cloning. Add missing multi-write
+   atomic failure checks before optimization. Compare measured payoff with live
+   DOMTokenList indexed access and attribute-specific identity. Font source
+   ordering/FontFaceSet and OpaqueRange's nine remaining executions remain open.
 3. **Resolve shared runtime and CSS gaps.** Profile bulk Range/Selection cache
-   synchronization under unchanged caps, retaining all 161 unobserved assertions.
+   synchronization under unchanged caps, retaining all 113 unobserved assertions.
    Diagnose the recurring IndexedDB cross-origin failure. Restore native stylesheet
    import ownership/loading and CSSOM rule families; font HTTP404 navigation aborts
    are a separate known blocker. Preserved popup work still needs navigation and
    lifecycle correctness. Missing-API cluster sizes are not projected gains.
-4. **Repeat to the actual finish gate.** Clear all 926 remaining failures, the six
+4. **Repeat to the actual finish gate.** Clear all 921 remaining failures, the six
    historical editing regressions, the recurring IndexedDB failure and all missing
    observations. Require 4,022/4,022 twice on the same frozen signed candidate and
    all generated, native, profile and security qualification gates.

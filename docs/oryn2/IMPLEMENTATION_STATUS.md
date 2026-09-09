@@ -1,36 +1,29 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,096/4,022 (77.0%)**, **926 remaining**.
+> Latest full measurement: **3,101/4,022 (77.1%)**, **921 remaining**.
 
-The signed run at `00632d5` passes **3,096/4,022 (77.0%)**, with **926 remaining**.
-It gains ten OpaqueRange executions versus `5d785f0`, with zero whole-execution losses,
-zero observed assertion regressions and 120 corrected existing assertions. Stylo
-remains the CSS engine.
+The signed run at `093a846` passes **3,101/4,022 (77.1%)**, with **921 remaining**.
+It gains five CSSOM executions versus `00632d5`, with zero whole-execution losses,
+zero observed assertion regressions and ten corrected existing assertions. Stylo
+remains the CSS engine; font-face descriptors now use its native grammar and rule ownership.
 
-Six historical editing regressions remain failing. The tracked intermittent
-IndexedDB assertion passes this time, without proving the intermittency resolved.
-Range timeouts leave 28 newly unobserved assertions; 46 older missing assertions
-were observed again and 133 remain missing, leaving 161 total unobserved assertions.
-No failure or coverage gap is waived.
+Six historical editing regressions remain. Four prior passing assertions were not
+observed in this run. Of the preceding 161 missing assertions, 52 were recovered
+and 109 remain missing, leaving 113 total unobserved assertions. No gap is waived.
 
-[Full evidence](CONFORMANCE-OPAQUE-RANGE-FULL-2026-09-09.json) records the terminal
-signed audit and reconciliation: exact inventory coverage, source/binary hashes,
-unchanged limits and sandbox settings, and successful completion of every passing
-execution. Complete conformance and release qualification remain unmet.
+[Full evidence](CONFORMANCE-FONT-FACE-FULL-2026-09-09.json) records exact inventory
+coverage, signed source/binary identity, unchanged limits and assertion reconciliation.
+[Native evidence](CONFORMANCE-FONT-FACE-NATIVE-2026-09-09.json) records the separate
+287-execution CSSOM/cascade comparison. Complete conformance remains unmet.
 
-OpaqueRange now passes 10 of 19 pinned family executions in the signed full run.
-Its remaining lifecycle/adoption, geometry and highlight behavior is incomplete.
-[Native evidence](CONFORMANCE-OPAQUE-RANGE-NATIVE-2026-09-09.json) preserves the
-separate probe results, including the Range-insertNode native stack overflow.
-
-Next, address shared font-loading and CSSFontFaceRule gaps using Stylo's descriptor
-parser and native rule ownership. Measure whole fixtures after both loading and API
-behavior are implemented. Profile Range/Selection synchronization under unchanged
-caps to recover missing observations, and retain the IndexedDB intermittency and
-historical editing regressions. Stylesheet imports and preserved popup lifecycle
-work remain open. Completion requires 4,022/4,022 twice on one frozen signed candidate
-and every qualification gate.
+Font source ordering, fallback, FontFaceSet readiness and live font invalidation
+remain open. OpaqueRange still has nine failing lifecycle/geometry/highlight executions.
+Next, reproduce and profile the shared IndexedDB write/cursor costs under unchanged
+limits, including atomic rollback checks, and compare its payoff with the native
+DOMTokenList binding gaps. Range missing observations, editing regressions,
+stylesheet imports and popup lifecycle remain in scope. Completion requires
+4,022/4,022 twice on one frozen signed candidate and every qualification gate.
 
 | Root | Passed / required |
 |---|---:|
@@ -38,7 +31,7 @@ and every qualification gate.
 | WebIDL | 31/58 |
 | accname | 15/19 |
 | css/css-cascade | 58/97 |
-| css/cssom | 100/190 |
+| css/cssom | 105/190 |
 | css/selectors | 197/277 |
 | dom | 415/662 |
 | editing | 416/704 |
