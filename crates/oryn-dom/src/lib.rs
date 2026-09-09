@@ -2666,6 +2666,7 @@ fn matches_compound_selector(node: &Node, selector: &str) -> bool {
 fn escape_text(value: &str) -> String {
     value
         .replace('&', "&amp;")
+        .replace('\u{a0}', "&nbsp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
 }
@@ -3521,6 +3522,18 @@ mod tests {
         let row = dom.find_by_id("row").unwrap();
         assert_eq!(dom.node_name(row).unwrap(), "TR");
         assert_eq!(dom.arena().text_content(row).unwrap(), "cell");
+    }
+
+    #[test]
+    fn serialization_escapes_nonbreaking_spaces_without_changing_dom_text() {
+        let parsed = html::parse("<p title='A&nbsp;B'>A&nbsp; &amp; B</p>");
+        let dom = parsed.into_runtime().unwrap();
+        let paragraph = dom.query_selector(dom.document(), "p").unwrap().unwrap();
+        assert_eq!(dom.arena().text_content(paragraph).unwrap(), "A\u{a0} & B");
+        assert_eq!(
+            dom.serialize(paragraph).unwrap(),
+            "<p title=\"A&nbsp;B\">A&nbsp; &amp; B</p>"
+        );
     }
 
     #[test]

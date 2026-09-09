@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "qualification": "Native selected comparison only; signed full qualification pending; incomplete execution coverage remains open.",
+  "baseline_commit": "4fca373d82312205db80a71d7592aa25fe551196",
+  "change": "HTML serialization escapes U+00A0 as &nbsp; in text and attributes, preserving native DOM text.",
+  "validation": {
+    "dom_unit_tests": 53,
+    "strict_clippy": "passed",
+    "format_check": "passed",
+    "focused_fixtures_passed": 4,
+    "focused_assertions_passed": 28
+  },
+  "native_outcome": {
+    "required": 1366,
+    "observed": 1365,
+    "passed": 818,
+    "whole_fixture_gains": [
+      "editing/other/inserttext-last-mutation.html|window|?whiteSpace=pre",
+      "editing/other/inserttext-last-mutation.html|window|?whiteSpace=pre-wrap",
+      "editing/plaintext-only/delete-part-of-white-spaces.html|window|?white-space=pre",
+      "editing/plaintext-only/delete-part-of-white-spaces.html|window|?white-space=pre-wrap",
+      "editing/plaintext-only/forwardDelete-part-of-white-spaces.html|window|?white-space=pre",
+      "editing/plaintext-only/forwardDelete-part-of-white-spaces.html|window|?white-space=pre-wrap"
+    ],
+    "observed_whole_fixture_losses": [],
+    "corrected_existing_assertions": 160,
+    "observed_assertion_regressions": 0
+  },
+  "gaps": {
+    "missing_execution": {
+      "id": "dom/ranges/Range-insertNode.html|window|",
+      "native_failure": "stack overflow",
+      "signed_baseline_status": "failed runtime with no result"
+    },
+    "unobserved_prior_assertions": {
+      "id": "dom/ranges/Range-mutations-dataChange.html|window|",
+      "count": 18,
+      "baseline_observed": 596,
+      "candidate_observed": 578,
+      "both_complete": false
+    },
+    "historical_editing_regressions_still_failing": 6,
+    "signed_full_qualification": "pending"
+  },
+  "name_reconciliation": {
+    "raw_missing_prior_passes": 769,
+    "remaining_missing_prior_passes": 18,
+    "method": "Equal complete assertion counts and ordered names differing only in documented whitespace runs; renamed status changes retained.",
+    "renamed_corrected_assertions": 12
+  },
+  "evidence": {
+    "artifacts/upstream-conformance/native-nbsp-serialization-v1/oryn-nbsp-dom-tests.log": "886beadc8971c39f8f2663604021bfdd42b36b8c4d7412c6145dfd573a5f17ff",
+    "artifacts/upstream-conformance/native-nbsp-serialization-v1/oryn-nbsp-dom-clippy.log": "96a32785bbd6c00b5d0fcf2ba3c7098f6dddb85a7fde732822c6f580531dd5df",
+    "artifacts/upstream-conformance/native-nbsp-serialization-v1/oryn-build-nbsp-serialization-probe.log": "2e9ea0b9fe6f73cd930fe15e0380f9b058ec1065448501061369cd9ef127cc03",
+    "artifacts/upstream-conformance/native-nbsp-serialization-v1/oryn-nbsp-serialization-v1-focus.log": "7d317e4b5397cdf49b261590d4f8c5a866c6c9af40f196719e5ba84b79f11707",
+    "artifacts/upstream-conformance/native-nbsp-serialization-v1/oryn-nbsp-serialization-v1-focus-audit.json": "cc26a6e8626d6590ef732a3a3106f0d15dbddfe54324c4514e5f9025ba04848e",
+    "artifacts/upstream-conformance/native-nbsp-serialization-v1/oryn-nbsp-serialization-v1-focus-reconciliation.json": "7578551c967f5bd3cf824043aeafd3970c63e051382195c3bb4ad86fc607a358",
+    "artifacts/upstream-conformance/native-nbsp-serialization-v1/oryn-nbsp-serialization-v1-dom-editing.log": "383f171f76f0c3fed052d9a3fed0e941063cca9554250d35964ea328f62faf6a",
+    "artifacts/upstream-conformance/native-nbsp-serialization-v1/oryn-nbsp-serialization-v1-dom-editing-audit.json": "242ef53255aa5174a267be2fa4724a3689e123b05a369696f6662c9c6f9a57a1",
+    "artifacts/upstream-conformance/native-nbsp-serialization-v1/oryn-nbsp-serialization-v1-dom-editing-name-reconciliation.json": "9b876e00e5f0d6dbc9e90233696202d690f0bff8ecb82e6692a8ad1257647906",
+    "artifacts/upstream-conformance/native-nbsp-serialization-v1/oryn-nbsp-serialization-v1-dom-editing-carry-forward.json": "cd94325ef548e17f4794c758df982e165639b1be001739ab2287b8b343561419"
+  }
+}
