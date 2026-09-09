@@ -219,12 +219,14 @@ struct EditingSnapshot {
     serialized_bytes: usize,
 }
 
+type ParagraphSplitNodes = (NodeId, NodeId, Option<NodeId>, Option<NodeId>);
+
 #[derive(Debug, Clone)]
 struct UndoUnit {
     before: EditingSnapshot,
     after: EditingSnapshot,
     command: String,
-    split_nodes: Option<(NodeId, NodeId)>,
+    split_nodes: Option<ParagraphSplitNodes>,
 }
 
 #[derive(Debug, Default)]
@@ -1104,7 +1106,7 @@ pub struct V8BindingState {
     editing_overrides: RefCell<BTreeMap<String, String>>,
     default_paragraph_separator: RefCell<String>,
     undo_history: RefCell<UndoHistory>,
-    pending_split_undo: Cell<Option<(NodeId, NodeId)>>,
+    pending_split_undo: Cell<Option<ParagraphSplitNodes>>,
     pending_custom_upgrade: Cell<Option<(WrapperId, NodeId)>>,
     document_write_buffer: RefCell<String>,
     document_write_depth: Cell<u32>,
@@ -11792,7 +11794,9 @@ where
     synchronize_live_ranges(state)?;
     let after_mutation = state.dom.borrow().mutation_cursor();
     let after_selection = selection_snapshot(state);
-    let changed = before_mutation != after_mutation || before.selection != after_selection;
+    let changed = before_mutation != after_mutation
+        || before.selection != after_selection
+        || before.overrides != *state.editing_overrides.borrow();
     if !changed {
         release_editing_snapshot(&mut state.dom.borrow_mut(), &before)?;
         return Ok(false);
@@ -11814,11 +11818,24 @@ fn undo_paragraph_split(
     state: &V8BindingState,
     left: NodeId,
     right: NodeId,
+    placeholders: [Option<NodeId>; 2],
     selection: SelectionSnapshot,
 ) -> Result<(), V8BindingError> {
     let mut dom = state.dom.borrow_mut();
     dom.arena().get(left)?;
     dom.arena().get(right)?;
+
+    // Remove only placeholders introduced by this split. Existing breaks and
+    // content subsequently placed inside a placeholder are not discarded.
+    for placeholder in placeholders.into_iter().flatten() {
+        if dom.arena().get(placeholder).is_ok()
+            && element_local_name(&dom, placeholder) == Some("br")
+            && light_children(&dom, placeholder)?.is_empty()
+            && let Some(parent) = dom.parent(placeholder)?
+        {
+            dom.remove_child(parent, placeholder)?;
+        }
+    }
 
     // Script is allowed to move either half between the edit and its undo.
     // Preserve the left node's current location/identity and fold the right
@@ -11862,7 +11879,15 @@ fn undo_edit(state: &V8BindingState, redo: bool) -> Result<bool, V8BindingError>
     };
     let result = if !redo {
         unit.split_nodes
-            .map(|(left, right)| undo_paragraph_split(state, left, right, unit.before.selection))
+            .map(|(left, right, left_placeholder, right_placeholder)| {
+                undo_paragraph_split(
+                    state,
+                    left,
+                    right,
+                    [left_placeholder, right_placeholder],
+                    unit.before.selection,
+                )
+            })
             .unwrap_or_else(|| restore_editing_snapshot(state, &unit.before))
     } else {
         restore_editing_snapshot(state, &unit.after)
@@ -15882,7 +15907,62 @@ fn insert_after_node(
     Ok(())
 }
 
+// A split can leave empty text nodes inside formatting elements. Those nodes
+// still need a line box, with the placeholder inside the formatting context.
+fn ensure_split_paragraph_placeholder(
+    dom: &mut DomRuntime,
+    block: NodeId,
+) -> Result<Option<NodeId>, V8BindingError> {
+    let nodes = traversal_nodes(dom, block)?;
+    for node in &nodes {
+        match &dom.arena().get(*node)?.kind {
+            NodeKind::Text { data } | NodeKind::CDataSection { data } if !data.is_empty() => {
+                return Ok(None);
+            }
+            NodeKind::Element { name }
+                if matches!(
+                    name.local.as_ref(),
+                    "br" | "img"
+                        | "input"
+                        | "hr"
+                        | "audio"
+                        | "video"
+                        | "canvas"
+                        | "iframe"
+                        | "embed"
+                        | "object"
+                        | "select"
+                        | "textarea"
+                ) =>
+            {
+                return Ok(None);
+            }
+            _ => {}
+        }
+    }
+    let parent = nodes
+        .iter()
+        .rev()
+        .copied()
+        .find(|node| {
+            dom.arena()
+                .get(*node)
+                .is_ok_and(|record| matches!(record.kind, NodeKind::Element { .. }))
+        })
+        .unwrap_or(block);
+    let br = dom.create_element("br");
+    dom.append_child(parent, br)?;
+    Ok(Some(br))
+}
+
 fn split_editing_paragraph(state: &V8BindingState) -> Result<(), V8BindingError> {
+    let overrides = state.editing_overrides.borrow().clone();
+    let result = split_editing_paragraph_contents(state);
+    *state.editing_overrides.borrow_mut() = overrides;
+    result
+}
+
+fn split_editing_paragraph_contents(state: &V8BindingState) -> Result<(), V8BindingError> {
     let Some(host) = editing_host(state)? else {
         return Ok(());
     };
@@ -15918,10 +15998,60 @@ fn split_editing_paragraph(state: &V8BindingState) -> Result<(), V8BindingError>
         element_local_name(&state.dom.borrow(), block),
         Some("pre" | "listing" | "address" | "td" | "th" | "caption")
     );
-    if block == host || multiline_container || *state.default_paragraph_separator.borrow() == "br" {
+    let host_accepts_paragraphs = {
+        let dom = state.dom.borrow();
+        let layout = state.layout.borrow();
+        let flow_container = matches!(
+            element_local_name(&dom, host),
+            Some(
+                "body"
+                    | "div"
+                    | "main"
+                    | "section"
+                    | "article"
+                    | "aside"
+                    | "nav"
+                    | "header"
+                    | "footer"
+                    | "blockquote"
+                    | "fieldset"
+                    | "figure"
+                    | "figcaption"
+                    | "li"
+                    | "dd"
+            )
+        );
+        let block_display = layout
+            .styles
+            .get(&node_key(host))
+            .and_then(|style| style.get("display"))
+            .map_or_else(
+                || is_editing_block(&dom, host) || element_local_name(&dom, host) == Some("body"),
+                |display| {
+                    matches!(
+                        display.as_str(),
+                        "block" | "flow-root" | "list-item" | "flex" | "grid"
+                    )
+                },
+            );
+        flow_container && block_display
+    };
+    if (block == host && !host_accepts_paragraphs)
+        || multiline_container
+        || *state.default_paragraph_separator.borrow() == "br"
+    {
         return insert_editing_line_break(state);
     }
-
+    // Capture existing block boundaries before splitting inline ancestors.
+    let mut block_siblings = std::collections::HashSet::new();
+    if block == host {
+        let children = light_children(&state.dom.borrow(), host)?;
+        for child in children {
+            if nearest_rendered_editing_block(state, child, host)? == child {
+                block_siblings.insert(child);
+            }
+        }
+    }
     let mut dom = state.dom.borrow_mut();
     let mut right = match dom.arena().get(range.start_container)?.kind.clone() {
         NodeKind::Text { data } | NodeKind::CDataSection { data } => {
@@ -15972,24 +16102,65 @@ fn split_editing_paragraph(state: &V8BindingState) -> Result<(), V8BindingError>
         right = clone;
     }
 
-    let new_block = clone_editing_element(&mut dom, block)?;
     let siblings = light_children(&dom, block)?;
     let index = siblings
         .iter()
         .position(|candidate| *candidate == right)
-        .unwrap_or(siblings.len());
-    for child in siblings[index..].iter().copied() {
-        dom.append_child(new_block, child)?;
+        .ok_or(V8BindingError::Allocation("editing paragraph boundary"))?;
+    let new_block;
+    if block == host {
+        // Wrap the current inline run only. Other paragraphs retain their
+        // identity, position and contents.
+        let start = siblings[..index]
+            .iter()
+            .rposition(|node| block_siblings.contains(node))
+            .map_or(0, |position| position + 1);
+        let end = siblings[index..]
+            .iter()
+            .position(|node| block_siblings.contains(node))
+            .map_or(siblings.len(), |position| index + position);
+        let separator = state.default_paragraph_separator.borrow();
+        let needs_div = siblings[start..end].iter().any(|node| {
+            traversal_nodes(&dom, *node)
+                .is_ok_and(|nodes| nodes.into_iter().any(|child| is_editing_block(&dom, child)))
+        });
+        let tag = if separator.as_str() == "p" && !needs_div {
+            "p"
+        } else {
+            "div"
+        };
+        let left_block = dom.create_element(tag);
+        new_block = dom.create_element(tag);
+        dom.insert_before(host, left_block, siblings.get(start).copied())?;
+        insert_after_node(&mut dom, host, left_block, new_block)?;
+        for child in siblings[start..index].iter().copied() {
+            dom.append_child(left_block, child)?;
+        }
+        for child in siblings[index..end].iter().copied() {
+            dom.append_child(new_block, child)?;
+        }
+        ensure_split_paragraph_placeholder(&mut dom, left_block)?;
+        ensure_split_paragraph_placeholder(&mut dom, new_block)?;
+        // Host wrapping uses the transaction snapshot for undo; the special
+        // block-split undo assumes that both halves existed as sibling blocks.
+    } else {
+        new_block = clone_editing_element(&mut dom, block)?;
+        for child in siblings[index..].iter().copied() {
+            dom.append_child(new_block, child)?;
+        }
+        let left_placeholder = ensure_split_paragraph_placeholder(&mut dom, block)?;
+        let right_placeholder = ensure_split_paragraph_placeholder(&mut dom, new_block)?;
+        let parent = dom
+            .parent(block)?
+            .ok_or(V8BindingError::Allocation("editing block parent"))?;
+        insert_after_node(&mut dom, parent, block, new_block)?;
+        state.pending_split_undo.set(Some((
+            block,
+            new_block,
+            left_placeholder,
+            right_placeholder,
+        )));
     }
-    if dom.children(new_block)?.is_empty() {
-        let br = dom.create_element("br");
-        dom.append_child(new_block, br)?;
-    }
-    let parent = dom
-        .parent(block)?
-        .ok_or(V8BindingError::Allocation("editing block parent"))?;
-    insert_after_node(&mut dom, parent, block, new_block)?;
-    state.pending_split_undo.set(Some((block, new_block)));
     drop(dom);
     let caret = traversal_nodes(&state.dom.borrow(), new_block)?
         .into_iter()
@@ -25980,7 +26151,33 @@ fn call_operation<'s>(
                             "bold" | "italic" | "underline" | "strikethrough" | "subscript"
                             | "superscript" | "fontname" | "fontsize" | "forecolor"
                             | "backcolor" | "hilitecolor" | "createlink" => {
-                                apply_inline_format(state, &command, &value)?;
+                                let collapsed = state.selection_anchor.get().is_some()
+                                    && state.selection_anchor.get() == state.selection_focus.get();
+                                if collapsed && command != "createlink" {
+                                    // Collapsed formatting records typing state. Materialize
+                                    // markup only when text is inserted, after any line break.
+                                    let key = if command == "backcolor" {
+                                        "hilitecolor"
+                                    } else {
+                                        &command
+                                    };
+                                    let boolean = matches!(
+                                        command.as_str(),
+                                        "bold"
+                                            | "italic"
+                                            | "underline"
+                                            | "strikethrough"
+                                            | "subscript"
+                                            | "superscript"
+                                    );
+                                    let pending = if boolean { "true" } else { &value };
+                                    state
+                                        .editing_overrides
+                                        .borrow_mut()
+                                        .insert(key.to_string(), pending.to_string());
+                                } else {
+                                    apply_inline_format(state, &command, &value)?;
+                                }
                             }
                             "removeformat" | "unlink" => remove_selection_format(state)?,
                             "formatblock"
@@ -26003,6 +26200,22 @@ fn call_operation<'s>(
                     // even when there is no resulting markup diff. The input
                     // transaction is still observable.
                     let accepted = changed
+                        || (state.selection_anchor.get().is_some()
+                            && state.selection_anchor.get() == state.selection_focus.get()
+                            && matches!(
+                                command.as_str(),
+                                "bold"
+                                    | "italic"
+                                    | "underline"
+                                    | "strikethrough"
+                                    | "subscript"
+                                    | "superscript"
+                                    | "fontname"
+                                    | "fontsize"
+                                    | "forecolor"
+                                    | "backcolor"
+                                    | "hilitecolor"
+                            ))
                         || matches!(
                             command.as_str(),
                             "delete"
@@ -32313,6 +32526,87 @@ mod tests {
         assert_eq!(
             result,
             "<div id=\"first\">First blockSecond block</div><div id=\"second\"><select style=\"visibility:hidden\"></select></div>"
+        );
+    }
+
+    #[test]
+    fn paragraph_split_preserves_empty_formatted_lines() {
+        initialize_v8();
+        let parsed = html::parse("<main id='editor' contenteditable></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            const editor=document.getElementById('editor'), selection=document.getSelection();
+            const outcomes=[];
+            for (const offset of [0,1,3]) {
+                editor.innerHTML='<p><b>abc</b></p>';
+                selection.collapse(editor.firstChild.firstChild.firstChild,offset);
+                document.execCommand('insertParagraph');
+                outcomes.push(editor.innerHTML);
+                if(offset===3) {
+                    document.execCommand('insertText',false,'def');
+                    outcomes.push(editor.innerHTML);
+                }
+            }
+            outcomes.join('|');
+        "#,
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "<p><b><br></b></p><p><b>abc</b></p>|<p><b>a</b></p><p><b>bc</b></p>|<p><b>abc</b></p><p><b><br></b></p>|<p><b>abc</b></p><p><b>def</b></p>"
+        );
+    }
+
+    #[test]
+    fn paragraph_split_wraps_host_inline_run() {
+        initialize_v8();
+        let parsed = html::parse("<main id='editor' contenteditable></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            const editor=document.getElementById('editor'), selection=document.getSelection();
+            const outcomes=[];
+            for (const offset of [0,1,3]) {
+                editor.innerHTML='<p>before</p><b>abc</b><p>after</p>';
+                selection.collapse(editor.childNodes[1].firstChild,offset);
+                document.execCommand('insertParagraph');
+                outcomes.push(editor.innerHTML);
+            }
+            editor.innerHTML='abc';
+            selection.collapse(editor.firstChild,1);
+            document.execCommand('defaultParagraphSeparator',false,'p');
+            document.execCommand('insertText',false,'\n');
+            outcomes.push(editor.innerHTML);
+            outcomes.join('|');
+        "#,
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "<p>before</p><div><b><br></b></div><div><b>abc</b></div><p>after</p>|<p>before</p><div><b>a</b></div><div><b>bc</b></div><p>after</p>|<p>before</p><div><b>abc</b></div><div><b><br></b></div><p>after</p>|<p>a</p><p>bc</p>"
         );
     }
 
