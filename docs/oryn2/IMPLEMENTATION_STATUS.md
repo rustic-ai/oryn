@@ -1,13 +1,12 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,049/4,022 (75.8%)**, **973 remaining**.
+> Latest full measurement: **3,052/4,022 (75.9%)**, **970 remaining**.
 
-The signed run at `693a745` passes **3,049/4,022 (75.8%)**, with **973 remaining**.
-It gains zero whole executions and loses zero versus `ebe7899`. Compatible editing
-block merges preserve internal line breaks, restoring five historical assertions.
-This is a correctness repair, not an increase in overall conformance. Stylo remains
-the CSS engine.
+The signed run at `1c8f550` passes **3,052/4,022 (75.9%)**, with **970 remaining**.
+It gains three whole executions and loses zero versus `693a745`: IndexedDB origin
+isolation and structured-clone transaction state in window and dedicated-worker
+globals. Six existing assertions are corrected. Stylo remains the CSS engine.
 
 The audit verifies exact coverage, complete passing harness results, signed source
 and binary fingerprints, and unchanged resource limits and sandbox settings.
@@ -15,25 +14,29 @@ There are zero new observed assertion regressions. Five raw missing prior passin
 names reconcile through server-port changes. Fourteen older observations remain
 unobserved, and six historical editing assertion regressions remain failing.
 
-[Full evidence](CONFORMANCE-EDITING-BLOCK-MERGE-FULL-2026-09-08.json) links the full
+[Full evidence](CONFORMANCE-IDB-CLONE-CHECKPOINT-FULL-2026-09-08.json) links the full
 assertion audit and reconciliation. This is one measured full run, not complete
 conformance or broader release qualification.
 
-Next: prioritize reproduced shared causes in editing, DOM and CSS, which account
-for 786 of the 973 remaining failures. Populate the diagnosis index with affected
-IDs, production paths and unresolved later blockers; routing labels alone are not
-root causes. Validate complete affected suites before batching verified fixes for
-another signed run. The Range ownership-iteration follow-up produced no additional
-whole passes and was rejected; it is no longer the next implementation step.
-The IndexedDB clone-inactivity draft needs abort/error-path verification. Thirteen
-editing variant-state cases need reference verification; skipped command callbacks
-may explain their first failures, but this is not yet a confirmed runtime diagnosis.
-Preserve all tests, assertions and resource caps. Completion still requires
-4,022/4,022 twice on one frozen signed candidate and every qualification gate.
+The native IndexedDB candidate passed 416/456; the signed worker passes 406/456.
+Two key-generator executions still fail overflow assertions; eight large-value
+executions hit the generated-platform-operation time limit. Diagnose those actual
+production paths before claiming the ten native-only gains. The next bounded
+investigation is the brokered numeric round trip near 2^53, followed by profiling
+the large-value operation path under unchanged caps. Numeric precision is still a
+hypothesis, not a confirmed fix. Unfinished stream, timer and DOM work is preserved
+separately and remains unqualified. The editing document-settings experiment was
+rejected after five whole-test losses.
+
+DOM, editing and CSS account for 786 of the 970 failures. A source-and-fixture
+review identifies missing stylesheet media support in five CSSOM executions;
+implementation and complete-suite verification remain pending. Preserve all tests,
+assertions and resource caps. Completion requires 4,022/4,022 twice on one frozen
+signed candidate and every qualification gate.
 
 | Root | Passed / required |
 |---|---:|
-| IndexedDB | 403/456 |
+| IndexedDB | 406/456 |
 | WebIDL | 31/58 |
 | accname | 15/19 |
 | css/css-cascade | 54/97 |

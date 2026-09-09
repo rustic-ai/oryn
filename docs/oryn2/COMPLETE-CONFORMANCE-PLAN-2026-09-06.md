@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `693a745`, measured on 2026-09-08.
+Current full-run evidence: signed candidate `1c8f550`, measured on 2026-09-08.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,11 +32,10 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `693a745` passes **3,049/4,022 (75.8%)**, with **973 remaining**.
-It gains zero whole executions and loses zero versus `ebe7899`. Compatible editing
-block merges preserve internal line breaks, restoring five historical assertions.
-This is a correctness repair, not an increase in overall conformance. Stylo remains
-the CSS engine.
+The signed run at `1c8f550` passes **3,052/4,022 (75.9%)**, with **970 remaining**.
+It gains three whole executions and loses zero versus `693a745`: IndexedDB origin
+isolation and structured-clone transaction state in window and dedicated-worker
+globals. Six existing assertions are corrected. Stylo remains the CSS engine.
 
 The audit verifies exact coverage, complete passing harness results, signed source
 and binary fingerprints, and unchanged resource limits and sandbox settings.
@@ -44,38 +43,36 @@ There are zero new observed assertion regressions. Five raw missing prior passin
 names reconcile through server-port changes. Fourteen older observations remain
 unobserved, and six historical editing assertion regressions remain failing.
 
-[Full evidence](CONFORMANCE-EDITING-BLOCK-MERGE-FULL-2026-09-08.json) links the full
+[Full evidence](CONFORMANCE-IDB-CLONE-CHECKPOINT-FULL-2026-09-08.json) links the full
 assertion audit and reconciliation. This is one measured full run, not complete
 conformance or broader release qualification.
 
-Next: prioritize reproduced shared causes in editing, DOM and CSS, which account
-for 786 of the 973 remaining failures. Populate the diagnosis index with affected
-IDs, production paths and unresolved later blockers; routing labels alone are not
-root causes. Validate complete affected suites before batching verified fixes for
-another signed run. The Range ownership-iteration follow-up produced no additional
-whole passes and was rejected; it is no longer the next implementation step.
-The bounded IndexedDB cloning/checkpoint candidate has been revalidated across
-all 456 native executions: 416 pass, 13 whole gains, zero whole losses and zero
-observed assertion regressions. All 24 raw missing titles reconcile explicitly.
-The getter-abort checks pass in the 183-test binding suite; formatting and strict
-Clippy pass. [Native evidence](CONFORMANCE-IDB-CLONE-CHECKPOINT-NATIVE-2026-09-08.json)
-records remaining qualification gaps. The immediate next action is the signed
-full measurement of this batch. Unfinished stream, timer and DOM changes are
-preserved separately and must not expand this candidate before measurement.
-The editing document-settings experiment remains rejected (five whole losses).
-Preserve all tests, assertions and resource caps. Completion still requires
-4,022/4,022 twice on one frozen signed candidate and every qualification gate.
+The native IndexedDB candidate passed 416/456; the signed worker passes 406/456.
+Two key-generator executions still fail overflow assertions; eight large-value
+executions hit the generated-platform-operation time limit. Diagnose those actual
+production paths before claiming the ten native-only gains. The next bounded
+investigation is the brokered numeric round trip near 2^53, followed by profiling
+the large-value operation path under unchanged caps. Numeric precision is still a
+hypothesis, not a confirmed fix. Unfinished stream, timer and DOM work is preserved
+separately and remains unqualified. The editing document-settings experiment was
+rejected after five whole-test losses.
+
+DOM, editing and CSS account for 786 of the 970 failures. A source-and-fixture
+review identifies missing stylesheet media support in five CSSOM executions;
+implementation and complete-suite verification remain pending. Preserve all tests,
+assertions and resource caps. Completion requires 4,022/4,022 twice on one frozen
+signed candidate and every qualification gate.
 
 ## Current execution strategy
 
 Use the immediate sequence at the end of this document as the single active
 queue. Earlier milestone sections below preserve historical evidence and subsystem
 requirements; their dated counts and completed experiments do not override the
-693a745 baseline above.
+1c8f550 baseline above.
 
 The principal throughput failure has been treating assertion repairs and removal
 of first blockers as evidence that a batch will complete fixtures. They are useful
-correctness work, but the last signed batch added zero whole passes. In addition,
+correctness work, but the latest signed batch added only three whole passes. In addition,
 the regenerated backlog has no confirmed root causes populated. Routing categories
 and similar error messages cannot substitute for a reproduced dependency map.
 
@@ -83,7 +80,7 @@ Before implementing a new mechanism, record exact affected IDs, the production
 path, a representative complete fixture, every known later blocker and the whole
 fixture acceptance criterion. Rank demonstrated completion paths ahead of apparent
 family size. Concentrate investigation on DOM, editing and CSS (786 failures),
-while closing the bounded candidate already under validation.
+while closing the reproduced signed/native IndexedDB discrepancy.
 
 Run complete affected native suites and relevant passing coverage before promotion.
 After two unsuccessful implementation/validation cycles, revisit the causal model;
@@ -102,19 +99,19 @@ counts and corrected assertions are supporting evidence, not overall conformance
 
 | Root | Passed / required |
 |---|---:|
-| IndexedDB | 403/456 |
+| IndexedDB | 406/456 |
 | WebIDL | 31/58 |
 | accname | 15/19 |
 | css/css-cascade | 54/97 |
 | css/cssom | 95/190 |
 | css/selectors | 197/277 |
-| dom | 402/662 |
+| dom | 405/662 |
 | editing | 393/704 |
 | html/browsers/history | 45/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
-The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 992 failed IDs from this run.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) contains exactly 970 failed IDs from this run.
 
 ## Previous execution decision: separate CSS promotion from Range investigation
 
@@ -620,11 +617,11 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. **Measure the bounded candidate.** Commit the two validated runtime files and
-   native proof, build/sign the clean candidate, run all 4,022 pinned executions,
-   audit exact IDs and assertion coverage, and refresh the backlog. Native proof
-   establishes 13 candidate gains; only this signed measurement can establish an
-   overall score change. Preserve every failure and qualification gap explicitly.
+1. **Close the production IndexedDB discrepancy.** The bounded candidate is now
+   signed and audited at 3,052/4,022, three gains and zero whole losses. Reproduce
+   numeric transport around 2^53 across the real context envelope, then profile
+   large-value operations under the existing limits. Require complete affected
+   native and signed coverage; keep the ten native-only gains unqualified.
 2. **Populate an actionable diagnosis index.** Carry reproduced causes into the
    current backlog with evidence links and exact IDs. Investigate representative
    complete failing fixtures in DOM, editing and CSS, including harness/runtime
