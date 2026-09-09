@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `4fca373`, measured on 2026-09-09.
+Current full-run evidence: signed candidate `bcf3bb9`, measured on 2026-09-09.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,40 +32,42 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `4fca373` passes **3,077/4,022 (76.5%)**, with **945 remaining**.
-It gains four implicit-scope executions versus `793b68d`, with zero whole-execution
-losses and zero new observed assertion regressions. Stylo remains the CSS engine;
-native owner-root metadata now reaches its existing scope matching and cascade.
+The signed run at `bcf3bb9` passes **3,083/4,022 (76.7%)**, with **939 remaining**.
+It gains six editing executions versus `4fca373`, with zero whole-execution losses
+and zero new observed assertion regressions. Escaping non-breaking spaces in HTML
+serialization corrects 160 existing assertions while preserving native DOM text.
+Stylo remains the CSS engine.
 
-Coverage remains unresolved: 31 prior passing assertions are newly unobserved.
-Twenty-two older missing assertions reappeared, while 92 remain unobserved. Six
-historical editing regressions remain failing. The previously regressed IndexedDB
-cross-origin assertion passes this run, but intermittent message failures remain.
+Coverage remains unresolved: nine prior passing Range assertions are newly
+unobserved. Thirty-nine older missing assertions reappeared, while 84 remain
+unobserved. Six historical editing regressions remain failing. The tracked
+IndexedDB cross-origin assertion passes this run, but intermittency remains open.
 No failing or unobserved assertion is waived.
 
-[Full evidence](CONFORMANCE-IMPLICIT-SCOPE-FULL-2026-09-09.json) identifies the
+[Full evidence](CONFORMANCE-NBSP-SERIALIZATION-FULL-2026-09-09.json) identifies the
 terminal signed audit and reconciliation. Exact inventory coverage, source/binary
 fingerprints, unchanged limits, sandbox settings, and successful completion of
 passing executions are verified. This is not complete conformance or release
-qualification. The external-scope fixture still times out on its second test.
+qualification.
 
-Next, reproduce and fix popup/frame message addressing while preserving iframe
-opener identity; profile bulk Range/Selection synchronization to complete the
-resource-bound fixtures; and restore native stylesheet import semantics. Evaluate
-shared causes against complete failing fixtures rather than projecting gains from
-failure counts. Preserve all tests and resource caps. Completion requires
-4,022/4,022 twice on one frozen signed candidate and every qualification gate.
+Next, implement shared editing whitespace behavior using resolved styles and
+native mutation semantics; profile Range/Selection synchronization; and restore
+native stylesheet import semantics. The unfinished popup-routing patch is preserved
+outside the candidate and still has a navigation failure. Prioritize complete
+failing fixtures using reproduced causes and measured gains, preserving all tests
+and resource caps. Completion requires 4,022/4,022 twice on one frozen signed
+candidate and every qualification gate.
 
 ## Current execution strategy
 
 Use the immediate sequence at the end of this document as the single active
 queue. Earlier milestone sections below preserve historical evidence and subsystem
 requirements; their dated counts and completed experiments do not override the
-4fca373 measurement above.
+bcf3bb9 measurement above.
 
 The principal throughput failure has been treating assertion repairs and removal
 of first blockers as evidence that a batch will complete fixtures. They are useful
-correctness work, but the latest signed batch added 14 whole passes. In addition,
+correctness work, but the latest signed batch added six whole passes. In addition,
 the regenerated backlog has no confirmed root causes populated. Routing categories
 and similar error messages cannot substitute for a reproduced dependency map.
 
@@ -610,21 +612,21 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. **Implicit-scope batch measured.** Signed `4fca373` completes all 4022
-   executions with 3077 passes, four gains, no whole losses or new observed
-   assertion regressions. Terminal source/artifact audit and reconciliation pass.
-2. **Resolve message routing and Range completion.** Preserve iframe opener
-   identity when addressing popup replies. Validate the prepared native tests
-   against the source-level duplicate-delivery reproduction. Profile remaining
-   bulk Range/Selection cache synchronization before implementing its performance
-   fix. Track 31 newly unobserved assertions plus 92 older still missing; 22 older
-   missing assertions reappeared. Do not erase intermittent failures after one
-   passing attempt or change limits to accommodate the tests.
-3. **Implement shared mechanisms with measured reach.** The loader currently
-   flattens external imports and discards inline imported content; restore native
-   import semantics and lifecycle. Validate causal reach before promising gains.
-   Keep prioritizing complete failing fixtures across DOM, editing and CSS.
-4. **Repeat to the actual finish gate.** Clear every remaining failure, the six
+1. **Serialization batch measured.** Signed `bcf3bb9` completes all 4022
+   executions with 3083 passes, six gains, 160 corrected assertions, no whole
+   losses and no new observed assertion regressions. Terminal audits are complete.
+2. **Implement shared editing whitespace behavior.** The current typing path
+   inserts text without canonicalizing adjacent collapsible whitespace. The pinned
+   reference algorithm handles inline boundaries and line breaks. Preserve native
+   text, live ranges, Stylo-resolved whitespace modes and final-mutation ordering.
+   Measure complete fixtures; 183 failing Text.data assertions in the inserttext
+   matrix are a dependency target, not a projection of whole-fixture gains.
+3. **Resolve shared runtime and CSS gaps.** Profile bulk Range/Selection cache
+   synchronization before a performance fix. Track nine newly unobserved assertions
+   plus 84 older missing; 39 older missing assertions reappeared. Restore native
+   stylesheet imports rather than flattening/discarding content. The preserved
+   popup-routing work still needs navigation/lifecycle correctness before promotion.
+4. **Repeat to the actual finish gate.** Clear all 939 remaining failures, the six
    historical editing regressions and all older/new unobserved assertions.
    Require 4,022/4,022 twice on the same frozen signed candidate and all generated,
    native, profile and security qualification gates before claiming completion.

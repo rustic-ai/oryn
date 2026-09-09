@@ -1,31 +1,33 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,077/4,022 (76.5%)**, **945 remaining**.
+> Latest full measurement: **3,083/4,022 (76.7%)**, **939 remaining**.
 
-The signed run at `4fca373` passes **3,077/4,022 (76.5%)**, with **945 remaining**.
-It gains four implicit-scope executions versus `793b68d`, with zero whole-execution
-losses and zero new observed assertion regressions. Stylo remains the CSS engine;
-native owner-root metadata now reaches its existing scope matching and cascade.
+The signed run at `bcf3bb9` passes **3,083/4,022 (76.7%)**, with **939 remaining**.
+It gains six editing executions versus `4fca373`, with zero whole-execution losses
+and zero new observed assertion regressions. Escaping non-breaking spaces in HTML
+serialization corrects 160 existing assertions while preserving native DOM text.
+Stylo remains the CSS engine.
 
-Coverage remains unresolved: 31 prior passing assertions are newly unobserved.
-Twenty-two older missing assertions reappeared, while 92 remain unobserved. Six
-historical editing regressions remain failing. The previously regressed IndexedDB
-cross-origin assertion passes this run, but intermittent message failures remain.
+Coverage remains unresolved: nine prior passing Range assertions are newly
+unobserved. Thirty-nine older missing assertions reappeared, while 84 remain
+unobserved. Six historical editing regressions remain failing. The tracked
+IndexedDB cross-origin assertion passes this run, but intermittency remains open.
 No failing or unobserved assertion is waived.
 
-[Full evidence](CONFORMANCE-IMPLICIT-SCOPE-FULL-2026-09-09.json) identifies the
+[Full evidence](CONFORMANCE-NBSP-SERIALIZATION-FULL-2026-09-09.json) identifies the
 terminal signed audit and reconciliation. Exact inventory coverage, source/binary
 fingerprints, unchanged limits, sandbox settings, and successful completion of
 passing executions are verified. This is not complete conformance or release
-qualification. The external-scope fixture still times out on its second test.
+qualification.
 
-Next, reproduce and fix popup/frame message addressing while preserving iframe
-opener identity; profile bulk Range/Selection synchronization to complete the
-resource-bound fixtures; and restore native stylesheet import semantics. Evaluate
-shared causes against complete failing fixtures rather than projecting gains from
-failure counts. Preserve all tests and resource caps. Completion requires
-4,022/4,022 twice on one frozen signed candidate and every qualification gate.
+Next, implement shared editing whitespace behavior using resolved styles and
+native mutation semantics; profile Range/Selection synchronization; and restore
+native stylesheet import semantics. The unfinished popup-routing patch is preserved
+outside the candidate and still has a navigation failure. Prioritize complete
+failing fixtures using reproduced causes and measured gains, preserving all tests
+and resource caps. Completion requires 4,022/4,022 twice on one frozen signed
+candidate and every qualification gate.
 
 | Root | Passed / required |
 |---|---:|
@@ -36,7 +38,7 @@ failure counts. Preserve all tests and resource caps. Completion requires
 | css/cssom | 100/190 |
 | css/selectors | 197/277 |
 | dom | 405/662 |
-| editing | 407/704 |
+| editing | 413/704 |
 | html/browsers/history | 45/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
