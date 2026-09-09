@@ -1,33 +1,32 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,083/4,022 (76.7%)**, **939 remaining**.
+> Latest full measurement: **3,086/4,022 (76.7%)**, **936 remaining**.
 
-The signed run at `bcf3bb9` passes **3,083/4,022 (76.7%)**, with **939 remaining**.
-It gains six editing executions versus `4fca373`, with zero whole-execution losses
-and zero new observed assertion regressions. Escaping non-breaking spaces in HTML
-serialization corrects 160 existing assertions while preserving native DOM text.
-Stylo remains the CSS engine.
+The signed run at `5d785f0` passes **3,086/4,022 (76.7%)**, with **936 remaining**.
+It gains three editing executions versus `bcf3bb9`, with zero whole-execution losses
+and 310 corrected existing assertions. The complete typing-whitespace matrix now
+passes. Stylo remains the CSS engine.
 
-Coverage remains unresolved: nine prior passing Range assertions are newly
-unobserved. Thirty-nine older missing assertions reappeared, while 84 remain
-unobserved. Six historical editing regressions remain failing. The tracked
-IndexedDB cross-origin assertion passes this run, but intermittency remains open.
-No failing or unobserved assertion is waived.
+One observed assertion regression reproduces the tracked IndexedDB cross-origin
+failure. Six historical editing regressions remain failing. Range timeouts leave
+86 additional prior passing assertions unobserved; none of the older 93 missing
+assertions recovered, so 179 remain unobserved. No failure or coverage gap is waived.
 
-[Full evidence](CONFORMANCE-NBSP-SERIALIZATION-FULL-2026-09-09.json) identifies the
+[Full evidence](CONFORMANCE-TYPING-WHITESPACE-FULL-2026-09-09.json) identifies the
 terminal signed audit and reconciliation. Exact inventory coverage, source/binary
 fingerprints, unchanged limits, sandbox settings, and successful completion of
 passing executions are verified. This is not complete conformance or release
 qualification.
 
-Next, implement shared editing whitespace behavior using resolved styles and
-native mutation semantics; profile Range/Selection synchronization; and restore
-native stylesheet import semantics. The unfinished popup-routing patch is preserved
-outside the candidate and still has a navigation failure. Prioritize complete
-failing fixtures using reproduced causes and measured gains, preserving all tests
-and resource caps. Completion requires 4,022/4,022 twice on one frozen signed
-candidate and every qualification gate.
+Next, evaluate native OpaqueRange/control-value integration against all 17 pinned
+executions, including lifecycle, edits and geometry. The separate draft is uncompiled
+and unqualified; geometry requires live control values and shaped text positions.
+Profile Range/Selection synchronization to recover missing observations and investigate
+the IndexedDB intermittency. Native stylesheet import integration and the preserved
+popup navigation/lifecycle work remain open. Choose batches by complete-fixture
+results, not missing-API counts. Completion requires 4,022/4,022 twice on one frozen
+signed candidate and every qualification gate.
 
 | Root | Passed / required |
 |---|---:|
@@ -38,7 +37,7 @@ candidate and every qualification gate.
 | css/cssom | 100/190 |
 | css/selectors | 197/277 |
 | dom | 405/662 |
-| editing | 413/704 |
+| editing | 416/704 |
 | html/browsers/history | 45/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |

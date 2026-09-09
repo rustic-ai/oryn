@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `bcf3bb9`, measured on 2026-09-09.
+Current full-run evidence: signed candidate `5d785f0`, measured on 2026-09-09.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,49 +32,48 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `bcf3bb9` passes **3,083/4,022 (76.7%)**, with **939 remaining**.
-It gains six editing executions versus `4fca373`, with zero whole-execution losses
-and zero new observed assertion regressions. Escaping non-breaking spaces in HTML
-serialization corrects 160 existing assertions while preserving native DOM text.
-Stylo remains the CSS engine.
+The signed run at `5d785f0` passes **3,086/4,022 (76.7%)**, with **936 remaining**.
+It gains three editing executions versus `bcf3bb9`, with zero whole-execution losses
+and 310 corrected existing assertions. The complete typing-whitespace matrix now
+passes. Stylo remains the CSS engine.
 
-Coverage remains unresolved: nine prior passing Range assertions are newly
-unobserved. Thirty-nine older missing assertions reappeared, while 84 remain
-unobserved. Six historical editing regressions remain failing. The tracked
-IndexedDB cross-origin assertion passes this run, but intermittency remains open.
-No failing or unobserved assertion is waived.
+One observed assertion regression reproduces the tracked IndexedDB cross-origin
+failure. Six historical editing regressions remain failing. Range timeouts leave
+86 additional prior passing assertions unobserved; none of the older 93 missing
+assertions recovered, so 179 remain unobserved. No failure or coverage gap is waived.
 
-[Full evidence](CONFORMANCE-NBSP-SERIALIZATION-FULL-2026-09-09.json) identifies the
+[Full evidence](CONFORMANCE-TYPING-WHITESPACE-FULL-2026-09-09.json) identifies the
 terminal signed audit and reconciliation. Exact inventory coverage, source/binary
 fingerprints, unchanged limits, sandbox settings, and successful completion of
 passing executions are verified. This is not complete conformance or release
 qualification.
 
-Next, implement shared editing whitespace behavior using resolved styles and
-native mutation semantics; profile Range/Selection synchronization; and restore
-native stylesheet import semantics. The unfinished popup-routing patch is preserved
-outside the candidate and still has a navigation failure. Prioritize complete
-failing fixtures using reproduced causes and measured gains, preserving all tests
-and resource caps. Completion requires 4,022/4,022 twice on one frozen signed
-candidate and every qualification gate.
+Next, evaluate native OpaqueRange/control-value integration against all 17 pinned
+executions, including lifecycle, edits and geometry. The separate draft is uncompiled
+and unqualified; geometry requires live control values and shaped text positions.
+Profile Range/Selection synchronization to recover missing observations and investigate
+the IndexedDB intermittency. Native stylesheet import integration and the preserved
+popup navigation/lifecycle work remain open. Choose batches by complete-fixture
+results, not missing-API counts. Completion requires 4,022/4,022 twice on one frozen
+signed candidate and every qualification gate.
 
 ## Current execution strategy
 
 Use the immediate sequence at the end of this document as the single active
 queue. Earlier milestone sections below preserve historical evidence and subsystem
 requirements; their dated counts and completed experiments do not override the
-bcf3bb9 measurement above.
+5d785f0 measurement above.
 
 The principal throughput failure has been treating assertion repairs and removal
 of first blockers as evidence that a batch will complete fixtures. They are useful
-correctness work, but the latest signed batch added six whole passes. In addition,
+correctness work, but the latest signed batch added three whole passes. In addition,
 the regenerated backlog has no confirmed root causes populated. Routing categories
 and similar error messages cannot substitute for a reproduced dependency map.
 
 Before implementing a new mechanism, record exact affected IDs, the production
 path, a representative complete fixture, every known later blocker and the whole
 fixture acceptance criterion. Rank demonstrated completion paths ahead of apparent
-family size. Concentrate investigation on DOM, editing and CSS (772 failures),
+family size. Concentrate investigation on DOM, editing and CSS (754 failures),
 while closing the reproduced signed/native IndexedDB discrepancy.
 
 Run complete affected native suites and relevant passing coverage before promotion.
@@ -612,24 +611,26 @@ records unresolved Range observations and all remaining conformance gates.
 
 ## Immediate next execution sequence
 
-1. **Serialization batch measured.** Signed `bcf3bb9` completes all 4022
-   executions with 3083 passes, six gains, 160 corrected assertions, no whole
-   losses and no new observed assertion regressions. Terminal audits are complete.
-2. **Implement shared editing whitespace behavior.** The current typing path
-   inserts text without canonicalizing adjacent collapsible whitespace. The pinned
-   reference algorithm handles inline boundaries and line breaks. Preserve native
-   text, live ranges, Stylo-resolved whitespace modes and final-mutation ordering.
-   Measure complete fixtures; 183 failing Text.data assertions in the inserttext
-   matrix are a dependency target, not a projection of whole-fixture gains.
+1. **Typing whitespace batch measured.** Signed `5d785f0` completes all 4022
+   executions with 3086 passes, three gains, 310 corrected assertions and no whole
+   losses. The intermittent cross-origin IndexedDB assertion fails again. Terminal
+   audits are complete; 86 newly missing plus 93 older missing assertions remain.
+2. **Complete a shared missing subsystem.** OpaqueRange has 17 pinned executions
+   blocked by missing APIs. A separate native store/value/removal draft exists but
+   has not been compiled. Integrate generated bindings, control edit/lifecycle
+   updates, and shaped-text geometry; reconcile the experimental API version before
+   exposing container attributes. Do not promote constructor-only or zero-geometry
+   placeholders. Measure all 17 complete fixtures and broader DOM/editing guards.
 3. **Resolve shared runtime and CSS gaps.** Profile bulk Range/Selection cache
-   synchronization before a performance fix. Track nine newly unobserved assertions
-   plus 84 older missing; 39 older missing assertions reappeared. Restore native
-   stylesheet imports rather than flattening/discarding content. The preserved
-   popup-routing work still needs navigation/lifecycle correctness before promotion.
-4. **Repeat to the actual finish gate.** Clear all 939 remaining failures, the six
-   historical editing regressions and all older/new unobserved assertions.
-   Require 4,022/4,022 twice on the same frozen signed candidate and all generated,
-   native, profile and security qualification gates before claiming completion.
+   synchronization under unchanged caps, retaining all 179 unobserved assertions.
+   Diagnose the recurring IndexedDB cross-origin failure. Restore native stylesheet
+   import ownership/loading and CSSOM rule families; font HTTP404 navigation aborts
+   are a separate known blocker. Preserved popup work still needs navigation and
+   lifecycle correctness. Missing-API cluster sizes are not projected gains.
+4. **Repeat to the actual finish gate.** Clear all 936 remaining failures, the six
+   historical editing regressions, the recurring IndexedDB failure and all missing
+   observations. Require 4,022/4,022 twice on the same frozen signed candidate and
+   all generated, native, profile and security qualification gates.
 
 The existing release/product/platform action plan still applies independently.
 A paid evaluation, deployment, or publication is not necessary to claim that this
