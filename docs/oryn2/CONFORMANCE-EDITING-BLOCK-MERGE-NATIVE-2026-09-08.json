@@ -1,0 +1,114 @@
+{
+  "baseline_runtime": "ebe7899068051ffddefdc6428ed5b92aa7ae6d6b",
+  "change": "Preserve internal line breaks when merging separate rendered editing blocks with equal whitespace modes. Keep nested-block, different-whitespace and protected-boundary first-line behavior.",
+  "candidate_source_sha256": "b2123383e014e9c0241258a95515b6376c77c2d93fd20abb9f637acd7372d686",
+  "probe_sha256": "431f85c844c0787a89c4528d71e3a1b22ecdd7a41ff4fe0403ca4e53d4485068",
+  "required_editing_executions": 704,
+  "exact_coverage": true,
+  "passed": 393,
+  "whole_gains": 0,
+  "whole_losses": 0,
+  "observed_assertion_regressions": 0,
+  "corrected_historical_assertions": [
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=block&command=insertText",
+      "name": "<p contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+      "status": 1
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline&command=insertText",
+      "name": "<p contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+      "status": 1
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=p&white-space=normal&display=inline-block&command=insertText",
+      "name": "<p contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></p>",
+      "status": 1
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=block&command=insertText",
+      "name": "<span contenteditable style=\"display:block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+      "status": 1
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline&command=insertText",
+      "name": "<span contenteditable style=\"display:inline; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+      "status": 1
+    },
+    {
+      "id": "editing/other/insertparagraph-in-editing-host-cannot-have-div.tentative.html|window|?host=span&white-space=normal&display=inline-block&command=insertText",
+      "name": "<span contenteditable style=\"display:inline-block; white-space:normal\"><div style=\"display:inline\">a[]b</div></span>",
+      "status": 1
+    },
+    {
+      "id": "editing/run/delete.html|window|?5001-6000",
+      "name": "[[\"defaultparagraphseparator\",\"div\"],[\"delete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML",
+      "status": 0
+    },
+    {
+      "id": "editing/run/delete.html|window|?5001-6000",
+      "name": "[[\"defaultparagraphseparator\",\"p\"],[\"delete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML",
+      "status": 0
+    },
+    {
+      "id": "editing/run/forwarddelete.html|window|?1001-2000",
+      "name": "[[\"forwarddelete\",\"\"]] \"<ol><li>foo[]<li>bar<br>baz</ol>\" compare innerHTML",
+      "status": 0
+    },
+    {
+      "id": "editing/run/forwarddelete.html|window|?5001-6000",
+      "name": "[[\"defaultparagraphseparator\",\"div\"],[\"forwarddelete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML",
+      "status": 0
+    },
+    {
+      "id": "editing/run/forwarddelete.html|window|?5001-6000",
+      "name": "[[\"defaultparagraphseparator\",\"p\"],[\"forwarddelete\",\"\"]] \"<p>foo[</p><p>]bar<br>baz</p>\" compare innerHTML",
+      "status": 0
+    }
+  ],
+  "raw_missing_prior_passes": 501,
+  "unresolved_missing_prior_passes": 0,
+  "name_reconciliation": "Explicit ordinal mappings, complete equal-length test sequences, whitespace-only title differences and identical statuses for every renamed assertion. See full raw mappings.",
+  "checks": {
+    "binding_tests": 181,
+    "failed": 0,
+    "existing_ignores": 2,
+    "formatting": "passed",
+    "strict_clippy": "passed"
+  },
+  "artifacts": [
+    {
+      "path": "artifacts/upstream-conformance/native-editing-block-merge-v4/oryn-editing-block-merge-v4-pending.json",
+      "sha256": "a4a61712c8aa76e8fcbfdff9515ff6f3e53b3a867a2bbd8babb3162f325572bc"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-editing-block-merge-v4/oryn-build-editing-block-merge-v4.log",
+      "sha256": "22ae93dd284e20cf487ffcf6f421fb8ad8561fcfb18a46c9d9a18d941985190c"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-editing-block-merge-v4/oryn-editing-block-merge-v4-fixtures.log",
+      "sha256": "49308c2ac44775423bf3df31cf0f0158834279ba4abe7b4975d6670bc61a1deb"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-editing-block-merge-v4/oryn-editing-block-merge-v4-remaining.log",
+      "sha256": "884e0e5aec60cadd0489fd3b8d41376ddaf3550229bc16081e8dcfaed6381f41"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-editing-block-merge-v4/oryn-editing-block-merge-v4-all-editing-audit.json",
+      "sha256": "d9a0513b7450afae3741f0c64254d1bdd5e6db30781f2a59b7c77ea73b1f07a5"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-editing-block-merge-v4/oryn-editing-block-merge-v4-all-name-reconciliation.json",
+      "sha256": "1958e433c694c573dfddbca84269177e7358b6855c50443de80fad2d5e7184e9"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-editing-block-merge-v4/oryn-run-editing-block-merge-v2.py",
+      "sha256": "fb263e04941263227b861d125556bdae8f891d966570b792e65f2f4aa29cad1a"
+    },
+    {
+      "path": "artifacts/upstream-conformance/native-editing-block-merge-v4/oryn-run-editing-block-merge-v4-remaining.py",
+      "sha256": "a981c843a868112ae75d2c057f646439fb54fc368352ba8cb0d09c92605fe596"
+    }
+  ],
+  "qualification": "Focused native full editing-domain regression qualification. Five historical assertion repairs, no whole-fixture gain. Requires fresh signed full inventory run; complete conformance and release qualification remain open."
+}

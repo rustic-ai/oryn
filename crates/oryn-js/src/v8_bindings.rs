@@ -12680,6 +12680,15 @@ fn join_first_editing_line_before(
         line_root = first;
     }
     let source_mode = editing_white_space(state, line_root)?;
+    // Matching whitespace modes can retain the source's internal line breaks
+    // in a single merged block. Different modes and nested source blocks use
+    // the first-line join, preserving the remaining source paragraph's style.
+    let host = editing_host(state)?.unwrap_or(destination);
+    let merge_whole_block = before.is_none()
+        && line_root == source
+        && source_mode == destination_mode
+        && nearest_rendered_editing_block(state, destination, host)? == destination
+        && nearest_rendered_editing_block(state, source, host)? == source;
     let source_is_inline = matches!(
         state.dom.borrow().arena().get(line_root)?.kind,
         NodeKind::Text { .. } | NodeKind::CDataSection { .. }
@@ -12774,7 +12783,8 @@ fn join_first_editing_line_before(
                 if hidden || is_ignored_editing_sibling(&state.dom.borrow(), node) {
                     continue;
                 }
-                if element_local_name(&state.dom.borrow(), node) == Some("br") {
+                if !merge_whole_block && element_local_name(&state.dom.borrow(), node) == Some("br")
+                {
                     let (container, offset) = relative_boundary(&state.dom.borrow(), node, false)?;
                     end = BoundaryPoint { container, offset };
                     separator = Some((node, false));
@@ -12789,10 +12799,12 @@ fn join_first_editing_line_before(
             }
             NodeKind::Text { data } | NodeKind::CDataSection { data } => {
                 let mode = editing_white_space(state, node)?;
-                if matches!(
-                    mode.as_str(),
-                    "pre" | "pre-wrap" | "pre-line" | "break-spaces"
-                ) && let Some(index) = data.find('\n')
+                if !merge_whole_block
+                    && matches!(
+                        mode.as_str(),
+                        "pre" | "pre-wrap" | "pre-line" | "break-spaces"
+                    )
+                    && let Some(index) = data.find('\n')
                 {
                     end = BoundaryPoint {
                         container: node,
@@ -31036,6 +31048,40 @@ mod tests {
         assert_eq!(
             result,
             "<div id=\"first\">First blockSecond block</div><div id=\"second\"><select style=\"visibility:hidden\"></select></div>"
+        );
+    }
+
+    #[test]
+    fn separate_editing_blocks_merge_without_consuming_internal_breaks() {
+        initialize_v8();
+        let parsed = html::parse("<main id='editor' contenteditable></main>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const editor=document.getElementById('editor'), selection=document.getSelection();
+            const outcomes=[];
+            for(const list of [false,true]) for(const command of ['delete','forwardDelete']) {
+                editor.innerHTML=list?'<ol><li>foo</li><li>bar<br>baz</li></ol>':'<p>foo</p><p>bar<br>baz</p>';
+                const parent=list?editor.firstChild:editor;
+                if(command==='delete') selection.setBaseAndExtent(parent.firstChild.firstChild,3,parent.lastChild.firstChild,0);
+                else selection.collapse(parent.firstChild.firstChild,3);
+                document.execCommand(command);
+                outcomes.push(editor.innerHTML);
+            }
+            outcomes.join('|');
+        "#).unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            "<p>foobar<br>baz</p>|<p>foobar<br>baz</p>|<ol><li>foobar<br>baz</li></ol>|<ol><li>foobar<br>baz</li></ol>"
         );
     }
 
