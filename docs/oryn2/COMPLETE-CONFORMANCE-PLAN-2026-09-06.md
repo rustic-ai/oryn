@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `a3acd6c`, measured on 2026-09-08.
+Current full-run evidence: signed candidate `9d7af7b`, measured on 2026-09-08.
 This is the active forward plan. Earlier batch sections remain history.
 
 ## Objective and definition of done
@@ -32,22 +32,29 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `a3acd6c` passes **3,030/4,022 (75.3%)**, with **992 remaining**.
-It gains 5 whole executions and loses 0 versus `3f754fc`.
-Stylo now parses and matches `:dir()` using shared HTML directionality for DOM
-queries and style snapshots. The full ledger lists every measured gain and loss.
+The signed run at `9d7af7b` passes **3,044/4,022 (75.7%)**, with **978 remaining**.
+It gains 14 whole executions and loses zero versus `a3acd6c`: 13 history fixtures
+and one worker WebIDL iterator-prototype fixture. Native URL, URLSearchParams and
+Location now run through the production page path. Stylo remains the CSS engine.
 
-The audit verifies exact inventory coverage, successful passing completions,
-source and binary fingerprints, and unchanged resource limits and sandbox settings.
-It records 0 observed passing-to-failing assertions,
-52 corrected existing assertions, and 35 additional passing names.
-After reconciliation, 85 prior passing assertions remain unobserved across
-tracked generations. Missing observations are not passes. 11 historical
-assertion regressions remain observed failing; the evidence preserves their identities.
+The audit verifies exact coverage, passing testharness completions, signed source
+and binary fingerprints, and unchanged resource limits and sandbox settings.
+It records zero observed passing-to-failing assertions, 69 corrected assertions
+and 29 additional passing names. Of 34 raw missing prior passing names, five are
+explicitly reconciled server-port changes. Eighteen older missing observations
+reappear passing; 96 remain unobserved across tracked generations. Eleven historical
+assertion regressions remain failing. Missing observations are not passes.
 
-[Full evidence](CONFORMANCE-CSS-DIRECTION-FULL-2026-09-08.json) records this candidate
-and links the complete assertion audit and cumulative reconciliation. This is one
-measured full run, not complete conformance or broader release qualification.
+[Full evidence](CONFORMANCE-NATIVE-LOCATION-FULL-2026-09-08.json) links the full
+assertion audit and cumulative reconciliation. This is one measured full run,
+not complete conformance or broader release qualification.
+
+Next: reproduce and fix the IndexedDB index-name ordering inconsistency in both
+Window and worker contexts, then address shared causes that prevent complete
+executions. Retain the unfinished Range/formatBlock work separately; Range runtime
+failures and missing observations need performance and lifecycle diagnosis.
+Completion still requires 4,022/4,022 twice on the same frozen signed candidate
+and every qualification gate. All 978 failures remain in scope.
 
 ## Strategy correction: require a production path and whole-execution evidence
 
@@ -72,8 +79,8 @@ Location/frame/history/srcdoc integration checks and 30 worker checks. One worke
 failure is also recorded in older native matrices and remains open for release
 qualification. See [integrated evidence](CONFORMANCE-NATIVE-LOCATION-INTEGRATION-2026-09-08.json).
 Earlier direct JavaScript navigation probes do not qualify JavaScript fixtures;
-the current run uses the canonical HTML wrapper. The next acceptance gate is the
-signed full 4,022 run. Do not expand this batch before measuring that result.
+the current run uses the canonical HTML wrapper. The signed full run now confirms 14 whole gains and no whole losses. This batch
+is measured; proceed to the next reproduced shared cause.
 
 Execute these milestones in order:
 
@@ -130,14 +137,14 @@ counts and corrected assertions are supporting evidence, not overall conformance
 | Root | Passed / required |
 |---|---:|
 | IndexedDB | 401/456 |
-| WebIDL | 30/58 |
+| WebIDL | 31/58 |
 | accname | 15/19 |
 | css/css-cascade | 54/97 |
 | css/cssom | 95/190 |
 | css/selectors | 197/277 |
 | dom | 402/662 |
 | editing | 393/704 |
-| html/browsers/history | 32/136 |
+| html/browsers/history | 45/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |
 
