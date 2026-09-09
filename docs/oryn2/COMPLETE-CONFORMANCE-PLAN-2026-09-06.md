@@ -49,14 +49,13 @@ IndexedDB passes and 20/20 worker commit repeats. The signed run passes 416/456:
 two cursor executions exceed worker RSS and two exceed the context-frame capacity.
 Complete conformance remains unmet.
 
-Next, implement bounded cursor retrieval with continuation keys and mutation-aware
-iteration. Preserve key ordering, duplicate index keys, advance/continue semantics,
-transaction ordering and full-result APIs; keep all limits unchanged. Paragraph
-creation at block editing hosts is the next candidate identified in source review, with whole
-fixture gains still unverified. Range observations, editing regressions, stylesheet
-imports, font readiness/fallback, DOMTokenList, OpaqueRange geometry and popup
-lifecycle remain in scope. Completion requires 4,022/4,022 twice on one frozen
-signed candidate and every qualification gate.
+Signed `9517a08` subsequently passes the four cursor executions in focused runs
+with one job and four jobs under unchanged resource limits.
+[Focused signed evidence](CONFORMANCE-CURSOR-STEP-SIGNED-2026-09-09.json) records
+both runs and the separate 456-execution native regression audit. The latest full
+measurement remains 3,109/4,022. Move to paragraph creation at block editing hosts,
+then measure the combined changes with the complete inventory. Focused results
+never replace the final full-inventory gate or erase missing observations.
 
 ## Current execution strategy
 
@@ -615,14 +614,14 @@ records unresolved Range observations and all remaining conformance gates.
 1. **IndexedDB batch measured.** Signed `9faec9a` completes all 4,022 executions
    with 3,109 passes, eight gains and no whole-execution losses. Audits are complete.
    Retain all 151 unobserved assertions and six historical editing regressions.
-2. **Bound cursor retrieval.** Native cursor probes pass, but signed small cursors
-   exceed 512 MiB RSS and large responses exceed the 24 MiB context-frame limit.
-   Retrieve bounded pages with key/primary-key continuation; clone only returned
-   values. Preserve live mutation visibility, directions, duplicate keys, advance,
-   continuePrimaryKey, update/delete, request ordering and full-result APIs.
-3. **Resolve shared runtime, editing and CSS gaps.** Investigate Range missing
-   observations, then implement paragraph creation at block editing hosts with
-   selection, formatting and containment semantics. Verify suspicious pinned
+2. **Bounded cursor retrieval measured.** Signed `9517a08` passes all four cursor
+   executions with one job and four jobs. The complete native IndexedDB comparison
+   has four gains, no whole-execution losses and no observed assertion regressions.
+   Both signed runs retain the 512 MiB RSS and 24 MiB context-frame limits. The
+   overall full-inventory total remains unchanged until a complete rerun.
+3. **Resolve shared runtime, editing and CSS gaps.** Implement paragraph creation
+   at block editing hosts with selection, formatting and containment semantics,
+   then investigate the missing Range observations. Verify suspicious pinned
    newline expectations against reference behavior before attributing all paragraph
    failures to runtime bugs. Native stylesheet imports, DOMTokenList, font readiness,
    OpaqueRange geometry and popup lifecycle remain open. Screening counts are not

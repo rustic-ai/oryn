@@ -20,14 +20,19 @@ IndexedDB passes and 20/20 worker commit repeats. The signed run passes 416/456:
 two cursor executions exceed worker RSS and two exceed the context-frame capacity.
 Complete conformance remains unmet.
 
-Next, implement bounded cursor retrieval with continuation keys and mutation-aware
-iteration. Preserve key ordering, duplicate index keys, advance/continue semantics,
-transaction ordering and full-result APIs; keep all limits unchanged. Paragraph
-creation at block editing hosts is the next candidate identified in source review, with whole
-fixture gains still unverified. Range observations, editing regressions, stylesheet
-imports, font readiness/fallback, DOMTokenList, OpaqueRange geometry and popup
-lifecycle remain in scope. Completion requires 4,022/4,022 twice on one frozen
-signed candidate and every qualification gate.
+Since that full measurement, signed candidate `9517a08` fixes the four resource-bound
+cursor executions in focused runs with one job and four jobs. Bounded retrieval
+returns one record per step and preserves live mutation visibility, ordering and
+bulk APIs. [Focused signed evidence](CONFORMANCE-CURSOR-STEP-SIGNED-2026-09-09.json)
+binds both runs to the same source and binaries. These results do not replace the
+full-inventory total above.
+
+Next, implement paragraph creation at block editing hosts, preserving selection,
+formatting and containment semantics. Validate the changed subsystem before the
+next combined full-inventory measurement. Range observations, editing regressions,
+stylesheet imports, font readiness/fallback, DOMTokenList, OpaqueRange geometry and
+popup lifecycle remain in scope. Completion still requires 4,022/4,022 twice on
+one frozen signed candidate and every qualification gate.
 
 | Root | Passed / required |
 |---|---:|
