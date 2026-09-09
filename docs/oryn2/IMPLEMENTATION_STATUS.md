@@ -3,31 +3,33 @@
 > **Current priority: complete conformance. Not a release candidate.**
 > Latest full measurement: **3,049/4,022 (75.8%)**, **973 remaining**.
 
-The signed run at `ebe7899` passes **3,049/4,022 (75.8%)**, with **973 remaining**.
-It gains three whole executions and loses zero versus `17447de`: Range mutations
-for appendData, deleteData and insertData. Wrapper retention graph refresh now
-limits work to affected native components. Stylo remains the CSS engine.
+The signed run at `693a745` passes **3,049/4,022 (75.8%)**, with **973 remaining**.
+It gains zero whole executions and loses zero versus `ebe7899`. Compatible editing
+block merges preserve internal line breaks, restoring five historical assertions.
+This is a correctness repair, not an increase in overall conformance. Stylo remains
+the CSS engine.
 
-The audit verifies exact coverage, passing testharness completions, signed source
+The audit verifies exact coverage, complete passing harness results, signed source
 and binary fingerprints, and unchanged resource limits and sandbox settings.
-It records zero observed passing-to-failing assertions and 1,298 additional passing
-observations. All five raw missing prior passing names reconcile through server-port
-changes. Of 121 older unobserved assertions, 107 reappear passing and 14 remain
-unobserved. Eleven historical assertion regressions remain failing.
-Range dataChange and replaceData still exceed runtime limits; the batch does not
-establish complete Range conformance.
+There are zero new observed assertion regressions. Five raw missing prior passing
+names reconcile through server-port changes. Fourteen older observations remain
+unobserved, and six historical editing assertion regressions remain failing.
 
-[Full evidence](CONFORMANCE-RANGE-COMPONENTS-FULL-2026-09-08.json) links the complete
-assertion audit and cumulative reconciliation. This is one measured full run,
-not complete conformance or broader release qualification.
+[Full evidence](CONFORMANCE-EDITING-BLOCK-MERGE-FULL-2026-09-08.json) links the full
+assertion audit and reconciliation. This is one measured full run, not complete
+conformance or broader release qualification.
 
-Next: validate the isolated ownership-iteration follow-up against complete unchanged
-Range fixtures, measuring its effect before promotion. Diagnose shared causes in
-DOM and editing using production-path evidence; similar error messages alone do
-not prove a common fix. Restore the 11 historical assertion regressions and resolve
-the 14 missing observations. Keep unfinished Range/formatBlock drafts isolated.
-Completion still requires 4,022/4,022 twice on one frozen signed candidate and every
-qualification gate. All 973 failures remain in scope.
+Next: prioritize reproduced shared causes in editing, DOM and CSS, which account
+for 786 of the 973 remaining failures. Populate the diagnosis index with affected
+IDs, production paths and unresolved later blockers; routing labels alone are not
+root causes. Validate complete affected suites before batching verified fixes for
+another signed run. The Range ownership-iteration follow-up produced no additional
+whole passes and was rejected; it is no longer the next implementation step.
+The IndexedDB clone-inactivity draft needs abort/error-path verification. Thirteen
+editing variant-state cases need reference verification; skipped command callbacks
+may explain their first failures, but this is not yet a confirmed runtime diagnosis.
+Preserve all tests, assertions and resource caps. Completion still requires
+4,022/4,022 twice on one frozen signed candidate and every qualification gate.
 
 | Root | Passed / required |
 |---|---:|
