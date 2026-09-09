@@ -1080,6 +1080,7 @@ pub struct V8BindingState {
     active_idb_connections: RefCell<BTreeMap<u64, String>>,
     blocked_idb_completions: RefCell<VecDeque<(u64, IdbCompletionAction, IdbHostResponse)>>,
     deferred_platform_tasks: RefCell<VecDeque<DeferredPlatformTask>>,
+    prefer_deferred_platform_tasks: Cell<bool>,
     cancelled_platform_operations: RefCell<BTreeSet<HostOperationId>>,
     platform_listeners: RefCell<PlatformListenerMap>,
     platform_handlers: RefCell<BTreeMap<(u64, String), v8::Global<v8::Value>>>,
@@ -1222,8 +1223,14 @@ impl V8BindingState {
         self.ready_platform_completions
             .borrow_mut()
             .extend(completions);
+        // Alternate queue priority across bounded checkpoints. A keep-alive
+        // request can always have a host result ready; always taking that
+        // result first would starve another transaction's completion event.
+        // Conversely, cached cursor tasks must not starve host results.
+        let prefer_deferred =
+            self.prefer_deferred_platform_tasks.replace(false) && deferred_budget > 0;
         let mut count = 0;
-        while count < limit {
+        while count < limit && !prefer_deferred {
             // Host completion arrival and cached cursor readiness are separate
             // mechanisms. Neither may overtake an earlier transaction request.
             let ready = self
@@ -1461,6 +1468,8 @@ impl V8BindingState {
             count += 1;
             deferred_processed += 1;
         }
+        self.prefer_deferred_platform_tasks
+            .set(count > 0 && !prefer_deferred);
         self.expire_xhr_timeouts(scope)?;
         Ok(count)
     }
@@ -3279,6 +3288,7 @@ pub fn install_generated_bindings_with_root_for_global(
         active_idb_connections: RefCell::new(BTreeMap::new()),
         blocked_idb_completions: RefCell::new(VecDeque::new()),
         deferred_platform_tasks: RefCell::new(VecDeque::new()),
+        prefer_deferred_platform_tasks: Cell::new(false),
         cancelled_platform_operations: RefCell::new(BTreeSet::new()),
         platform_listeners: RefCell::new(BTreeMap::new()),
         platform_handlers: RefCell::new(BTreeMap::new()),
@@ -5222,35 +5232,47 @@ fn idb_value_to_json_inner(
     if let Ok(buffer) = v8::Local::<v8::ArrayBuffer>::try_from(value) {
         return Ok(serde_json::json!({
             "__oryn_clone_type":"array_buffer",
-            "bytes":bytes_from_array_buffer(buffer),
+            "bodyBase64":BASE64.encode(bytes_from_array_buffer(buffer)),
         }));
     }
     if let Ok(view) = v8::Local::<v8::ArrayBufferView>::try_from(value) {
-        let mut bytes = vec![0; view.byte_length()];
-        view.copy_contents(&mut bytes);
-        let object = value
-            .to_object(scope)
-            .ok_or(V8BindingError::Allocation("typed array object"))?;
-        let constructor = option_value(scope, object.into(), "constructor")
-            .and_then(|value| option_value(scope, value, "name"))
-            .map(|value| value.to_rust_string_lossy(scope))
-            .unwrap_or_else(|| "Uint8Array".into());
-        let length = option_value(scope, object.into(), "length")
-            .and_then(|value| value.uint32_value(scope))
-            .unwrap_or(view.byte_length() as u32);
-        let values = (0..length)
-            .map(|index| {
-                object
-                    .get_index(scope, index)
-                    .ok_or(V8BindingError::Allocation("typed array element"))
-                    .and_then(|value| idb_value_to_json_inner(scope, state, value, depth + 1))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let buffer = view
+            .buffer(scope)
+            .ok_or(V8BindingError::Allocation("typed array buffer"))?;
+        let name = if value.is_uint8_array() {
+            "Uint8Array"
+        } else if value.is_uint8_clamped_array() {
+            "Uint8ClampedArray"
+        } else if value.is_int8_array() {
+            "Int8Array"
+        } else if value.is_uint16_array() {
+            "Uint16Array"
+        } else if value.is_int16_array() {
+            "Int16Array"
+        } else if value.is_uint32_array() {
+            "Uint32Array"
+        } else if value.is_int32_array() {
+            "Int32Array"
+        } else if value.is_float16_array() {
+            "Float16Array"
+        } else if value.is_float32_array() {
+            "Float32Array"
+        } else if value.is_float64_array() {
+            "Float64Array"
+        } else if value.is_big_int64_array() {
+            "BigInt64Array"
+        } else if value.is_big_uint64_array() {
+            "BigUint64Array"
+        } else {
+            "DataView"
+        };
+        let length = v8::Local::<v8::TypedArray>::try_from(value)
+            .map(|array| array.length())
+            .unwrap_or(view.byte_length());
         return Ok(serde_json::json!({
-            "__oryn_clone_type":"typed_array",
-            "name":constructor,
-            "values":values,
-            "bytes":bytes,
+            "__oryn_clone_type":"typed_array", "name":name,
+            "bodyBase64":BASE64.encode(bytes_from_array_buffer(buffer)),
+            "byteOffset":view.byte_offset(), "byteLength":view.byte_length(), "length":length,
         }));
     }
     if let Ok(array) = v8::Local::<v8::Array>::try_from(value) {
@@ -5632,7 +5654,8 @@ fn idb_json_to_value<'s>(
         .and_then(serde_json::Value::as_str)
         == Some("array_buffer")
     {
-        let bytes = json_bytes(value.get("bytes"));
+        let bytes = crate::indexed_db::stored_binary_bytes(value)
+            .ok_or(V8BindingError::Allocation("stored ArrayBuffer bytes"))?;
         return Ok(array_buffer_from_bytes(scope, &bytes).into());
     }
     if value
@@ -5640,6 +5663,78 @@ fn idb_json_to_value<'s>(
         .and_then(serde_json::Value::as_str)
         == Some("typed_array")
     {
+        if let Some(encoded) = value.get("bodyBase64").and_then(serde_json::Value::as_str) {
+            let bytes = BASE64
+                .decode(encoded)
+                .map_err(|_| V8BindingError::Allocation("stored typed array bytes"))?;
+            let offset = value
+                .get("byteOffset")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or(V8BindingError::Allocation("stored view offset"))?;
+            let length = value
+                .get("length")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or(V8BindingError::Allocation("stored view length"))?;
+            let buffer = array_buffer_from_bytes(scope, &bytes);
+            let name = value
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            macro_rules! restore_view {
+                ($kind:ident, $size:expr) => {{
+                    if !offset.is_multiple_of($size)
+                        || length
+                            .checked_mul($size)
+                            .and_then(|n| offset.checked_add(n))
+                            .is_none_or(|end| end > bytes.len())
+                    {
+                        return Err(V8BindingError::Allocation("stored view bounds"));
+                    }
+                    v8::$kind::new(scope, buffer, offset, length).map(Into::into)
+                }};
+            }
+            return match name {
+                "Uint8Array" => restore_view!(Uint8Array, 1),
+                "Uint8ClampedArray" => restore_view!(Uint8ClampedArray, 1),
+                "Int8Array" => restore_view!(Int8Array, 1),
+                "Uint16Array" => restore_view!(Uint16Array, 2),
+                "Int16Array" => restore_view!(Int16Array, 2),
+                "Uint32Array" => restore_view!(Uint32Array, 4),
+                "Int32Array" => restore_view!(Int32Array, 4),
+                "Float16Array" => {
+                    if !offset.is_multiple_of(2)
+                        || length
+                            .checked_mul(2)
+                            .and_then(|n| offset.checked_add(n))
+                            .is_none_or(|end| end > bytes.len())
+                    {
+                        return Err(V8BindingError::Allocation("stored Float16Array bounds"));
+                    }
+                    v8::Float16Array::new(scope, buffer, offset, length).map(|array| {
+                        // SAFETY: V8 Float16Array is a Value subclass. Rusty V8
+                        // 150 omits its otherwise standard From upcast.
+                        unsafe { v8::Local::<v8::Value>::cast_unchecked(array) }
+                    })
+                }
+                "Float32Array" => restore_view!(Float32Array, 4),
+                "Float64Array" => restore_view!(Float64Array, 8),
+                "BigInt64Array" => restore_view!(BigInt64Array, 8),
+                "BigUint64Array" => restore_view!(BigUint64Array, 8),
+                "DataView" => {
+                    if offset
+                        .checked_add(length)
+                        .is_none_or(|end| end > bytes.len())
+                    {
+                        return Err(V8BindingError::Allocation("stored DataView bounds"));
+                    }
+                    Some(v8::DataView::new(scope, buffer, offset, length).into())
+                }
+                _ => None,
+            }
+            .ok_or(V8BindingError::Allocation("stored view type"));
+        }
         let name = value
             .get("name")
             .and_then(serde_json::Value::as_str)
@@ -29983,7 +30078,8 @@ mod tests {
                         | IdbHostCommand::RenameObjectStore { .. }
                         | IdbHostCommand::AbortUpgrade { .. }
                         | IdbHostCommand::AbortTransaction { .. }
-                        | IdbHostCommand::CommitUpgrade { .. },
+                        | IdbHostCommand::CommitUpgrade { .. }
+                        | IdbHostCommand::CommitTransaction { .. },
                     ..
                 } => PlatformHostResult::IndexedDb {
                     response: Default::default(),
@@ -31054,6 +31150,73 @@ mod tests {
     }
 
     #[test]
+    fn indexeddb_keepalive_does_not_starve_other_transaction_completion() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.set_platform_host(Rc::new(TestPlatformHost::default()));
+        let source = v8::String::new(
+            scope,
+            r#"
+            globalThis.location.href='https://example.test/';
+            const completionOrder=[];
+            const opening=indexedDB.open('completion-fairness',2);
+            opening.onupgradeneeded=()=>{
+                opening.result.createObjectStore('busy');
+                opening.result.createObjectStore('independent');
+            };
+            opening.onsuccess=()=>{
+                const db=opening.result;
+                let keepRunning=true;
+                const busy=db.transaction('busy','readwrite');
+                function keepAlive(){
+                    busy.objectStore('busy').get('key').onsuccess=()=>{
+                        if(keepRunning)keepAlive();
+                    };
+                }
+                keepAlive();
+                busy.oncomplete=()=>completionOrder.push('busy');
+                const waiting=db.transaction('busy','readwrite');
+                waiting.objectStore('busy').get('key');
+                waiting.commit();
+                waiting.oncomplete=()=>completionOrder.push('waiting');
+                const independent=db.transaction('independent','readonly');
+                independent.objectStore('independent').get('key');
+                independent.oncomplete=()=>{
+                    completionOrder.push('independent');
+                    keepRunning=false;
+                };
+            };
+        "#,
+        )
+        .unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        // The host completes each submitted request immediately, so the busy
+        // transaction always has another result ready at the next checkpoint.
+        for _ in 0..128 {
+            state.drain_platform_completions(scope, 1).unwrap();
+            scope.perform_microtask_checkpoint();
+        }
+        let source = v8::String::new(scope, "completionOrder.join('|')").unwrap();
+        let actual = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(actual, "independent|busy|waiting");
+    }
+
+    #[test]
     fn indexeddb_value_getters_observe_inactive_transaction() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -31298,6 +31461,74 @@ mod tests {
                 .run(scope)
                 .unwrap()
                 .is_true()
+        );
+    }
+
+    #[test]
+    fn indexeddb_binary_clone_is_compact_and_preserves_views() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<body></body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            globalThis.original = [Uint8Array, Uint8ClampedArray, Int8Array, Uint16Array,
+                Int16Array, Uint32Array, Int32Array, Float16Array, Float32Array,
+                Float64Array, BigInt64Array, BigUint64Array, DataView].map(C => {
+                const buffer = new ArrayBuffer(64);
+                const bytes = new Uint8Array(buffer);
+                for (let i=0;i<bytes.length;i++) bytes[i]=(i*37)&255;
+                const view = new C(buffer, 8, 3);
+                Object.defineProperty(view, 'constructor', {get(){throw Error('constructor accessed')}});
+                return view;
+            });
+            original
+        "#).unwrap();
+        let value = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let stored = idb_value_to_json(scope, &state, value).unwrap();
+        let decoded = idb_json_to_value(scope, &state, &stored).unwrap();
+        let name = v8::String::new(scope, "restored").unwrap();
+        context.global(scope).set(scope, name.into(), decoded);
+        let source = v8::String::new(
+            scope,
+            r#"
+            original.every((a,i) => {
+                const b=restored[i];
+                return Object.getPrototypeOf(a)===Object.getPrototypeOf(b) && a!==b &&
+                    a.byteOffset===b.byteOffset && a.byteLength===b.byteLength &&
+                    a.buffer.byteLength===b.buffer.byteLength &&
+                    new Uint8Array(a.buffer).every((v,j)=>v===new Uint8Array(b.buffer)[j]);
+            })
+        "#,
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        let source = v8::String::new(scope, "new Uint8Array(48*1024)").unwrap();
+        let value = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let stored = idb_value_to_json(scope, &state, value).unwrap();
+        assert!(serde_json::to_vec(&stored).unwrap().len() < 66 * 1024);
+        assert!(stored.get("values").is_none() && stored.get("bytes").is_none());
+        assert_eq!(
+            crate::indexed_db::stored_binary_bytes(&stored)
+                .unwrap()
+                .len(),
+            48 * 1024
         );
     }
 

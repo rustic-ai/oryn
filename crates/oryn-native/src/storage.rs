@@ -837,6 +837,8 @@ struct DatabaseData {
     stores: BTreeMap<String, ObjectStoreData>,
     #[serde(skip)]
     upgrade_backup: Option<Box<DatabaseData>>,
+    #[serde(skip)]
+    serialized_bytes: std::cell::Cell<Option<usize>>,
 }
 
 #[derive(Debug, Clone)]
@@ -961,6 +963,7 @@ fn execute_idb_transactional(
             if let Some(snapshot) = transactions.remove(&token) {
                 let key = (origin.to_string(), database);
                 if let Some(database) = databases.get_mut(&key) {
+                    database.serialized_bytes.set(None);
                     for (name, before) in snapshot.before {
                         match before {
                             Some(store) => {
@@ -990,6 +993,15 @@ fn execute_idb(
     // high-volume index scans quadratic even though reads cannot increase
     // usage. Mutation commands still perform the exact post-operation check.
     let changes_usage = idb_command_changes_storage(&command);
+    if changes_usage && !matches!(&command, IdbCommand::Batch { .. }) {
+        // Schema changes and transaction restoration can change several stores.
+        // Batch writes below maintain the exact serialized size incrementally.
+        for ((item_origin, _), database) in databases.iter() {
+            if item_origin == origin {
+                database.serialized_bytes.set(None);
+            }
+        }
+    }
     // A versionchange transaction already owns an exact pre-upgrade backup.
     // Recomputing the complete origin size after every schema/write operation
     // makes large upgrades quadratic. Defer their quota check to the atomic
@@ -1215,23 +1227,62 @@ fn execute_idb(
             IdbResponse::default()
         }
         IdbCommand::Batch { database, writes } => {
-            let before = (!upgrade_mutation).then(|| databases.clone());
-            let mut last_key = None;
-            for write in writes {
-                let store_data = store_mut(databases, origin, &database, &write.store)?;
-                last_key = Some(put_record(store_data, write)?);
+            let initial_usage = if upgrade_mutation {
+                None
+            } else {
+                Some(indexed_db_origin_bytes(databases, origin)?)
+            };
+            let database_key = (origin.to_string(), database.clone());
+            let initial_database_bytes = databases
+                .get(&database_key)
+                .and_then(|database| database.serialized_bytes.get());
+            let mut undo = Vec::new();
+            let mut byte_delta = 0i128;
+            let result = (|| {
+                let mut last_key = None;
+                for write in writes {
+                    let name = write.store.clone();
+                    let store = store_mut(databases, origin, &database, &name)?;
+                    let (key, previous) = put_record_with_undo(store, write)?;
+                    byte_delta += previous.byte_delta;
+                    undo.push((name, previous));
+                    last_key = Some(key);
+                }
+                if initial_usage.is_some_and(|usage| usage as i128 + byte_delta > limit as i128) {
+                    return Err(StorageError::QuotaExceeded {
+                        origin: origin.to_string(),
+                        limit,
+                    });
+                }
+                Ok(IdbResponse {
+                    key: last_key,
+                    ..IdbResponse::default()
+                })
+            })();
+            if result.is_err() {
+                // A later write can fail after earlier writes changed the same
+                // key. Reverse order restores both records and key generators.
+                for (name, previous) in undo.into_iter().rev() {
+                    let store = store_mut(databases, origin, &database, &name)?;
+                    store.next_key = previous.next_key;
+                    match previous.record {
+                        Some(record) => {
+                            store.records.insert(previous.encoded_key, record);
+                        }
+                        None => {
+                            store.records.remove(&previous.encoded_key);
+                        }
+                    }
+                }
+            } else if let Some(database) = databases.get(&database_key) {
+                database.serialized_bytes.set(
+                    initial_database_bytes
+                        .and_then(|bytes| usize::try_from(bytes as i128 + byte_delta).ok()),
+                );
             }
-            if !upgrade_mutation && indexed_db_origin_bytes(databases, origin)? > limit {
-                *databases = before.expect("non-upgrade batch captured rollback state");
-                return Err(StorageError::QuotaExceeded {
-                    origin: origin.to_string(),
-                    limit,
-                });
-            }
-            IdbResponse {
-                key: last_key,
-                ..IdbResponse::default()
-            }
+            // The batch has already checked exact origin usage. Avoid a
+            // second complete serialization in the generic mutation path.
+            return result;
         }
         IdbCommand::Get {
             database,
@@ -1503,10 +1554,25 @@ fn stored_index_key(value: &serde_json::Value) -> Option<serde_json::Value> {
     oryn_js::indexed_db::normalized_stored_key(value)
 }
 
+#[cfg(test)]
 fn put_record(
     store: &mut ObjectStoreData,
     write: IdbWrite,
 ) -> Result<serde_json::Value, StorageError> {
+    put_record_with_undo(store, write).map(|(key, _)| key)
+}
+
+struct RecordUndo {
+    encoded_key: String,
+    record: Option<RecordData>,
+    next_key: u64,
+    byte_delta: i128,
+}
+
+fn put_record_with_undo(
+    store: &mut ObjectStoreData,
+    write: IdbWrite,
+) -> Result<(serde_json::Value, RecordUndo), StorageError> {
     let definition = store.definition.clone().unwrap_or(ObjectStoreDefinition {
         name: write.store,
         key_path: None,
@@ -1570,15 +1636,33 @@ fn put_record(
             return Err(StorageError::Constraint);
         }
     }
+    let next_record = RecordData {
+        key: key.clone(),
+        value,
+    };
+    let old_record = store.records.get(&encoded);
+    let mut byte_delta = serialized_size(&next_record)? as i128;
+    if let Some(old) = old_record {
+        byte_delta -= serialized_size(old)? as i128;
+    } else {
+        // JSON object entries contain an escaped string key, a colon, and
+        // (except for the first entry) one comma.
+        byte_delta += serialized_size(&encoded)? as i128 + 1;
+        byte_delta += i128::from(!store.records.is_empty());
+    }
+    byte_delta += next_key.to_string().len() as i128 - store.next_key.to_string().len() as i128;
+    let previous_next_key = store.next_key;
     store.next_key = next_key;
-    store.records.insert(
-        encoded,
-        RecordData {
-            key: key.clone(),
-            value,
+    let record = store.records.insert(encoded.clone(), next_record);
+    Ok((
+        key,
+        RecordUndo {
+            encoded_key: encoded,
+            record,
+            next_key: previous_next_key,
+            byte_delta,
         },
-    );
-    Ok(key)
+    ))
 }
 
 fn json_value_at_key_path(value: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
@@ -1626,6 +1710,12 @@ fn encode_key(key: &serde_json::Value) -> Result<String, StorageError> {
         .ok_or_else(|| StorageError::DataClone("invalid IndexedDB key".into()))
 }
 
+fn serialized_size(value: &impl Serialize) -> Result<usize, StorageError> {
+    serde_json::to_vec(value)
+        .map(|bytes| bytes.len())
+        .map_err(|error| StorageError::DataClone(error.to_string()))
+}
+
 fn indexed_db_origin_bytes(
     databases: &BTreeMap<(String, String), DatabaseData>,
     origin: &str,
@@ -1634,9 +1724,15 @@ fn indexed_db_origin_bytes(
         .iter()
         .filter(|((item_origin, _), _)| item_origin == origin)
         .try_fold(0usize, |total, (_, database)| {
-            serde_json::to_vec(database)
-                .map(|value| total.saturating_add(value.len()))
-                .map_err(|error| StorageError::DataClone(error.to_string()))
+            let bytes = match database.serialized_bytes.get() {
+                Some(bytes) => bytes,
+                None => {
+                    let bytes = serialized_size(database)?;
+                    database.serialized_bytes.set(Some(bytes));
+                    bytes
+                }
+            };
+            Ok(total.saturating_add(bytes))
         })
 }
 
@@ -1744,6 +1840,140 @@ mod tests {
         assert!(
             matches!(values, StorageResponse::IndexedDb { response } if response.values.len() == 1)
         );
+    }
+
+    #[test]
+    fn indexed_db_failed_batch_restores_prior_writes_and_generator() {
+        let origin = "https://example.test";
+        let mut store = ObjectStoreData {
+            definition: Some(ObjectStoreDefinition {
+                name: "items".into(),
+                key_path: None,
+                auto_increment: true,
+                indexes: Vec::new(),
+            }),
+            next_key: 1,
+            ..Default::default()
+        };
+        put_record(
+            &mut store,
+            IdbWrite {
+                store: "items".into(),
+                key: Some(serde_json::json!(1)),
+                value: serde_json::json!("existing"),
+                add_only: true,
+            },
+        )
+        .unwrap();
+        let mut databases = BTreeMap::from([(
+            (origin.into(), "app".into()),
+            DatabaseData {
+                version: 1,
+                stores: BTreeMap::from([("items".into(), store)]),
+                ..Default::default()
+            },
+        )]);
+        let before = serde_json::to_value(&databases[&(origin.into(), "app".into())]).unwrap();
+        let result = execute_idb(
+            &mut databases,
+            origin,
+            IdbCommand::Batch {
+                database: "app".into(),
+                writes: vec![
+                    IdbWrite {
+                        store: "items".into(),
+                        key: None,
+                        value: serde_json::json!("new"),
+                        add_only: true,
+                    },
+                    IdbWrite {
+                        store: "items".into(),
+                        key: Some(serde_json::json!(1)),
+                        value: serde_json::json!("duplicate"),
+                        add_only: true,
+                    },
+                ],
+            },
+            usize::MAX,
+        );
+        assert!(matches!(result, Err(StorageError::Constraint)));
+        assert_eq!(
+            serde_json::to_value(&databases[&(origin.into(), "app".into())]).unwrap(),
+            before
+        );
+        let limit = indexed_db_origin_bytes(&databases, origin).unwrap();
+        let result = execute_idb(
+            &mut databases,
+            origin,
+            IdbCommand::Batch {
+                database: "app".into(),
+                writes: ["first replacement", "second replacement"]
+                    .into_iter()
+                    .map(|value| IdbWrite {
+                        store: "items".into(),
+                        key: Some(serde_json::json!(1)),
+                        value: serde_json::json!(value),
+                        add_only: false,
+                    })
+                    .collect(),
+            },
+            limit,
+        );
+        assert!(matches!(result, Err(StorageError::QuotaExceeded { .. })));
+        assert_eq!(
+            serde_json::to_value(&databases[&(origin.into(), "app".into())]).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn indexed_db_incremental_usage_matches_serialization() {
+        let origin = "https://example.test";
+        let mut databases = BTreeMap::from([(
+            (origin.into(), "app".into()),
+            DatabaseData {
+                stores: BTreeMap::from([(
+                    "items".into(),
+                    ObjectStoreData {
+                        definition: Some(ObjectStoreDefinition {
+                            name: "items".into(),
+                            key_path: None,
+                            auto_increment: true,
+                            indexes: Vec::new(),
+                        }),
+                        ..Default::default()
+                    },
+                )]),
+                ..Default::default()
+            },
+        )]);
+        for (key, value) in [
+            (serde_json::json!(9), serde_json::json!("a")),
+            (
+                serde_json::json!(99),
+                serde_json::json!({"escaped": "\"\\\n", "unicode": "é"}),
+            ),
+            (serde_json::json!(9), serde_json::json!([1, 2, 3])),
+            (serde_json::json!("quoted\"key"), serde_json::json!(null)),
+        ] {
+            execute_idb(
+                &mut databases,
+                origin,
+                IdbCommand::Batch {
+                    database: "app".into(),
+                    writes: vec![IdbWrite {
+                        store: "items".into(),
+                        key: Some(key),
+                        value,
+                        add_only: false,
+                    }],
+                },
+                usize::MAX,
+            )
+            .unwrap();
+            let exact = serialized_size(&databases[&(origin.into(), "app".into())]).unwrap();
+            assert_eq!(indexed_db_origin_bytes(&databases, origin).unwrap(), exact);
+        }
     }
 
     #[test]

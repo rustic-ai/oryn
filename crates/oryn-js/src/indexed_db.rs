@@ -169,13 +169,7 @@ pub fn key_from_stored(value: &Value) -> Option<Key> {
             .map(key_from_stored)
             .collect::<Option<Vec<_>>>()
             .map(Key::Array),
-        Some("array_buffer" | "typed_array") => value
-            .get("bytes")?
-            .as_array()?
-            .iter()
-            .map(|v| u8::try_from(v.as_u64()?).ok())
-            .collect::<Option<Vec<_>>>()
-            .map(Key::Binary),
+        Some("array_buffer" | "typed_array") => stored_binary_bytes(value).map(Key::Binary),
         Some(_) => None,
         None if value.is_array() => value
             .as_array()?
@@ -185,6 +179,27 @@ pub fn key_from_stored(value: &Value) -> Option<Key> {
             .map(Key::Array),
         None => Key::from_json(value),
     }
+}
+
+/// Decode both compact binary clones and legacy numeric-byte payloads.
+pub fn stored_binary_bytes(value: &Value) -> Option<Vec<u8>> {
+    if let Some(encoded) = value.get("bodyBase64").and_then(Value::as_str) {
+        let bytes = STANDARD.decode(encoded).ok()?;
+        if value.get("__oryn_clone_type").and_then(Value::as_str) == Some("typed_array") {
+            let offset = usize::try_from(value.get("byteOffset")?.as_u64()?).ok()?;
+            let length = usize::try_from(value.get("byteLength")?.as_u64()?).ok()?;
+            return bytes
+                .get(offset..offset.checked_add(length)?)
+                .map(<[u8]>::to_vec);
+        }
+        return Some(bytes);
+    }
+    value
+        .get("bytes")?
+        .as_array()?
+        .iter()
+        .map(|v| u8::try_from(v.as_u64()?).ok())
+        .collect()
 }
 
 /// Keep existing JSON number spellings while normalizing tagged clone types.
