@@ -1,0 +1,424 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "793b68da3160fb5a0cf1eb3f07ac73fe4e275f1e",
+  "baseline_signed_passes": 3073,
+  "inventory_required": 4022,
+  "implementation": [
+    "Carry implicit scope root identity from native layout tree to current Stylo mirror.",
+    "Distinguish constructed sheets from owner-parent scope roots.",
+    "Expose native scope metadata through DocumentStyleSheet; retain Stylo matching and cascade."
+  ],
+  "native_suite": {
+    "required": 622,
+    "passed": 386,
+    "gains": [
+      "css/css-cascade/scope-implicit.html|window|",
+      "css/css-cascade/scope-invalidation.html|window|",
+      "css/css-cascade/scope-style-sharing-001.html|window|",
+      "css/css-cascade/scope-style-sharing-002.html|window|"
+    ],
+    "losses": [],
+    "assertion_counts": {
+      "missing_prior_passes": 52,
+      "regressed_prior_passes": 0,
+      "corrected_existing": 19
+    }
+  },
+  "reconciliation": {
+    "raw_missing_prior_passes": 52,
+    "unresolved_ids": [],
+    "method": "Explicit ordinal mapping, equal counts and complete runs. Each renamed title differs only by ASCII whitespace or U+00A0 runs and has equal status. Raw audit preserved.",
+    "rows": [
+      {
+        "id": "css/css-cascade/scope-specificity.html|window|",
+        "complete": true,
+        "identical_assertion_count": 11,
+        "all_ordered_normalized_names_equal": true,
+        "all_renamed_statuses_equal": true,
+        "mappings": [
+          {
+            "ordinal": 0,
+            "baseline_name": "@scope (#main) { .b { } } and .b",
+            "native_name": "@scope (#main) { .b {  } } and .b",
+            "status": 0
+          },
+          {
+            "ordinal": 1,
+            "baseline_name": "@scope (#main) to (.b) { .a { } } and .a",
+            "native_name": "@scope (#main) to (.b) { .a {  } } and .a",
+            "status": 0
+          },
+          {
+            "ordinal": 2,
+            "baseline_name": "@scope (#main, .foo, .bar) { #a { } } and #a",
+            "native_name": "@scope (#main, .foo, .bar) { #a {  } } and #a",
+            "status": 0
+          },
+          {
+            "ordinal": 3,
+            "baseline_name": "@scope (#main) { div.b { } } and div.b",
+            "native_name": "@scope (#main) { div.b {  } } and div.b",
+            "status": 0
+          },
+          {
+            "ordinal": 4,
+            "baseline_name": "@scope (#main) { :scope .b { } } and .a .b",
+            "native_name": "@scope (#main) { :scope .b {  } } and .a .b",
+            "status": 0
+          },
+          {
+            "ordinal": 5,
+            "baseline_name": "@scope (#main) { & .b { } } and :where(#main) .b",
+            "native_name": "@scope (#main) { & .b {  } } and :where(#main) .b",
+            "status": 0
+          },
+          {
+            "ordinal": 6,
+            "baseline_name": "@scope (#main) { div .b { } } and div .b",
+            "native_name": "@scope (#main) { div .b {  } } and div .b",
+            "status": 0
+          },
+          {
+            "ordinal": 7,
+            "baseline_name": "@scope (#main) { @scope (.a) { .b { } } } and .b",
+            "native_name": "@scope (#main) { @scope (.a) { .b {  } } } and .b",
+            "status": 0
+          },
+          {
+            "ordinal": 8,
+            "baseline_name": "@scope (#main) { :scope .b { } } and :scope .b",
+            "native_name": "@scope (#main) { :scope .b {  } } and :scope .b",
+            "status": 0
+          },
+          {
+            "ordinal": 9,
+            "baseline_name": "@scope { & .b { } } and :where(:scope) .b",
+            "native_name": "@scope { & .b {  } } and :where(:scope) .b",
+            "status": 0
+          },
+          {
+            "ordinal": 10,
+            "baseline_name": "@scope (#main) { > .a { } } and :where(#main) > .a",
+            "native_name": "@scope (#main) { > .a {  } } and :where(#main) > .a",
+            "status": 0
+          }
+        ]
+      },
+      {
+        "id": "css/cssom/CSSStyleRule-set-selectorText-namespace.html|window|",
+        "complete": true,
+        "identical_assertion_count": 5,
+        "all_ordered_normalized_names_equal": true,
+        "all_renamed_statuses_equal": true,
+        "mappings": [
+          {
+            "ordinal": 1,
+            "baseline_name": "CSSStyleRule: selectorText value: |svg|*.style1 | isMatch: true",
+            "native_name": "CSSStyleRule: selectorText value: |svg|*.style1  | isMatch: true",
+            "status": 0
+          },
+          {
+            "ordinal": 2,
+            "baseline_name": "CSSStyleRule: selectorText value: |*|*.style1 | isMatch: true",
+            "native_name": "CSSStyleRule: selectorText value: |*|*.style1  | isMatch: true",
+            "status": 0
+          },
+          {
+            "ordinal": 3,
+            "baseline_name": "CSSStyleRule: selectorText value: | *.style1 | isMatch: false",
+            "native_name": "CSSStyleRule: selectorText value: | *.style1  | isMatch: false",
+            "status": 0
+          }
+        ]
+      },
+      {
+        "id": "css/cssom/CSSStyleRule-set-selectorText.html|window|",
+        "complete": true,
+        "identical_assertion_count": 82,
+        "all_ordered_normalized_names_equal": true,
+        "all_renamed_statuses_equal": true,
+        "mappings": [
+          {
+            "ordinal": 2,
+            "baseline_name": "CSSStyleRule: Invalid CSS selector: ",
+            "native_name": "CSSStyleRule: Invalid CSS selector:  ",
+            "status": 0
+          },
+          {
+            "ordinal": 21,
+            "baseline_name": "CSSStyleRule: selectorText value: |#container | isMatch: true",
+            "native_name": "CSSStyleRule: selectorText value: |#container  | isMatch: true",
+            "status": 0
+          },
+          {
+            "ordinal": 22,
+            "baseline_name": "CSSStyleRule: selectorText value: | #container | isMatch: true",
+            "native_name": "CSSStyleRule: selectorText value: |  #container | isMatch: true",
+            "status": 0
+          },
+          {
+            "ordinal": 61,
+            "baseline_name": "CSSStyleRule: selectorText value: |span div | isMatch: true",
+            "native_name": "CSSStyleRule: selectorText value: |span  div  | isMatch: true",
+            "status": 0
+          }
+        ]
+      },
+      {
+        "id": "css/selectors/dir-selector-auto.html|window|",
+        "complete": true,
+        "identical_assertion_count": 22,
+        "all_ordered_normalized_names_equal": true,
+        "all_renamed_statuses_equal": true,
+        "mappings": [
+          {
+            "ordinal": 0,
+            "baseline_name": "Initial directionality of element div1 is ltr",
+            "native_name": "Initial  directionality of element div1 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 1,
+            "baseline_name": "Initial directionality of element div1_1 is ltr",
+            "native_name": "Initial  directionality of element div1_1 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 2,
+            "baseline_name": "Initial directionality of element div2 is rtl",
+            "native_name": "Initial  directionality of element div2 is rtl",
+            "status": 0
+          },
+          {
+            "ordinal": 3,
+            "baseline_name": "Initial directionality of element div2_1 is rtl",
+            "native_name": "Initial  directionality of element div2_1 is rtl",
+            "status": 0
+          },
+          {
+            "ordinal": 4,
+            "baseline_name": "Initial directionality of element div3 is ltr",
+            "native_name": "Initial  directionality of element div3 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 5,
+            "baseline_name": "Initial directionality of element div3_1 is rtl",
+            "native_name": "Initial  directionality of element div3_1 is rtl",
+            "status": 0
+          },
+          {
+            "ordinal": 6,
+            "baseline_name": "Initial directionality of element div3_2 is ltr",
+            "native_name": "Initial  directionality of element div3_2 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 7,
+            "baseline_name": "Initial directionality of element div4 is ltr",
+            "native_name": "Initial  directionality of element div4 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 8,
+            "baseline_name": "Initial directionality of element div4_1 is ltr",
+            "native_name": "Initial  directionality of element div4_1 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 9,
+            "baseline_name": "Initial directionality of element div4_1_1 is ltr",
+            "native_name": "Initial  directionality of element div4_1_1 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 10,
+            "baseline_name": "Updated directionality of element div1 is rtl",
+            "native_name": "Updated  directionality of element div1 is rtl",
+            "status": 0
+          },
+          {
+            "ordinal": 11,
+            "baseline_name": "Updated directionality of element div1_1 is rtl",
+            "native_name": "Updated  directionality of element div1_1 is rtl",
+            "status": 0
+          },
+          {
+            "ordinal": 12,
+            "baseline_name": "Updated directionality of element div1 is ltr",
+            "native_name": "Updated  directionality of element div1 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 13,
+            "baseline_name": "Updated directionality of element div1_1 is ltr",
+            "native_name": "Updated  directionality of element div1_1 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 14,
+            "baseline_name": "Reupdated directionality of element div1 is ltr",
+            "native_name": "Reupdated  directionality of element div1 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 15,
+            "baseline_name": "Reupdated directionality of element div1_1 is ltr",
+            "native_name": "Reupdated  directionality of element div1_1 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 16,
+            "baseline_name": "Updated directionality of element div2 is ltr",
+            "native_name": "Updated  directionality of element div2 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 17,
+            "baseline_name": "Updated directionality of element div3 is rtl",
+            "native_name": "Updated  directionality of element div3 is rtl",
+            "status": 0
+          },
+          {
+            "ordinal": 18,
+            "baseline_name": "Updated directionality of element div3 is ltr",
+            "native_name": "Updated  directionality of element div3 is ltr",
+            "status": 0
+          },
+          {
+            "ordinal": 19,
+            "baseline_name": "Updated directionality of element div4 is rtl",
+            "native_name": "Updated  directionality of element div4 is rtl",
+            "status": 0
+          },
+          {
+            "ordinal": 20,
+            "baseline_name": "Updated directionality of element div4_1 is rtl",
+            "native_name": "Updated  directionality of element div4_1 is rtl",
+            "status": 0
+          },
+          {
+            "ordinal": 21,
+            "baseline_name": "Updated directionality of element div4_1_1 is rtl",
+            "native_name": "Updated  directionality of element div4_1_1 is rtl",
+            "status": 0
+          }
+        ]
+      },
+      {
+        "id": "css/selectors/parsing/parse-anplusb.html|window|",
+        "complete": true,
+        "identical_assertion_count": 112,
+        "all_ordered_normalized_names_equal": true,
+        "all_renamed_statuses_equal": true,
+        "mappings": [
+          {
+            "ordinal": 8,
+            "baseline_name": ":nth-child( N- 123) should be parsed and serialized correctly",
+            "native_name": ":nth-child(  N- 123) should be parsed and serialized correctly",
+            "status": 0
+          },
+          {
+            "ordinal": 22,
+            "baseline_name": ":nth-child( n +12 3) should not parse",
+            "native_name": ":nth-child(  n +12 3) should not parse",
+            "status": 0
+          },
+          {
+            "ordinal": 23,
+            "baseline_name": ":nth-child( 12 n ) should not parse",
+            "native_name": ":nth-child(  12 n ) should not parse",
+            "status": 0
+          },
+          {
+            "ordinal": 36,
+            "baseline_name": ":nth-last-child( N- 123) should be parsed and serialized correctly",
+            "native_name": ":nth-last-child(  N- 123) should be parsed and serialized correctly",
+            "status": 0
+          },
+          {
+            "ordinal": 50,
+            "baseline_name": ":nth-last-child( n +12 3) should not parse",
+            "native_name": ":nth-last-child(  n +12 3) should not parse",
+            "status": 0
+          },
+          {
+            "ordinal": 51,
+            "baseline_name": ":nth-last-child( 12 n ) should not parse",
+            "native_name": ":nth-last-child(  12 n ) should not parse",
+            "status": 0
+          },
+          {
+            "ordinal": 64,
+            "baseline_name": ":nth-of-type( N- 123) should be parsed and serialized correctly",
+            "native_name": ":nth-of-type(  N- 123) should be parsed and serialized correctly",
+            "status": 0
+          },
+          {
+            "ordinal": 78,
+            "baseline_name": ":nth-of-type( n +12 3) should not parse",
+            "native_name": ":nth-of-type(  n +12 3) should not parse",
+            "status": 0
+          },
+          {
+            "ordinal": 79,
+            "baseline_name": ":nth-of-type( 12 n ) should not parse",
+            "native_name": ":nth-of-type(  12 n ) should not parse",
+            "status": 0
+          },
+          {
+            "ordinal": 92,
+            "baseline_name": ":nth-last-of-type( N- 123) should be parsed and serialized correctly",
+            "native_name": ":nth-last-of-type(  N- 123) should be parsed and serialized correctly",
+            "status": 0
+          },
+          {
+            "ordinal": 106,
+            "baseline_name": ":nth-last-of-type( n +12 3) should not parse",
+            "native_name": ":nth-last-of-type(  n +12 3) should not parse",
+            "status": 0
+          },
+          {
+            "ordinal": 107,
+            "baseline_name": ":nth-last-of-type( 12 n ) should not parse",
+            "native_name": ":nth-last-of-type(  12 n ) should not parse",
+            "status": 0
+          }
+        ]
+      }
+    ]
+  },
+  "validation": {
+    "layout_tests_passed": 70,
+    "native_owner_movement_test_passed": true,
+    "strict_clippy_passed": true,
+    "fmt_passed": true
+  },
+  "frozen_files": {
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-layout/src/lib.rs": "80086e67c82dbb14182e30ba939413c3826037d542226c059542f5b1db88b700",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/src/runtime.rs": "c2aabc9fd7bcc390a15f87b1837097167eb8aa470832d05f0402a37761c26ca0",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/src/rust_executable.rs": "68d59bb81a1c166eae712e401b8d3a3dbf2767d6505d0a7a9f9b663098b206d1",
+    "/Users/rohit/Work/oryn2/oryn/vendor/blitz-dom/src/document.rs": "0578186c49b07e2d6a4615f800094e465e91cc926a1586efa3ecfca75ec1f997",
+    "/Users/rohit/Work/oryn2/oryn/vendor/blitz-dom/src/net.rs": "270edf8fbf7cff5d791ec3c9e4ba3068ef545e95fda0d684c8699bceebcbfa66",
+    "/Users/rohit/Work/oryn2/oryn/vendor/stylo/stylesheets/stylesheet.rs": "428cec67f9d4eb43304a612692cd6c9d7940c6dc818d1b094b3f40366c728df1",
+    "/private/tmp/oryn-global-event-prototype-target/release/examples/conformance_focus_context_probe": "22ce143e9ac335e2c073ad18f49c070492123d51a9bfd342161c08db7b01a9cf",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/examples/conformance_focus_context_probe.rs": "6dca1b4feb5be0e7eeb0430163eee86c59fabfe8d27ca368dbfa9acb2760debf"
+  },
+  "evidence_files": {
+    "artifacts/upstream-conformance/native-implicit-scope-v1/oryn-implicit-scope-v1-focus.log": "6c5dc3debe7f60727be03417f5fa80ce7fd67e3b3d8f371f1b3eb325331e7bf6",
+    "artifacts/upstream-conformance/native-implicit-scope-v1/oryn-implicit-scope-v1-focus-audit.json": "34e32a7586c2368b799fbccbd914216d6d5c902360c6bd0697dc158b65b6fe2d",
+    "artifacts/upstream-conformance/native-implicit-scope-v1/oryn-implicit-scope-v1-css-webidl.log": "f1d7d6a26385e9a3f9511fbb012cb817638592b74d84efaff2fed106a37306e3",
+    "artifacts/upstream-conformance/native-implicit-scope-v1/oryn-implicit-scope-v1-css-webidl-audit.json": "7021478f197613324461038b759861ddcf2d7956ae51a570ee258b1158b373dc",
+    "artifacts/upstream-conformance/native-implicit-scope-v1/oryn-implicit-scope-v1-css-webidl-name-reconciliation.json": "384fb192ebb01f599c83a942a0127962953f37c4dfb5fc923d61809edc880b53",
+    "artifacts/upstream-conformance/native-implicit-scope-v1/oryn-test-implicit-scope-layout-v2.log": "ab122b1f3956a158a829826e002029ed347e36a16361cea0200ec0aee01075dd",
+    "artifacts/upstream-conformance/native-implicit-scope-v1/oryn-test-implicit-scope-e2e.log": "c7163277a56fb29d5278cb1c59643533fa5eb00115f58e99bb9fb4926ff1ebb4",
+    "artifacts/upstream-conformance/native-implicit-scope-v1/oryn-clippy-implicit-scope.log": "dcb2a99dd75f6ed2a4cf615504f2340b72bd6e575f986c08f7bbad30d69a831a"
+  },
+  "qualification_gaps": [
+    "Native evidence only; signed full run not yet performed for scope changes.",
+    "External-scope fixture still has harness timeout (2): one observed passing test of two declared.",
+    "Scope imports, shadow integration, other CSS gaps remain unresolved.",
+    "Signed793b68d has one new observed assertion regression and 100 newly unobserved assertions; six historical editing regressions and 14 older unobserved assertions remain.",
+    "Complete inventory twice on one signed candidate and all release/profile/security gates remain required."
+  ]
+}

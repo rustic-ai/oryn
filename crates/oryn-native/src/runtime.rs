@@ -8928,13 +8928,26 @@ pub(crate) fn layout_input(
                 .then_some(*id)
         })
         .collect::<Vec<_>>();
+    let owned_sheet_count = sheets.len();
     if let Ok(root) = document.dom.get(document.document) {
         sheets.extend(root.adopted_stylesheets.iter().copied());
     }
     let mut stylesheets = Vec::new();
     let mut stylesheet_media = BTreeMap::new();
-    for sheet in sheets {
+    let mut stylesheet_scope_roots = BTreeMap::new();
+    for (index, sheet) in sheets.into_iter().enumerate() {
         if let Ok(source) = document.dom.stylesheet_text(sheet) {
+            let scope = if index >= owned_sheet_count {
+                oryn_layout::StylesheetScopeRoot::Constructed
+            } else {
+                elements
+                    .iter()
+                    .find(|(id, _)| *id == sheet)
+                    .and_then(|(_, parent)| *parent)
+                    .map(|id| oryn_layout::StylesheetScopeRoot::Element(pack_node_id(id)))
+                    .unwrap_or(oryn_layout::StylesheetScopeRoot::DocumentElement)
+            };
+            stylesheet_scope_roots.insert(stylesheets.len(), scope);
             if let Ok(media) = document.dom.stylesheet_media(sheet) {
                 stylesheet_media.insert(stylesheets.len(), media);
             }
@@ -8945,6 +8958,7 @@ pub(crate) fn layout_input(
         nodes,
         stylesheets,
         stylesheet_media,
+        stylesheet_scope_roots,
         custom_states: BTreeMap::new(),
         focused_node: None,
         focus_visible: false,

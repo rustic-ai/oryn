@@ -1178,7 +1178,7 @@ impl BaseDocument {
             AllowImportRules::Yes,
         );
 
-        DocumentStyleSheet(ServoArc::new(data))
+        DocumentStyleSheet(ServoArc::new(data), None)
     }
 
     pub fn upsert_stylesheet_for_node(&mut self, node_id: NodeId) {

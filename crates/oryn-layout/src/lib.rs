@@ -203,6 +203,14 @@ pub struct LayoutNode {
     pub text: String,
 }
 
+/// The native tree supplies scope ownership; Stylo performs scope matching.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum StylesheetScopeRoot {
+    Element(u64),
+    DocumentElement,
+    Constructed,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutInput {
     pub nodes: Vec<LayoutNode>,
@@ -210,6 +218,9 @@ pub struct LayoutInput {
     /// CSSOM media text keyed by stylesheet position in cascade order.
     #[serde(default)]
     pub stylesheet_media: BTreeMap<usize, String>,
+    /// Implicit scope roots keyed by stylesheet position in cascade order.
+    #[serde(default)]
+    pub stylesheet_scope_roots: BTreeMap<usize, StylesheetScopeRoot>,
     /// Rust-owned `ElementInternals.states` keyed by the stable DOM node id.
     /// These are selector state, not serialized HTML attributes.
     #[serde(default)]
@@ -1093,7 +1104,17 @@ fn stylo_computed_values_with_provenance(
         // resulting selector. The live DOM and HTML serialization are never
         // modified by this compatibility bridge.
         let stylesheet = rewrite_custom_state_selectors(stylesheet);
-        let stylesheet = document.make_stylesheet(&stylesheet, Origin::Author);
+        let mut stylesheet = document.make_stylesheet(&stylesheet, Origin::Author);
+        use style::stylesheets::scope_rule::ImplicitScopeRoot;
+        stylesheet.1 = match input.stylesheet_scope_roots.get(&sheet_index) {
+            Some(StylesheetScopeRoot::Element(id)) => mirror_ids
+                .get(id)
+                .and_then(|id| document.get_node(*id))
+                .map(|node| ImplicitScopeRoot::InLightTree(selectors::Element::opaque(&node))),
+            Some(StylesheetScopeRoot::Constructed) => Some(ImplicitScopeRoot::Constructed),
+            Some(StylesheetScopeRoot::DocumentElement) => Some(ImplicitScopeRoot::DocumentElement),
+            None => None,
+        };
         if let Some(text) = input.stylesheet_media.get(&sheet_index) {
             use style::{
                 context::QuirksMode,
@@ -2661,6 +2682,7 @@ mod tests {
             ],
             stylesheets: vec![String::new(), rules.into()],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -2694,6 +2716,7 @@ mod tests {
             nodes: vec![node(1, None, "#text", "before"), node(2, None, "html", "")],
             stylesheets: vec!["html { color: rgb(1, 2, 3) }".into()],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -2724,6 +2747,7 @@ mod tests {
             nodes: vec![root, hidden, child, node(4, Some(3), "span", "")],
             stylesheets: vec!["section { display: none; color: red; opacity: .5 } div { color: green; width: 37px } div.changed { color: lime } span { background-color: blue }".into()],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -2765,6 +2789,7 @@ mod tests {
             ],
             stylesheets: vec!["div { color: blue } div:empty { color: red }".into()],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -2791,6 +2816,7 @@ mod tests {
             ],
             stylesheets: vec!["button { width: 120px; height: 30px; margin: 4px }".into()],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -2830,6 +2856,7 @@ mod tests {
                     .into(),
             ],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::from([(2, BTreeSet::from(["--green".into()]))]),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -2884,6 +2911,7 @@ mod tests {
                     .into(),
             ],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -2912,6 +2940,7 @@ mod tests {
                 nodes: vec![root, input_node, node(3, Some(1), "span", "Result")],
                 stylesheets: vec!["div { font-family: Arial }".into()],
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -2961,6 +2990,7 @@ mod tests {
                 ],
                 stylesheets: vec!["table{width:300px} td{padding:4px}".into()],
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -2994,6 +3024,7 @@ mod tests {
                 nodes: vec![root, child],
                 stylesheets: vec!["div { width: 100px; min-height: 20px }".into()],
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3037,6 +3068,7 @@ mod tests {
                 nodes: vec![root, outside, inside],
                 stylesheets: Vec::new(),
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3090,6 +3122,7 @@ mod tests {
                 "* {color:black; outline-color:black} :focus-within {color:red} :focus {color:blue} :focus-visible {outline-color:green}".into(),
             ],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: Some(2), focus_visible: true,
             viewport: ViewportState::default(),
@@ -3136,6 +3169,7 @@ mod tests {
             nodes,
             stylesheets: vec!["main {color:black} main:has(> .hot + .cold) {color:green} div {width:10px} div:nth-child(2 of .hot) {width:73px}".into()],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -3169,6 +3203,7 @@ mod tests {
             nodes: vec![root, html, svg, unqualified],
             stylesheets: vec!["@namespace svg url(http://www.w3.org/2000/svg); circle {color:red} svg|circle {color:green} |circle {color:blue}".into()],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -3202,6 +3237,7 @@ mod tests {
             nodes: vec![root, html, svg, unqualified],
             stylesheets: vec!["* {color:red} [type=foo] {color:green}".into()],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3247,6 +3283,7 @@ mod tests {
                     .into(),
             ],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3279,6 +3316,7 @@ mod tests {
             nodes: vec![child, sibling, pre, root],
             stylesheets: Vec::new(),
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3346,6 +3384,7 @@ mod tests {
             nodes: vec![root, child],
             stylesheets: Vec::new(),
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3400,6 +3439,7 @@ mod tests {
                         .into(),
                 ],
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3438,6 +3478,7 @@ mod tests {
                 nodes: vec![child, parent],
                 stylesheets: Vec::new(),
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3479,6 +3520,7 @@ mod tests {
                 nodes: vec![root, child],
                 stylesheets: vec!["button { color: black !important }".into()],
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3497,6 +3539,54 @@ mod tests {
     }
 
     #[test]
+    fn implicit_scope_tracks_native_root_identity_and_replacement() {
+        let mut input = LayoutInput {
+            nodes: vec![
+                node(1, None, "html", ""),
+                node(2, Some(1), "section", ""),
+                node(3, Some(2), "button", "Inside"),
+                node(4, Some(1), "section", ""),
+                node(5, Some(4), "button", "Outside"),
+            ],
+            stylesheets: vec![
+                "button { color: red } @scope { button { color: blue } :scope { z-index: 7 } }"
+                    .into(),
+            ],
+            stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::from([(0, StylesheetScopeRoot::Element(2))]),
+            custom_states: BTreeMap::new(),
+            focused_node: None,
+            focus_visible: false,
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        let mut engine = StyleEngine::default();
+        let first = engine.compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(first.computed_styles[&3]["color"], "rgb(0, 0, 255)");
+        assert_eq!(first.computed_styles[&5]["color"], "rgb(255, 0, 0)");
+        assert_eq!(first.computed_styles[&2]["z-index"], "7");
+        assert_eq!(first.computed_styles[&4]["z-index"], "auto");
+        input
+            .stylesheet_scope_roots
+            .insert(0, StylesheetScopeRoot::Element(4));
+        let moved = engine.compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(moved.computed_styles[&3]["color"], "rgb(255, 0, 0)");
+        assert_eq!(moved.computed_styles[&5]["color"], "rgb(0, 0, 255)");
+        assert_eq!(moved.computed_styles[&2]["z-index"], "auto");
+        assert_eq!(moved.computed_styles[&4]["z-index"], "7");
+        input.stylesheets[0] = "@scope { button { color: green } }".into();
+        input
+            .stylesheet_scope_roots
+            .insert(0, StylesheetScopeRoot::Constructed);
+        let replaced = engine.compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(replaced.computed_styles[&3]["color"], "rgb(0, 128, 0)");
+        assert_eq!(replaced.computed_styles[&5]["color"], "rgb(0, 128, 0)");
+    }
+
+    #[test]
     fn stylesheet_media_changes_invalidate_computed_style() {
         let mut input = LayoutInput {
             nodes: vec![node(1, None, "button", "Save")],
@@ -3505,6 +3595,7 @@ mod tests {
                 "button { color: blue }".into(),
             ],
             stylesheet_media: BTreeMap::from([(1, "print".into())]),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3531,6 +3622,7 @@ mod tests {
             nodes: vec![node(1, None, "button", "Save")],
             stylesheets: vec![format!("button {{ color: {color} }}")],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,
@@ -3566,6 +3658,7 @@ mod tests {
                 ],
                 stylesheets: Vec::new(),
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3601,6 +3694,7 @@ mod tests {
                 ],
                 stylesheets: vec!["span{height:20px}".into()],
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3632,6 +3726,7 @@ mod tests {
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", ""), node(4, Some(1), "div", ""), node(5, Some(1), "div", ""), node(6, Some(1), "span", "")],
             stylesheets: vec!["div { width: 200px } div > div { width: 50%; height: 100px; padding: 5px; border: 2px solid } div > div:nth-child(1) { transform: scale(2) } div > div:nth-child(2) { box-sizing: border-box } div > div:nth-child(3) { visibility: hidden } div > div:nth-child(4) { display: none } span { width: 50%; height: 100px }".into()],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
             viewport: ViewportState::default(), scroll: ScrollState::default(),
             color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
@@ -3668,6 +3763,7 @@ mod tests {
             nodes: vec![root, node(2, Some(1), "div", ""), node(3, Some(1), "div", ""), node(4, Some(1), "div", "")],
             stylesheets: vec!["div > div {width:100px;height:20px;padding:5px;border:2px solid} div > div:first-child {visibility:hidden} div > div:last-child {display:none}".into()],
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None, focus_visible: false,
             viewport: ViewportState::default(),
@@ -3734,6 +3830,7 @@ mod tests {
                 nodes: vec![root, absolute, fixed, moved],
                 stylesheets: Vec::new(),
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3778,6 +3875,7 @@ mod tests {
                 nodes: vec![root, floated, cleared],
                 stylesheets: Vec::new(),
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3803,6 +3901,7 @@ mod tests {
                 nodes: vec![node(1, None, "p", "Measured")],
                 stylesheets: vec!["p{font-family:Fixture Font}".into()],
                 stylesheet_media: BTreeMap::new(),
+                stylesheet_scope_roots: BTreeMap::new(),
                 custom_states: BTreeMap::new(),
                 focused_node: None,
                 focus_visible: false,
@@ -3830,6 +3929,7 @@ mod tests {
             nodes: vec![node(1, None, "p", "Measured")],
             stylesheets: Vec::new(),
             stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
             custom_states: BTreeMap::new(),
             focused_node: None,
             focus_visible: false,

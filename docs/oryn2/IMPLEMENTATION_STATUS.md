@@ -1,38 +1,42 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,066/4,022 (76.2%)**, **956 remaining**.
+> Latest full measurement: **3,073/4,022 (76.4%)**, **949 remaining**.
 
-The signed run at `fb6f09b` passes **3,066/4,022 (76.2%)**, with **956 remaining**.
-It gains 14 whole editing executions and loses zero versus `1c8f550` through pasted
-inline-format boundaries and explicit formatting-state preservation. Fifty-two
-existing assertions are corrected. Stylo remains the CSS engine.
+The signed run at `793b68d` passes **3,073/4,022 (76.4%)**, with **949 remaining**.
+It gains five stylesheet MediaList executions and two IndexedDB key-generator
+executions versus `fb6f09b`, with zero whole-execution losses. Stylo remains the
+CSS engine. The audit verifies exact inventory coverage and signed artifacts.
 
-The audit verifies exact coverage, passing harness results, signed source and
-binary fingerprints, and unchanged resource limits and sandbox settings. There
-are zero new observed assertion regressions. Five raw missing prior passing names
-reconcile through server-port changes. Fourteen older observations remain
-unobserved, and six historical editing assertion regressions remain failing.
+This run is **not regression-clean**: one previously passing cross-origin
+IndexedDB assertion now fails, and 100 previously passing Range assertions are
+unobserved. Six historical editing regressions and 14 older unobserved assertions
+also remain open. No failing or unobserved assertion is waived.
 
-[Full evidence](CONFORMANCE-INSERTHTML-OVERRIDES-FULL-2026-09-08.json) links the full
-assertion audit and reconciliation. This is one measured full run, not complete
+[Full evidence](CONFORMANCE-SHEET-MEDIA-PRECISION-FULL-2026-09-09.json) identifies
+the signed audit and reconciliation. This is a measured full run, not complete
 conformance or broader release qualification.
 
-DOM, editing and CSS account for 772 of the 956 failures. The next investigation
-must establish complete-fixture paths for shared integration gaps. Stylesheet
-media support and implicit scope ownership are source-confirmed missing pieces;
-neither has demonstrated new passing executions. The signed/native IndexedDB
-numeric transport discrepancy and large-value time limits remain open. Preserve
-all tests, assertions and resource caps. Completion requires 4,022/4,022 twice on
-one frozen signed candidate and every qualification gate.
+The current implicit-scope implementation has four native whole-execution gains
+and 19 corrected assertions across all 622 CSS/WebIDL executions, with no losses
+or observed regressions; 52 raw missing names reconcile by ordered whitespace-only
+renaming with equal counts and statuses. These gains are not yet signed full-run
+results. The external-scope fixture still times out waiting for its second test.
+
+Next, finish validation and promote the scope change, resolve the signed-run
+regression and coverage gaps, and replace stylesheet import flattening with native
+loading semantics. Import-related failures require individual causal validation;
+16 import-named failures do not establish 16 attainable gains. Preserve all tests
+and resource caps. Completion requires 4,022/4,022 twice on one frozen signed
+candidate and every qualification gate.
 
 | Root | Passed / required |
 |---|---:|
-| IndexedDB | 406/456 |
+| IndexedDB | 408/456 |
 | WebIDL | 31/58 |
 | accname | 15/19 |
 | css/css-cascade | 54/97 |
-| css/cssom | 95/190 |
+| css/cssom | 100/190 |
 | css/selectors | 197/277 |
 | dom | 405/662 |
 | editing | 407/704 |

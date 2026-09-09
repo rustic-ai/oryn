@@ -167,7 +167,7 @@ impl NetHandler for ResourceHandler<StylesheetHandler> {
 
         self.respond(
             resolved_url,
-            Ok(Resource::Css(DocumentStyleSheet(ServoArc::new(sheet)))),
+            Ok(Resource::Css(DocumentStyleSheet(ServoArc::new(sheet), None))),
         );
     }
 }

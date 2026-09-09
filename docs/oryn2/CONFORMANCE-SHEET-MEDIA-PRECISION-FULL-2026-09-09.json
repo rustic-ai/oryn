@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "source_commit": "793b68da3160fb5a0cf1eb3f07ac73fe4e275f1e",
+  "qualification": "Measured signed full run; not regression-clean and not complete conformance.",
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 3073,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "counts_by_root": {
+    "IndexedDB": {
+      "passed": 408,
+      "required": 456
+    },
+    "WebIDL": {
+      "passed": 31,
+      "required": 58
+    },
+    "accname": {
+      "passed": 15,
+      "required": 19
+    },
+    "css/css-cascade": {
+      "passed": 54,
+      "required": 97
+    },
+    "css/cssom": {
+      "passed": 100,
+      "required": 190
+    },
+    "css/selectors": {
+      "passed": 197,
+      "required": 277
+    },
+    "dom": {
+      "passed": 405,
+      "required": 662
+    },
+    "editing": {
+      "passed": 407,
+      "required": 704
+    },
+    "html/browsers/history": {
+      "passed": 45,
+      "required": 136
+    },
+    "referrer-policy": {
+      "passed": 1383,
+      "required": 1391
+    },
+    "wai-aria": {
+      "passed": 28,
+      "required": 32
+    }
+  },
+  "gains": [
+    "IndexedDB/keygenerator.any.js|dedicatedworker|",
+    "IndexedDB/keygenerator.any.js|window|",
+    "css/cssom/medialist-appendmedium-parse-single-and-dedup.html|window|",
+    "css/cssom/medialist-deletemedium-parse-and-remove-all.html|window|",
+    "css/cssom/medialist-interfaces-001.html|window|",
+    "css/cssom/medialist-interfaces-002.html|window|",
+    "css/cssom/medialist-interfaces-004.html|window|"
+  ],
+  "losses": [],
+  "new_observed_assertion_regressions": 1,
+  "new_unresolved_prior_passing_assertions": 100,
+  "historical_editing_regressions": 6,
+  "historical_unobserved_assertions": 14,
+  "source_tree_sha256": "3bc0f1e6c003269a148a57b962c2ea2bef3f50cd462cd23ee9375210c945c762",
+  "ledger_sha256": "4ab0e70bf878565320901350c4fe5e4c6ac8ade83b7f51b8bc9aff645e5db31b",
+  "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+  "evidence": {
+    "artifacts/upstream-conformance/sheet-media-precision-793b68d-full-audit.json": "da0ea3df433f236c061f88916e970d46ebcfc9d2cd361b665e44fc2421fc1a04",
+    "artifacts/upstream-conformance/sheet-media-precision-793b68d-full-reconciliation.json": "f1ccbd7cede76e85c43d03d2e742ebff550c94b2456774fee0a978ac5e5e3832"
+  },
+  "required_next": [
+    "Resolve new IndexedDB cross-origin assertion regression and 100 unobserved Range assertions without changing caps.",
+    "Qualify implicit scope implementation through a new signed full run.",
+    "Complete all pinned executions twice on the same frozen candidate and all release/profile/security gates."
+  ]
+}

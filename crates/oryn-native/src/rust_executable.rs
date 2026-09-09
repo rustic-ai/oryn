@@ -6002,6 +6002,33 @@ mod tests {
     }
 
     #[test]
+    fn implicit_scope_follows_stylesheet_owner_movement() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body><section id=left><button id=a>A</button></section><section id=right><button id=b>B</button></section></body>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const owner = document.createElement('style');
+            owner.textContent = '@scope { button { z-index: 7 } :scope { z-index: 9 } }';
+            const left = document.getElementById('left'), right = document.getElementById('right');
+            const a = document.getElementById('a'), b = document.getElementById('b');
+            left.appendChild(owner);
+            const values = () => [left, a, right, b].map(n => getComputedStyle(n).zIndex).join(',');
+            const results = [values()];
+            right.appendChild(owner);
+            results.push(values());
+            owner.textContent = '@scope { button { z-index: 3 } }';
+            results.push(values());
+            owner.remove();
+            results.push(values());
+            results.join('|')
+        "#
+            )
+            .unwrap(),
+            "9,7,auto,auto|auto,auto,9,7|auto,auto,auto,3|auto,auto,auto,auto"
+        );
+    }
+
+    #[test]
     fn stylesheet_media_is_live_and_obsolete_sheets_are_isolated() {
         let mut page = RustExecutableDocument::load("<!doctype html><body></body>").unwrap();
         assert_eq!(
