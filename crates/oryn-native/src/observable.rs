@@ -4,6 +4,7 @@
 /// depending on page-owned globals.  It is kept as one immutable bootstrap so
 /// the two realm kinds cannot silently diverge while the generated binding
 /// callback implementation is completed.
+#[cfg_attr(not(feature = "v8-host"), allow(dead_code))]
 pub(crate) const OBSERVABLE_GLOBALS: &str = r#"
 const __oryn_observable_token = {};
 const __oryn_observable_report = error => {

@@ -1631,6 +1631,7 @@ fn accessible_semantics(
     }
 }
 
+#[cfg_attr(not(any(feature = "v8-host", test)), allow(dead_code))]
 pub(crate) fn accessibility_for_node(dom: &DomArena, id: NodeId) -> Option<(String, String)> {
     let node = dom.get(id).ok()?;
     let NodeKind::Element { name } = &node.kind else {

@@ -45,8 +45,10 @@ jobs:
         if: matrix.check == 'test'
         run: |
           cargo test --workspace --locked
-          cargo test --workspace --locked --all-features
-          cargo test -p oryn-native --locked --features v8-host
+          # V8 isolates share process-global state; the all-feature suite
+          # must not create isolates concurrently in separate test threads.
+          RUST_TEST_THREADS=1 cargo test --workspace --locked --all-features
+          RUST_TEST_THREADS=1 cargo test -p oryn-native --locked --features v8-host
 
       - name: Explicit no-V8 probe tests
         if: matrix.check == 'test'

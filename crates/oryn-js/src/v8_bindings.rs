@@ -100,6 +100,8 @@ pub enum V8BindingError {
     Dom(#[from] DomError),
     #[error("generated binding {interface}.{member} is not implemented")]
     Unsupported { interface: String, member: String },
+    #[error("{0}")]
+    Message(String),
     #[error("document.write exceeded the configured {resource} limit")]
     DocumentWriteLimit { resource: &'static str },
 }
@@ -16045,9 +16047,33 @@ fn split_editing_paragraph_contents(state: &V8BindingState) -> Result<(), V8Bind
     // Capture existing block boundaries before splitting inline ancestors.
     let mut block_siblings = std::collections::HashSet::new();
     if block == host {
-        let children = light_children(&state.dom.borrow(), host)?;
+        // `nearest_rendered_editing_block` has already refreshed layout above.
+        // Reusing that snapshot avoids an O(children) sequence of full layout
+        // refreshes for every paragraph command in a block editing host.
+        let dom = state.dom.borrow();
+        let layout = state.layout.borrow();
+        let children = light_children(&dom, host)?;
         for child in children {
-            if nearest_rendered_editing_block(state, child, host)? == child {
+            let display = layout
+                .styles
+                .get(&node_key(child))
+                .and_then(|style| style.get("display"));
+            let is_block = display.map_or_else(
+                || is_editing_block(&dom, child),
+                |display| {
+                    matches!(
+                        display.as_str(),
+                        "block"
+                            | "flow-root"
+                            | "list-item"
+                            | "table-cell"
+                            | "table-caption"
+                            | "flex"
+                            | "grid"
+                    )
+                },
+            );
+            if is_block {
                 block_siblings.insert(child);
             }
         }
@@ -19713,10 +19739,16 @@ fn call_platform_operation<'s>(
         }
         ("XMLHttpRequest", "open") => {
             if !args.get(2).is_undefined() && !args.get(2).boolean_value(scope) {
-                return Err(V8BindingError::Unsupported {
-                    interface: "XMLHttpRequest".into(),
-                    member: "synchronous requests".into(),
-                });
+                record_platform_trace(
+                    scope,
+                    "capability_failure",
+                    serde_json::json!({
+                        "capability": "xhr.synchronous_main_thread",
+                    }),
+                );
+                return Err(V8BindingError::Message(
+                    "synchronous main-thread XHR is unsupported".into(),
+                ));
             }
             let method = required_string(scope, args, 0)?.to_ascii_uppercase();
             let raw_url = required_string(scope, args, 1)?;

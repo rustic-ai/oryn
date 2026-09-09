@@ -1,9 +1,11 @@
 /// Decoded navigation chunks and the response type that selects their parser.
+#[cfg_attr(not(feature = "v8-host"), allow(dead_code))]
 pub(crate) struct DocumentStream {
     pub chunks: Box<dyn Iterator<Item = Result<String, HostError>>>,
     pub content_type: Option<String>,
 }
 
+#[cfg_attr(not(feature = "v8-host"), allow(dead_code))]
 impl DocumentStream {
     pub fn html(chunks: Box<dyn Iterator<Item = Result<String, HostError>>>) -> Self {
         Self {
@@ -5410,7 +5412,7 @@ mod tests {
         assert_eq!(startup_external_references().len(), names.len());
     }
 
-    #[cfg(feature = "core-lite")]
+    #[cfg(all(feature = "core-lite", not(feature = "core-full")))]
     #[test]
     fn core_lite_never_claims_reduction_without_a_reduced_icu_artifact() {
         let mut host = RawV8Host::new();

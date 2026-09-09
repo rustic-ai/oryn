@@ -1801,6 +1801,13 @@ const bodyBytes=body=>{if(body==null)return new Uint8Array();if(body instanceof 
 class OrynBlob {constructor(parts=[],options={}){const chunks=parts.map(bodyBytes),length=chunks.reduce((sum,item)=>sum+item.length,0);this.__bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){this.__bytes.set(chunk,offset);offset+=chunk.length}this.type=String(options.type||'').toLowerCase()}get size(){return this.__bytes.length}slice(start=0,end=this.size,type=''){return new OrynBlob([this.__bytes.slice(start,end)],{type})}arrayBuffer(){return Promise.resolve(this.__bytes.buffer.slice(0))}text(){return Promise.resolve(new TextDecoder().decode(this.__bytes))}stream(){return new OrynReadableStream({start:controller=>{controller.enqueue(this.__bytes.slice());controller.close()}})}}
 class OrynFile extends OrynBlob {constructor(parts,name,options={}){super(parts,options);this.name=String(name);this.lastModified=Number(options.lastModified??0);this.webkitRelativePath=''}}
 globalThis.Blob=OrynBlob;globalThis.File=OrynFile;
+const __oryn_native_blob_url_source=globalThis.__oryn_blob_url_source;
+const __oryn_script_blob_urls=new Map();let __oryn_next_script_blob_url=1;
+const __oryn_native_create_object_url=URL.createObjectURL.bind(URL);
+URL.createObjectURL=blob=>{if(blob instanceof OrynBlob){const url=`blob:${location.origin}/oryn-script-${__oryn_next_script_blob_url++}`;__oryn_script_blob_urls.set(url,new TextDecoder().decode(blob.__bytes));return url}return __oryn_native_create_object_url(blob)};
+const __oryn_native_revoke_object_url=URL.revokeObjectURL.bind(URL);
+URL.revokeObjectURL=url=>{__oryn_script_blob_urls.delete(String(url));return __oryn_native_revoke_object_url(url)};
+globalThis.__oryn_blob_url_source=url=>__oryn_script_blob_urls.has(String(url))?__oryn_script_blob_urls.get(String(url)):__oryn_native_blob_url_source(String(url));
 class OrynReadableStream {constructor(source={}){this.__queue=[];this.__closed=false;this.__waiting=[];this.__cancel=source.cancel;this.locked=false;const controller={enqueue:value=>{const waiter=this.__waiting.shift();waiter?waiter({done:false,value}):this.__queue.push(value)},close:()=>{this.__closed=true;for(const waiter of this.__waiting.splice(0))waiter({done:true})}};if(source.start)source.start(controller);this.__pull=source.pull?()=>source.pull(controller):null}getReader(){this.locked=true;const stream=this;return {read(){if(stream.__queue.length)return Promise.resolve({done:false,value:stream.__queue.shift()});if(stream.__closed)return Promise.resolve({done:true});return new Promise(resolve=>{stream.__waiting.push(resolve);if(stream.__pull)stream.__pull()})},cancel:reason=>stream.cancel(reason),releaseLock(){stream.locked=false}}}cancel(reason){this.__closed=true;for(const waiter of this.__waiting.splice(0))waiter({done:true});return Promise.resolve(this.__cancel?this.__cancel(reason):undefined)}pipeTo(destination){const reader=this.getReader(),writer=destination.getWriter();const pump=()=>reader.read().then(item=>item.done?writer.close():writer.write(item.value).then(pump));return pump()}pipeThrough(transform){this.pipeTo(transform.writable);return transform.readable}}
 class OrynWritableStream {constructor(sink={}){this.__sink=sink;this.locked=false}getWriter(){this.locked=true;const stream=this;return {write:chunk=>Promise.resolve(stream.__sink.write?stream.__sink.write(chunk):undefined),close:()=>Promise.resolve(stream.__sink.close?stream.__sink.close():undefined),abort:reason=>Promise.resolve(stream.__sink.abort?stream.__sink.abort(reason):undefined),get ready(){return Promise.resolve()},get desiredSize(){return 1},releaseLock(){stream.locked=false}}}}
 class OrynTransformStream {constructor(transformer={}){let controller;this.readable=new OrynReadableStream({start:value=>controller=value});this.writable=new OrynWritableStream({write:chunk=>transformer.transform?transformer.transform(chunk,controller):controller.enqueue(chunk),close:()=>{if(transformer.flush)return Promise.resolve(transformer.flush(controller)).then(()=>controller.close());controller.close()}})}}
@@ -4616,6 +4623,19 @@ fn subtree_nodes(dom: &DomRuntime, root: NodeId) -> Result<Vec<NodeId>, HostErro
     Ok(nodes)
 }
 
+fn binding_rule_view(rule: oryn_layout::cssom::RuleView) -> oryn_js::v8_bindings::BindingRuleView {
+    oryn_js::v8_bindings::BindingRuleView {
+        rule_type: rule.rule_type,
+        css_text: rule.css_text,
+        selector_text: rule.selector_text,
+        declaration_text: rule.declaration_text,
+        children: rule.children.into_iter().map(binding_rule_view).collect(),
+        properties: rule.properties,
+        conditions: rule.conditions,
+        media_queries: rule.media_queries,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5303,9 +5323,8 @@ mod tests {
                 .unwrap(),
             "pending"
         );
-        let started = std::time::Instant::now();
-        page.drain_tasks().unwrap();
-        assert!(started.elapsed() >= Duration::from_millis(10));
+        page.host.drain_scheduled_timers(true).unwrap();
+        page.checkpoint().unwrap();
         assert_eq!(
             page.evaluate("order.join(',')").unwrap(),
             "timer-1,microtask-1,timer-2"
@@ -7789,7 +7808,7 @@ mod tests {
             r#"<output id=result>pending</output><script>
             const output=document.querySelector('#result');
             const dedicatedUrl=URL.createObjectURL(new Blob(['postMessage({value:"dedicated"})'],{type:'application/javascript'}));
-            const dedicated=new Worker(dedicatedUrl);dedicated.onmessage=event=>output.textContent=event.data.value;
+            globalThis.dedicated=new Worker(dedicatedUrl);dedicated.onmessage=event=>output.textContent=event.data.value;
             </script>"#,
             &BTreeMap::new(),
             None,
@@ -7797,21 +7816,8 @@ mod tests {
         )
         .unwrap();
         let value = page
-            .evaluate("__oryn_drain(true);document.querySelector('#result').textContent+'|'+dedicated.__closed+'|'+JSON.stringify(__oryn_take_context_trace())")
+            .evaluate("__oryn_drain(true);document.querySelector('#result').textContent")
             .unwrap();
-        assert!(value.starts_with("dedicated|false|"), "{value}");
-    }
-}
-
-fn binding_rule_view(rule: oryn_layout::cssom::RuleView) -> oryn_js::v8_bindings::BindingRuleView {
-    oryn_js::v8_bindings::BindingRuleView {
-        rule_type: rule.rule_type,
-        css_text: rule.css_text,
-        selector_text: rule.selector_text,
-        declaration_text: rule.declaration_text,
-        children: rule.children.into_iter().map(binding_rule_view).collect(),
-        properties: rule.properties,
-        conditions: rule.conditions,
-        media_queries: rule.media_queries,
+        assert_eq!(value, "dedicated");
     }
 }

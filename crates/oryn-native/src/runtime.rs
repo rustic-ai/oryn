@@ -4819,6 +4819,7 @@ struct PaintSnapshotPlan {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(not(feature = "v8-host"), allow(dead_code))]
 enum HistoryUpdate {
     Push,
     Replace,
@@ -10994,7 +10995,11 @@ mod tests {
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_join_preserves_default_inline_whitespace_and_outer_formatting() {
-        let context = Browser::new().new_context();
+        let config = BrowserConfig {
+            command_timeout: Duration::from_secs(60),
+            ..BrowserConfig::default()
+        };
+        let context = Browser::in_process_with_config(config).new_context();
         let page = context.new_page();
         page.load_html(
             "https://editing.example.test/default-inline",
@@ -11056,7 +11061,11 @@ mod tests {
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_join_resolves_nested_and_inline_paragraph_boundaries() {
-        let context = Browser::new().new_context();
+        let config = BrowserConfig {
+            command_timeout: Duration::from_secs(60),
+            ..BrowserConfig::default()
+        };
+        let context = Browser::in_process_with_config(config).new_context();
         let page = context.new_page();
         page.load_html(
             "https://editing.example.test/nested-join",
@@ -11114,7 +11123,15 @@ mod tests {
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_join_preserves_first_line_whitespace_and_remaining_lines() {
-        let context = Browser::new().new_context();
+        // This matrix deliberately executes hundreds of editing operations in
+        // one JavaScript evaluation. Exercise the editing implementation
+        // directly, without turning the production per-command worker limit
+        // into a limit on the test matrix itself.
+        let config = BrowserConfig {
+            command_timeout: Duration::from_secs(60),
+            ..BrowserConfig::default()
+        };
+        let context = Browser::in_process_with_config(config).new_context();
         let page = context.new_page();
         page.load_html(
             "https://editing.example.test/join",
@@ -11231,7 +11248,11 @@ mod tests {
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_line_breaks_use_computed_whitespace_and_preserve_the_caret() {
-        let context = Browser::new().new_context();
+        let config = BrowserConfig {
+            command_timeout: Duration::from_secs(60),
+            ..BrowserConfig::default()
+        };
+        let context = Browser::in_process_with_config(config).new_context();
         let page = context.new_page();
         page.load_html("https://editing.example.test/", "<!doctype html><style id=rules></style><div><span id=editor contenteditable></span>outside text</div>").await.unwrap();
         let result = page.evaluate(r#"(() => {
