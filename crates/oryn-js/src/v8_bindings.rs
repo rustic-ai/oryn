@@ -16563,7 +16563,9 @@ fn get_platform_attribute<'s>(
             }
         }
         (PlatformObjectRecord::IdbObjectStore(store), "IDBObjectStore", "indexNames") => {
-            string_array(scope, &store.indexes.keys().cloned().collect::<Vec<_>>())
+            let mut names = store.indexes.keys().cloned().collect::<Vec<_>>();
+            names.sort_by_cached_key(|name| dom_string_sort_key(name));
+            string_array(scope, &names)
         }
         (PlatformObjectRecord::IdbObjectStore(store), "IDBObjectStore", "transaction") => {
             Ok(new_platform_object(scope, state, "IDBTransaction", store.transaction_id)?.into())

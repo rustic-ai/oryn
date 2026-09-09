@@ -1,0 +1,36 @@
+{
+  "qualification": "Native production-path focused conformance; not signed overall gains",
+  "baseline_commit": "9d7af7b25d8f11856bad3faf5b975d86f15a99dd",
+  "source": {
+    "baseline": "9d7af7b25d8f11856bad3faf5b975d86f15a99dd",
+    "changed_file": "crates/oryn-js/src/v8_bindings.rs",
+    "sha256": "4059dbef82455b686f45be2662e467ba4c19bbdeb2cb5e896dea81346801a649",
+    "selection": [
+      "IndexedDB/idbindex-rename-abort.any.js|dedicatedworker|",
+      "IndexedDB/idbindex-rename-abort.any.js|window|",
+      "IndexedDB/idbindex-rename.any.js|dedicatedworker|",
+      "IndexedDB/idbindex-rename.any.js|window|",
+      "IndexedDB/idbobjectstore-rename-abort.any.js|dedicatedworker|",
+      "IndexedDB/idbobjectstore-rename-abort.any.js|window|",
+      "IndexedDB/idbobjectstore_deleteIndex.any.js|dedicatedworker|",
+      "IndexedDB/idbobjectstore_deleteIndex.any.js|window|",
+      "IndexedDB/string-list-ordering.any.js|dedicatedworker|",
+      "IndexedDB/string-list-ordering.any.js|window|"
+    ],
+    "probe_sha256": "7cf6b25d0872794ee55f13f7f486578eea0377f70d6c7dae3609f17a9fa5c984"
+  },
+  "exact_executions": 10,
+  "whole_gains": [
+    "IndexedDB/string-list-ordering.any.js|dedicatedworker|",
+    "IndexedDB/string-list-ordering.any.js|window|"
+  ],
+  "whole_losses": [],
+  "assertion_name_multisets_preserved": true,
+  "all_assertions_passed": 30,
+  "checks": [
+    "cargo fmt --all -- --check",
+    "strict release Clippy for oryn-js and oryn-native with production probe feature set"
+  ],
+  "archive": "artifacts/upstream-conformance/native-idb-order-v1",
+  "overall_score_unchanged": "3044/4022 pending signed measurement"
+}
