@@ -14162,6 +14162,366 @@ fn apply_typing_overrides(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct EditingSpace {
+    node: NodeId,
+    offset: u32,
+    value: u16,
+}
+
+fn editing_snapshot_property(
+    dom: &DomRuntime,
+    layout: &BindingLayout,
+    mut node: NodeId,
+    property: &str,
+) -> Result<Option<String>, V8BindingError> {
+    loop {
+        let record = dom.arena().get(node)?;
+        if let Some(value) = layout
+            .styles
+            .get(&node_key(node))
+            .and_then(|s| s.get(property))
+        {
+            return Ok(Some(value.clone()));
+        }
+        if let Some(value) = record
+            .attributes
+            .get("style")
+            .and_then(|s| inline_style_entries(s).remove(property))
+            && !matches!(value.as_str(), "inherit" | "unset")
+        {
+            return Ok(Some(value));
+        }
+        if property == "white-space" && element_local_name(dom, node) == Some("pre") {
+            return Ok(Some("pre".into()));
+        }
+        if property != "white-space" {
+            return Ok(None);
+        }
+        let Some(parent) = record.parent else {
+            return Ok(None);
+        };
+        node = parent;
+    }
+}
+
+// Walk only the current rendered editing block. Empty inline nodes and comments
+// do not end a run; blocks, breaks, replaced content and noneditable nodes do.
+fn editing_space_neighbor(
+    dom: &DomRuntime,
+    layout: &BindingLayout,
+    text_cache: &mut BTreeMap<u64, Vec<u16>>,
+    mut point: BoundaryPoint,
+    root: NodeId,
+    forward: bool,
+) -> Result<(Option<EditingSpace>, bool), V8BindingError> {
+    loop {
+        let record = dom.arena().get(point.container)?;
+        if let NodeKind::Text { data } | NodeKind::CDataSection { data } = &record.kind {
+            let units = text_cache
+                .entry(node_key(point.container))
+                .or_insert_with(|| data.encode_utf16().collect());
+            let index = if forward {
+                Some(point.offset)
+            } else {
+                point.offset.checked_sub(1)
+            };
+            if let Some(index) = index
+                && let Some(value) = units.get(index as usize).copied()
+            {
+                let mode = editing_snapshot_property(dom, layout, point.container, "white-space")?
+                    .unwrap_or_else(|| "normal".into());
+                if matches!(mode.as_str(), "pre" | "pre-wrap" | "break-spaces") {
+                    return Ok((None, value == 10 || value == 13));
+                }
+                if mode == "pre-line" && matches!(value, 10 | 13) {
+                    return Ok((None, true));
+                }
+                return Ok((
+                    matches!(value, 9 | 10 | 12 | 13 | 32 | 160).then_some(EditingSpace {
+                        node: point.container,
+                        offset: index,
+                        value,
+                    }),
+                    false,
+                ));
+            }
+        } else {
+            let children = light_children(dom, point.container)?;
+            let index = if forward {
+                Some(point.offset)
+            } else {
+                point.offset.checked_sub(1)
+            };
+            if let Some(index) = index
+                && let Some(child) = children.get(index as usize).copied()
+            {
+                let child_record = dom.arena().get(child)?;
+                let display = editing_snapshot_property(dom, layout, child, "display")?;
+                let skip = matches!(
+                    child_record.kind,
+                    NodeKind::Comment { .. } | NodeKind::ProcessingInstruction { .. }
+                ) || display.as_deref() == Some("none")
+                    || (matches!(child_record.kind, NodeKind::Element { .. })
+                        && is_ignored_editing_sibling(dom, child));
+                if skip {
+                    point.offset = if forward { index + 1 } else { index };
+                    continue;
+                }
+                if element_local_name(dom, child) == Some("br")
+                    || display.as_deref().map_or_else(
+                        || is_editing_block(dom, child),
+                        |d| {
+                            matches!(
+                                d,
+                                "block" | "flow-root" | "list-item" | "table" | "flex" | "grid"
+                            )
+                        },
+                    )
+                {
+                    return Ok((None, true));
+                }
+                if child_record
+                    .attributes
+                    .get("contenteditable")
+                    .is_some_and(|v| v.eq_ignore_ascii_case("false"))
+                    || matches!(
+                        element_local_name(dom, child),
+                        Some(
+                            "img"
+                                | "input"
+                                | "textarea"
+                                | "select"
+                                | "video"
+                                | "audio"
+                                | "iframe"
+                                | "canvas"
+                                | "svg"
+                        )
+                    )
+                {
+                    return Ok((None, false));
+                }
+                point = BoundaryPoint {
+                    container: child,
+                    offset: if forward {
+                        0
+                    } else {
+                        boundary_length(dom, child)?
+                    },
+                };
+                continue;
+            }
+        }
+        if point.container == root {
+            return Ok((None, true));
+        }
+        let (container, offset) = relative_boundary(dom, point.container, forward)?;
+        point = BoundaryPoint { container, offset };
+    }
+}
+
+struct EditingSpaceRun {
+    before: Vec<EditingSpace>,
+    after: Vec<EditingSpace>,
+    starts_line: bool,
+    ends_line: bool,
+}
+
+fn editing_space_run(
+    state: &V8BindingState,
+    point: BoundaryPoint,
+    host: NodeId,
+) -> Result<EditingSpaceRun, V8BindingError> {
+    let root = nearest_rendered_editing_block(state, point.container, host)?;
+    let dom = state.dom.borrow();
+    let layout = state.layout.borrow();
+    let mut cache = BTreeMap::new();
+    let mut before = Vec::new();
+    let mut after = Vec::new();
+    let mut cursor = point;
+    let starts_line = loop {
+        let (space, line) = editing_space_neighbor(&dom, &layout, &mut cache, cursor, root, false)?;
+        let Some(space) = space else {
+            break line;
+        };
+        cursor = BoundaryPoint {
+            container: space.node,
+            offset: space.offset,
+        };
+        before.push(space);
+    };
+    before.reverse();
+    cursor = point;
+    let ends_line = loop {
+        let (space, line) = editing_space_neighbor(&dom, &layout, &mut cache, cursor, root, true)?;
+        let Some(space) = space else {
+            break line;
+        };
+        cursor = BoundaryPoint {
+            container: space.node,
+            offset: space.offset + 1,
+        };
+        after.push(space);
+    };
+    Ok(EditingSpaceRun {
+        before,
+        after,
+        starts_line,
+        ends_line,
+    })
+}
+
+fn typing_selection_point(state: &V8BindingState) -> Result<BoundaryPoint, V8BindingError> {
+    let id = state
+        .selection_range
+        .get()
+        .ok_or(V8BindingError::Allocation("typing selection"))?;
+    let ranges = state.ranges.borrow();
+    let range = ranges
+        .get(&id)
+        .ok_or(V8BindingError::Allocation("typing range"))?;
+    Ok(BoundaryPoint {
+        container: range.start_container,
+        offset: range.start_offset,
+    })
+}
+
+// Normalize existing runs before inserting, so insertion stays the final DOM
+// mutation. Equal-length substitutions use insert/delete to preserve live range
+// offsets at both sides of the substituted code unit.
+fn prepare_typing_whitespace(state: &V8BindingState, text: &str) -> Result<String, V8BindingError> {
+    let Some(host) = editing_host(state)? else {
+        return Ok(text.into());
+    };
+    let point = typing_selection_point(state)?;
+    let mode = editing_white_space(state, point.container)?;
+    if matches!(mode.as_str(), "pre" | "pre-wrap" | "break-spaces") {
+        return Ok(text.into());
+    }
+    let run = editing_space_run(state, point, host)?;
+    let mut collapse = run.starts_line;
+    let mut kept = Vec::new();
+    let mut removals = Vec::new();
+    for space in run.before.iter().chain(&run.after).copied() {
+        if space.value != 160 && collapse {
+            removals.push(space);
+        } else {
+            kept.push(space);
+        }
+        collapse = space.value != 160;
+    }
+    if run.ends_line && kept.last().is_some_and(|s| s.value != 160) {
+        removals.push(kept.pop().unwrap());
+    }
+    let removal_keys: BTreeSet<_> = removals
+        .iter()
+        .map(|r| (node_key(r.node), r.offset))
+        .collect();
+    // Walk the original document order backwards, including the trailing unit.
+    for space in run.before.iter().chain(&run.after).rev() {
+        if removal_keys.contains(&(node_key(space.node), space.offset)) {
+            state
+                .dom
+                .borrow_mut()
+                .replace_character_data(space.node, space.offset, 1, "")?;
+        }
+    }
+    if !removals.is_empty() {
+        synchronize_live_ranges(state)?;
+    }
+    // Empty insertion may remove collapsed spaces, but does not rewrite
+    // surviving non-breaking spaces or move them between adjacent text nodes.
+    if text.is_empty() {
+        return Ok(String::new());
+    }
+    let point = typing_selection_point(state)?;
+    // Keep the generated pattern in the insertion text node. In particular,
+    // spaces at its edge must not migrate into a differently formatted sibling.
+    // Collapsed-space cleanup above still observes the entire rendered line.
+    let pattern_root = if matches!(
+        state.dom.borrow().arena().get(point.container)?.kind,
+        NodeKind::Text { .. } | NodeKind::CDataSection { .. }
+    ) {
+        point.container
+    } else {
+        host
+    };
+    let run = editing_space_run(state, point, pattern_root)?;
+    let input: Vec<u16> = text.encode_utf16().collect();
+    let mut values: Vec<u16> = run
+        .before
+        .iter()
+        .map(|s| s.value)
+        .chain(input.iter().copied())
+        .chain(run.after.iter().map(|s| s.value))
+        .collect();
+    let is_space = |value| {
+        matches!(value, 9 | 12 | 32 | 160) || (mode != "pre-line" && matches!(value, 10 | 13))
+    };
+    let mut index = 0;
+    while index < values.len() {
+        if !is_space(values[index]) {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < values.len() && is_space(values[index]) {
+            index += 1;
+        }
+        let count = index - start;
+        for (offset, value) in values[start..index].iter_mut().enumerate() {
+            *value = if count == 1 {
+                if (start == 0 && run.starts_line)
+                    || (index == run.before.len() + input.len() + run.after.len() && run.ends_line)
+                {
+                    160
+                } else {
+                    32
+                }
+            } else if offset % 2 == 0
+                || (offset + 1 == count
+                    && index == run.before.len() + input.len() + run.after.len()
+                    && run.ends_line)
+            {
+                160
+            } else {
+                32
+            };
+        }
+    }
+    // insertText preserves explicitly supplied tabs and form feeds. Existing
+    // collapsible whitespace still participates in surrounding-space cleanup.
+    for (offset, value) in input.iter().copied().enumerate() {
+        if matches!(value, 9 | 12) {
+            values[run.before.len() + offset] = value;
+        }
+    }
+    let changes = run
+        .before
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (*s, values[i]))
+        .chain(
+            run.after
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (*s, values[run.before.len() + input.len() + i])),
+        )
+        .filter(|(space, value)| space.value != *value)
+        .collect::<Vec<_>>();
+    for (space, value) in changes {
+        let replacement = String::from_utf16_lossy(&[value]);
+        let mut dom = state.dom.borrow_mut();
+        dom.replace_character_data(space.node, space.offset, 0, &replacement)?;
+        dom.replace_character_data(space.node, space.offset + 1, 1, "")?;
+    }
+    synchronize_live_ranges(state)?;
+    Ok(String::from_utf16_lossy(
+        &values[run.before.len()..run.before.len() + input.len()],
+    ))
+}
+
 fn insert_editing_text(state: &V8BindingState, text: &str) -> Result<(), V8BindingError> {
     let overrides = state.editing_overrides.borrow().clone();
     let mut lines = text.split('\n');
@@ -14170,14 +14530,19 @@ fn insert_editing_text(state: &V8BindingState, text: &str) -> Result<(), V8Bindi
     if !first.is_empty() {
         apply_typing_overrides(state, &overrides)?;
         remove_editing_placeholder_before_typing(state, first)?;
-        replace_selection_with_text(state, first)?;
+        let prepared = prepare_typing_whitespace(state, first)?;
+        replace_selection_with_text(state, &prepared)?;
+    }
+    if text.is_empty() {
+        prepare_typing_whitespace(state, text)?;
     }
     for line in lines {
         split_editing_paragraph(state)?;
         if !line.is_empty() {
             apply_typing_overrides(state, &overrides)?;
             remove_editing_placeholder_before_typing(state, line)?;
-            replace_selection_with_text(state, line)?;
+            let prepared = prepare_typing_whitespace(state, line)?;
+            replace_selection_with_text(state, &prepared)?;
         }
     }
     *state.editing_overrides.borrow_mut() = overrides;
@@ -14206,7 +14571,16 @@ fn remove_editing_placeholder_before_typing(
     };
     let whitespace = editing_white_space(state, range.start_container)?;
     if !editing_text_has_visible_content(text, &whitespace) {
-        return Ok(());
+        // A typed space on an empty line becomes a visible NBSP. It replaces
+        // the placeholder, while a break following existing content remains.
+        let point = BoundaryPoint {
+            container: range.start_container,
+            offset: range.start_offset,
+        };
+        let run = editing_space_run(state, point, host)?;
+        if !text.contains(' ') || !run.starts_line || !run.ends_line {
+            return Ok(());
+        }
     }
     let block = nearest_rendered_editing_block(state, range.start_container, host)?;
     let mut point = BoundaryPoint {
@@ -31185,6 +31559,114 @@ mod tests {
             .unwrap()
             .to_rust_string_lossy(scope);
         assert_eq!(value, "true|true|true|true|true|true|true");
+    }
+
+    #[test]
+    fn typing_preserves_visible_spaces_and_preformatted_text_data() {
+        initialize_v8();
+        let parsed = html::parse("<div id='editor' contenteditable></div>");
+        let dom = Rc::new(RefCell::new(parsed.into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+            const editor = document.getElementById('editor');
+            const selection = document.getSelection();
+            const cases = [
+                ['normal', 'a b', 2, 'a\u00a0 b'],
+                ['normal', 'b', 0, '\u00a0b'],
+                ['normal', 'a', 1, 'a\u00a0'],
+                ['normal', 'a\nb', 2, 'a\u00a0 b'],
+                ['pre-line', 'a\nb', 2, 'a\n\u00a0b'],
+                ['pre', 'a b', 2, 'a  b'],
+                ['pre-wrap', 'a b', 2, 'a  b'],
+                ['break-spaces', 'a b', 2, 'a  b']
+            ];
+            const results = cases.map(([mode, before, offset, expected]) => {
+                editor.style.whiteSpace = mode;
+                editor.textContent = before;
+                editor.focus();
+                const text = editor.firstChild;
+                selection.collapse(text, offset);
+                const success = document.execCommand('insertText', false, ' ');
+                return [mode, success, text.data === expected,
+                    selection.focusNode === text, selection.focusOffset === offset + 1];
+            });
+            editor.style.whiteSpace = 'normal';
+            editor.innerHTML = 'a <i></i><span>b</span>';
+            editor.focus();
+            const left = editor.firstChild;
+            const retained = document.createRange();
+            retained.setStart(left, 1); retained.setEnd(left, 2);
+            selection.collapse(left, 2);
+            const observer = new MutationObserver(() => {});
+            observer.observe(editor, {subtree:true, characterData:true, characterDataOldValue:true, childList:true});
+            document.execCommand('insertText', false, ' ');
+            const records = observer.takeRecords();
+            const last = records[records.length - 1];
+            results.push(['inline', left.data === 'a\u00a0\u00a0' && editor.textContent === 'a\u00a0\u00a0b',
+                retained.startOffset === 1 && retained.endOffset === 2,
+                selection.focusNode === left && selection.focusOffset === 3,
+                last.type === 'characterData' && last.target === left && last.oldValue === 'a\u00a0']);
+            observer.disconnect();
+            editor.innerHTML = 'a<br>';
+            selection.collapse(editor.firstChild, 1);
+            document.execCommand('insertText', false, ' ');
+            results.push(['break', editor.firstChild.data === 'a\u00a0', editor.lastChild.nodeName === 'BR',
+                selection.focusNode === editor.firstChild, selection.focusOffset === 2]);
+            for (const [before, inserted, expected] of [['foobar', '\t', 'foo\tbar'], ['http://a', '\f', 'http://a\f']]) {
+                editor.textContent = before;
+                selection.collapse(editor.firstChild, before === 'foobar' ? 3 : before.length);
+                document.execCommand('insertText', false, inserted);
+                results.push(['control', editor.textContent === expected]);
+            }
+            for (const mode of ['normal', 'pre-line']) {
+                editor.style.whiteSpace = mode;
+                editor.innerHTML = '<br>';
+                selection.collapse(editor, 0);
+                document.execCommand('insertText', false, ' ');
+                results.push(['placeholder', editor.innerHTML === '&nbsp;']);
+            }
+            editor.style.whiteSpace = 'normal';
+            // The pinned compatibility matrix keeps a trailing space within
+            // its insertion text node, including at inline formatting edges.
+            editor.innerHTML = 'a<span>b&nbsp;</span> c';
+            selection.collapse(editor.querySelector('span').firstChild, 2);
+            document.execCommand('insertText', false, ' ');
+            results.push(['formatting-edge', editor.querySelector('span').textContent === 'b\u00a0\u00a0',
+                editor.lastChild.data === ' c']);
+            editor.textContent = 'ab';
+            selection.collapse(editor.firstChild, 1);
+            document.execCommand('insertText', false, '\u00a0');
+            results.push(['interior-nbsp', editor.firstChild.data === 'a b']);
+            editor.innerHTML = 'a<span style="white-space:pre">b</span>';
+            selection.collapse(editor.firstChild, 1);
+            document.execCommand('insertText', false, '\u00a0');
+            results.push(['explicit-nbsp', editor.firstChild.data === 'a\u00a0']);
+            editor.textContent = '';
+            const first = document.createTextNode('a '), second = document.createTextNode('\u00a0b');
+            editor.appendChild(first); editor.appendChild(second);
+            selection.collapse(first, 2);
+            document.execCommand('insertText', false, '');
+            results.push(['empty', first.data === 'a ' && second.data === '\u00a0b',
+                selection.focusNode === first && selection.focusOffset === 2]);
+            JSON.stringify(results)
+        "#,
+        )
+        .unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+            .to_rust_string_lossy(scope);
+        assert_eq!(
+            result,
+            r#"[["normal",true,true,true,true],["normal",true,true,true,true],["normal",true,true,true,true],["normal",true,true,true,true],["pre-line",true,true,true,true],["pre",true,true,true,true],["pre-wrap",true,true,true,true],["break-spaces",true,true,true,true],["inline",true,true,true,true],["break",true,true,true,true],["control",true],["control",true],["placeholder",true],["placeholder",true],["formatting-edge",true,true],["interior-nbsp",true],["explicit-nbsp",true],["empty",true,true]]"#
+        );
     }
 
     #[test]
