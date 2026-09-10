@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "source_commit": "011d4707299efa36f23957978a71a27645edd736",
+  "qualification": "Terminal signed full inventory measurement. Conformance and regression-free release qualification remain unmet; absent and ambiguous observations are not waived.",
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 3144,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "counts_by_root": {
+    "IndexedDB": {
+      "passed": 420,
+      "required": 456
+    },
+    "WebIDL": {
+      "passed": 31,
+      "required": 58
+    },
+    "accname": {
+      "passed": 15,
+      "required": 19
+    },
+    "css/css-cascade": {
+      "passed": 61,
+      "required": 97
+    },
+    "css/cssom": {
+      "passed": 107,
+      "required": 190
+    },
+    "css/selectors": {
+      "passed": 200,
+      "required": 277
+    },
+    "dom": {
+      "passed": 419,
+      "required": 662
+    },
+    "editing": {
+      "passed": 433,
+      "required": 704
+    },
+    "html/browsers/history": {
+      "passed": 47,
+      "required": 136
+    },
+    "referrer-policy": {
+      "passed": 1383,
+      "required": 1391
+    },
+    "wai-aria": {
+      "passed": 28,
+      "required": 32
+    }
+  },
+  "gains": [
+    "css/css-cascade/scope-declarations.html|window|",
+    "css/css-cascade/scope-name-defining-rules.html|window|",
+    "css/css-cascade/scope-nesting.html|window|",
+    "css/cssom/cssstyledeclaration-nested.html|window|",
+    "css/cssom/cssstyledeclaration-registered-custom-properties.html|window|",
+    "css/selectors/has-specificity.html|window|",
+    "css/selectors/hash-collision.html|window|",
+    "css/selectors/not-specificity.html|window|",
+    "html/browsers/history/the-history-interface/009.html|window|",
+    "html/browsers/history/the-history-interface/010.html|window|"
+  ],
+  "losses": [],
+  "assertion_totals": {
+    "corrected": 34,
+    "regressed": 0,
+    "missing": 7,
+    "added": 23,
+    "ambiguous": 12,
+    "multiplicity_mismatch": 0
+  },
+  "new_incomplete_executions": [],
+  "loopback_origin_reconciliations": [
+    {
+      "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+      "before_origin": "http://localhost:50767/",
+      "after_origin": "http://localhost:49211/",
+      "normalized_names_equal": true,
+      "normalized_name_status_multisets_equal": true
+    }
+  ],
+  "exact_coverage": true,
+  "passed_completions_valid": true,
+  "limits_unchanged": true,
+  "remaining_executions": 878,
+  "evidence": {
+    "ledger": {
+      "path": "artifacts/upstream-conformance/conformance-worker-full-roadmap-011d470.json",
+      "sha256": "ee9c7693d98d1ee99935a7e3fa0400c3d26825e73c2ae9c15679b883b96032dd"
+    },
+    "baseline": {
+      "path": "artifacts/upstream-conformance/conformance-worker-full-roadmap-82fe3b4.json",
+      "sha256": "44cc155ccc7f3960e48e68f159199af2f472c6e6cc01965211835c6a1c18c520"
+    },
+    "inventory": {
+      "path": "benchmarks/conformance/runtime-api-style-semantics-v2-inventory.json",
+      "sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47"
+    },
+    "signed_proof": {
+      "path": "artifacts/upstream-conformance/roadmap-css-011d470/signed-proof.json",
+      "sha256": "df8cd5f14b003ca0facf89d295024e1fad4f6f37992e25159abc47b1bf60b881"
+    },
+    "audit": {
+      "path": "artifacts/upstream-conformance/roadmap-011d470-full-audit.json",
+      "sha256": "cf15660b46cdc234d7d934a5eba55ad2754698feb1a4c66bc97060f2a66d2e8e"
+    },
+    "audit_script": {
+      "path": "artifacts/upstream-conformance/audit-roadmap-011d470-full.py",
+      "sha256": "ed81643900ca9e95cef76e92297fce604080add68b4bb7547dc0c05fe9f07871"
+    },
+    "validator": {
+      "path": "artifacts/upstream-conformance/roadmap-011d470-full-validation.json",
+      "sha256": "9514c0196cc53093810ed1a50c71f739dd6ed14ca69e21947565e23fe8fdf1ed"
+    },
+    "log": {
+      "path": "artifacts/upstream-conformance/roadmap-011d470-signed-full.log",
+      "sha256": "6e8e6511ff99df53241328fb45f6fb0073bf3f965b8748fe56df7fa917212040"
+    }
+  },
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "fc97b97d43fcf3d65b0f9e27441cc98bd54419eae5834b6818c63967a22e6460",
+    "worker_binary_sha256": "f479296dede00dc2c7cd94b835e541f2b59721de8df0ca0db73a331b27c11b7b",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_protocol_version": 8,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "source": {
+    "commit": "011d4707299efa36f23957978a71a27645edd736",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "binary": {
+    "sha256": "2e7ba7a12b423bd5b25340996b7e0c203769c64d61e0a786158ac2b657c7f7e3",
+    "size_bytes": 7058000
+  },
+  "projections": {
+    "native_css": {
+      "path": "artifacts/upstream-conformance/roadmap-css-native-2026-09-09.jsonl",
+      "sha256": "9f58f07ff5881bc42cda840ba3973ad2d200f08336a5366f1942110b98fd6f77",
+      "executions": 564,
+      "assertion_name_status_differences": {},
+      "completion_flag_differences": [
+        "css/cssom/insertRule-namespace-no-index.html|window|",
+        "css/cssom/serialize-values.html|window|",
+        "css/selectors/focus-visible-002.html|window|"
+      ]
+    },
+    "signed_history": {
+      "path": "artifacts/upstream-conformance/conformance-worker-history-roadmap-8526530.json",
+      "sha256": "6b1135ca542a3640c4fa6fc8d52985422e9b0c0486ae58f89799a5ee0c2b501d",
+      "executions": 136,
+      "assertion_name_status_differences": {},
+      "completion_flag_differences": [
+        "html/browsers/history/the-history-interface/combination_history_007.html|window|",
+        "html/browsers/history/the-history-interface/history_go_undefined.html|window|",
+        "html/browsers/history/the-history-interface/traverse_the_history_1.html|window|",
+        "html/browsers/history/the-history-interface/traverse_the_history_2.html|window|",
+        "html/browsers/history/the-history-interface/traverse_the_history_3.html|window|",
+        "html/browsers/history/the-history-interface/traverse_the_history_4.html|window|",
+        "html/browsers/history/the-location-interface/replace-with-nested-iframe.html|window|",
+        "html/browsers/history/the-location-interface/scripted_click_assign_during_load.html|window|",
+        "html/browsers/history/the-location-interface/scripted_click_location_assign_during_load.html|window|",
+        "html/browsers/history/the-location-interface/scripted_form_submit_assign_during_load.html|window|"
+      ]
+    },
+    "signed_referrer": {
+      "path": "artifacts/upstream-conformance/conformance-worker-referrer-roadmap-8526530.json",
+      "sha256": "daf42f55cd96322d4ce89b5a466e9c523f3ebe07b033930ee9a4b1f6aa5d8378",
+      "executions": 1391,
+      "assertion_name_status_differences": {},
+      "completion_flag_differences": []
+    }
+  },
+  "historical_gap_counts": {
+    "previous_unobserved_recovered": 23,
+    "previous_unobserved_remaining": 119,
+    "new_unobserved": 7,
+    "total_unobserved": 126,
+    "historical_editing_regressions_remaining": 6,
+    "historical_ambiguous_groups": 170
+  },
+  "projection_qualification": "Exact assertion name/status multisets match all three preceding slices. Three CSS executions differ only between absent results and native incomplete flags; ten history executions change absent results to harness timeouts. All remain failing, with no passing completion inferred. Referrer completion flags match exactly."
+}

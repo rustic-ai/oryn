@@ -4,7 +4,30 @@ Assessment of source `9abe008`. This roadmap supersedes the immediate queue in
 `COMPLETE-CONFORMANCE-PLAN-2026-09-06.md`; its completion criteria still apply.
 This is a planning assessment, not a fresh test or conformance qualification.
 
-## Current implementation and qualification
+## Latest full signed measurement
+
+The [terminal signed run at `011d470`](CONFORMANCE-ROADMAP-CSS-FULL-2026-09-09.json)
+passes **3,144/4,022 (78.2%)**, with **878 remaining**. It confirms all eight CSS
+and two history gains below, with zero whole losses, zero matched assertion
+regressions, 34 assertion corrections and no new incomplete executions. Exact
+coverage, source/artifact identity and unchanged production limits are verified.
+The backlog now uses this single ledger. The roadmap's two full measurements
+increase the total from 3,109 to 3,144.
+
+Twenty-three older missing observations recover; 119 remain and seven new Range
+observations are absent, leaving 126 unobserved assertions. The affected Range
+fixture hits the command limit in both versions. Six historical editing regressions,
+170 historical ambiguous groups and 12 current duplicate-name groups remain open.
+No observation debt is waived. All preceding CSS/history/referrer assertion
+name/status multisets match their full-run projections; incomplete/timeout flags
+differ in three CSS and ten history executions, all still failing.
+
+The candidate passes all terminal gates: 516 workspace tests (6 ignored),
+193 binding tests (2 ignored), 398 native tests (5 ignored), formatting and both
+strict Clippy gates. Live traversal is the next bounded batch; native results for
+future changes must not be added to this full total.
+
+## Preceding full measurement at `82fe3b4`
 
 The [full signed run at `82fe3b4`](CONFORMANCE-ROADMAP-FULL-2026-09-09.json)
 passes **3,134/4,022 (77.9%)**, with **888 remaining**. It gains 25 whole executions
@@ -118,8 +141,8 @@ assertion-name groups persist with unchanged status multisets and remain ambiguo
 The native CSSOM suite passes all 35 tests. The [terminal regression gates](CONFORMANCE-CSS-NATIVE-2026-09-09.json)
 pass **516 workspace tests (6 ignored)**, **193 binding tests (2 ignored)** and
 **398 native tests (5 ignored)**, plus formatting, strict workspace Clippy and
-V8-enabled all-feature/all-target strict Clippy. Signed full-inventory confirmation
-is the next measurement; these native gains do not change the full total above.
+V8-enabled all-feature/all-target strict Clippy. The signed full-inventory measurement at `011d470` above now confirms these eight
+whole-execution gains.
 
 ## Original assessment at `9abe008` (historical)
 

@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `82fe3b4`, measured on 2026-09-09.
+Current full-run evidence: signed candidate `011d470`, measured on 2026-09-09.
 The [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md) supersedes this
 document's immediate execution queue. Its definition of done remains in force;
 earlier batch sections remain history.
@@ -34,23 +34,23 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The [full signed run at `82fe3b4`](CONFORMANCE-ROADMAP-FULL-2026-09-09.json)
-passes **3,134/4,022 (77.9%)**, with **888 remaining**: 25 whole-execution gains
-and zero whole losses over `9faec9a`. The canonical validator checks exact inventory
+The [full signed run at `011d470`](CONFORMANCE-ROADMAP-CSS-FULL-2026-09-09.json)
+passes **3,144/4,022 (78.2%)**, with **878 remaining**: ten whole-execution gains
+and zero whole losses over `82fe3b4`. The canonical validator checks exact inventory
 coverage and passing completions, with unchanged production limits. Stylo remains
 the CSS engine.
 
-The assertion audit finds 1,673 corrections and zero uniquely matched regressions.
-Six historical editing regressions, 142 missing observations and 170 legacy
-name-collision groups remain unresolved. The native editing/DOMTokenList audit's
-709 executions match their signed full-run projection exactly; seven pre-existing
-incomplete/harness executions persist. No gap is waived and completion remains unmet.
+The assertion audit finds 34 corrections and zero uniquely matched regressions.
+Six historical editing regressions, 126 missing observations, 170 historical
+ambiguous groups and 12 current duplicate-name groups remain unresolved. No gap
+is waived and completion remains unmet. The preceding full measurement gained
+25 executions; the two measured roadmap batches increase the total by 35.
 
 ## Current execution strategy
 
 Use the linked impact roadmap as the active queue. Earlier milestone sections below preserve historical evidence and subsystem
 requirements; their dated counts and completed experiments do not override the
-82fe3b4 measurement above.
+011d470 measurement above.
 
 The principal throughput failure has been treating assertion repairs and removal
 of first blockers as evidence that a batch will complete fixtures. They are useful
