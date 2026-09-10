@@ -1,7 +1,9 @@
 # Complete conformance execution plan
 
 Current full-run evidence: signed candidate `9faec9a`, measured on 2026-09-09.
-This is the active forward plan. Earlier batch sections remain history.
+The [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md) supersedes this
+document's immediate execution queue. Its definition of done remains in force;
+earlier batch sections remain history.
 
 ## Objective and definition of done
 

@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "qualification": "Native diagnostic only. This is not a signed worker result or a complete inventory qualification. Seven pre-existing incomplete/harness observations and 155 legacy normalized-name collision groups remain unresolved.",
+  "selection": {
+    "editing_executions": 704,
+    "dom_token_list_executions": 5,
+    "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47"
+  },
+  "native_passed": 437,
+  "native_required": 709,
+  "gained_execution_ids": [
+    "dom/lists/DOMTokenList-Iterable.html|window|",
+    "dom/lists/DOMTokenList-iteration.html|window|",
+    "dom/lists/DOMTokenList-stringifier.html|window|",
+    "dom/lists/DOMTokenList-value.html|window|",
+    "editing/other/insertlinebreak-with-white-space-style.tentative.html|window|?pre",
+    "editing/other/insertlinebreak-with-white-space-style.tentative.html|window|?pre-wrap",
+    "editing/other/insertlinebreak-with-white-space-style.tentative.html|window|?pre-line",
+    "editing/other/insertlinebreak-with-white-space-style.tentative.html|window|?nowrap",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre&command=insertParagraph",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre-wrap&command=insertParagraph",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre-line&command=insertParagraph",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=nowrap&command=insertParagraph",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre&command=insertText",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre-wrap&command=insertText",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre-line&command=insertText",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=nowrap&command=insertText",
+    "editing/plaintext-only/insertParagraph.html|window|?white-space=normal",
+    "editing/plaintext-only/insertParagraph.html|window|?white-space=pre",
+    "editing/plaintext-only/insertParagraph.html|window|?white-space=pre-line",
+    "editing/plaintext-only/insertParagraph.html|window|?white-space=pre-wrap",
+    "editing/whitespaces/chrome-compat/insertparagraph.tentative.html|window|"
+  ],
+  "lost_execution_ids": [],
+  "signed_baseline_comparison": {
+    "corrected": 1292,
+    "regressed": 0,
+    "missing": 0,
+    "added": 0,
+    "ambiguous": 155,
+    "multiplicity_mismatch": 0
+  },
+  "previous_native_paragraph_comparison": {
+    "corrected": 152,
+    "regressed": 0,
+    "missing": 0,
+    "added": 0,
+    "ambiguous": 0,
+    "multiplicity_mismatch": 0
+  },
+  "incomplete_executions": [
+    "editing/edit-context/edit-context-bidi-caret-association.tentative.html|window|",
+    "editing/edit-context/edit-context-execCommand.tentative.https.html|window|",
+    "editing/edit-context/edit-context-inheritability.tentative.html|window|",
+    "editing/edit-context/edit-context-paste-html.tentative.html|window|",
+    "editing/edit-context/edit-context-selection-outside-host.tentative.html|window|",
+    "editing/other/paste_text_with_text_transform.html|window|",
+    "editing/other/recursive-exec-command-calls.tentative.html|window|"
+  ],
+  "artifacts": {
+    "artifacts/upstream-conformance/roadmap-native-2026-09-09.jsonl": "13d85d7000d0ee632db7b9629b3e7bf985413914e902ad1184f78d1bebd75971",
+    "artifacts/upstream-conformance/roadmap-native-2026-09-09-baseline-reconciliation.json": "3a523047285173c423fafb8de1b2ad64c26fb294c3d7dcadf89acdc458a462a8",
+    "artifacts/upstream-conformance/roadmap-native-2026-09-09-exact-reconciliation.json": "719b0401193f074daecce281d6b65fb43361d3c317eceb8d2eabc97b62be0d2c",
+    "artifacts/upstream-conformance/paragraph-v5-native-2026-09-09.jsonl": "5795088272db449eac8bd5821bd355634ada8cf1e756b19b49ad7a5b77dc654e",
+    "artifacts/upstream-conformance/roadmap-native-editing-only-2026-09-09.jsonl": "2402e3640cfcc83db351040ff64a87662b8b46c1684db906359b38840d240056"
+  },
+  "frozen_files": {
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-js/src/generated/browser.rs": "0422798402ec0410e544b8148bbba7078193b30f6ca14769a5b6fbe6b2e00fb0",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-js/src/v8_bindings.rs": "4f81c30ff09b9a5846525ac73ed60191cd3887da1dca622106fb80c43e652fe8",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/Cargo.toml": "dc018641851a1f446c754a61f3cad4e92f8b9dd9a0d58943d77fda791daa71d5",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/src/runtime.rs": "51fb267d4ccbc7ee44e9679155e92a86c8c4aadf56976bb4cb0117617b82dac6",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/src/rust_executable.rs": "4e70f1d65308f819239e65c6d3a2e24ef6562c3a6e83a73179dd2e3c7206c478",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-webidl/idl/browser.webidl": "64c9cc3ac229f98406d72ae44c5f10b0745dde8a04499af004e4c24c15755362",
+    "/Users/rohit/Work/oryn2/oryn/docs/oryn2/COMPLETE-CONFORMANCE-PLAN-2026-09-06.md": "f78db7e616102dd321e7fbc27d2b5919ad9615ae136e0957aaff5e1ef70c6027",
+    "/Users/rohit/Work/oryn2/oryn/docs/oryn2/IMPLEMENTATION_STATUS.md": "1981a93f7aa75c13b0dde56a6b5690b02bc988d911a421dcf11aa65ef35d4fdd",
+    "/Users/rohit/Work/oryn2/oryn/scripts/run-tests.sh": "048273de07123f0408be449a47e67741265eb60590f187779fa59c897b30bb2d",
+    "/Users/rohit/Work/oryn2/oryn/scripts/run-upstream-wpt.py": "3ebb6ba83bbe14e84bfc8d4716075121624899f4f9f307333b993af9adb5fb6b",
+    "/Users/rohit/Work/oryn2/oryn/scripts/tests/test_upstream_wpt_runner.py": "ff7728fab622af18409ab4abd626f140d227c349fd7d68b809faf179b8686fb5",
+    "/private/tmp/oryn-global-event-prototype-target/release/examples/conformance_focus_context_probe": "8d8a40e29ad7db9a16c47609128cbe43a3ea26f92a33c257ebce912c5a2a1463",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-js/src/v8_bindings/token_lists.rs": "0a48bd73dc0e79fff3b917e97f9248d3082e3744073d7ed5327455b41ac047b9",
+    "/Users/rohit/Work/oryn2/oryn/docs/oryn2/CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md": "e030cde1e36358196b6e02ae40d76836a037dbdbe17015faa8bc83ffcb87894e",
+    "/Users/rohit/Work/oryn2/oryn/scripts/reconcile-wpt-assertions.py": "bff80003df63f053661943485a780f5fd8d04f4be065a2b93fca423b87029bc2",
+    "/Users/rohit/Work/oryn2/oryn/scripts/tests/test_wpt_assertion_reconciliation.py": "0d5c96b2ee84c10ae336cb722cb25b122cbfdec110f3d1468e8f18368375b460",
+    "/Users/rohit/Work/oryn2/oryn/crates/oryn-native/examples/conformance_focus_context_probe.rs": "6dca1b4feb5be0e7eeb0430163eee86c59fabfe8d27ca368dbfa9acb2760debf"
+  },
+  "validation": {
+    "native_library_before_token_list_and_order_change": {
+      "passed": 394,
+      "failed": 0,
+      "ignored": 5,
+      "seconds": 848.31
+    },
+    "js_binding_library_after_changes": {
+      "passed": 193,
+      "failed": 0,
+      "ignored": 2
+    },
+    "tooling_tests": {
+      "passed": 45,
+      "failed": 0
+    },
+    "canonical_workspace": {
+      "command": "bash scripts/run-tests.sh",
+      "passed": 516,
+      "failed": 0,
+      "ignored": 6,
+      "fmt": "passed",
+      "clippy_warnings_denied": "passed",
+      "exit_code": 0,
+      "log_sha256": "95e17099bb30daf51872d68d9db72b2c18057eb7365f6316a7057e0ab4a74c19"
+    },
+    "v8_clippy": {
+      "command": "cargo clippy --locked -p oryn-js -p oryn-native --all-features --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log_sha256": "fe79bb46b82fb3524d1ecfb4d96ed8d30a5a33b212a73b867d0ffa7877f76404"
+    }
+  },
+  "exact_comparison_projection": "The editing-only artifact contains all 704 editing execution rows from the complete 709-execution native artifact, preserving their result payloads.",
+  "base_source_commit": "9abe00854f0df2e5fcd8e7a50973ecaf2664c461",
+  "native_driver_sha256": "aa522b2d0bb2bce45508a0a5ed087c4592dad013ed8ffbfc602dc6ca0420b255"
+}

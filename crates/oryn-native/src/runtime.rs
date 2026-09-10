@@ -7201,11 +7201,22 @@ impl PageState {
             });
         }
         let node = crate::semantic::unpack_node_ref(target.node);
-        self.document
+        let document = self
+            .document
             .as_ref()
-            .and_then(|document| document.dom.get(node).ok())
             .ok_or(RuntimeError::StaleSemanticRef)?;
-        Ok(())
+        let mut ancestor = Some(node);
+        while let Some(id) = ancestor {
+            let record = document
+                .dom
+                .get(id)
+                .map_err(|_| RuntimeError::StaleSemanticRef)?;
+            if id == document.document {
+                return Ok(());
+            }
+            ancestor = record.parent;
+        }
+        Err(RuntimeError::StaleSemanticRef)
     }
 
     fn computed_style(&mut self, target: SemanticRef) -> Result<ComputedStyle, RuntimeError> {
@@ -8679,9 +8690,14 @@ impl PageState {
             );
         }
         if let Some((location, update)) = pending_navigation {
+            let previous_generation = self.document_generation;
             let navigation = self.navigate(location.clone(), update)?;
             result.revision_after = navigation.revision;
-            result.delta = None;
+            result.delta = if self.document_generation == previous_generation {
+                Some(self.delta_from(result.revision_before)?)
+            } else {
+                None
+            };
             result.effects.push(Effect::Navigation { url: location });
         } else if let Some(delta) = pending_history_traversal {
             let delta = isize::try_from(delta).map_err(|_| RuntimeError::HistoryBoundary)?;
@@ -10710,14 +10726,7 @@ mod tests {
         let page = Browser::new().new_context().new_page();
         page.load_html(
             "https://example.test/wait-revision",
-            r#"<button id=pending aria-label=Pending></button>
-               <script>
-                 setTimeout(() => {
-                   const target = document.querySelector('#pending');
-                   target.id = 'ready';
-                   target.setAttribute('aria-label', 'Ready');
-                 }, 25);
-               </script>"#,
+            "<button id=pending aria-label=Pending></button>",
         )
         .await
         .expect("load delayed mutation fixture");
@@ -10728,6 +10737,18 @@ mod tests {
             .find(|node| node.name == "Pending")
             .expect("pending target")
             .semantic_ref;
+
+        // Capture the initial revision before starting the timer: loading and
+        // observing can take longer than the delay on a busy test machine.
+        page.evaluate(
+            r#"setTimeout(() => {
+                const target = document.querySelector('#pending');
+                target.id = 'ready';
+                target.setAttribute('aria-label', 'Ready');
+            }, 25); 'scheduled'"#,
+        )
+        .await
+        .expect("schedule delayed mutation");
 
         page.wait_for(WaitPredicate::SelectorExists("#ready".into()))
             .await
@@ -10896,6 +10917,24 @@ mod tests {
         assert_eq!(result, "48");
     }
 
+    // Yield after each complete case to retain the production command limit.
+    #[cfg(feature = "v8-host")]
+    async fn run_editing_matrix(page: &PageHandle, cases: usize, generator: &str) {
+        page.evaluate(&format!("globalThis.editingMatrix = {generator}; 'ready'"))
+            .await
+            .expect("initialize editing matrix");
+        for case in 1..=cases {
+            let result = page
+                .evaluate("JSON.stringify(globalThis.editingMatrix.next())")
+                .await
+                .unwrap_or_else(|error| panic!("editing matrix case {case}: {error:?}"));
+            assert_eq!(result, format!(r#"{{"value":{case},"done":false}}"#));
+        }
+        let result = page.evaluate("const end = globalThis.editingMatrix.next(); delete globalThis.editingMatrix; JSON.stringify(end)")
+            .await.expect("finish editing matrix");
+        assert_eq!(result, format!(r#"{{"value":"{cases}","done":true}}"#));
+    }
+
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_join_preserves_author_whitespace_but_not_ua_defaults() {
@@ -10906,7 +10945,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let result = page.evaluate(r#"(() => {
+        run_editing_matrix(&page, 72, r#"(function* () {
           const host = document.getElementById('host');
           const rules = document.getElementById('rules');
           let checked = 0;
@@ -10935,14 +10974,13 @@ mod tests {
                   if (host.innerHTML !== expected) throw new Error(JSON.stringify({tag,authored,preOnLeft,direction,actual:host.innerHTML,expected}));
                   document.execCommand('insertText', false, 'X');
                   if (left.textContent !== 'abcXdef') throw new Error('join caret moved');
-                  checked++;
+                  yield ++checked;
                 }
               }
             }
           }
           return String(checked);
-        })()"#).await.unwrap();
-        assert_eq!(result, "72");
+        })()"#).await;
     }
 
     #[cfg(feature = "v8-host")]
@@ -10956,7 +10994,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let result = page.evaluate(r#"(() => {
+        run_editing_matrix(&page, 150, r#"(function* () {
           const host = document.getElementById('host');let checked=0;
           for (const css of [false,true]) {
             for (const tag of ['pre','listing']) for (const attrs of ['', ' style="white-space:pre"', ' style="white-space:pre-wrap"']) {
@@ -10975,7 +11013,7 @@ mod tests {
                   if(host.innerHTML!==expected)throw new Error(JSON.stringify({css,tag,attrs,source,direction,expected,actual:host.innerHTML}));
                   document.execCommand('insertText',false,'X');
                   if(left.textContent!=='fooXbar')throw new Error('preformatted join caret changed');
-                  checked++;
+                  yield ++checked;
                 }
               }
             }
@@ -10984,30 +11022,24 @@ mod tests {
               host.focus();document.execCommand('styleWithCSS',false,css);getSelection().collapse(host.firstChild.firstChild,3);document.execCommand('forwardDelete');
               const expected='<p>foo</p>'+'<br>'.repeat(breaks-1)+'<p>bar</p>';
               if(host.innerHTML!==expected)throw new Error(JSON.stringify({css,breaks,expected,actual:host.innerHTML}));
-              checked++;
+              yield ++checked;
             }
           }
           return String(checked);
-        })()"#).await.unwrap();
-        assert_eq!(result, "150");
+        })()"#).await;
     }
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_join_preserves_default_inline_whitespace_and_outer_formatting() {
-        let config = BrowserConfig {
-            command_timeout: Duration::from_secs(60),
-            ..BrowserConfig::default()
-        };
-        let context = Browser::in_process_with_config(config).new_context();
-        let page = context.new_page();
+        let page = Browser::new().new_context().new_page();
         page.load_html(
             "https://editing.example.test/default-inline",
             "<!doctype html><style id=rules></style><div id=host contenteditable></div>",
         )
         .await
         .unwrap();
-        let result = page.evaluate(r#"(() => {
+        run_editing_matrix(&page, 300, r#"(function* () {
           const host = document.getElementById('host'), rules = document.getElementById('rules');
           const cases = [
             ['def', '', null],
@@ -11049,31 +11081,25 @@ mod tests {
                 if (body.includes('color:red') && getComputedStyle(moved.parentElement).color !== 'rgb(255, 0, 0)') throw new Error('authored declaration lost ' + details());
                 document.execCommand('insertText',false,'X');
                 if (left.textContent !== 'abcXdef') throw new Error('caret changed ' + details());
-                checked++;
+                yield ++checked;
               }
             }
           }
           return String(checked);
-        })()"#).await.unwrap();
-        assert_eq!(result, "300");
+        })()"#).await;
     }
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_join_resolves_nested_and_inline_paragraph_boundaries() {
-        let config = BrowserConfig {
-            command_timeout: Duration::from_secs(60),
-            ..BrowserConfig::default()
-        };
-        let context = Browser::in_process_with_config(config).new_context();
-        let page = context.new_page();
+        let page = Browser::new().new_context().new_page();
         page.load_html(
             "https://editing.example.test/nested-join",
             "<!doctype html><style id=rules></style><div id=host contenteditable></div>",
         )
         .await
         .unwrap();
-        let result = page.evaluate(r#"(() => {
+        run_editing_matrix(&page, 300, r#"(function* () {
           const host = document.getElementById('host');
           const rules = document.getElementById('rules');
           let checked = 0;
@@ -11110,36 +11136,26 @@ mod tests {
                   if (shape !== 'text-right' && !moved.parentElement.closest('b')) throw new Error('bold lost ' + details());
                   document.execCommand('insertText', false, 'X');
                   if (inlineLeft ? host.textContent !== 'abcXdefghi' : left.textContent !== 'abcXdef') throw new Error('caret misplaced ' + details());
-                  checked++;
+                  yield ++checked;
                 }
               }
             }
           }
           return String(checked);
-        })()"#).await.unwrap();
-        assert_eq!(result, "300");
+        })()"#).await;
     }
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_join_preserves_first_line_whitespace_and_remaining_lines() {
-        // This matrix deliberately executes hundreds of editing operations in
-        // one JavaScript evaluation. Exercise the editing implementation
-        // directly, without turning the production per-command worker limit
-        // into a limit on the test matrix itself.
-        let config = BrowserConfig {
-            command_timeout: Duration::from_secs(60),
-            ..BrowserConfig::default()
-        };
-        let context = Browser::in_process_with_config(config).new_context();
-        let page = context.new_page();
+        let page = Browser::new().new_context().new_page();
         page.load_html(
             "https://editing.example.test/join",
             "<!doctype html><style id=rules></style><div id=host contenteditable></div>",
         )
         .await
         .unwrap();
-        let result = page.evaluate(r#"(() => {
+        run_editing_matrix(&page, 432, r#"(function* () {
           const host = document.getElementById('host');
           const rules = document.getElementById('rules');
           let checked = 0;
@@ -11175,14 +11191,13 @@ mod tests {
                   if (body.startsWith('<b>') && !moved.parentElement.closest('b')) throw new Error('inline formatting lost');
                   document.execCommand('insertText', false, 'X');
                   if (left.textContent !== 'abcXdef') throw new Error(JSON.stringify({direction,body,actual:host.innerHTML,reason:'join caret misplaced'}));
-                  checked++;
+                  yield ++checked;
                 }
               }
             }
           }
           return String(checked);
-        })()"#).await.unwrap();
-        assert_eq!(result, "432");
+        })()"#).await;
     }
 
     #[cfg(feature = "v8-host")]
@@ -11191,7 +11206,7 @@ mod tests {
         let context = Browser::new().new_context();
         let page = context.new_page();
         page.load_html("https://editing.example.test/nested", "<!doctype html><style>.split {display:block} .inline {display:inline;white-space:normal} .collapse {white-space:normal}</style><div id=container></div>").await.unwrap();
-        let result = page.evaluate(r#"(() => {
+        run_editing_matrix(&page, 104, r#"(function* () {
           let checked = 0;
           const container = document.getElementById('container');
           for (const tag of ['span','p']) {
@@ -11216,7 +11231,7 @@ mod tests {
                   if (!getSelection().isCollapsed || !host.contains(getSelection().anchorNode)) throw new Error('caret outside host');
                   document.execCommand('insertText', false, 'X');
                   if (host.innerHTML !== expected) throw new Error(JSON.stringify({tag,mode,command,markup,expected,actual:host.innerHTML}));
-                  checked++;
+                  yield ++checked;
                 }
               }
             }
@@ -11229,7 +11244,7 @@ mod tests {
               document.execCommand(command, false, command === 'insertText' ? '\n' : '');
               document.execCommand('insertText', false, 'X');
               if (host.children.length !== 1 || host.firstChild !== original || original.innerHTML !== (tag === 'pre' ? 'a<br>Xb' : 'a\nXb')) throw new Error('multiline container was split');
-              checked++;
+              yield ++checked;
             }
             for (const tag of ['td','th']) {
               container.innerHTML = '<div contenteditable><table><tbody><tr><' + tag + '>ab</' + tag + '></tr></tbody></table></div>';
@@ -11237,25 +11252,19 @@ mod tests {
               host.focus(); getSelection().collapse(cell.firstChild, 1);
               document.execCommand(command, false, command === 'insertText' ? '\n' : '');
               if (row.children.length !== 1 || row.firstChild !== cell || !cell.contains(getSelection().anchorNode)) throw new Error('paragraph command changed table structure');
-              checked++;
+              yield ++checked;
             }
           }
           return String(checked);
-        })()"#).await.unwrap();
-        assert_eq!(result, "104");
+        })()"#).await;
     }
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
     async fn editing_line_breaks_use_computed_whitespace_and_preserve_the_caret() {
-        let config = BrowserConfig {
-            command_timeout: Duration::from_secs(60),
-            ..BrowserConfig::default()
-        };
-        let context = Browser::in_process_with_config(config).new_context();
-        let page = context.new_page();
+        let page = Browser::new().new_context().new_page();
         page.load_html("https://editing.example.test/", "<!doctype html><style id=rules></style><div><span id=editor contenteditable></span>outside text</div>").await.unwrap();
-        let result = page.evaluate(r#"(() => {
+        run_editing_matrix(&page, 540, r#"(function* () {
           const editor = document.getElementById('editor');
           const rules = document.getElementById('rules');
           const selection = getSelection();
@@ -11287,14 +11296,13 @@ mod tests {
                   if (!selection.isCollapsed || !editor.contains(selection.anchorNode)) throw new Error('caret escaped host');
                   document.execCommand('insertText', false, 'X');
                   if (editor.innerHTML !== test[5]) throw new Error(JSON.stringify({mode,command,display,expectedCaret:test[5],actual:editor.innerHTML}));
-                  checked++;
+                  yield ++checked;
                 }
               }
             }
           }
           return String(checked);
-        })()"#).await.unwrap();
-        assert_eq!(result, "540");
+        })()"#).await;
     }
 
     #[cfg(feature = "v8-host")]

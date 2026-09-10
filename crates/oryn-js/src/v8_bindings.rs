@@ -40,6 +40,7 @@ mod location;
 mod message_events;
 mod opaque_ranges;
 pub mod structured_clone;
+mod token_lists;
 mod url_objects;
 pub mod window_proxy;
 pub use global_events::{report_exception, report_script_exception};
@@ -212,12 +213,38 @@ struct EditingNodeSnapshot {
     sensitive_value: bool,
 }
 
+// Typing styles nest in command order. Sorting by command name changes the
+// resulting markup when a user chooses italic before bold, for example.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct EditingOverrides(Vec<(String, String)>);
+
+impl EditingOverrides {
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    fn get(&self, key: &str) -> Option<&String> {
+        self.0
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value)
+    }
+
+    fn insert(&mut self, key: String, value: String) {
+        if let Some((_, current)) = self.0.iter_mut().find(|(name, _)| *name == key) {
+            *current = value;
+        } else {
+            self.0.push((key, value));
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct EditingSnapshot {
     host: NodeId,
     nodes: Vec<EditingNodeSnapshot>,
     selection: SelectionSnapshot,
-    overrides: BTreeMap<String, String>,
+    overrides: EditingOverrides,
     serialized_bytes: usize,
 }
 
@@ -1105,7 +1132,7 @@ pub struct V8BindingState {
     design_mode: Cell<bool>,
     focus_transition_revision: Cell<u64>,
     style_with_css: Cell<bool>,
-    editing_overrides: RefCell<BTreeMap<String, String>>,
+    editing_overrides: RefCell<EditingOverrides>,
     default_paragraph_separator: RefCell<String>,
     undo_history: RefCell<UndoHistory>,
     pending_split_undo: Cell<Option<ParagraphSplitNodes>>,
@@ -3220,7 +3247,7 @@ pub fn install_generated_bindings_with_root_for_global(
         design_mode: Cell::new(false),
         focus_transition_revision: Cell::new(0),
         style_with_css: Cell::new(false),
-        editing_overrides: RefCell::new(BTreeMap::new()),
+        editing_overrides: RefCell::new(EditingOverrides::default()),
         default_paragraph_separator: RefCell::new("div".into()),
         undo_history: RefCell::new(UndoHistory::default()),
         pending_split_undo: Cell::new(None),
@@ -3305,6 +3332,9 @@ pub fn install_generated_bindings_with_root_for_global(
             instance.set_internal_field_count(6);
             if matches!(interface.name, "NodeList" | "HTMLCollection") {
                 node_lists::configure(instance);
+            }
+            if interface.name == "DOMTokenList" {
+                token_lists::configure(instance);
             }
             if matches!(
                 interface.name,
@@ -11796,6 +11826,21 @@ where
     synchronize_live_ranges(state)?;
     let after_mutation = state.dom.borrow().mutation_cursor();
     let after_selection = selection_snapshot(state);
+    // These editing commands reposition the caret as part of their operation.
+    // Keep explicitly chosen typing styles across that internal movement;
+    // public selection operations still clear them in set_selection_boundaries.
+    if matches!(
+        command,
+        "delete"
+            | "forwarddelete"
+            | "insertlinebreak"
+            | "insertparagraph"
+            | "formatblock"
+            | "insertorderedlist"
+            | "insertunorderedlist"
+    ) {
+        *state.editing_overrides.borrow_mut() = before.overrides.clone();
+    }
     let changed = before_mutation != after_mutation
         || before.selection != after_selection
         || before.overrides != *state.editing_overrides.borrow();
@@ -14129,9 +14174,9 @@ fn nearest_rendered_editing_block(
 
 fn apply_typing_overrides(
     state: &V8BindingState,
-    overrides: &BTreeMap<String, String>,
+    overrides: &EditingOverrides,
 ) -> Result<(), V8BindingError> {
-    for (command, value) in overrides {
+    for (command, value) in &overrides.0 {
         if selection_dom_format_value(state, command).as_ref() != Some(value) {
             apply_inline_format(state, command, value)?;
         }
@@ -21927,6 +21972,19 @@ fn resolve_receiver(
     object: v8::Local<v8::Object>,
     interface: &str,
 ) -> Result<NodeId, V8BindingError> {
+    if interface == "DOMTokenList"
+        && (object.is_proxy()
+            || object.internal_field_count() < 6
+            || !object
+                .get_internal_field(scope, 5)
+                .and_then(|value| v8::Local::<v8::String>::try_from(value).ok())
+                .is_some_and(|value| value.to_rust_string_lossy(scope) == "DOMTokenList"))
+    {
+        return Err(V8BindingError::Unsupported {
+            interface: "DOMTokenList".into(),
+            member: "incompatible receiver".into(),
+        });
+    }
     let wrapper = receiver_wrapper_id(scope, object)
         .ok_or(BindingError::UnknownWrapper(WrapperId(u64::MAX)))?;
     let brand = brand_for_interface(interface);
@@ -24789,6 +24847,9 @@ fn get_attribute_value<'s>(
             )
             .into()
         }
+        ("DOMTokenList", "length") => {
+            v8::Integer::new_from_unsigned(scope, class_token_set(&dom, node)?.len() as u32).into()
+        }
         ("DOMTokenList", "value") => v8_string(
             scope,
             record.attributes.get("class").map_or("", String::as_str),
@@ -27596,6 +27657,49 @@ fn call_operation<'s>(
             };
             Ok(Some(v8::Array::new_with_elements(scope, &values).into()))
         }
+        ("DOMTokenList", "item") => {
+            let index = args
+                .get(0)
+                .uint32_value(scope)
+                .ok_or(V8BindingError::JavaScriptException)? as usize;
+            let tokens = class_token_set(&state.dom.borrow(), node)?;
+            Ok(Some(match tokens.get(index) {
+                Some(token) => v8_string(scope, token)?,
+                None => v8::null(scope).into(),
+            }))
+        }
+        ("DOMTokenList", "toString") => {
+            let value = state
+                .dom
+                .borrow()
+                .attribute(node, "class")?
+                .unwrap_or_default()
+                .to_owned();
+            Ok(Some(v8_string(scope, &value)?))
+        }
+        ("DOMTokenList", "supports") => {
+            let _ = required_string(scope, args, 0)?;
+            Err(V8BindingError::Unsupported {
+                interface: "DOMTokenList".into(),
+                member: "TypeError: class has no supported tokens".into(),
+            })
+        }
+        ("DOMTokenList", "replace") => {
+            let old = required_string(scope, args, 0)?;
+            let new = required_string(scope, args, 1)?;
+            validate_class_token(&old)?;
+            validate_class_token(&new)?;
+            let mut dom = state.dom.borrow_mut();
+            let mut tokens = class_token_set(&dom, node)?;
+            let Some(index) = tokens.iter().position(|token| token == &old) else {
+                return Ok(Some(v8::Boolean::new(scope, false).into()));
+            };
+            tokens[index] = new;
+            let mut seen = BTreeSet::new();
+            tokens.retain(|token| seen.insert(token.clone()));
+            store_class_tokens(&mut dom, node, &tokens)?;
+            Ok(Some(v8::Boolean::new(scope, true).into()))
+        }
         ("DOMTokenList", "add" | "remove") => {
             let tokens = (0..args.length())
                 .map(|index| required_string(scope, args, index))
@@ -28826,6 +28930,14 @@ fn associated_wrapper<'s>(
         .ok_or(V8BindingError::Allocation("associated wrapper object"))?;
     object.set_internal_field(0, v8::BigInt::new_from_u64(scope, wrapper.0).into());
     let owner = wrap_node(scope, state, node)?;
+    if interface == "DOMTokenList" {
+        object.set_internal_field(
+            5,
+            v8::String::new(scope, "DOMTokenList")
+                .ok_or(V8BindingError::Allocation("DOMTokenList brand"))?
+                .into(),
+        );
+    }
     let key = v8::String::new(scope, "oryn.associated.owner")
         .ok_or(V8BindingError::Allocation("associated object owner"))?;
     let key = v8::Private::for_api(scope, Some(key));
@@ -32349,6 +32461,56 @@ mod tests {
     }
 
     #[test]
+    fn token_lists_are_live_indexed_branded_and_preserve_literal_values() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main class='  a a b  '></main>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+            const check=(ok,message)=>{if(!ok)throw new Error(message)};
+            const element=document.querySelector('main'), list=element.classList;
+            check(list===element.classList && list.length===2,'same live list');
+            check(String(list)==='  a a b  ' && list.value==='  a a b  ','literal string');
+            check(list.item(2)===null && list[2]===undefined && !(2 in list),'absent index');
+            check(Object.keys(list).join(',')==='0,1','enumerable indices');
+            check(list.values===Array.prototype.values && list[Symbol.iterator]===list.values,'intrinsic iterator');
+            const iterator=list.values();check(iterator.next().value==='a','first item');
+            element.className='x y z';
+            check(iterator.next().value==='y' && list.length===3,'iteration is live');
+            check(list.replace('y','z') && [...list].join(',')==='x,z','ordered set replace');
+            element.classList='  q q r  ';
+            check(list.value==='  q q r  ' && list.length===2,'put forwards value');
+            const before=list.value;
+            try {list.add('valid','bad token');throw Error('accepted invalid token')} catch(e) {check(e.name==='InvalidCharacterError','validation error')}
+            check(list.value===before,'validation is atomic');
+            check(Reflect.set(list,'0','wrong')===false && list[0]==='q','indices are read only');
+            check(Reflect.deleteProperty(list,'0')===false,'indices cannot be deleted');
+            for(const receiver of [element,{},Object.create(list),new Proxy(list,{})]) {
+                try {DOMTokenList.prototype.toString.call(receiver);throw Error('accepted invalid receiver')} catch(e) {check(e.name==='TypeError','receiver brand')}
+            }
+            try {list.supports('q');throw Error('class supports tokens')} catch(e) {check(e.name==='TypeError','unsupported vocabulary')}
+            list.value='a\u00a0b a\vb a\tb';
+            check(list.length===4,'only ASCII space characters split tokens');
+            'ok'
+        "#).unwrap();
+        assert_eq!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_rust_string_lossy(scope),
+            "ok"
+        );
+    }
+
+    #[test]
     fn explicit_editing_overrides_survive_paste_and_clear_on_selection_changes() {
         initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -32380,6 +32542,28 @@ mod tests {
             check(document.queryCommandState('italic'),'explicit italic survives paste');
             selection.removeAllRanges();
             check(!document.queryCommandState('italic'),'empty selection clears override');
+            for (const command of ['delete','forwardDelete','insertLineBreak','insertParagraph','formatBlock','insertOrderedList','insertUnorderedList']) {
+                host.innerHTML='foobar';
+                selection.collapse(host.firstChild,3);
+                document.execCommand('bold');
+                check(document.queryCommandState('bold'),command+': initial typing state');
+                document.execCommand(command,false,command==='formatBlock'?'div':'');
+                check(document.queryCommandState('bold'),command+': internal caret movement preserves typing state');
+                selection.collapse(other.firstChild,1);
+                check(!document.queryCommandState('bold'),command+': external selection clears typing state');
+            }
+            for (const commands of [['italic','bold'],['bold','italic']]) {
+                host.innerHTML='ac';selection.collapse(host.firstChild,1);
+                document.execCommand('styleWithCSS',false,false);
+                for (const command of commands) document.execCommand(command);
+                document.execCommand('insertText',false,'b');
+                const tags=commands.map(command=>command==='bold'?'b':'i');
+                const expected='a<'+tags[0]+'><'+tags[1]+'>b</'+tags[1]+'></'+tags[0]+'>c';
+                check(host.innerHTML===expected,'typing format command order: '+commands);
+                document.execCommand('undo');document.execCommand('redo');
+                check(host.innerHTML===expected,'redo preserves typing format order');
+                selection.collapse(other.firstChild,1);
+            }
             'ok'
         "#).unwrap();
         let actual = v8::Script::compile(scope, source, None)

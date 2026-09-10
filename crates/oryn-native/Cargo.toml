@@ -82,3 +82,7 @@ required-features = ["in-process-probe"]
 [[example]]
 name = "semantic_causal_evidence"
 required-features = ["in-process-probe"]
+
+[[example]]
+name = "conformance_focus_context_probe"
+required-features = ["v8-host", "in-process-probe"]

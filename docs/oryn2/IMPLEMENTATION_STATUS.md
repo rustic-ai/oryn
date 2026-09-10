@@ -27,9 +27,24 @@ bulk APIs. [Focused signed evidence](CONFORMANCE-CURSOR-STEP-SIGNED-2026-09-09.j
 binds both runs to the same source and binaries. These results do not replace the
 full-inventory total above.
 
-Next, implement paragraph creation at block editing hosts, preserving selection,
-formatting and containment semantics. Validate the changed subsystem before the
-next combined full-inventory measurement. Range observations, editing regressions,
+Paragraph creation is implemented at `e9d3fe0`. Its native audit reports 429/704
+passes and 13 complete gains, but also 102 assertion regressions and 455 missing
+assertion names requiring reconciliation. Subsequent validation/CSP commits through
+`9abe008` do not establish a new complete inventory result or a green full build.
+The roadmap implementation has since passed the full native library suite
+(394 passed, 5 ignored), followed by 193 passing binding tests after DOMTokenList
+and typing-order changes. A [complete native rerun of the selected slice](CONFORMANCE-ROADMAP-NATIVE-2026-09-09.json)
+passes **437/709**: 433 editing executions and four DOMTokenList fixtures, with
+21 complete gains and no losses against the signed baseline. It repairs all 106
+uniquely matched paragraph assertion regressions. Compared with the previous raw
+native paragraph audit, 152 assertions recover with no assertion regressions or
+missing names. Seven pre-existing incomplete/harness observations remain.
+The old reporter corrupted assertion-name whitespace; its fix and a duplicate-aware
+reconciler are tested, but 155 legacy name-collision groups remain unresolved.
+These native results do not change the full signed inventory total.
+Follow the [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md): reconcile
+regressions and measure the current candidate, then prioritize bounded DOM closure,
+frame/history lifecycle diagnosis and Stylo integration. Range observations, editing regressions,
 stylesheet imports, font readiness/fallback, DOMTokenList, OpaqueRange geometry and
 popup lifecycle remain in scope. Completion still requires 4,022/4,022 twice on
 one frozen signed candidate and every qualification gate.
@@ -789,10 +804,10 @@ one frozen signed candidate and every qualification gate.
 
 ## Next tracks
 
-- Close the remaining 1,659 cases in the exact 4,022-variant inventory,
+- Close the remaining 913 cases in the last measured exact 4,022-variant inventory,
   prioritizing shared harness/lifecycle causes over isolated assertions. The
-  current deficits are editing 586, CSS 429, DOM 373, IndexedDB 119, referrer
-  policy 9, HTML 106, generated-WebIDL 29, WAI-ARIA 4 and Accessible Name 4.
+  measured deficits are editing 288, CSS 204, DOM 247, IndexedDB 40, referrer
+  policy 8, HTML 91, generated-WebIDL 27, WAI-ARIA 4 and Accessible Name 4.
 - Complete semantic-graph/oracle, ARIA/Accessible Name and Stylo/Chromium
   differential evidence, then build and validate Linux full/lite profiles in
   CayVM alongside the macOS full/lite profiles.

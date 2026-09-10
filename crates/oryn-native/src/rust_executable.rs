@@ -3050,7 +3050,19 @@ impl RustExecutableDocument {
             self.host.activate_realm(self.top_realm)?;
             default_accepted = submit_accepted?;
         }
-        if default_accepted && matches!(action, SemanticAction::Click | SemanticAction::Submit) {
+        // dispatchEvent already queues anchor/area activation in the generated
+        // binding. The checkpoint owns that navigation; doing it here as well
+        // creates two browsing contexts for a single target=_blank click.
+        let queued_link_activation = action == SemanticAction::Click && {
+            let dom = self.live_dom.borrow();
+            dom.node_name(target).is_ok_and(|name| {
+                name.eq_ignore_ascii_case("a") || name.eq_ignore_ascii_case("area")
+            })
+        };
+        if default_accepted
+            && !queued_link_activation
+            && matches!(action, SemanticAction::Click | SemanticAction::Submit)
+        {
             self.apply_default_navigation(target, action, submits_form, action_realm)?;
         }
         self.checkpoint()

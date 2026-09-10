@@ -450,7 +450,7 @@ interface Element : Node {
   readonly attribute Element? nextElementSibling;
   attribute DOMString id;
   attribute DOMString className;
-  readonly attribute DOMTokenList classList;
+  [SameObject, PutForwards=value] readonly attribute DOMTokenList classList;
   attribute DOMString innerHTML;
   attribute DOMString outerHTML;
   readonly attribute ShadowRoot? shadowRoot;
@@ -591,11 +591,17 @@ interface ImageData {
 
 [Exposed=Window]
 interface DOMTokenList {
+  readonly attribute unsigned long length;
+  getter DOMString? item(unsigned long index);
   attribute DOMString value;
+  DOMString toString();
   undefined add(DOMString... tokens);
   undefined remove(DOMString... tokens);
   boolean toggle(DOMString token, optional boolean force);
   boolean contains(DOMString token);
+  boolean replace(DOMString token, DOMString newToken);
+  boolean supports(DOMString token);
+  iterable<DOMString>;
 };
 
 [Exposed=Window]
