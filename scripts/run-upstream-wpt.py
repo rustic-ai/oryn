@@ -247,6 +247,32 @@ def substitute_wpt_tokens(
     return body
 
 
+def instrument_html(body: str, relative_path: str) -> str:
+    """Install result collection after WPT response substitutions have run."""
+    body = re.sub(
+        r"<script\b[^>]*\bsrc\s*=\s*(['\"]?)/resources/testharnessreport\.js\1[^>]*>\s*</script>",
+        "",
+        body,
+        flags=re.IGNORECASE,
+    )
+    lowered = body.lower()
+    harness = lowered.find("testharness.js")
+    index = lowered.find("</script>", harness) + len("</script>") if harness >= 0 else -1
+    timeout_setup = (
+        "<script>setup({timeout_multiplier:4});</script>"
+        if (
+            ("name=timeout" in lowered or 'name="timeout"' in lowered or "name='timeout'" in lowered)
+            and ("content=long" in lowered or 'content="long"' in lowered or "content='long'" in lowered)
+        )
+        else ""
+    )
+    if harness >= 0:
+        injection = timeout_setup + COMPLETION
+        body = body[:index] + injection + body[index:]
+    body = inject_editing_subset_bootstrap(body, relative_path)
+    return body
+
+
 def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
@@ -685,6 +711,12 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             self.wfile.write(body)
             return
         if path.suffix in {".html", ".htm"} and path.is_file():
+            # Plain HTML can request the upstream substitution pipeline too.
+            # Delegate it so request headers and the full WPT template grammar
+            # are interpreted by the pinned server before instrumentation.
+            if urllib.parse.parse_qs(parsed.query).get("pipe") == ["sub"]:
+                self._proxy_to_wptserve(instrument_html_path=path)
+                return
             body = path.read_text(encoding="utf-8", errors="replace")
             if path.name.endswith((".sub.html", ".sub.htm")):
                 request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
@@ -698,28 +730,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                     parsed.query,
                     self.headers,
                 )
-            body = re.sub(
-                r"<script\b[^>]*\bsrc\s*=\s*(['\"]?)/resources/testharnessreport\.js\1[^>]*>\s*</script>",
-                "",
-                body,
-                flags=re.IGNORECASE,
-            )
-            lowered = body.lower()
-            harness = lowered.find("testharness.js")
-            index = lowered.find("</script>", harness) + len("</script>") if harness >= 0 else -1
-            timeout_setup = (
-                "<script>setup({timeout_multiplier:4});</script>"
-                if (
-                    ("name=timeout" in lowered or 'name="timeout"' in lowered or "name='timeout'" in lowered)
-                    and ("content=long" in lowered or 'content="long"' in lowered or "content='long'" in lowered)
-                )
-                else ""
-            )
-            if harness >= 0:
-                injection = timeout_setup + COMPLETION
-                body = body[:index] + injection + body[index:]
-            relative_path = path.relative_to(self.root).as_posix()
-            body = inject_editing_subset_bootstrap(body, relative_path)
+            body = instrument_html(body, path.relative_to(self.root).as_posix())
             encoded = body.encode()
             self.send_response(200)
             self._send_static_headers(path, "text/html; charset=utf-8", len(encoded))
@@ -739,7 +750,9 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
     def do_DELETE(self) -> None:  # noqa: N802
         self._proxy_to_wptserve()
 
-    def _proxy_to_wptserve(self, *, include_body: bool = True) -> None:
+    def _proxy_to_wptserve(
+        self, *, include_body: bool = True, instrument_html_path: Path | None = None
+    ) -> None:
         """Delegate WPT response semantics to the pinned upstream server.
 
         The public loopback server remains the browser-visible origin so Oryn's
@@ -791,7 +804,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 response_body = strip_nested_helper_harness(
                     self.path, content_type, response_body
                 )
-            if b"{{" in response_body and any(
+            if instrument_html_path is None and b"{{" in response_body and any(
                 value in content_type
                 for value in ("text/", "javascript", "json", "xml", "css", "html")
             ):
@@ -809,6 +822,17 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                     urllib.parse.urlparse(self.path).query,
                     self.headers,
                 ).encode("utf-8")
+            if (
+                instrument_html_path is not None
+                and "text/html" in content_type
+                and not response.getheader("content-encoding")
+            ):
+                # Instrumentation is ASCII. A byte-preserving decode retains
+                # the upstream response's charset, including legacy encodings.
+                response_body = instrument_html(
+                    response_body.decode("latin-1"),
+                    instrument_html_path.relative_to(self.root).as_posix(),
+                ).encode("latin-1")
             self.send_response(response.status, response.reason)
             response_started = True
             for name, value in response.getheaders():

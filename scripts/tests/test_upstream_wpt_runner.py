@@ -30,6 +30,41 @@ INVENTORY_SPEC.loader.exec_module(INVENTORY)
 
 
 class UpstreamWptRunnerTests(unittest.TestCase):
+    def test_plain_html_sub_pipeline_preserves_request_and_instruments_response(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "child.html").write_text('{{headers[referer]}}')
+            handler = object.__new__(RUNNER.Handler)
+            handler.root = root
+            handler.path = "/child.html?pipe=sub&unchanged=1"
+            handler.command = "GET"
+            handler.headers = {"Host": "localhost:8123", "Referer": "http://localhost:8123/pushed"}
+            handler.server = mock.Mock(server_address=("127.0.0.1", 8123))
+            handler.connection = mock.Mock()
+            handler.official_wpt_port = 9123
+            handler.wfile = io.BytesIO()
+            handler.send_response = mock.Mock()
+            handler.send_header = mock.Mock()
+            handler.end_headers = mock.Mock()
+            response = mock.Mock(status=200, reason="OK")
+            body = b'<script src="/resources/testharness.js"></script><p>caf\xe9 http://localhost:8123/pushed</p>'
+            headers = {"content-type": "text/html; charset=windows-1252", "content-length": str(len(body))}
+            response.read.return_value = body
+            response.getheader.side_effect = lambda name, default=None: headers.get(name.lower(), default)
+            response.getheaders.return_value = list(headers.items())
+            with mock.patch.object(RUNNER.http.client, "HTTPConnection") as connection:
+                connection.return_value.getresponse.return_value = response
+                handler.do_GET()
+            connection.return_value.request.assert_called_once_with(
+                "GET", "/child.html?pipe=sub&unchanged=1", body=None, headers=handler.headers,
+            )
+            result = handler.wfile.getvalue()
+            self.assertIn(b"caf\xe9 http://localhost:8123/pushed", result)
+            self.assertIn(b"__oryn_publish_wpt", result)
+            handler.send_header.assert_any_call("content-type", headers["content-type"])
+            handler.send_header.assert_any_call("content-length", str(len(result)))
+            handler.send_response.assert_called_once_with(200, "OK")
+
     @unittest.skipUnless(shutil.which("node"), "Node.js is needed to execute the WPT publisher")
     def test_worker_publication_preserves_assertions_through_text_extraction(self) -> None:
         handler = object.__new__(RUNNER.Handler)
