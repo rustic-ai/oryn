@@ -6258,6 +6258,93 @@ mod tests {
     }
 
     #[test]
+    fn tree_walker_traverses_live_skipped_and_rejected_subtrees() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><main><section id='skip'><i id='visible'></i></section><section id='reject'><b id='hidden'></b></section><i id='tail'></i></main>",
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"
+            const root = document.querySelector('main');
+            let calls = 0;
+            const filter = node => { ++calls; return node.id === 'skip' ? 3 : node.id === 'reject' ? 2 : 1; };
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, filter);
+            const checks = [calls === 0, walker.root === root, walker.currentNode === root, walker.filter === filter];
+            checks.push(walker.firstChild().id === 'visible', walker.nextSibling().id === 'tail',
+                walker.previousSibling().id === 'visible', walker.parentNode() === root);
+            checks.push(walker.lastChild().id === 'tail', walker.previousNode().id === 'visible');
+            const added = document.createElement('i'); added.id = 'added';
+            document.getElementById('visible').after(added);
+            checks.push(walker.nextNode() === added, walker.nextNode().id === 'tail', walker.nextNode() === null);
+            root.remove(); walker.currentNode = root;
+            checks.push(walker.firstChild().id === 'visible');
+            const outside = document.createElement('div'), child = document.createElement('b');
+            outside.appendChild(child); walker.currentNode = outside;
+            checks.push(walker.nextNode() === child, walker.nextNode() === null,
+                walker.currentNode === child, walker.previousNode() === outside);
+            const host = document.createElement('div'), shadow = host.attachShadow({mode:'open'});
+            const inner = document.createElement('i'); shadow.appendChild(inner);
+            walker.currentNode = inner;
+            checks.push(walker.parentNode() === null, walker.currentNode === inner);
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
+    fn tree_walker_callback_errors_use_the_filter_realm() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<!doctype html><iframe srcdoc='<!doctype html>'></iframe><main><i></i></main>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const foreign = document.querySelector('iframe').contentWindow;
+            const filter = new foreign.Object();
+            const walker = document.createTreeWalker(document.querySelector('main'), 1, filter);
+            let error;
+            try { walker.nextNode(); } catch (caught) { error = caught; }
+            error instanceof foreign.TypeError && !(error instanceof TypeError)
+        "#
+            )
+            .unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn tree_walker_filters_are_lazy_reentrant_safe_and_preserve_exceptions() {
+        let mut page =
+            RustExecutableDocument::load("<!doctype html><main><i></i><b></b></main>").unwrap();
+        assert_eq!(page.evaluate(r#"
+            const root = document.querySelector('main'), sentinel = {};
+            const filter = { get acceptNode() { throw sentinel; } };
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, filter);
+            const checks = [walker.filter === filter];
+            try { walker.nextNode(); checks.push(false); } catch (error) { checks.push(error === sentinel); }
+            checks.push(walker.currentNode === root);
+            Object.defineProperty(filter, 'acceptNode', {value: function(node) {
+                checks.push(this === filter, walker.currentNode === root);
+                try { walker.firstChild(); checks.push(false); }
+                catch (error) { checks.push(error instanceof DOMException && error.name === 'InvalidStateError'); }
+                return { valueOf() { throw sentinel; } };
+            }, configurable:true});
+            try { walker.nextNode(); checks.push(false); } catch (error) { checks.push(error === sentinel); }
+            checks.push(walker.currentNode === root);
+            Object.defineProperty(filter, 'acceptNode', {value: () => 65537});
+            checks.push(walker.nextNode() === root.firstChild);
+            const getter = Object.getOwnPropertyDescriptor(TreeWalker.prototype, 'currentNode').get;
+            for (const receiver of [{}, Object.create(TreeWalker.prototype), new Proxy(walker, {}), document.createNodeIterator(root)]) {
+                try { getter.call(receiver); checks.push(false); } catch (error) { checks.push(error instanceof TypeError); }
+            }
+            try { document.createTreeWalker(root, {valueOf() {throw sentinel}}); checks.push(false); }
+            catch (error) { checks.push(error === sentinel); }
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
     fn computed_custom_properties_use_stylo_cascade_and_live_cssom_updates() {
         let mut page = RustExecutableDocument::load(
             r#"<!doctype html><style>

@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "qualification": "Complete isolated-native traversal inventory and terminal regression gates. Signed full-inventory confirmation remains pending; no new overall conformance total is claimed.",
+  "source_base_commit": "41c1a8d3724a2c304cd286920a3aa7883fb0ea4d",
+  "source_file_sha256": {
+    "crates/oryn-js/src/generated/browser.rs": "23de67984555ff4d625eb2c72f520acaa12e72f0b4a3392623440aaae097bd41",
+    "crates/oryn-js/src/v8_bindings.rs": "6e25741b8a22f5e67a835e889c509ad8a772aa407649445aaf4451cd270607f7",
+    "crates/oryn-native/src/rust_executable.rs": "3accafb3e27a6227555583cb23b1c8921323d712b1ad88eba82363d93b005e87",
+    "crates/oryn-webidl/idl/browser.webidl": "2c3424d1c0a6caf21e03c456e9b7ebd8e282814605860ad78e6d0a060ecf2345",
+    "crates/oryn-js/src/v8_bindings/tree_walkers.rs": "5ef9d2145985eb56bf2c483dc493e5fe1d7012d21909c8ee2112fc1f65382052",
+    "crates/oryn-native/examples/conformance_focus_context_probe.rs": "6dca1b4feb5be0e7eeb0430163eee86c59fabfe8d27ca368dbfa9acb2760debf"
+  },
+  "native_traversal_inventory": {
+    "required": 18,
+    "passed": 13,
+    "gains": [
+      "dom/traversal/TreeWalker-acceptNode-filter-cross-realm.html|window|",
+      "dom/traversal/TreeWalker-acceptNode-filter.html|window|",
+      "dom/traversal/TreeWalker-basic.html|window|",
+      "dom/traversal/TreeWalker-currentNode.html|window|",
+      "dom/traversal/TreeWalker-nextNode-detached-currentNode.window.js|window|",
+      "dom/traversal/TreeWalker-previousSiblingLastChildSkip.html|window|",
+      "dom/traversal/TreeWalker-traversal-reject.html|window|",
+      "dom/traversal/TreeWalker-traversal-skip-most.html|window|",
+      "dom/traversal/TreeWalker-traversal-skip.html|window|",
+      "dom/traversal/TreeWalker-walking-outside-a-tree.html|window|",
+      "dom/traversal/TreeWalker.html|window|"
+    ],
+    "losses": [],
+    "assertion_totals": {
+      "corrected": 793,
+      "regressed": 0,
+      "missing": 0,
+      "added": 0,
+      "ambiguous": 0,
+      "multiplicity_mismatch": 0
+    }
+  },
+  "existing_incomplete_executions": 0,
+  "new_incomplete_executions": [],
+  "checks": {
+    "workspace": {
+      "passed": 516,
+      "failed": 0,
+      "ignored": 6
+    },
+    "bindings": {
+      "passed": 193,
+      "failed": 0,
+      "ignored": 2,
+      "seconds": 1.18
+    },
+    "native": {
+      "passed": 401,
+      "failed": 0,
+      "ignored": 5,
+      "seconds": 584.02
+    },
+    "format": "passed",
+    "workspace_strict_clippy": "passed",
+    "v8_all_features_all_targets_strict_clippy": "passed"
+  },
+  "notes": [
+    "TreeWalker traverses current light-tree links and invokes filters lazily; skipped nodes and rejected subtrees have distinct traversal behavior.",
+    "Filter state is reentrancy-safe, preserves thrown values and WebIDL unsigned-short conversion, and creates callback errors in the filter realm.",
+    "Root, currentNode and filter references are traced through the wrapper; native records are released by weak finalizers.",
+    "All 18 traversal fixtures complete, including all 761 assertions in TreeWalker.html. No changed, missing or ambiguous assertion identity is waived.",
+    "Five executions remain failing: three NodeIterator fixtures, the detached-iframe NodeIterator callback fixture, and the TreeWalker immediate iframe document/foreign-node fixture."
+  ],
+  "evidence": {
+    "workspace": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-workspace-validation-2026-09-09.log",
+      "sha256": "571f74c915fd197267edeaa8cae55bd35472ebc479e9fd6c99da2ce0b94d016b",
+      "command": [
+        "bash",
+        "scripts/run-tests.sh"
+      ],
+      "exit_code": 0
+    },
+    "bindings": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-bindings-validation-2026-09-09.log",
+      "sha256": "02cf67aa0be670fbcaa517413874a548698248c7e5476cb7b93a678f2f14c350",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "oryn-js",
+        "--all-features",
+        "--lib"
+      ],
+      "exit_code": 0
+    },
+    "native": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-native-validation-2026-09-09.log",
+      "sha256": "4b3256840df9d052360d240ca9150dae4fb9ab345e050fea2028b4fe38390681",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "oryn-native",
+        "--all-features",
+        "--lib"
+      ],
+      "exit_code": 0
+    },
+    "v8-clippy": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-v8-clippy-validation-2026-09-09.log",
+      "sha256": "8f1710d6d7097d7b29bd49706ffdd1eb7d55ca02c6a4c66590014b5446227527",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "oryn-js",
+        "-p",
+        "oryn-native",
+        "--all-features",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0
+    },
+    "native_inventory": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-native-2026-09-09.audit.json",
+      "sha256": "bdca9bc67dd9dd0084e7cf49a260736de56d2f3e19e4150c7dac95e52dc79338"
+    },
+    "native_ledger": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-native-2026-09-09.jsonl",
+      "sha256": "71d138c8911166159d318d876f98cf5bd1996c564dc63641c9f1201d8f09fc03"
+    }
+  }
+}

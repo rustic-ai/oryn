@@ -41,6 +41,7 @@ mod message_events;
 mod opaque_ranges;
 pub mod structured_clone;
 mod token_lists;
+mod tree_walkers;
 mod url_objects;
 pub mod window_proxy;
 pub use global_events::{report_exception, report_script_exception};
@@ -1110,6 +1111,7 @@ pub struct V8BindingState {
     node_documents: RefCell<BTreeMap<NodeId, NodeId>>,
     next_traversal_id: Cell<u64>,
     traversals: RefCell<BTreeMap<u64, TraversalRecord>>,
+    tree_walkers: RefCell<BTreeMap<u64, Rc<tree_walkers::Record>>>,
     layout: RefCell<BindingLayout>,
     layout_cache_key: RefCell<Option<LayoutCacheKey>>,
     layout_provider: RefCell<Option<Rc<dyn BindingLayoutProvider>>>,
@@ -3223,6 +3225,7 @@ pub fn install_generated_bindings_with_root_for_global(
         node_documents: RefCell::new(BTreeMap::from([(document, document)])),
         next_traversal_id: Cell::new(1),
         traversals: RefCell::new(BTreeMap::new()),
+        tree_walkers: RefCell::new(BTreeMap::new()),
         layout: RefCell::new(BindingLayout::default()),
         layout_cache_key: RefCell::new(None),
         layout_provider: RefCell::new(None),
@@ -9482,24 +9485,8 @@ fn generated_attribute_setter_impl(
         return;
     }
     if interface == "TreeWalker" && member == "currentNode" {
-        let result = stateful_id(scope, args.this()).and_then(|id| {
-            let node = argument_node(scope, &state, args.get(0))?;
-            let mut traversals = state.traversals.borrow_mut();
-            let traversal = traversals
-                .get_mut(&id)
-                .ok_or(V8BindingError::Allocation("TreeWalker record"))?;
-            traversal.index = traversal
-                .nodes
-                .iter()
-                .position(|candidate| *candidate == node)
-                .ok_or(V8BindingError::Unsupported {
-                    interface: interface.into(),
-                    member: "currentNode outside root".into(),
-                })?;
-            Ok(())
-        });
-        if let Err(error) = result {
-            throw_type_error(scope, &format!("{interface}.{member}: {error}"));
+        if let Err(error) = tree_walkers::set_current(scope, &state, args.this(), args.get(0)) {
+            throw_binding_error(scope, &error);
         }
         return;
     }
@@ -16741,6 +16728,9 @@ fn get_stateful_attribute<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if interface == "TreeWalker" {
+        return tree_walkers::attribute(scope, state, object, member);
+    }
     if interface == "Storage" {
         let index = storage_index(scope, object)?;
         return match member {
@@ -16901,16 +16891,14 @@ fn get_stateful_attribute<'s>(
         .get(&id)
         .ok_or(V8BindingError::Allocation("traversal record"))?;
     match (interface, member) {
-        ("NodeIterator" | "TreeWalker", "root") => {
-            Ok(wrap_node(scope, state, traversal.root)?.into())
-        }
-        ("NodeIterator", "referenceNode") | ("TreeWalker", "currentNode") => {
+        ("NodeIterator", "root") => Ok(wrap_node(scope, state, traversal.root)?.into()),
+        ("NodeIterator", "referenceNode") => {
             Ok(wrap_node(scope, state, traversal.nodes[traversal.index])?.into())
         }
         ("NodeIterator", "pointerBeforeReferenceNode") => {
             Ok(v8::Boolean::new(scope, traversal.pointer_before).into())
         }
-        ("NodeIterator" | "TreeWalker", "whatToShow") => {
+        ("NodeIterator", "whatToShow") => {
             Ok(v8::Integer::new_from_unsigned(scope, traversal.what_to_show).into())
         }
         _ => Err(V8BindingError::Unsupported {
@@ -20910,6 +20898,9 @@ fn call_stateful_operation<'s>(
     member: &str,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    if interface == "TreeWalker" {
+        return tree_walkers::operation(scope, state, object, member);
+    }
     if interface == "OpaqueRange" {
         let id = opaque_ranges::id(scope, object).ok_or(V8BindingError::Allocation(
             "incompatible opaque range receiver",
@@ -21846,7 +21837,7 @@ fn call_stateful_operation<'s>(
             _ => {}
         }
     }
-    if matches!(interface, "NodeIterator" | "TreeWalker") {
+    if interface == "NodeIterator" {
         let id = stateful_id(scope, object)?;
         let mut traversals = state.traversals.borrow_mut();
         let traversal = traversals
@@ -21890,83 +21881,6 @@ fn call_stateful_operation<'s>(
                 return Ok(Some(
                     wrap_node(scope, state, traversal.nodes[traversal.index])?.into(),
                 ));
-            }
-            "parentNode" if interface == "TreeWalker" => {
-                let current = traversal.nodes[traversal.index];
-                let parent = {
-                    let dom = state.dom.borrow();
-                    dom.parent(current)?
-                };
-                let Some(mut parent) = parent else {
-                    return Ok(Some(v8::null(scope).into()));
-                };
-                while parent != traversal.root && !traversal.accepted.contains(&parent) {
-                    let Some(next) = state.dom.borrow().parent(parent)? else {
-                        return Ok(Some(v8::null(scope).into()));
-                    };
-                    parent = next;
-                }
-                if let Some(index) = traversal.nodes.iter().position(|node| *node == parent) {
-                    traversal.index = index;
-                } else {
-                    return Ok(Some(v8::null(scope).into()));
-                }
-                return Ok(Some(wrap_node(scope, state, parent)?.into()));
-            }
-            "firstChild" | "lastChild" if interface == "TreeWalker" => {
-                let current = traversal.nodes[traversal.index];
-                let child = {
-                    let dom = state.dom.borrow();
-                    let children = dom.children(current)?;
-                    if member == "firstChild" {
-                        children.first().copied()
-                    } else {
-                        children.last().copied()
-                    }
-                };
-                let Some(child) = child else {
-                    return Ok(Some(v8::null(scope).into()));
-                };
-                if let Some(index) = traversal
-                    .nodes
-                    .iter()
-                    .position(|node| *node == child && traversal.accepted.contains(node))
-                {
-                    traversal.index = index;
-                } else {
-                    return Ok(Some(v8::null(scope).into()));
-                }
-                return Ok(Some(wrap_node(scope, state, child)?.into()));
-            }
-            "previousSibling" | "nextSibling" if interface == "TreeWalker" => {
-                let current = traversal.nodes[traversal.index];
-                let sibling = {
-                    let dom = state.dom.borrow();
-                    dom.parent(current)?.and_then(|parent| {
-                        let children = dom.children(parent).ok()?;
-                        let position = children.iter().position(|node| *node == current)?;
-                        if member == "previousSibling" {
-                            position
-                                .checked_sub(1)
-                                .and_then(|index| children.get(index).copied())
-                        } else {
-                            children.get(position + 1).copied()
-                        }
-                    })
-                };
-                let Some(sibling) = sibling else {
-                    return Ok(Some(v8::null(scope).into()));
-                };
-                if let Some(index) = traversal
-                    .nodes
-                    .iter()
-                    .position(|node| *node == sibling && traversal.accepted.contains(node))
-                {
-                    traversal.index = index;
-                } else {
-                    return Ok(Some(v8::null(scope).into()));
-                }
-                return Ok(Some(wrap_node(scope, state, sibling)?.into()));
             }
             "detach" => return Ok(None),
             _ => {}
@@ -26537,16 +26451,17 @@ fn call_operation<'s>(
             let what_to_show = if args.get(1).is_undefined() {
                 u32::MAX
             } else {
-                args.get(1).uint32_value(scope).unwrap_or(u32::MAX)
+                args.get(1)
+                    .uint32_value(scope)
+                    .ok_or(V8BindingError::JavaScriptException)?
             };
-            let (nodes, accepted) = filtered_traversal_nodes(
-                scope,
-                state,
-                root,
-                what_to_show,
-                args.get(2),
-                member == "createTreeWalker",
-            )?;
+            if member == "createTreeWalker" {
+                return Ok(Some(
+                    tree_walkers::create(scope, state, root, what_to_show, args.get(2))?.into(),
+                ));
+            }
+            let (nodes, accepted) =
+                filtered_traversal_nodes(scope, state, root, what_to_show, args.get(2), false)?;
             let id = state.next_traversal_id.get();
             state.next_traversal_id.set(id.saturating_add(1));
             state.traversals.borrow_mut().insert(
@@ -26556,17 +26471,12 @@ fn call_operation<'s>(
                     nodes,
                     accepted,
                     index: 0,
-                    pointer_before: member == "createNodeIterator",
+                    pointer_before: true,
                     what_to_show,
                 },
             );
-            let interface = if member == "createNodeIterator" {
-                "NodeIterator"
-            } else {
-                "TreeWalker"
-            };
             Ok(Some(
-                new_stateful_object(scope, state, interface, id)?.into(),
+                new_stateful_object(scope, state, "NodeIterator", id)?.into(),
             ))
         }
         ("HTMLElement", "attachInternals") => {

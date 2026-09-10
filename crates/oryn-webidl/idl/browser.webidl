@@ -1023,8 +1023,9 @@ interface NodeIterator {
 
 [Exposed=Window]
 interface TreeWalker {
-  readonly attribute Node root;
+  [SameObject] readonly attribute Node root;
   readonly attribute unsigned long whatToShow;
+  readonly attribute NodeFilter? filter;
   attribute Node currentNode;
   Node? parentNode();
   Node? firstChild();
