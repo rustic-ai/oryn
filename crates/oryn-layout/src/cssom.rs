@@ -640,7 +640,13 @@ pub fn mutate_rule_declaration(
                 CssRule::NestedDeclarations(rule) => rule.read_with(&guard).block.clone(),
                 _ => return Err("CSS rule does not contain a property declaration block".into()),
             };
-            (block, rule.rule_type())
+            // Nested declarations hold ordinary style declarations. Their
+            // CSSOM rule identity is not a declaration parser context in Stylo.
+            let kind = match rule.rule_type() {
+                CssRuleType::NestedDeclarations => CssRuleType::Style,
+                kind => kind,
+            };
+            (block, kind)
         };
         let mut declarations = String::new();
         block

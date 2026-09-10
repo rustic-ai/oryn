@@ -68,7 +68,6 @@ use style::{
     stylesheets::{CssRuleType, CssRules},
 };
 use style_dom::ElementState;
-#[cfg(test)]
 use style_traits::ToCss;
 use taffy::{
     prelude::{
@@ -1207,6 +1206,12 @@ fn stylo_computed_values_with_provenance(
                         Err(longhand) => computed.computed_value_to_string(longhand),
                     };
                     values.insert((*name).to_string(), value);
+                }
+                let custom = computed.custom_properties();
+                for (name, value) in custom.inherited.iter().chain(custom.non_inherited.iter()) {
+                    if let Some(value) = value {
+                        values.insert(format!("--{name}"), value.to_css_string());
+                    }
                 }
             } else {
                 return Err(LayoutError::StyleTraversal(format!(

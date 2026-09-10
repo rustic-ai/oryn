@@ -1273,6 +1273,11 @@ interface CSSStyleRule : CSSGroupingRule {
 };
 
 [Exposed=Window]
+interface CSSNestedDeclarations : CSSRule {
+  [SameObject, PutForwards=cssText] readonly attribute CSSStyleProperties style;
+};
+
+[Exposed=Window]
 interface CSSMediaRule : CSSConditionRule {
   [SameObject, PutForwards=mediaText] readonly attribute MediaList media;
 };

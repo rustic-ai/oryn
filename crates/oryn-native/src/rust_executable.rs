@@ -6258,6 +6258,74 @@ mod tests {
     }
 
     #[test]
+    fn computed_custom_properties_use_stylo_cascade_and_live_cssom_updates() {
+        let mut page = RustExecutableDocument::load(
+            r#"<!doctype html><style>
+                @property --size { syntax: '<length>'; initial-value: 2px; inherits: false; }
+                body { --Case: green; --case: blue; --resolved: var(--Case); --size: 4px; }
+                #target { --cycle: var(--cycle); --fallback: var(--absent, orange); }
+                .inactive { #target { @scope (&) { --scoped: 1; } } }
+            </style><body class="active"><div id="target" style="--invalid: var(--missing)"></div></body>"#,
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"
+            const target = document.getElementById('target'), computed = getComputedStyle(target);
+            const read = name => computed.getPropertyValue(name);
+            const checks = [read('--Case') === 'green', read('--case') === 'blue',
+                read('--resolved') === 'green', read('--fallback') === 'orange',
+                read('--cycle') === '', read('--invalid') === '', read('--scoped') === ''];
+            checks.push(read('--size') === '2px',
+                getComputedStyle(document.body).getPropertyValue('--size') === '4px');
+            document.styleSheets[0].cssRules[3].selectorText = '.active';
+            checks.push(read('--scoped') === '1');
+            document.styleSheets[0].cssRules[1].style.setProperty('--Case', 'purple');
+            checks.push(read('--Case') === 'purple', read('--resolved') === 'purple', read('--case') === 'blue');
+            const names = Array.from({length: computed.length}, (_, i) => computed.item(i));
+            checks.push(names.includes('--Case'), !names.includes('--cycle'), !names.includes('--invalid'));
+            target.remove();
+            checks.push(read('--Case') === '');
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
+    fn cssom_nested_declarations_preserve_native_styles_and_detached_identity() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><style>@scope (body) { color: red; span {} color: green; }</style><body></body>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const sheet = document.styleSheets[0], scope = sheet.cssRules[0];
+            const rule = scope.cssRules[2], style = rule.style;
+            const checks = [scope.cssRules.length === 3,
+                scope.cssRules[0] instanceof CSSNestedDeclarations,
+                rule instanceof CSSNestedDeclarations, rule instanceof CSSRule,
+                !(rule instanceof CSSStyleRule), !(rule instanceof CSSGroupingRule),
+                rule.type === 0, rule.parentRule === scope, rule.parentStyleSheet === sheet,
+                style instanceof CSSStyleProperties, style instanceof CSSStyleDeclaration,
+                style === rule.style, style.parentRule === rule,
+                rule.cssText === 'color: green;', style.color === 'green'];
+            style.color = 'purple';
+            checks.push(rule.cssText === 'color: purple;', scope.cssRules[2] === rule,
+                getComputedStyle(document.body).color === 'rgb(128, 0, 128)');
+            rule.style = 'color: blue; width: 12px';
+            checks.push(rule.style === style, style.width === '12px',
+                getComputedStyle(document.body).color === 'rgb(0, 0, 255)');
+            const getter = Object.getOwnPropertyDescriptor(CSSNestedDeclarations.prototype, 'style').get;
+            for (const receiver of [{}, scope.cssRules[1], scope,
+                Object.create(CSSNestedDeclarations.prototype), new Proxy(rule, {})]) {
+                try { getter.call(receiver); checks.push(false); }
+                catch (e) { checks.push(e instanceof TypeError); }
+            }
+            scope.deleteRule(2);
+            style.setProperty('color', 'orange', 'important');
+            checks.push(rule.parentRule === null, rule.parentStyleSheet === null,
+                style.color === 'orange', style.getPropertyPriority('color') === 'important',
+                scope.cssRules.length === 2, getComputedStyle(document.body).color === 'rgb(255, 0, 0)');
+            checks.map((ok, i) => ok ? '' : i).filter(x => x !== '').join(',')
+        "#).unwrap(), "");
+    }
+
+    #[test]
     fn cssom_rule_declaration_subtypes_use_generated_prototype_accessors() {
         let mut page = RustExecutableDocument::load(
             "<!doctype html><style>a { color: red; } @page named { margin-top: 2px; }</style>",

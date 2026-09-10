@@ -69,7 +69,11 @@ fn styles(
         .get("style")
     {
         for (name, value) in inline_style_entries(inline) {
-            styles.entry(name).or_insert(value);
+            // Custom values come from Stylo, including substitution and
+            // guaranteed-invalid values which must remain absent here.
+            if !name.starts_with("--") {
+                styles.entry(name).or_insert(value);
+            }
         }
     }
     if let (Some(x), Some(y)) = (styles.get("overflow-x"), styles.get("overflow-y"))

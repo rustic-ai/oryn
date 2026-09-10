@@ -73,6 +73,7 @@ pub(super) fn create<'s>(
         16 => "CSSLayerBlockRule",
         21 => "CSSScopeRule",
         22 => "CSSStartingStyleRule",
+        24 => "CSSNestedDeclarations",
         _ => "CSSRule",
     };
     if let Some(template) = state.instance_templates.borrow().get(interface) {
@@ -132,6 +133,7 @@ pub(super) fn is_rule_interface(interface: &str) -> bool {
         interface,
         "CSSMediaRule"
             | "CSSStyleRule"
+            | "CSSNestedDeclarations"
             | "CSSFontFaceRule"
             | "CSSPageRule"
             | "CSSRule"
@@ -150,6 +152,7 @@ fn supports_interface(kind: u16, interface: &str) -> bool {
     match interface {
         "CSSRule" => true,
         "CSSStyleRule" => kind == 1,
+        "CSSNestedDeclarations" => kind == 24,
         "CSSFontFaceRule" => kind == 5,
         "CSSPageRule" => kind == 6,
         "CSSMediaRule" => kind == 4,
@@ -545,7 +548,7 @@ fn read_style(
         base_url: &base_url,
         quirks,
     };
-    let result = if kind == 1 {
+    let result = if matches!(kind, 1 | 24) {
         provider.read_declaration(&request)
     } else if kind == 5 {
         provider.read_font_face_declaration(&request)
@@ -592,7 +595,7 @@ fn mutate_style(
         .borrow()
         .get(&identity)
         .map(|r| r.view.rule_type);
-    if matches!(kind, Some(1 | 5 | 6)) {
+    if matches!(kind, Some(1 | 5 | 6 | 24)) {
         let (source, path) = mutation_context(scope, &state, identity)?;
         let mutation = provider
             .mutate_rule_declaration(
@@ -653,7 +656,7 @@ pub(super) fn validate_declaration_interface(
         .map(|record| record.view.rule_type);
     if matches!(
         (interface, kind),
-        ("CSSStyleProperties", Some(1))
+        ("CSSStyleProperties", Some(1 | 24))
             | ("CSSPageDescriptors", Some(6))
             | ("CSSFontFaceDescriptors", Some(5))
     ) {
@@ -764,7 +767,7 @@ fn style_object<'s>(
         .get(&identity)
         .map(|record| record.view.rule_type)
         .ok_or(V8BindingError::Allocation("CSS declaration rule record"))?;
-    let interface = if kind == 1 {
+    let interface = if matches!(kind, 1 | 24) {
         "CSSStyleProperties"
     } else if kind == 5 {
         "CSSFontFaceDescriptors"
