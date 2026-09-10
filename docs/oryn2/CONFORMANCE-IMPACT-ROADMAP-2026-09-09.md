@@ -1,8 +1,9 @@
 # Conformance impact roadmap — 2026-09-09
 
-Assessment of source `9abe008`. This roadmap supersedes the immediate queue in
+Originally assessed at source `9abe008`; updated with the measured implementation
+batches below. This roadmap supersedes the immediate queue in
 `COMPLETE-CONFORMANCE-PLAN-2026-09-06.md`; its completion criteria still apply.
-This is a planning assessment, not a fresh test or conformance qualification.
+Full-inventory results, focused results and remaining work are reported separately.
 
 ## Latest full signed measurement
 
@@ -24,8 +25,8 @@ differ in three CSS and ten history executions, all still failing.
 
 The candidate passes all terminal gates: 516 workspace tests (6 ignored),
 193 binding tests (2 ignored), 398 native tests (5 ignored), formatting and both
-strict Clippy gates. Live traversal is the next bounded batch; native results for
-future changes must not be added to this full total.
+strict Clippy gates. The subsequent signed traversal slice below establishes eleven additional focused
+gains; they are not added to this full total.
 
 ## Preceding full measurement at `82fe3b4`
 
@@ -144,6 +145,42 @@ pass **516 workspace tests (6 ignored)**, **193 binding tests (2 ignored)** and
 V8-enabled all-feature/all-target strict Clippy. The signed full-inventory measurement at `011d470` above now confirms these eight
 whole-execution gains.
 
+## Live TreeWalker batch: signed focused results
+
+The [complete signed traversal slice at `3eee013`](CONFORMANCE-TRAVERSAL-SIGNED-2026-09-09.json)
+passes **13/18**, up from 2/18, with **eleven whole-execution gains and 793 corrected
+assertions**. There are zero whole losses, matched assertion regressions, missing
+or added assertions, ambiguous groups and incomplete executions. Every assertion
+name/status and completion flag matches the native run. The 761-assertion
+TreeWalker matrix passes in full. Production limits are unchanged.
+
+The implementation traverses current light-tree links, separates FILTER_SKIP from
+FILTER_REJECT, permits currentNode outside the root, and invokes filters only when
+traversing. It retains callback identity, guards reentrancy, preserves thrown values,
+converts callback returns using WebIDL rules and produces callback errors in the
+filter realm. Wrapper tracing retains the root/current node/filter and weak
+finalizers release native records.
+
+The [terminal regression gates](CONFORMANCE-TRAVERSAL-NATIVE-2026-09-09.json)
+pass 401 native tests (5 ignored), 193 binding tests (2 ignored), 516 workspace
+tests (6 ignored), generated bindings, formatting and both strict Clippy gates.
+The production worker builds, signs, verifies and passes its mutation smoke test.
+These focused gains await a later full-inventory measurement.
+
+The five remaining traversal executions are explicit follow-ups:
+
+- NodeIterator.html and both removal fixtures: implement live reference/candidate
+  positions and native pre-removal retargeting, including removal during filtering.
+- The detached-iframe callback fixture (despite its TreeWalker filename) creates a
+  NodeIterator: verify lazy callback invocation and detached-realm behavior.
+- TreeWalker-realm.html reads contentDocument immediately after dynamic insertion:
+  implement the initial iframe document lifecycle, then verify foreign-node
+  identity for both callback arguments and returned nodes.
+
+Keep these separate from the larger Stylo resource/ownership work and the existing
+Range command-limit observation gaps. None of the five is included among the
+proven eleven gains, and the full signed baseline remains 3,144/4,022.
+
 ## Original assessment at `9abe008` (historical)
 
 The last complete signed inventory measurement is **3,109/4,022 (77.3%)** at
@@ -211,22 +248,19 @@ Keep one build/test lane, capture the full tool result (including session ID and
 exit code), and poll the same process to terminal completion. Save logs and
 source/artifact identity. Do not restart a command because its output yielded.
 
-Validate CSP once, audit the changed blob registry across worker/fetch/XHR,
-revocation and binary data, and check timer ordering through the public page path.
-Test-local 60-second in-process editing matrices do not demonstrate compliance
-with the production 10-second command limit. Keep a production-path counterpart.
-Reproduce remaining navigation, stale-reference and duplicate-popup failures.
-Finish the default/all-feature workspace gates with the canonical pinned runtime.
+The foundation checks, full regression gates, lossless reporting and paragraph
+regression repair have completed as recorded above. The production Blob URL audit
+covers workers, fetch/XHR, revocation and binary data. All 1,898 native editing
+matrix cases remain; signed inventory execution uses unchanged production limits.
 
-Reconcile the paragraph batch's 102 regressions and 455 missing names against
-exact fixture/assertion identities. Fix or revise the offending implementation;
-preserve the inventory, assertions and production limits. Recheck the six older
-editing regressions and 151 missing observations separately.
+Keep the remaining observation debt explicit: 126 currently unobserved assertions,
+six historical editing regressions and 170 historical ambiguous groups. Profile
+the Range fixtures that exhaust the command budget, then repair the measured
+runtime bottleneck. Preserve fixtures, assertions and limits.
 
-Then freeze one candidate and run all 4,022 signed executions, updating the backlog
-and status from that single ledger. Publish gains, losses, assertion regressions,
-missing observations and failure domains together. Do not claim 3,126 passes by
-adding four cursor gains and thirteen native editing gains to the old total.
+The latest complete ledger is `011d470`; the `3eee013` traversal batch has signed
+focused proof. A subsequent full run must measure its overall impact and regenerate
+the backlog from that single ledger. Do not add focused gains to the total.
 
 **Exit:** terminal validation results and a complete current ledger; no unresolved
 new regressions accepted as progress. Investigate a reproducible validation blocker
@@ -234,49 +268,51 @@ directly rather than spending repeated cycles on unfounded process-leak hypothes
 
 ### 1. Close bounded DOM API gaps with complete-fixture evidence
 
-Start with the five failing `dom/lists/DOMTokenList-*` executions: iterable behavior,
-attribute coverage, iteration, stringification and value/length reflection. These
-share a concrete API and are a better bounded candidate than broad editing work.
-Verify native identity, liveness, token validation and mutation-driven style updates.
-Screen remaining WebIDL and IndexedDB constructor/default-value failures similarly.
+Four DOMTokenList executions now pass through signed full measurement. The
+attribute-coverage fixture retains eight failures across related element token-list
+properties; treat those as a separate bounded follow-up. Live TreeWalker traversal
+now has eleven signed focused gains. Close NodeIterator's live reference/candidate
+positions and removal retargeting next, then verify the remaining iframe-document
+fixture through the shared frame lifecycle. Screen WebIDL and IndexedDB
+constructor/default-value failures with the same complete-fixture discipline.
 
 **Exit:** selected executions complete with all assertions observed, plus passing
-DOM mutation and selector-invalidation coverage. Five is the DOMTokenList screening
-pool, not a promised gain; rerank if later blockers prevent complete fixtures.
+DOM mutation and selector-invalidation coverage. Rerank if later blockers prevent
+complete fixtures.
 
-Next bounded DOM candidate after the current CSS batch: traversal. The current
-full ledger has 16 failing dom/traversal executions. Source inspection shows that
-createTreeWalker/createNodeIterator eagerly run filters over a snapshot, the
-filter getter is absent, currentNode rejects nodes outside the root, and child/
-sibling operations only consider immediate accepted neighbors. These are distinct
-concrete defects, not a forecast of 16 gains. Implement live traversal and filter
-invocation first; separately validate removal retargeting and cross-realm wrappers.
-Use all traversal fixtures, including large matrices, to detect missing assertions
-and callback exceptions before promoting any whole-execution gains.
+Traversal screening identified 16 failing dom/traversal executions in the current
+full ledger. The signed TreeWalker batch above now completes eleven of them;
+NodeIterator and initial-frame document behavior are the remaining follow-ups.
+The previous implementation eagerly filtered snapshots, omitted filter getters and restricted
+TreeWalker currentNode/child/sibling movement incorrectly. The TreeWalker portion
+is repaired and measured. Use all traversal fixtures, including large matrices,
+to validate subsequent NodeIterator and frame changes; preserve every assertion
+and callback exception before promoting any further whole-execution gains.
 
 ### 2. Investigate frame, popup and history lifecycle as the main shared candidate
 
-The history pool has 91 failures. Related symptoms occur in DOM frame tests,
+The current history pool has 89 failures. Related symptoms occur in DOM frame tests,
 IndexedDB origin isolation and referrer inheritance. Reproduce complete fixtures
 for popup creation, same-document navigation, frame replacement, retained Window
 identity, posted messages and history traversal. Trace each event/default action
 from producer through broker to consumer before changing dispatch.
 
-Check test infrastructure first where the ledger reports literal
-`{{headers[referer]}}` responses in history fixtures 009 and 010: verify canonical
-WPT server template processing and resource routing. Do not implement browser
-workarounds for malformed fixture responses. No common cause is yet established.
+Official wptserve substitution and parser-frame history registration now close
+fixtures 009 and 010, with full signed confirmation and unchanged referrer results.
+The next lifecycle screening should start with immediate initial iframe documents,
+popup/context creation and traversal, while preserving stable Window identity.
+No common cause is established for all remaining history failures.
 
 **Exit:** a recorded dependency map linking exact IDs to reproduced causes and
 complete-fixture gains across the affected families. If representative fixtures
-reveal unrelated causes, split the work instead of treating all 91 as one project.
+reveal unrelated causes, split the work instead of treating all 89 as one project.
 
 ### 3. Finish CSS integration around Stylo
 
 Stylo already supplies CSS parsing and cascade. Prioritize missing integration:
 stylesheet import loading and ownership, load completion, CSSOM liveness, selector
-invalidation, then computed/used values and geometry. There are 85 CSSOM, 80
-selector and 39 cascade failures. Twenty-seven selector failures are in the
+invalidation, then computed/used values and geometry. There are 83 CSSOM, 77
+selector and 36 cascade failures. Twenty-seven selector failures are in the
 invalidation directory; that count does not establish a shared cause.
 
 Source inspection narrows the first integration work: `load_parser_stylesheet`
@@ -297,8 +333,9 @@ including movement/reconnection, live rule identity and layout consumers.
 
 ### 4. Resume editing in small, measurable semantic groups
 
-Editing has the largest pool (288), but its latest batch has substantial regression
-debt. After phase 0, split work into paragraph/line-break behavior, plaintext-only
+Editing has the largest remaining pool (271). The earlier paragraph assertion
+regressions are repaired; six historical editing regressions remain. Split further
+work into paragraph/line-break behavior, plaintext-only
 whitespace, selection/range preservation, formatting commands, and undo/input
 events. Finish one group at a time under production limits. A large matrix is a
 regression tool, not a reason to change resource limits or accept absent assertions.

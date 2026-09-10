@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "source_commit": "3eee0130d37cf8fa0929075530865ff115588fb4",
+  "qualification": "Terminal signed focused traversal measurement, not a new full-inventory total or complete-conformance qualification.",
+  "outcome": {
+    "required_finished": 18,
+    "required_passed": 13,
+    "required_total": 18,
+    "status": "failed"
+  },
+  "gains": [
+    "dom/traversal/TreeWalker-acceptNode-filter-cross-realm.html|window|",
+    "dom/traversal/TreeWalker-acceptNode-filter.html|window|",
+    "dom/traversal/TreeWalker-basic.html|window|",
+    "dom/traversal/TreeWalker-currentNode.html|window|",
+    "dom/traversal/TreeWalker-nextNode-detached-currentNode.window.js|window|",
+    "dom/traversal/TreeWalker-previousSiblingLastChildSkip.html|window|",
+    "dom/traversal/TreeWalker-traversal-reject.html|window|",
+    "dom/traversal/TreeWalker-traversal-skip-most.html|window|",
+    "dom/traversal/TreeWalker-traversal-skip.html|window|",
+    "dom/traversal/TreeWalker-walking-outside-a-tree.html|window|",
+    "dom/traversal/TreeWalker.html|window|"
+  ],
+  "losses": [],
+  "assertion_totals": {
+    "corrected": 793,
+    "regressed": 0,
+    "missing": 0,
+    "added": 0,
+    "ambiguous": 0,
+    "multiplicity_mismatch": 0
+  },
+  "incomplete_executions": [],
+  "remaining": [
+    "dom/traversal/NodeIterator-removal-during-filtering.html|window|",
+    "dom/traversal/NodeIterator-removal.html|window|",
+    "dom/traversal/NodeIterator.html|window|",
+    "dom/traversal/TreeWalker-acceptNode-filter-cross-realm-null-browsing-context.html|window|",
+    "dom/traversal/TreeWalker-realm.html|window|"
+  ],
+  "native_projection": {
+    "executions": 18,
+    "assertion_differences": {},
+    "completion_flag_differences": []
+  },
+  "exact_selected_coverage": true,
+  "passed_completions_valid": true,
+  "limits_unchanged": true,
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "9a7f55016d5cbbfdeda9a9f112b8cdcb082aa24dc5ac41700a2dac918ebac83d",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "2c3424d1c0a6caf21e03c456e9b7ebd8e282814605860ad78e6d0a060ecf2345",
+    "worker_binary_sha256": "f7c7bc8412cd4b1f8270d826858ce083d96b06820555bba632237cebe4b29631",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_protocol_version": 8,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "source": {
+    "commit": "3eee0130d37cf8fa0929075530865ff115588fb4",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "binary": {
+    "sha256": "dd815a20a5cc140cf1a8852a0824519e74faf82868450b4719ed3d0ecc11b615",
+    "size_bytes": 7058000
+  },
+  "evidence": {
+    "ledger": {
+      "path": "artifacts/upstream-conformance/conformance-worker-traversal-roadmap-3eee013.json",
+      "sha256": "5d73de483913c1f366f1398040f86207e40216fc30d4c9a325b82e7ef94a52e0"
+    },
+    "baseline": {
+      "path": "artifacts/upstream-conformance/conformance-worker-full-roadmap-011d470.json",
+      "sha256": "ee9c7693d98d1ee99935a7e3fa0400c3d26825e73c2ae9c15679b883b96032dd"
+    },
+    "inventory": {
+      "path": "benchmarks/conformance/runtime-api-style-semantics-v2-inventory.json",
+      "sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47"
+    },
+    "signed_proof": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-3eee013/signed-proof.json",
+      "sha256": "a01eb0ca4c44bffe55571a92eb3f8274ff79e2fc59175309641371b4b5268385"
+    },
+    "native_ledger": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-native-2026-09-09.jsonl",
+      "sha256": "71d138c8911166159d318d876f98cf5bd1996c564dc63641c9f1201d8f09fc03"
+    },
+    "audit": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-3eee013-signed-audit.json",
+      "sha256": "451c18ffd02610fee2dd4957d7f6a0e899b8a45f70ca94b60192c40885e8fea1"
+    },
+    "audit_script": {
+      "path": "artifacts/upstream-conformance/audit-roadmap-traversal-3eee013-signed.py",
+      "sha256": "da00ea900a03a915b32eeeeb27220a196b494a579c0d525865f465e11c55d53a"
+    },
+    "signed_log": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-3eee013-signed.log",
+      "sha256": "6c9ccd5e075bb92527bb7b932a6a02b7042126a002441bc491f15c72141d4cb3"
+    },
+    "signed_build_log": {
+      "path": "artifacts/upstream-conformance/roadmap-traversal-3eee013-signed-build.log",
+      "sha256": "d0e0260377f2a87cb6ddd268fc16642327405eae0c41cef5fc151ec14982e294"
+    }
+  }
+}

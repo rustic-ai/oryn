@@ -44,9 +44,25 @@ V8-enabled all-feature/all-target strict Clippy pass. The CSSOM suite passes
 35 tests, and the complete native CSS audit passes 368/564. The unchanged runner's
 46 tooling tests passed in the preceding history batch.
 
-Follow the [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md). Live DOM
-traversal is the next bounded implementation; Stylo import/stylesheet ownership
-and Range performance remain open. Full conformance still requires
+The subsequent TreeWalker batch at `3eee013` replaces eager snapshots with live
+traversal, lazy filters, reentrancy protection and callback-realm exception handling.
+Its [complete signed traversal slice](CONFORMANCE-TRAVERSAL-SIGNED-2026-09-09.json)
+passes **13/18**, gaining **eleven whole executions and 793 assertions**. Every
+assertion and completion flag matches the native run. There are no whole losses,
+matched regressions, missing/added assertions, ambiguous names or incomplete
+executions in this comparison. The five remaining executions concern NodeIterator
+and immediate iframe document/foreign-node behavior. These focused gains are not
+added to the full total above.
+
+[Traversal regression gates](CONFORMANCE-TRAVERSAL-NATIVE-2026-09-09.json) pass
+**401 native tests (5 ignored)**, **193 binding tests (2 ignored)** and
+**516 workspace tests (6 ignored)**, plus generated bindings, formatting and both
+strict Clippy gates. The production worker build, signature verification and
+DOM-mutation smoke test pass.
+
+Follow the [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md). Live
+NodeIterator mutation retargeting, initial iframe documents, Stylo stylesheet
+ownership and Range performance remain open. Full conformance still requires
 **4,022/4,022 twice on one frozen signed candidate**, with all qualification gates
 and regression observations resolved.
 

@@ -52,17 +52,17 @@ Use the linked impact roadmap as the active queue. Earlier milestone sections be
 requirements; their dated counts and completed experiments do not override the
 011d470 measurement above.
 
-The principal throughput failure has been treating assertion repairs and removal
-of first blockers as evidence that a batch will complete fixtures. They are useful
-correctness work, but the latest signed batch added three whole passes. In addition,
-the regenerated backlog has no confirmed root causes populated. Routing categories
-and similar error messages cannot substitute for a reproduced dependency map.
+The original throughput failure was treating assertion repairs and removal of first
+blockers as proof that a batch would complete fixtures. The impact roadmap now
+records two full measured batches (+35 executions) and a subsequent signed focused
+TreeWalker batch (+11). Keep diagnosis, complete-fixture validation and explicit
+regression reconciliation as the selection discipline.
 
 Before implementing a new mechanism, record exact affected IDs, the production
 path, a representative complete fixture, every known later blocker and the whole
 fixture acceptance criterion. Rank demonstrated completion paths ahead of apparent
-family size. Concentrate investigation on DOM, editing and CSS (754 failures),
-while closing the reproduced signed/native IndexedDB discrepancy.
+family size. Concentrate investigation on DOM, editing and CSS (710 failures in
+the latest full ledger), using the impact roadmap's current queue.
 
 Run complete affected native suites and relevant passing coverage before promotion.
 After two unsuccessful implementation/validation cycles, revisit the causal model;
