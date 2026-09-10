@@ -2412,6 +2412,7 @@ impl RustExecutableDocument {
             scripts.sort_by_key(|script| script.6);
         }
         let mut node_realms = BTreeMap::new();
+        let mut frame_realms = BTreeMap::new();
         let mut initial_frame_realms = Vec::new();
         for (frame_index, (frame, source)) in frame_sources.into_iter().enumerate() {
             let Some(source) = source.filter(|source| !source.trim().is_empty()) else {
@@ -2565,6 +2566,22 @@ impl RustExecutableDocument {
             if let Some(frame_url) = &frame_url {
                 host.commit_location(frame_url.as_str())?;
             }
+            let committed_url = frame_url
+                .as_ref()
+                .map_or_else(|| "about:blank".to_owned(), Url::to_string);
+            host.execute(&format!(
+                "globalThis.__oryn_request_initiator_url={}",
+                serde_json::to_string(&committed_url)
+                    .map_err(|error| HostError::Execution(error.to_string()))?
+            ))?;
+            frame_realms.insert(
+                realm,
+                FrameRealm {
+                    parent_realm: top_realm,
+                    frame,
+                    committed_url,
+                },
+            );
             let referrer = serde_json::to_string(base_url.as_ref().map_or("", url::Url::as_str))
                 .map_err(|error| HostError::Execution(error.to_string()))?;
             host.execute(&format!("globalThis.__oryn_document_referrer={referrer}"))?;
@@ -2651,7 +2668,7 @@ impl RustExecutableDocument {
             host,
             top_realm,
             node_realms,
-            frame_realms: BTreeMap::new(),
+            frame_realms,
             pending_frame_navigations: BTreeMap::new(),
             base_url,
             resources,
@@ -3256,8 +3273,15 @@ impl RustExecutableDocument {
 
     fn drain_frame_location_navigations(&mut self) -> Result<(), HostError> {
         let mut navigations = Vec::new();
-        for (realm, owner) in self.frame_realms.clone() {
+        for (realm, mut owner) in self.frame_realms.clone() {
             self.host.activate_realm(realm)?;
+            // History commits retain the frame's document. Consume these
+            // before looking for a Location navigation, including when both
+            // operations occurred in the same script task.
+            if let Some(url) = self.host.take_history_url_update() {
+                owner.committed_url = url;
+                self.frame_realms.insert(realm, owner.clone());
+            }
             let href = self.host.evaluate_string("location.href")?;
             if let Some(source) = href.strip_prefix("javascript:") {
                 execute_javascript_url(&mut self.host, source, &owner.committed_url)?;

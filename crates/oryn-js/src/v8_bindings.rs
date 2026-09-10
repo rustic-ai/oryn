@@ -16290,7 +16290,19 @@ fn set_location_href(scope: &mut v8::PinScope, href: &str) -> Result<(), V8Bindi
     if let Some(state) = scope.get_current_context().get_slot::<V8BindingState>()
         && state.binding_global == BindingGlobal::Window
     {
-        return state.commit_location(href);
+        state.commit_location(href)?;
+        // Requests issued later in this very task must use the document's
+        // updated URL, before the embedder consumes the history checkpoint.
+        // Preserve inherited referrer handling for about:blank/srcdoc.
+        if Url::parse(href).is_ok_and(|url| matches!(url.scheme(), "http" | "https")) {
+            let global = scope.get_current_context().global(scope);
+            let key = v8_string(scope, "__oryn_request_initiator_url")?;
+            let value = v8_string(scope, href)?;
+            if !global.set(scope, key, value).unwrap_or(false) {
+                return Err(V8BindingError::Allocation("history request initiator URL"));
+            }
+        }
+        return Ok(());
     }
     let location = global_property(scope, "location")?
         .to_object(scope)

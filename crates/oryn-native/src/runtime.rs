@@ -10847,6 +10847,153 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn generated_blob_urls_share_bytes_across_fetch_xhr_and_workers() {
+        let page = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context()
+            .new_page();
+        page.load_html("https://blob.example.test/", r#"<!doctype html><output id=result>pending</output><script>
+            const result=document.getElementById('result');
+            (async () => {
+                const readXHR=url=>new Promise((resolve,reject)=>{
+                    const xhr=new XMLHttpRequest();xhr.open('GET',url);xhr.responseType='arraybuffer';
+                    xhr.onload=()=>resolve([...new Uint8Array(xhr.response)]);
+                    xhr.onerror=()=>reject(new Error('XHR failed'));xhr.send();
+                });
+                const bytes=[0,255,128,0,1];
+                const url=URL.createObjectURL(new Blob([new Uint8Array(bytes)]));
+                const fetched=[...new Uint8Array(await (await fetch(url)).arrayBuffer())];
+                const xhr=await readXHR(url);
+                const source='postMessage("shared-registry")';
+                const workerURL=URL.createObjectURL(new Blob([source],{type:'application/javascript'}));
+                const fetchedSource=await (await fetch(workerURL)).text();
+                const reply=await new Promise((resolve,reject)=>{
+                    const worker=new Worker(workerURL);
+                    worker.onmessage=event=>{resolve(event.data);worker.terminate()};
+                    worker.onerror=event=>reject(new Error(event.message));
+                });
+                URL.revokeObjectURL(url);URL.revokeObjectURL(workerURL);
+                let fetchRejected=false,xhrRejected=false;
+                try {await fetch(url)} catch {fetchRejected=true}
+                try {await readXHR(url)} catch {xhrRejected=true}
+                result.textContent=JSON.stringify({fetched,xhr,fetchedSource,reply,fetchRejected,xhrRejected});
+            })().catch(error=>result.textContent=String(error)).finally(()=>result.setAttribute('data-done',''));
+        </script>"#).await.unwrap();
+        page.wait_for(WaitPredicate::SelectorExists("#result[data-done]".into()))
+            .await
+            .unwrap();
+        let value = page
+            .evaluate("document.getElementById('result').textContent")
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&value).expect(&value),
+            serde_json::json!({
+                "fetched": [0,255,128,0,1], "xhr": [0,255,128,0,1],
+                "fetchedSource": "postMessage(\"shared-registry\")", "reply": "shared-registry",
+                "fetchRejected": true, "xhrRejected": true,
+            })
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn frame_history_updates_keep_document_and_update_navigation_referrer() {
+        struct FrameHistoryFixture(Arc<Mutex<Vec<NetworkRequest>>>);
+        impl NetworkBroker for FrameHistoryFixture {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                let body = match Url::parse(&request.url).unwrap().path() {
+                    "/start" if request.url.ends_with("?dynamic") => {
+                        "<!doctype html><body><script>const frame=document.createElement('iframe');frame.id='child';frame.src='/child';document.body.appendChild(frame)</script>"
+                    }
+                    "/start" => "<!doctype html><iframe id=child src=/child></iframe>",
+                    "/child" => {
+                        r#"<!doctype html><p id=marker>original</p><script>
+                        globalThis.originalMarker=document.getElementById('marker');
+                        globalThis.navigateFromHere=()=>{location.href='/destination'};
+                        globalThis.updateHistory=(method, navigate)=>{
+                            history[method]({key:7},'', '/changed?state=7');
+                            parent.immediateInitiator=globalThis.__oryn_request_initiator_url;
+                            if(navigate) location.href='/destination';
+                        };
+                    </script>"#
+                    }
+                    "/destination" => "<!doctype html><p>destination</p>",
+                    _ => panic!("same-document URL was fetched: {}", request.url),
+                };
+                let response = NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), "text/html".into())],
+                    body: body.as_bytes().to_vec(),
+                };
+                self.0.lock().unwrap().push(request);
+                Ok(response)
+            }
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let context = Browser::new().new_context_with_broker(
+            ContextOptions::default(),
+            SharedNetworkBroker::new(FrameHistoryFixture(requests.clone())),
+        );
+        for query in ["", "?dynamic"] {
+            for method in ["pushState", "replaceState"] {
+                for same_task in [false, true] {
+                    let page = context.new_page();
+                    page.goto(format!("https://history.example.test/start{query}"))
+                        .await
+                        .unwrap();
+                    page.evaluate(format!(
+                    "document.getElementById('child').contentWindow.updateHistory('{method}',{same_task});'updated'"
+                )).await.unwrap();
+                    assert_eq!(
+                        page.evaluate("immediateInitiator").await.unwrap(),
+                        "https://history.example.test/changed?state=7"
+                    );
+                    if !same_task {
+                        assert_eq!(page.evaluate("(() => {const w=document.getElementById('child').contentWindow;return [w.location.pathname,w.history.state.key,w.document.getElementById('marker')===w.originalMarker].join('|')})()").await.unwrap(), "/changed|7|true");
+                        page.evaluate("document.getElementById('child').contentWindow.navigateFromHere();'requested'").await.unwrap();
+                    }
+                    assert_eq!(
+                        page.evaluate("document.getElementById('child').contentDocument.referrer")
+                            .await
+                            .unwrap(),
+                        "https://history.example.test/changed?state=7",
+                        "method={method} same_task={same_task} requests={:?}",
+                        requests.lock().unwrap()
+                    );
+                    assert_eq!(
+                        page.evaluate(
+                            "typeof document.getElementById('child').contentWindow.originalMarker"
+                        )
+                        .await
+                        .unwrap(),
+                        "undefined"
+                    );
+                }
+            }
+        }
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 24);
+        for request in requests
+            .iter()
+            .filter(|request| request.url.ends_with("/destination"))
+        {
+            assert_eq!(
+                request
+                    .headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("referer"))
+                    .map(|(_, value)| value.as_str()),
+                Some("https://history.example.test/changed?state=7")
+            );
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn editing_empty_paragraph_join_keeps_one_placeholder_and_caret() {
         let page = Browser::new().new_context().new_page();
         page.load_html("https://editing.example.test/empty", "<!doctype html><div id=editor contenteditable><p><tt>x</tt></p><p><tt><br></tt></p><p><tt><br></tt></p></div>").await.unwrap();
