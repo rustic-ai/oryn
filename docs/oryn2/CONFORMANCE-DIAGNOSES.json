@@ -277,6 +277,46 @@
         "Required argument TypeError through actual MediaList binding"
       ],
       "acceptance": "All unchanged fixture assertions execute and pass; verify actual required-argument behavior, stylesheet applicability, and complete CSSOM/cascade regressions."
+    },
+    {
+      "id": "html/browsers/history/the-history-interface/009.html|window|",
+      "cause": "The canonical fixture server bypasses the upstream pipe=sub pipeline for plain HTML, leaving the request Referer template literal in the response.",
+      "observations": [
+        {
+          "ledger_sha256": "44cc155ccc7f3960e48e68f159199af2f472c6e6cc01965211835c6a1c18c520",
+          "source_commit": "82fe3b480b4dead4eb37cd05840838f553855825",
+          "assertion_names": [
+            "HTTP Referer should use the pushed state",
+            "HTTP Referer should use the replaced state"
+          ],
+          "evidence": [
+            "docs/oryn2/CONFORMANCE-ROADMAP-FULL-2026-09-09.json",
+            "The pinned 009-3/009-5 and 010-3/010-5 HTML resources use {{headers[referer]}} and are requested with ?pipe=sub.",
+            "Handler.do_GET at 82fe3b4 reads plain HTML directly; only .sub.html files receive local token substitution. The ledger records the unresolved literal.",
+            "Delegating to the pinned official wptserve pipeline was verified with real loopback requests carrying a Referer header for both 009 and 010."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "html/browsers/history/the-history-interface/010.html|window|",
+      "cause": "The canonical fixture server bypasses the upstream pipe=sub pipeline for plain HTML, leaving the request Referer template literal in the response.",
+      "observations": [
+        {
+          "ledger_sha256": "44cc155ccc7f3960e48e68f159199af2f472c6e6cc01965211835c6a1c18c520",
+          "source_commit": "82fe3b480b4dead4eb37cd05840838f553855825",
+          "assertion_names": [
+            "HTTP Referer should use the pushed state (before onload)",
+            "HTTP Referer should use the replaced state (before onload)"
+          ],
+          "evidence": [
+            "docs/oryn2/CONFORMANCE-ROADMAP-FULL-2026-09-09.json",
+            "The pinned 009-3/009-5 and 010-3/010-5 HTML resources use {{headers[referer]}} and are requested with ?pipe=sub.",
+            "Handler.do_GET at 82fe3b4 reads plain HTML directly; only .sub.html files receive local token substitution. The ledger records the unresolved literal.",
+            "Delegating to the pinned official wptserve pipeline was verified with real loopback requests carrying a Referer header for both 009 and 010."
+          ]
+        }
+      ]
     }
   ]
 }

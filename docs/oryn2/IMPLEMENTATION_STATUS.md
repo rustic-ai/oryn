@@ -1,64 +1,66 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,109/4,022 (77.3%)**, **913 remaining**.
+> Latest full measurement: **3,134/4,022 (77.9%)**, **888 remaining**.
 
-The signed run at `9faec9a` passes **3,109/4,022 (77.3%)**, with **913 remaining**.
-It gains eight IndexedDB executions versus `093a846`, with zero whole-execution
-losses and zero observed assertion regressions. Atomic batch rollback, exact
-incremental quota accounting, compact binary storage and fair completion scheduling
-now have regression coverage. Stylo remains the CSS engine.
+The complete signed run at `82fe3b4` gains **25 whole executions** over `9faec9a`,
+with **zero whole-execution losses** and **zero uniquely matched assertion
+regressions**. The gains are 17 editing, four DOMTokenList and four IndexedDB
+cursor executions. Stylo remains the CSS engine. The inventory and production
+command, memory and transport limits are unchanged.
 
-Six historical editing regressions remain. This run did not observe 42 previously
-passing Range assertions. Four of the preceding 113 missing assertions recovered;
-109 remain missing, leaving **151 total unobserved assertions**. No gap is waived.
+[Full signed evidence](CONFORMANCE-ROADMAP-FULL-2026-09-09.json) binds the terminal
+4,022-execution ledger to the frozen source, signed binaries and runtime identity.
+The canonical validator verifies exact coverage and every passing completion.
+The [failure backlog](CONFORMANCE-FAILURE-BACKLOG-2026-09-06.json) is regenerated
+from this one ledger, without overlays from focused runs.
 
-[Full evidence](CONFORMANCE-IDB-FULL-2026-09-09.json) records exact inventory
-coverage, signed source/binary identity, unchanged limits and assertion reconciliation.
-[Native evidence](CONFORMANCE-IDB-NATIVE-2026-09-09.json) records 420/456 native
-IndexedDB passes and 20/20 worker commit repeats. The signed run passes 416/456:
-two cursor executions exceed worker RSS and two exceed the context-frame capacity.
-Complete conformance remains unmet.
+The assertion comparison records 1,673 corrections. Fourteen older missing
+observations recovered; 137 remain missing, plus five newly unobserved Range
+assertions, for **142 unobserved assertions**. Six historical editing regressions
+and 170 legacy duplicate-name groups remain unresolved. None is waived. The
+lossless reporter prevents future whitespace corruption. The 709-execution
+editing/DOMTokenList projection exactly matches the preceding native audit's
+assertions and statuses, with no missing names or collisions; seven existing
+incomplete/harness executions persist in both.
 
-Since that full measurement, signed candidate `9517a08` fixes the four resource-bound
-cursor executions in focused runs with one job and four jobs. Bounded retrieval
-returns one record per step and preserves live mutation visibility, ordering and
-bulk APIs. [Focused signed evidence](CONFORMANCE-CURSOR-STEP-SIGNED-2026-09-09.json)
-binds both runs to the same source and binaries. These results do not replace the
-full-inventory total above.
+Implementation includes typing-style preservation and nesting order, live indexed
+DOMTokenList behavior and value forwarding, bounded cursor retrieval, and fixes
+for detached semantic targets, duplicate link activation and same-document deltas.
+All 1,898 editing matrix cases remain under the default command limit by yielding
+between complete cases. The canonical test script now propagates cargo failures
+and rejects Clippy warnings.
 
-Paragraph creation is implemented at `e9d3fe0`. Its native audit reports 429/704
-passes and 13 complete gains, but also 102 assertion regressions and 455 missing
-assertion names requiring reconciliation. Subsequent validation/CSP commits through
-`9abe008` do not establish a new complete inventory result or a green full build.
-The roadmap implementation has since passed the full native library suite
-(394 passed, 5 ignored), followed by 193 passing binding tests after DOMTokenList
-and typing-order changes. A [complete native rerun of the selected slice](CONFORMANCE-ROADMAP-NATIVE-2026-09-09.json)
-passes **437/709**: 433 editing executions and four DOMTokenList fixtures, with
-21 complete gains and no losses against the signed baseline. It repairs all 106
-uniquely matched paragraph assertion regressions. Compared with the previous raw
-native paragraph audit, 152 assertions recover with no assertion regressions or
-missing names. Seven pre-existing incomplete/harness observations remain.
-The old reporter corrupted assertion-name whitespace; its fix and a duplicate-aware
-reconciler are tested, but 155 legacy name-collision groups remain unresolved.
-These native results do not change the full signed inventory total.
-Follow the [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md): reconcile
-regressions and measure the current candidate, then prioritize bounded DOM closure,
-frame/history lifecycle diagnosis and Stylo integration. Range observations, editing regressions,
-stylesheet imports, font readiness/fallback, DOMTokenList, OpaqueRange geometry and
-popup lifecycle remain in scope. Completion still requires 4,022/4,022 twice on
-one frozen signed candidate and every qualification gate.
+Validation at the measured candidate: **516 workspace tests passed, 6 ignored**,
+formatting and strict workspace Clippy passed; **193 binding tests passed, 2 ignored**,
+and separate V8-enabled all-target strict Clippy passed. The full native library
+suite passed **394 tests, 5 ignored**, before the final DOMTokenList/typing-order
+changes; the subsequent 709-execution native audit and signed full run cover those
+changes. See [native evidence](CONFORMANCE-ROADMAP-NATIVE-2026-09-09.json) for the
+exact validation sequence.
+
+The next batch registers parser-created frames for navigation, consumes frame
+history URL commits, updates request referrers synchronously, and runs plain HTML
+substitution through official wptserve. Its [native validation](CONFORMANCE-HISTORY-NATIVE-2026-09-09.json)
+is green: 396 native tests, 193 binding tests, 516 workspace tests, 46 tooling
+tests, formatting and both strict Clippy gates. Signed history measurement is
+pending; these changes do not alter the full signed total above.
+
+Follow the [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md). Frame/history
+lifecycle and Stylo import/CSSOM integration remain the next shared candidates.
+Full conformance still requires **4,022/4,022 twice on one frozen signed candidate**,
+with all qualification gates and regression observations resolved.
 
 | Root | Passed / required |
 |---|---:|
-| IndexedDB | 416/456 |
+| IndexedDB | 420/456 |
 | WebIDL | 31/58 |
 | accname | 15/19 |
 | css/css-cascade | 58/97 |
 | css/cssom | 105/190 |
 | css/selectors | 197/277 |
-| dom | 415/662 |
-| editing | 416/704 |
+| dom | 419/662 |
+| editing | 433/704 |
 | html/browsers/history | 45/136 |
 | referrer-policy | 1383/1391 |
 | wai-aria | 28/32 |

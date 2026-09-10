@@ -4,16 +4,25 @@ Assessment of source `9abe008`. This roadmap supersedes the immediate queue in
 `COMPLETE-CONFORMANCE-PLAN-2026-09-06.md`; its completion criteria still apply.
 This is a planning assessment, not a fresh test or conformance qualification.
 
-## Implementation in progress
+## Current implementation and qualification
 
-The [completed native slice rerun](CONFORMANCE-ROADMAP-NATIVE-2026-09-09.json) passes
-**437/709 executions**: 433/704 editing and 4/5 DOMTokenList. Relative to the last
-signed baseline this is 21 whole-execution gains and zero losses; it includes gains
-from the previous paragraph work. All 106 uniquely matched paragraph assertion
-regressions are repaired. Against the prior raw native paragraph audit there are
-152 corrected assertions, zero regressions, zero missing names and no duplicate-name
-ambiguities. Seven existing incomplete/harness observations persist. Signed
-qualification is pending; the full signed inventory total remains 3,109/4,022.
+The [full signed run at `82fe3b4`](CONFORMANCE-ROADMAP-FULL-2026-09-09.json)
+passes **3,134/4,022 (77.9%)**, with **888 remaining**. It gains 25 whole executions
+(17 editing, four DOMTokenList, four IndexedDB cursor), with zero whole losses and
+zero uniquely matched assertion regressions. Exact inventory coverage and valid
+passing completions are verified under unchanged production limits.
+
+The selected 709-execution native audit passes 437 executions. Its exact assertion
+names and statuses match the same projection of the signed full run: zero added,
+missing, regressed or ambiguous assertions. Seven pre-existing incomplete/harness
+executions persist. The previous paragraph batch's 106 uniquely matched assertion
+regressions are repaired.
+
+The full baseline comparison records 1,673 corrections, five new missing Range
+observations, and 170 legacy duplicate-name groups. Fourteen older missing
+observations recover, leaving 137 older plus five new missing observations. Six
+historical editing regressions persist. These observations remain open; the batch
+is not regression-free release qualification.
 
 Implemented changes:
 
@@ -43,13 +52,41 @@ of `oryn-js` and `oryn-native` with all features enabled.
 The legacy transport model accounts for the old audit's missing-name reports:
 there are zero missing normalized name groups, but **155 duplicate-name collision
 groups remain unresolved**. They are not waived or counted as regression-free proof.
-Current lossless publication prevents that corruption in future evidence.
+Current lossless publication prevents that corruption in future evidence. The full
+run above additionally finds 15 pre-existing duplicate groups outside this native slice.
 
-## What is established
+## Next batch under validation
+
+- Register parser-created frame realms in the existing navigation registry and
+  initialize their request initiator URLs. Previously only dynamic frames were
+  registered, leaving parser-frame Location changes without a loader consumer.
+- Consume frame-local history URL updates before detecting cross-document
+  navigation. Update the request initiator synchronously in the native History
+  operation, so same-task requests observe the new document URL.
+- Delegate plain HTML `?pipe=sub` responses to pinned upstream wptserve before
+  injecting the result collector. Real loopback requests verify the Referer
+  substitution in history fixtures 009 and 010; 46 tooling tests pass.
+- The native integration test passes for parser and dynamic frames, both history
+  methods and both same-task/later-task child navigation. It verifies retained
+  document identity, absence of synthetic-URL fetches, HTTP Referer and
+  document.referrer after navigation.
+- The generated production Blob URL path passes the binary fetch/XHR, worker
+  source sharing and revocation audit. Its native registry is used when generated
+  APIs are installed; the bootstrap text registry is a separate diagnostic fallback.
+
+Both new native integration tests pass. The full all-features native library suite
+passes **396 tests, with 5 ignored**, in 549.85 seconds. Signed WPT qualification
+of this next batch is pending. The binding suite passes 193 tests (2 ignored);
+the canonical workspace gate passes 516 tests (6 ignored), formatting and strict
+Clippy. The separate all-features/all-target V8 Clippy gate also passes.
+[Validation evidence](CONFORMANCE-HISTORY-NATIVE-2026-09-09.json) retains log and
+source hashes. These changes do not alter the
+3,134/4,022 full measurement above.
+
+## Original assessment at `9abe008` (historical)
 
 The last complete signed inventory measurement is **3,109/4,022 (77.3%)** at
-`9faec9a`, with **913 failing executions**. Current HEAD has not been measured
-against the complete inventory. A signed Git commit is not a signed-worker
+`9faec9a`, with **913 failing executions**. That assessment predated the full run above. A signed Git commit is not a signed-worker
 conformance result.
 
 | Area | Passing / required | Remaining |
@@ -170,6 +207,14 @@ stylesheet import loading and ownership, load completion, CSSOM liveness, select
 invalidation, then computed/used values and geometry. There are 85 CSSOM, 80
 selector and 39 cascade failures. Twenty-seven selector failures are in the
 invalidation directory; that count does not establish a shared cause.
+
+Source inspection narrows the first integration work: `load_parser_stylesheet`
+currently flattens imports without retaining their conditions, while parser and
+dynamic stylesheet completion append synthetic style elements instead of publishing
+into the original owner. The next CSS batch should preserve the import resource
+graph, resolved URLs, owner identity and load completion through the existing
+Stylo/CSSOM path, then measure full import/layer/scope fixtures. Do not infer a
+whole-fixture gain from resolving only a missing load callback.
 
 Use full fixtures for import/layer/scope behavior to validate resource loading
 through Stylo and native CSSOM. Implement font readiness only when a reproduced

@@ -1,6 +1,6 @@
 # Complete conformance execution plan
 
-Current full-run evidence: signed candidate `9faec9a`, measured on 2026-09-09.
+Current full-run evidence: signed candidate `82fe3b4`, measured on 2026-09-09.
 The [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md) supersedes this
 document's immediate execution queue. Its definition of done remains in force;
 earlier batch sections remain history.
@@ -34,37 +34,23 @@ assertions, infer completion from a probe, or supply test-specific API substitut
 
 ## Evidence and what it tells us
 
-The signed run at `9faec9a` passes **3,109/4,022 (77.3%)**, with **913 remaining**.
-It gains eight IndexedDB executions versus `093a846`, with zero whole-execution
-losses and zero observed assertion regressions. Atomic batch rollback, exact
-incremental quota accounting, compact binary storage and fair completion scheduling
-now have regression coverage. Stylo remains the CSS engine.
+The [full signed run at `82fe3b4`](CONFORMANCE-ROADMAP-FULL-2026-09-09.json)
+passes **3,134/4,022 (77.9%)**, with **888 remaining**: 25 whole-execution gains
+and zero whole losses over `9faec9a`. The canonical validator checks exact inventory
+coverage and passing completions, with unchanged production limits. Stylo remains
+the CSS engine.
 
-Six historical editing regressions remain. This run did not observe 42 previously
-passing Range assertions. Four of the preceding 113 missing assertions recovered;
-109 remain missing, leaving **151 total unobserved assertions**. No gap is waived.
-
-[Full evidence](CONFORMANCE-IDB-FULL-2026-09-09.json) records exact inventory
-coverage, signed source/binary identity, unchanged limits and assertion reconciliation.
-[Native evidence](CONFORMANCE-IDB-NATIVE-2026-09-09.json) records 420/456 native
-IndexedDB passes and 20/20 worker commit repeats. The signed run passes 416/456:
-two cursor executions exceed worker RSS and two exceed the context-frame capacity.
-Complete conformance remains unmet.
-
-Signed `9517a08` subsequently passes the four cursor executions in focused runs
-with one job and four jobs under unchanged resource limits.
-[Focused signed evidence](CONFORMANCE-CURSOR-STEP-SIGNED-2026-09-09.json) records
-both runs and the separate 456-execution native regression audit. The latest full
-measurement remains 3,109/4,022. Move to paragraph creation at block editing hosts,
-then measure the combined changes with the complete inventory. Focused results
-never replace the final full-inventory gate or erase missing observations.
+The assertion audit finds 1,673 corrections and zero uniquely matched regressions.
+Six historical editing regressions, 142 missing observations and 170 legacy
+name-collision groups remain unresolved. The native editing/DOMTokenList audit's
+709 executions match their signed full-run projection exactly; seven pre-existing
+incomplete/harness executions persist. No gap is waived and completion remains unmet.
 
 ## Current execution strategy
 
-Use the immediate sequence at the end of this document as the single active
-queue. Earlier milestone sections below preserve historical evidence and subsystem
+Use the linked impact roadmap as the active queue. Earlier milestone sections below preserve historical evidence and subsystem
 requirements; their dated counts and completed experiments do not override the
-9faec9a measurement above.
+82fe3b4 measurement above.
 
 The principal throughput failure has been treating assertion repairs and removal
 of first blockers as evidence that a batch will complete fixtures. They are useful

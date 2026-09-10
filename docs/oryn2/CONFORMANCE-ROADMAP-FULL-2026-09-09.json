@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "source_commit": "82fe3b480b4dead4eb37cd05840838f553855825",
+  "qualification": "Terminal signed full inventory measurement; conformance and regression-free release qualification remain unmet. Missing and ambiguous observations are not waived.",
+  "outcome": {
+    "required_finished": 4022,
+    "required_passed": 3134,
+    "required_total": 4022,
+    "status": "failed"
+  },
+  "counts_by_root": {
+    "IndexedDB": {
+      "passed": 420,
+      "required": 456
+    },
+    "WebIDL": {
+      "passed": 31,
+      "required": 58
+    },
+    "accname": {
+      "passed": 15,
+      "required": 19
+    },
+    "css/css-cascade": {
+      "passed": 58,
+      "required": 97
+    },
+    "css/cssom": {
+      "passed": 105,
+      "required": 190
+    },
+    "css/selectors": {
+      "passed": 197,
+      "required": 277
+    },
+    "dom": {
+      "passed": 419,
+      "required": 662
+    },
+    "editing": {
+      "passed": 433,
+      "required": 704
+    },
+    "html/browsers/history": {
+      "passed": 45,
+      "required": 136
+    },
+    "referrer-policy": {
+      "passed": 1383,
+      "required": 1391
+    },
+    "wai-aria": {
+      "passed": 28,
+      "required": 32
+    }
+  },
+  "gains": [
+    "IndexedDB/interleaved-cursors-large.any.js|dedicatedworker|",
+    "IndexedDB/interleaved-cursors-large.any.js|window|",
+    "IndexedDB/interleaved-cursors-small.any.js|dedicatedworker|",
+    "IndexedDB/interleaved-cursors-small.any.js|window|",
+    "dom/lists/DOMTokenList-Iterable.html|window|",
+    "dom/lists/DOMTokenList-iteration.html|window|",
+    "dom/lists/DOMTokenList-stringifier.html|window|",
+    "dom/lists/DOMTokenList-value.html|window|",
+    "editing/other/insertlinebreak-with-white-space-style.tentative.html|window|?nowrap",
+    "editing/other/insertlinebreak-with-white-space-style.tentative.html|window|?pre",
+    "editing/other/insertlinebreak-with-white-space-style.tentative.html|window|?pre-line",
+    "editing/other/insertlinebreak-with-white-space-style.tentative.html|window|?pre-wrap",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=nowrap&command=insertParagraph",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=nowrap&command=insertText",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre&command=insertParagraph",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre&command=insertText",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre-line&command=insertParagraph",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre-line&command=insertText",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre-wrap&command=insertParagraph",
+    "editing/other/insertparagraph-with-white-space-style.tentative.html|window|?white-space=pre-wrap&command=insertText",
+    "editing/plaintext-only/insertParagraph.html|window|?white-space=normal",
+    "editing/plaintext-only/insertParagraph.html|window|?white-space=pre",
+    "editing/plaintext-only/insertParagraph.html|window|?white-space=pre-line",
+    "editing/plaintext-only/insertParagraph.html|window|?white-space=pre-wrap",
+    "editing/whitespaces/chrome-compat/insertparagraph.tentative.html|window|"
+  ],
+  "losses": [],
+  "assertion_totals": {
+    "corrected": 1673,
+    "regressed": 0,
+    "missing": 5,
+    "added": 22,
+    "ambiguous": 170,
+    "multiplicity_mismatch": 0
+  },
+  "loopback_origin_reconciliations": [
+    {
+      "id": "html/browsers/history/the-history-interface/history_pushstate_url_rewriting.html|window|",
+      "before_origin": "http://localhost:54466/",
+      "after_origin": "http://localhost:50767/",
+      "normalized_name_status_multisets_equal": true,
+      "assertion_count": 7
+    }
+  ],
+  "ledger_sha256": "44cc155ccc7f3960e48e68f159199af2f472c6e6cc01965211835c6a1c18c520",
+  "baseline_sha256": "e0a5e98d60cbf66415412d7170296fa231b1b3ae009f66d122dacb3225a89f40",
+  "inventory_sha256": "e2a486d7e5ecb0a4b85420062ab6263c60a401a22ab09a569079f5b3690dcf47",
+  "signed_proof_sha256": "9424100b7afbdbdf24f4b7111822b43dc0c8d4af3a7f5d97d7fd391e43898702",
+  "source": {
+    "commit": "82fe3b480b4dead4eb37cd05840838f553855825",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_file_count": 0,
+    "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "binary": {
+    "sha256": "93cc94980155e38cda46d1b532bbfa28cef82be1f996ba7666f22c66cae4a7ca",
+    "size_bytes": 7058000
+  },
+  "evidence": {
+    "ledger": "artifacts/upstream-conformance/conformance-worker-full-roadmap-82fe3b4.json",
+    "baseline": "artifacts/upstream-conformance/conformance-worker-full-dom-boundaries-9faec9a.json",
+    "signed_proof": "artifacts/upstream-conformance/roadmap-82fe3b4/signed-proof.json",
+    "audit": "artifacts/upstream-conformance/roadmap-82fe3b4-full-audit.json",
+    "audit_script": "artifacts/upstream-conformance/audit-roadmap-82fe3b4-full.py",
+    "native_to_signed_reconciliation": "artifacts/upstream-conformance/roadmap-82fe3b4-native-to-signed-reconciliation.json"
+  },
+  "exact_coverage": true,
+  "limits_unchanged": true,
+  "remaining_executions": 888,
+  "audit_sha256": "a7421df00029b8fd3c8fc189838b970728bbe012f0ece2f914ac7344146082ee",
+  "historical_gap_counts": {
+    "older_unobserved_recovered": 14,
+    "older_unobserved_remaining": 137,
+    "new_unobserved": 5,
+    "total_unobserved": 142,
+    "historical_editing_regressions_remaining": 6
+  },
+  "passed_completions_valid": true,
+  "native_to_signed_assertions": {
+    "compared_executions": 709,
+    "corrected": 0,
+    "regressed": 0,
+    "missing": 0,
+    "added": 0,
+    "ambiguous": 0,
+    "multiplicity_mismatch": 0,
+    "preexisting_incomplete_executions": 7
+  },
+  "audit_script_sha256": "6d41837e00a0cd6246ba789cb11ce219c056a9c8e3c15afb60f8ef721db8058b"
+}

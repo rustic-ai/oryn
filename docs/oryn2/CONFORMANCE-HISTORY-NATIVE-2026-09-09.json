@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "qualification": "Native regression validation only; no additional signed upstream gains are claimed.",
+  "base_source_commit": "82fe3b480b4dead4eb37cd05840838f553855825",
+  "source_file_sha256": {
+    "crates/oryn-js/src/v8_bindings.rs": "ff4a990b041ef9094f761ab99df2888dbeecb380ea597d15270666ea84b76d00",
+    "crates/oryn-native/src/runtime.rs": "45e6b24dfdcc6eee2d9023a0e97031d7971bb5f325440a2793165c66288ea90c",
+    "crates/oryn-native/src/rust_executable.rs": "fa5af2118ace7e84be725a563131d3905aa6858043a1ac9684d1f9812119e005",
+    "scripts/run-upstream-wpt.py": "eda8aa6c1ce306d33e3107788ca7045b762c5ef0341d52394d0542875a74316c",
+    "scripts/tests/test_upstream_wpt_runner.py": "882d0d5eee44dc74664c8d68dfb9e6e0f6a85268a6a64e097acc70cf0da03236"
+  },
+  "checks": {
+    "native_all_features": {
+      "passed": 396,
+      "failed": 0,
+      "ignored": 5,
+      "seconds": 549.85
+    },
+    "bindings_all_features": {
+      "passed": 193,
+      "failed": 0,
+      "ignored": 2
+    },
+    "workspace_canonical": {
+      "passed": 516,
+      "failed": 0,
+      "ignored": 6,
+      "format": "passed",
+      "strict_clippy": "passed"
+    },
+    "v8_all_features_all_targets_strict_clippy": "passed",
+    "tooling": {
+      "passed": 46,
+      "failed": 0
+    }
+  },
+  "notes": [
+    "The native and binding suites preceded a mechanical removal of two identity conversions; strict Clippy and canonical workspace validation followed that cleanup.",
+    "The frame history integration test covers parser and dynamic insertion, pushState and replaceState, and same-task and later-task child navigation: eight combinations.",
+    "Generated production Blob URLs preserve binary bytes across fetch and XHR, share worker script source, and reject fetch/XHR after revocation.",
+    "The official pinned WPT server successfully substituted Referer headers for plain HTML ?pipe=sub in 009-3 and 010-3.",
+    "An optional isolated Chrome reference probe timed out; no editing behavior conclusion was drawn from it."
+  ],
+  "evidence": {
+    "native": {
+      "path": "artifacts/upstream-conformance/roadmap-history-native-full-2026-09-09.log",
+      "sha256": "fe7ce4000561f78427f4a5bb68640014d9457d54dee10ba32ee79babe7480f95"
+    },
+    "bindings": {
+      "path": "artifacts/upstream-conformance/roadmap-history-js-full-2026-09-09.log",
+      "sha256": "34f23384af51eec04166d2a53f6532b75d30f210014453d92ad6ddcc7a38639a"
+    },
+    "v8_clippy": {
+      "path": "artifacts/upstream-conformance/roadmap-history-v8-clippy-2026-09-09.log",
+      "sha256": "9c2401378c52bf95315f6bb93f0923da6f83f626925744d228f47aa900180cf8"
+    },
+    "workspace": {
+      "path": "artifacts/upstream-conformance/roadmap-history-workspace-validation-2026-09-09.log",
+      "sha256": "a9b4287e9343095f559efa7a013c849906a0c9488ba71081b2003dcecda0ad1d"
+    },
+    "focused": {
+      "path": "artifacts/upstream-conformance/roadmap-history-focused-tests-2026-09-09.log",
+      "sha256": "6cd92ee869344c96ee12275e6f833d9b8a9349cf499051c8a8ab7e0ef9740151"
+    }
+  }
+}
