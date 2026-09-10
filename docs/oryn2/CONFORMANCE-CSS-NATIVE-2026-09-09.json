@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "qualification": "Complete isolated-native CSS inventory and terminal regression gates. Signed full-inventory confirmation remains pending; no new overall conformance total is claimed.",
+  "source_base_commit": "852653018b5d7dce7effd8a5bf8f0a7e3b739eb3",
+  "source_file_sha256": {
+    "crates/oryn-js/src/generated/browser.rs": "444aa6a17cda5d3fa8616787d9b242ce1dc38586453994053fb0f68b52ead75b",
+    "crates/oryn-js/src/v8_bindings/computed_styles.rs": "ea50889b671cb50bb309b7d6a1492d75c135caac9d3701347d7e344eb0bc1a96",
+    "crates/oryn-js/src/v8_bindings/page_rules.rs": "3f9ae27f18cd7356ef15e0f9eefa1b2e9a22605db3d3b4710407629f69bac241",
+    "crates/oryn-layout/src/cssom.rs": "be92c80462ecc0447b4464dd629a30ce174b30c3cb3956f4b90f0c1033cf4dbb",
+    "crates/oryn-layout/src/lib.rs": "717db70f3d4026cf52f21e6039140050e92afd9a54389f26764c098fb770d64f",
+    "crates/oryn-native/src/rust_executable.rs": "aa13c140d7d4697c0ea2e87f4a072313796332f9d8835df497ca96e932d8e9ae",
+    "crates/oryn-webidl/idl/browser.webidl": "fc97b97d43fcf3d65b0f9e27441cc98bd54419eae5834b6818c63967a22e6460",
+    "crates/oryn-native/examples/conformance_focus_context_probe.rs": "6dca1b4feb5be0e7eeb0430163eee86c59fabfe8d27ca368dbfa9acb2760debf"
+  },
+  "native_css_inventory": {
+    "required": 564,
+    "passed": 368,
+    "gains": [
+      "css/css-cascade/scope-declarations.html|window|",
+      "css/css-cascade/scope-name-defining-rules.html|window|",
+      "css/css-cascade/scope-nesting.html|window|",
+      "css/cssom/cssstyledeclaration-nested.html|window|",
+      "css/cssom/cssstyledeclaration-registered-custom-properties.html|window|",
+      "css/selectors/has-specificity.html|window|",
+      "css/selectors/hash-collision.html|window|",
+      "css/selectors/not-specificity.html|window|"
+    ],
+    "losses": [],
+    "assertion_totals": {
+      "corrected": 26,
+      "regressed": 0,
+      "missing": 0,
+      "added": 0,
+      "ambiguous": 9,
+      "multiplicity_mismatch": 0
+    }
+  },
+  "existing_incomplete_executions": 32,
+  "new_incomplete_executions": [],
+  "checks": {
+    "workspace": {
+      "passed": 516,
+      "failed": 0,
+      "ignored": 6
+    },
+    "bindings": {
+      "passed": 193,
+      "failed": 0,
+      "ignored": 2,
+      "seconds": 1.2
+    },
+    "native": {
+      "passed": 398,
+      "failed": 0,
+      "ignored": 5,
+      "seconds": 578.77
+    },
+    "native_cssom": {
+      "passed": 35,
+      "failed": 0
+    },
+    "format": "passed",
+    "workspace_strict_clippy": "passed",
+    "v8_all_features_all_targets_strict_clippy": "passed"
+  },
+  "notes": [
+    "Nested declaration mutation uses the ordinary Style declaration parser context; Stylo rejects NestedDeclarations as a standalone declaration parser context.",
+    "Computed custom values come from Stylo, including registered initial values, inheritance, substitutions and guaranteed-invalid values.",
+    "Nine duplicate assertion-name groups have unchanged status multisets but remain ambiguous.",
+    "An initial release probe build selected mutually inappropriate core-lite/full features; the successful probe uses core-full with V8 sandboxing and the pinned full ICU artifact."
+  ],
+  "evidence": {
+    "workspace": {
+      "path": "artifacts/upstream-conformance/roadmap-css-workspace-validation-2026-09-09.log",
+      "sha256": "6c919c49fea645d247a263119f4e643d698da9243f9a6fbc53d2895ea57001fa",
+      "command": [
+        "bash",
+        "scripts/run-tests.sh"
+      ],
+      "exit_code": 0
+    },
+    "bindings": {
+      "path": "artifacts/upstream-conformance/roadmap-css-bindings-validation-2026-09-09.log",
+      "sha256": "c7f98fca699a1cb2f0899c0521d7a1ec1fece8c5adc22b69cf5d4ac507c7ef96",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "oryn-js",
+        "--all-features",
+        "--lib"
+      ],
+      "exit_code": 0
+    },
+    "native": {
+      "path": "artifacts/upstream-conformance/roadmap-css-native-validation-2026-09-09.log",
+      "sha256": "4a192837dfedf96bbdb4028e9edf8de2cdd75f76d9f589496caa652f89834651",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "oryn-native",
+        "--all-features",
+        "--lib"
+      ],
+      "exit_code": 0
+    },
+    "v8-clippy": {
+      "path": "artifacts/upstream-conformance/roadmap-css-v8-clippy-validation-2026-09-09.log",
+      "sha256": "217288c6ad33b0537bfcb5f671672faeee3d413d979169e799344b8ef837623b",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "oryn-js",
+        "-p",
+        "oryn-native",
+        "--all-features",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0
+    },
+    "native_inventory": {
+      "path": "artifacts/upstream-conformance/roadmap-css-native-2026-09-09.audit.json",
+      "sha256": "cbd620cdf43527e283740a74688a464c9e0b0af01774ccc0777b73c619685420"
+    },
+    "duplicate_reconciliation": {
+      "path": "artifacts/upstream-conformance/roadmap-css-native-2026-09-09-duplicates.json",
+      "sha256": "6a1aa4f12378a46731e0805f675323f1de07f4f7087b8ee16dd2cb64139e94eb"
+    },
+    "native_ledger": {
+      "path": "artifacts/upstream-conformance/roadmap-css-native-2026-09-09.jsonl",
+      "sha256": "9f58f07ff5881bc42cda840ba3973ad2d200f08336a5366f1942110b98fd6f77"
+    },
+    "native_cssom": {
+      "path": "artifacts/upstream-conformance/roadmap-css-cssom-tests-2026-09-09.log",
+      "sha256": "4845c0588247cce01aa87bc6de8c3ad1e15677ec4401934d3a65a99539ab53eb"
+    }
+  }
+}

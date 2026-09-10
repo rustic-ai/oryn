@@ -55,7 +55,19 @@ groups remain unresolved**. They are not waived or counted as regression-free pr
 Current lossless publication prevents that corruption in future evidence. The full
 run above additionally finds 15 pre-existing duplicate groups outside this native slice.
 
-## Next batch under validation
+## Frame history batch: signed focused results
+
+The [complete signed history slice at `8526530`](CONFORMANCE-HISTORY-SIGNED-2026-09-09.json)
+passes **47/136**, up from 45. Fixtures 009 and 010 now pass all eight assertions.
+There are no whole-execution losses, matched assertion regressions, missing
+observations, ambiguous groups or new incomplete executions in this comparison.
+The URL-rewriting fixture's seven server-port-dependent names have an explicit,
+equal name/status multiset reconciliation. Existing incomplete history executions
+remain open. The [complete referrer-policy regression slice](CONFORMANCE-HISTORY-REFERRER-SIGNED-2026-09-09.json)
+passes **1,383/1,391** on the same frozen signed candidate, exactly matching the
+full baseline's whole-execution statuses and assertion names/statuses. All eight
+existing failures remain; no new incomplete executions appear. These focused
+results do not replace the full total.
 
 - Register parser-created frame realms in the existing navigation registry and
   initialize their request initiator URLs. Previously only dynamic frames were
@@ -75,13 +87,39 @@ run above additionally finds 15 pre-existing duplicate groups outside this nativ
   APIs are installed; the bootstrap text registry is a separate diagnostic fallback.
 
 Both new native integration tests pass. The full all-features native library suite
-passes **396 tests, with 5 ignored**, in 549.85 seconds. Signed WPT qualification
-of this next batch is pending. The binding suite passes 193 tests (2 ignored);
+passes **396 tests, with 5 ignored**, in 549.85 seconds. The binding suite passes 193 tests (2 ignored);
 the canonical workspace gate passes 516 tests (6 ignored), formatting and strict
 Clippy. The separate all-features/all-target V8 Clippy gate also passes.
 [Validation evidence](CONFORMANCE-HISTORY-NATIVE-2026-09-09.json) retains log and
 source hashes. These changes do not alter the
 3,134/4,022 full measurement above.
+
+## CSS integration batch: native fixture results
+
+Stylo already parses and mutates nested declarations. The binding maps native rule
+kind 24 to generic CSSRule, omitting CSSNestedDeclarations and its live style
+surface. Add the generated interface and route its declaration access/mutations
+through the existing native implementation. The full ledger identifies this
+blocker in scope-declarations, scope-nesting and cssstyledeclaration-nested.
+
+The remaining scope-nesting assertion reads a custom property after selectorText
+mutation. Oryn exports a fixed set of Stylo computed properties but omits custom
+values, also blocking selector specificity fixtures. Export Stylo's computed custom
+properties and exclude raw inline custom declarations from the fallback, preserving
+substitution and guaranteed-invalid values. Validate these bounded integration
+changes before attempting the larger import ownership/resource graph work below.
+
+Implemented and checked through the entire 564-execution native CSS inventory:
+**368/564**, eight whole-execution gains, 26 corrected assertions, no whole losses,
+no uniquely matched regressions and no missing observations. The additional gain
+is cssstyledeclaration-registered-custom-properties. All 32 existing incomplete/
+harness executions remain; no new incomplete execution appears. Nine duplicate
+assertion-name groups persist with unchanged status multisets and remain ambiguous.
+The native CSSOM suite passes all 35 tests. The [terminal regression gates](CONFORMANCE-CSS-NATIVE-2026-09-09.json)
+pass **516 workspace tests (6 ignored)**, **193 binding tests (2 ignored)** and
+**398 native tests (5 ignored)**, plus formatting, strict workspace Clippy and
+V8-enabled all-feature/all-target strict Clippy. Signed full-inventory confirmation
+is the next measurement; these native gains do not change the full total above.
 
 ## Original assessment at `9abe008` (historical)
 
@@ -182,6 +220,16 @@ Screen remaining WebIDL and IndexedDB constructor/default-value failures similar
 **Exit:** selected executions complete with all assertions observed, plus passing
 DOM mutation and selector-invalidation coverage. Five is the DOMTokenList screening
 pool, not a promised gain; rerank if later blockers prevent complete fixtures.
+
+Next bounded DOM candidate after the current CSS batch: traversal. The current
+full ledger has 16 failing dom/traversal executions. Source inspection shows that
+createTreeWalker/createNodeIterator eagerly run filters over a snapshot, the
+filter getter is absent, currentNode rejects nodes outside the root, and child/
+sibling operations only consider immediate accepted neighbors. These are distinct
+concrete defects, not a forecast of 16 gains. Implement live traversal and filter
+invocation first; separately validate removal retargeting and cross-realm wrappers.
+Use all traversal fixtures, including large matrices, to detect missing assertions
+and callback exceptions before promoting any whole-execution gains.
 
 ### 2. Investigate frame, popup and history lifecycle as the main shared candidate
 

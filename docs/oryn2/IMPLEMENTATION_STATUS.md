@@ -43,11 +43,23 @@ The next batch registers parser-created frames for navigation, consumes frame
 history URL commits, updates request referrers synchronously, and runs plain HTML
 substitution through official wptserve. Its [native validation](CONFORMANCE-HISTORY-NATIVE-2026-09-09.json)
 is green: 396 native tests, 193 binding tests, 516 workspace tests, 46 tooling
-tests, formatting and both strict Clippy gates. Signed history measurement is
-pending; these changes do not alter the full signed total above.
+tests, formatting and both strict Clippy gates. The [signed history slice](CONFORMANCE-HISTORY-SIGNED-2026-09-09.json)
+at `8526530` passes **47/136**, gaining two complete fixtures and eight assertions,
+with no losses or newly missing assertions after explicit server-port reconciliation.
+The [complete signed referrer regression slice](CONFORMANCE-HISTORY-REFERRER-SIGNED-2026-09-09.json)
+remains **1,383/1,391**, with identical assertion names/statuses and no new incomplete
+executions. These focused measurements do not alter the full signed total above.
 
-Follow the [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md). Frame/history
-lifecycle and Stylo import/CSSOM integration remain the next shared candidates.
+The next [CSS integration batch](CONFORMANCE-CSS-NATIVE-2026-09-09.json) exposes
+Stylo's nested declarations and computed custom properties. Its complete native
+CSS audit passes **368/564**, gaining eight whole fixtures and 26 assertions with
+no whole losses, matched regressions or missing assertions. All 32 incomplete/
+harness executions and nine duplicate-name groups are pre-existing. The full
+native suite passes 398 tests (5 ignored); workspace, binding and strict Clippy
+gates pass. A fresh signed full inventory run is required before promotion.
+
+Follow the [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md). Live DOM
+traversal and Stylo import/stylesheet ownership remain bounded follow-up work.
 Full conformance still requires **4,022/4,022 twice on one frozen signed candidate**,
 with all qualification gates and regression observations resolved.
 
