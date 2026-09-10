@@ -4,6 +4,7 @@
 # Automatically starts/stops the test harness for E2E tests
 
 set -e
+set -o pipefail
 
 # Colors
 RED='\033[0;31m'
@@ -108,12 +109,11 @@ main() {
 
     # 2. Clippy lint
     log_step "Running clippy linter..."
-    if cargo clippy --workspace --quiet 2>&1 | grep -E "^error" > /dev/null; then
-        log_fail "Clippy found errors"
-        cargo clippy --workspace
-        exit 1
-    else
+    if cargo clippy --workspace -- -D warnings; then
         log_pass "Clippy passed (no errors)"
+    else
+        log_fail "Clippy failed"
+        exit 1
     fi
     echo ""
 
@@ -154,9 +154,9 @@ main() {
     done
 
     # Count totals
-    PASSED=$(grep -oP '\d+ passed' /tmp/test-output.txt | awk '{sum += $1} END {print sum}')
-    FAILED=$(grep -oP '\d+ failed' /tmp/test-output.txt | awk '{sum += $1} END {print sum}')
-    IGNORED=$(grep -oP '\d+ ignored' /tmp/test-output.txt | awk '{sum += $1} END {print sum}')
+    PASSED=$(grep -oE '[0-9]+ passed' /tmp/test-output.txt | awk '{sum += $1} END {print sum}')
+    FAILED=$(grep -oE '[0-9]+ failed' /tmp/test-output.txt | awk '{sum += $1} END {print sum}')
+    IGNORED=$(grep -oE '[0-9]+ ignored' /tmp/test-output.txt | awk '{sum += $1} END {print sum}')
 
     echo ""
     echo -e "  ${GREEN}Passed:${NC}  ${PASSED:-0}"

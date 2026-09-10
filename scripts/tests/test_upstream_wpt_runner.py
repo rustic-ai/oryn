@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import io
 import json
 import hashlib
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -27,6 +30,65 @@ INVENTORY_SPEC.loader.exec_module(INVENTORY)
 
 
 class UpstreamWptRunnerTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is needed to execute the WPT publisher")
+    def test_worker_publication_preserves_assertions_through_text_extraction(self) -> None:
+        handler = object.__new__(RUNNER.Handler)
+        handler.path = "/__oryn_worker_runner.html?source=example.any.js"
+        handler.wfile = io.BytesIO()
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock()
+        handler.do_GET()
+        script = handler.wfile.getvalue().decode().split("<script>", 1)[1].split("</script>", 1)[0]
+        payload = {"complete": True, "harness": 0, "tests": [
+            {"name": "  x\u00a0y\nz  ", "status": 0, "message": "two  spaces 𝄞"}
+        ]}
+        harness = """
+            let output;
+            globalThis.document = {createElement: () => ({}), body: {appendChild: node => output = node}};
+            globalThis.Worker = function() { globalThis.testWorker = this; };
+        """
+        result = subprocess.run(
+            ["node", "-e", harness + script +
+             "\ntestWorker.onmessage({data:{__oryn_wpt:true,value:" + json.dumps(payload) +
+             "}});process.stdout.write(output.textContent);"],
+            check=True, capture_output=True, text=True,
+        )
+        self.assertEqual(json.loads(" ".join(result.stdout.split()).removeprefix("__ORYN_WPT_DONE__")), payload)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is needed to execute the WPT publisher")
+    def test_publication_preserves_assertions_through_text_extraction(self) -> None:
+        payload = {
+            "complete": True, "harness": 0,
+            "tests": [
+                {"name": name, "status": index % 2, "message": "two  spaces\u00a0\u0085\n𝄞"}
+                for index, name in enumerate([
+                    'delete "foo []bar"', 'delete "foo  []bar"',
+                    '  leading and trailing  ', 'line\nbreak', 'nonbreaking\u00a0space',
+                ])
+            ],
+        }
+        script = RUNNER.COMPLETION.split("<script>", 1)[1].split("</script>", 1)[0]
+        harness = """
+            const output = {};
+            globalThis.setup = () => {};
+            globalThis.add_result_callback = () => {};
+            globalThis.add_completion_callback = () => {};
+            globalThis.document = {getElementById: () => output};
+        """
+        result = subprocess.run(
+            ["node", "-e", harness + script +
+             "\nglobalThis.__oryn_wpt_results=" + json.dumps(payload["tests"]) +
+             ";__oryn_publish_wpt({status:0},true);process.stdout.write(output.textContent);"],
+            check=True, capture_output=True, text=True,
+        )
+        # Match runtime.rs ContentKind::Text's normalization of the serialized
+        # payload, not normalization of already-decoded assertion names.
+        extracted = " ".join(result.stdout.split())
+        decoded = json.loads(extracted.removeprefix("__ORYN_WPT_DONE__"))
+        self.assertEqual(decoded["tests"], payload["tests"])
+        self.assertTrue(decoded["complete"])
+
     def test_untracked_source_content_and_names_affect_fingerprint(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

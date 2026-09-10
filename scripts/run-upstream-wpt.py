@@ -41,7 +41,9 @@ function __oryn_publish_wpt(harness, complete) {
     output.setAttribute('id', 'oryn-wpt-result');
     document.documentElement.appendChild(output);
   }
-  output.textContent='__ORYN_WPT_DONE__'+JSON.stringify(value);
+  // OIL text extraction normalizes whitespace. Escape spaces and non-ASCII
+  // code units inside JSON strings so assertion names and messages survive it.
+  output.textContent='__ORYN_WPT_DONE__'+JSON.stringify(value).replace(/[\u0020\u007f-\uffff]/g, c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
 }
 add_result_callback(function(test) {
   globalThis.__oryn_wpt_results.push({name:String(test.name || ''),status:Number(test.status),message:String(test.message || '')});
@@ -613,7 +615,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 "<script>"
                 "const publish=value=>{const output=document.createElement('pre');"
                 "output.id='oryn-wpt-result';"
-                "output.textContent='__ORYN_WPT_DONE__'+JSON.stringify(value);"
+                r"output.textContent='__ORYN_WPT_DONE__'+JSON.stringify(value).replace(/[\u0020\u007f-\uffff]/g, c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));"
                 "document.body.appendChild(output)};"
                 f"const worker={constructor};"
                 "if(worker.start)worker.start();"
