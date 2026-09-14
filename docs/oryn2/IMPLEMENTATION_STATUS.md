@@ -5,6 +5,14 @@
 
 ## September 13 native ownership, lifecycle and broker-drain follow-up
 
+The accumulated implementation and historical diagnostics were committed as
+`d0f2143`. A subsequent actor scheduling change bounds idle polling by the next
+timer deadline and dispatches already-due timers without a zero-duration Tokio
+sleep, preserving command priority. Local validation: default-feature deadline
+test passes; V8 native timer-filtered suite passes **10/10**; strict V8 native
+library Clippy and formatting pass. This follow-up has **not** yet been signed or
+rerun against WPT; the signed measurements below belong to the preceding source.
+
 Native document/adoption ownership now includes inert template documents,
 host-including cycle rejection and GC retention without permanent template roots.
 The document driver owns AgentRuntime; native environment retirement cancels

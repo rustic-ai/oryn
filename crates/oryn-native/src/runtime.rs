@@ -3564,22 +3564,32 @@ impl BrowserContext {
                 .ok();
             loop {
                 let command = if state.has_pending_page_work() {
-                    let delay = if state.has_runnable_page_work() {
-                        Duration::ZERO
-                    } else {
-                        Duration::from_millis(5)
-                    };
-                    scheduler.as_ref().and_then(|runtime| {
-                        runtime.block_on(async {
-                            tokio::select! {
-                                biased;
-                                command = receiver.recv() => command,
-                                _ = tokio::time::sleep(delay) => {
-                                    Some(PageCommand::PollContextEvents)
-                                }
+                    let timer_delay = state.next_timer_delay();
+                    let delay = page_poll_delay(timer_delay, state.has_runnable_page_work());
+                    // A due timer is runnable now. Passing it through Tokio's
+                    // timer wheel adds a tick even for a zero-duration sleep.
+                    // Keep commands ahead of timer work, including shutdown.
+                    if timer_delay.is_some_and(|delay| delay.is_zero()) {
+                        match receiver.try_recv() {
+                            Ok(command) => Some(command),
+                            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                                Some(PageCommand::PollContextEvents)
                             }
+                            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => None,
+                        }
+                    } else {
+                        scheduler.as_ref().and_then(|runtime| {
+                            runtime.block_on(async {
+                                tokio::select! {
+                                    biased;
+                                    command = receiver.recv() => command,
+                                    _ = tokio::time::sleep(delay) => {
+                                        Some(PageCommand::PollContextEvents)
+                                    }
+                                }
+                            })
                         })
-                    })
+                    }
                 } else {
                     receiver.blocking_recv()
                 };
@@ -7469,6 +7479,19 @@ impl PageState {
         }
     }
 
+    fn next_timer_delay(&mut self) -> Option<Duration> {
+        #[cfg(feature = "v8-host")]
+        {
+            self.executable
+                .as_mut()
+                .and_then(|executable| executable.next_timer_delay())
+        }
+        #[cfg(not(feature = "v8-host"))]
+        {
+            None
+        }
+    }
+
     fn has_runnable_page_work(&mut self) -> bool {
         #[cfg(feature = "v8-host")]
         {
@@ -10327,8 +10350,35 @@ fn document_title(document: &ParsedDocument) -> String {
         .unwrap_or_default()
 }
 
+fn page_poll_delay(timer_delay: Option<Duration>, pending_work: bool) -> Duration {
+    if pending_work {
+        Duration::ZERO
+    } else {
+        timer_delay
+            .unwrap_or(Duration::from_millis(5))
+            .min(Duration::from_millis(5))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn page_poll_respects_timer_deadlines_and_bounds_idle_polling() {
+        use super::page_poll_delay;
+        use std::time::Duration;
+        assert_eq!(page_poll_delay(None, false), Duration::from_millis(5));
+        assert_eq!(
+            page_poll_delay(Some(Duration::from_secs(1)), false),
+            Duration::from_millis(5)
+        );
+        assert_eq!(
+            page_poll_delay(Some(Duration::from_millis(1)), false),
+            Duration::from_millis(1)
+        );
+        assert_eq!(page_poll_delay(Some(Duration::ZERO), false), Duration::ZERO);
+        assert_eq!(page_poll_delay(None, true), Duration::ZERO);
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn close_waits_for_actor_destruction_and_preserves_other_pages() {
         let context = super::Browser::new().new_context();

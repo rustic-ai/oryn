@@ -2871,6 +2871,10 @@ impl RustExecutableDocument {
         !self.pending_document_loads.is_empty() || self.agent.host.has_runnable_page_work()
     }
 
+    pub fn next_timer_delay(&mut self) -> Option<Duration> {
+        self.agent.host.next_timer_delay()
+    }
+
     pub fn storage_snapshot(&mut self) -> Result<(String, String), HostError> {
         Ok((
             self.agent
