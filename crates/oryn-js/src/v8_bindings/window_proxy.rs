@@ -399,12 +399,26 @@ fn indexed_value<'s>(
     holder: v8::Local<v8::Object>,
     index: u32,
 ) -> Option<v8::Local<'s, v8::Object>> {
-    let (_, state) = target(scope, holder)?;
-    state
-        .children
-        .borrow()
+    let children = local_children(scope, holder)?;
+    children
         .get(index as usize)
         .map(|child| v8::Local::new(scope, child))
+}
+fn local_children(
+    scope: &mut v8::PinScope,
+    holder: v8::Local<v8::Object>,
+) -> Option<Vec<v8::Global<v8::Object>>> {
+    let context = holder.get_creation_context(scope)?;
+    if let Some(state) = context.get_slot::<V8BindingState>() {
+        return window_named::children(&state).ok();
+    }
+    Some(
+        context
+            .get_slot::<WindowCrossOriginState>()?
+            .children
+            .borrow()
+            .clone(),
+    )
 }
 fn indexed_getter(
     scope: &mut v8::PinScope,
@@ -452,8 +466,8 @@ fn indexed_enumerator(
     args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<v8::Array>,
 ) {
-    if let Some((_, state)) = target(scope, args.holder()) {
-        let len = state.children.borrow().len();
+    if let Some(children) = local_children(scope, args.holder()) {
+        let len = children.len();
         let keys = v8::Array::new(scope, len as i32);
         for index in 0..len {
             let value = v8::Integer::new_from_unsigned(scope, index as u32);
@@ -573,18 +587,7 @@ pub fn configure_template(
     template: v8::Local<v8::ObjectTemplate>,
 ) {
     template.set_immutable_proto();
-    crate::v8_context_bridge::set_window_index_handlers(
-        scope,
-        template,
-        &CrossContextHandlers {
-            indexed_getter: Some(local_indexed_getter.map_fn_to()),
-            indexed_query: Some(local_indexed_query.map_fn_to()),
-            indexed_deleter: Some(local_indexed_deleter.map_fn_to()),
-            indexed_enumerator: Some(indexed_enumerator.map_fn_to()),
-            indexed_descriptor: Some(local_indexed_descriptor.map_fn_to()),
-            ..Default::default()
-        },
-    );
+    configure_local_template(scope, template);
     crate::v8_context_bridge::set_window_failed_access_callback(scope);
     set_cross_context_handlers(
         scope,
@@ -604,6 +607,26 @@ pub fn configure_template(
             indexed_enumerator: Some(indexed_enumerator.map_fn_to()),
             indexed_definer: Some(indexed_definer.map_fn_to()),
             indexed_descriptor: Some(indexed_descriptor.map_fn_to()),
+        },
+    );
+}
+
+/// Native own indexed access for production Window globals. This does not
+/// change the host's cross-origin access policy or install script proxies.
+pub fn configure_local_template(
+    scope: &mut v8::PinScope<'_, '_, ()>,
+    template: v8::Local<v8::ObjectTemplate>,
+) {
+    crate::v8_context_bridge::set_window_index_handlers(
+        scope,
+        template,
+        &CrossContextHandlers {
+            indexed_getter: Some(local_indexed_getter.map_fn_to()),
+            indexed_query: Some(local_indexed_query.map_fn_to()),
+            indexed_deleter: Some(local_indexed_deleter.map_fn_to()),
+            indexed_enumerator: Some(indexed_enumerator.map_fn_to()),
+            indexed_descriptor: Some(local_indexed_descriptor.map_fn_to()),
+            ..Default::default()
         },
     );
 }

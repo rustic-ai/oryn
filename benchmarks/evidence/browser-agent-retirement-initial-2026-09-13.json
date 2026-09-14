@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_local_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "cca2b24234cc1744cea788ea5aa661c95cb224921aed5b16094640c13b965848",
+  "native_test_binary_sha256": "443cab4b85221fe6675306b1e159fe0d7a0843ba6d870f1abb7a1e98861144a6",
+  "full_native_attempt": {
+    "status": "interrupted_after_failures_for_repair",
+    "exit_code": 130,
+    "total_tests": 467,
+    "observed_failures": [
+      "automation_trace_retains_cross_origin_realm_identity_without_exposing_reader",
+      "cross_origin_frame_receives_global_load_and_can_complete_remote_protocol",
+      "frame_native_actions_preserve_realm_and_message_completion",
+      "parser_iframe_exposes_stable_window_proxy_before_child_commit"
+    ]
+  },
+  "focused_failure": {
+    "test": "cross_origin_frame_receives_global_load_and_can_complete_remote_protocol",
+    "exit_code": 101,
+    "error": "window agent contains a foreign document arena"
+  },
+  "diagnosis": "The new construction check incorrectly required existing opaque cross-origin contexts to share the primary arena. Legacy co-hosting deliberately retains separate arenas. Corrective source validates the primary arena and preserves that isolation; fresh regression required.",
+  "signed_or_wpt_validation_performed": false
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native inert hit-testing regression</title>
+<style>.target { display: block; width: 160px; height: 25px; }</style>
+<input id="focused">
+<a inert class="target" href="#wrong">anchor</a>
+<button inert class="target">button</button>
+<div inert class="target">div</div>
+<span inert class="target">span</span>
+<label inert class="target" for="focused">label</label>
+<div inert><span class="target">inert ancestor</span></div>
+<script>
+globalThis.inertHitTestResult = 'pending';
+(async () => {
+  let events = 0;
+  const input = document.getElementById('focused');
+  input.focus();
+  for (const target of document.querySelectorAll('.target')) {
+    target.addEventListener('click', () => events++);
+    target.addEventListener('mousemove', () => events++);
+    const rect = target.getBoundingClientRect();
+    const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+    if (document.elementsFromPoint(x, y).includes(target))
+      throw Error('inert node in hit list');
+    if (document.elementFromPoint(x, y) === target)
+      throw Error('inert node is top hit');
+    let intercepted = false;
+    try { await __oryn_testdriver_click(target); }
+    catch (error) {
+      if (error.message !== 'element click intercepted') throw error;
+      intercepted = true;
+    }
+    if (!intercepted) throw Error('inert click incorrectly succeeded');
+    if (document.activeElement !== input) throw Error('rejected click changed focus');
+  }
+  if (events !== 0) throw Error('inert node received mouse events');
+})().then(() => inertHitTestResult = 'ok', error => inertHitTestResult = 'FAIL: ' + error.message);
+</script>

@@ -68,7 +68,7 @@ mod raw_v8 {
         collections::{BTreeMap, BTreeSet},
         rc::Rc,
         sync::{
-            Arc, Mutex, Once,
+            Arc, Condvar, Mutex, Once,
             atomic::{AtomicBool, Ordering},
             mpsc,
         },
@@ -88,20 +88,25 @@ mod raw_v8 {
     #[cfg(unix)]
     use oryn_common::v3::PageId;
     use oryn_dom::NodeId;
+    use oryn_js::origin::Origin;
     #[cfg(unix)]
     use oryn_js::platform::{
         HostOperationId, IdbHostResponse, PlatformHost, PlatformHostCompletion,
         PlatformHostRequest, PlatformHostResult, PlatformWebSocketFrame,
     };
-    use oryn_js::realm::{RealmDescriptor, RealmId, RealmRegistry};
+    use oryn_js::realm::{
+        AgentEnvironments, EnvironmentDescriptor, EnvironmentId, RealmDescriptor, RealmId,
+        RealmRegistry,
+    };
     use oryn_js::scheduler::{PageScheduler, Task, TaskSource};
     use oryn_js::v8_bindings::{
         BindingGlobal, BindingLayout, BindingLayoutProvider, PendingDefaultAction, SharedDom,
         V8BindingState, deliver_mutation_observers, deliver_selection_change,
-        has_pending_mutation_observer_microtask, install_generated_bindings,
-        install_generated_bindings_with_root, install_generated_bindings_with_root_for_global,
-        publish_named_window_properties, queue_mutation_observer_microtask,
-        reset_mutation_observer_microtask_after_termination, wrap_node,
+        fixup_focus_eligibility, has_pending_mutation_observer_microtask,
+        install_generated_bindings, install_generated_bindings_with_root,
+        install_generated_bindings_with_root_for_global, publish_named_window_properties,
+        queue_mutation_observer_microtask, reset_mutation_observer_microtask_after_termination,
+        wrap_node,
     };
 
     static INITIALIZE_V8: Once = Once::new();
@@ -120,6 +125,7 @@ mod raw_v8 {
         "dedicated_worker_emit_callback",
         "dedicated_worker_close_callback",
         "import_scripts_callback",
+        "automation_trace_callback",
     ];
 
     pub fn startup_external_references() -> Cow<'static, [v8::ExternalReference]> {
@@ -164,6 +170,9 @@ mod raw_v8 {
             v8::ExternalReference {
                 function: import_scripts_callback.map_fn_to(),
             },
+            v8::ExternalReference {
+                function: automation_trace_callback.map_fn_to(),
+            },
         ]
         .into()
     }
@@ -182,6 +191,7 @@ mod raw_v8 {
     }
 
     pub struct RawV8Host {
+        watchdog: ExecutionWatchdog,
         isolate: v8::OwnedIsolate,
         contexts: BTreeMap<RealmId, v8::Global<v8::Context>>,
         security_tokens: BTreeMap<String, v8::Global<v8::String>>,
@@ -193,39 +203,169 @@ mod raw_v8 {
         isolate_entered: bool,
     }
 
+    #[derive(Default)]
+    struct DeadlineSchedule {
+        next_id: u64,
+        shutdown: bool,
+        active: BTreeMap<u64, (Instant, Arc<AtomicBool>)>,
+    }
+
+    struct WatchdogState {
+        schedule: Mutex<DeadlineSchedule>,
+        changed: Condvar,
+        handle: v8::IsolateHandle,
+    }
+
+    /// One deadline thread belongs to the isolate, not to each execution.
+    /// The schedule lock serializes expiry with disarming, preventing a stale
+    /// watchdog from terminating the next unrelated script.
+    struct ExecutionWatchdog {
+        state: Arc<WatchdogState>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl ExecutionWatchdog {
+        fn new(isolate: &mut v8::OwnedIsolate) -> Self {
+            let state = Arc::new(WatchdogState {
+                schedule: Mutex::new(DeadlineSchedule::default()),
+                changed: Condvar::new(),
+                handle: isolate.thread_safe_handle(),
+            });
+            isolate.set_slot(state.clone());
+            let worker = state.clone();
+            let thread = std::thread::spawn(move || {
+                let mut schedule = worker.schedule.lock().expect("deadline schedule lock");
+                loop {
+                    if schedule.shutdown {
+                        break;
+                    }
+                    let next = schedule
+                        .active
+                        .values()
+                        .filter(|(_, expired)| !expired.load(Ordering::Acquire))
+                        .map(|(deadline, _)| *deadline)
+                        .min();
+                    let Some(next) = next else {
+                        schedule = worker
+                            .changed
+                            .wait(schedule)
+                            .expect("deadline schedule wait");
+                        continue;
+                    };
+                    let now = Instant::now();
+                    if next <= now {
+                        for (deadline, expired) in schedule.active.values() {
+                            if *deadline <= now {
+                                expired.store(true, Ordering::Release);
+                            }
+                        }
+                        // Keep the lock until termination is issued: disarm and
+                        // the next arm cannot overtake this expired generation.
+                        worker.handle.terminate_execution();
+                    } else {
+                        schedule = worker
+                            .changed
+                            .wait_timeout(schedule, next - now)
+                            .expect("deadline schedule timeout")
+                            .0;
+                    }
+                }
+            });
+            Self {
+                state,
+                thread: Some(thread),
+            }
+        }
+
+        fn shutdown(&mut self) {
+            {
+                let mut schedule = self.state.schedule.lock().expect("deadline shutdown lock");
+                schedule.shutdown = true;
+                self.state.changed.notify_all();
+            }
+            if let Some(thread) = self.thread.take() {
+                thread.join().expect("deadline thread panicked");
+            }
+        }
+    }
+
+    impl Drop for ExecutionWatchdog {
+        fn drop(&mut self) {
+            self.shutdown();
+        }
+    }
+
     struct ExecutionDeadline {
-        cancel: Option<mpsc::Sender<()>>,
+        state: Arc<WatchdogState>,
+        id: Option<u64>,
+        deadline: Option<Instant>,
         expired: Arc<AtomicBool>,
     }
 
     impl ExecutionDeadline {
         fn arm(isolate: &v8::OwnedIsolate, limit: Duration) -> Self {
-            let handle = isolate.thread_safe_handle();
-            let (sender, receiver) = mpsc::channel();
+            let state = isolate
+                .get_slot::<Arc<WatchdogState>>()
+                .expect("isolate deadline controller installed")
+                .clone();
             let expired = Arc::new(AtomicBool::new(false));
-            let thread_expired = expired.clone();
-            std::thread::spawn(move || {
-                if receiver.recv_timeout(limit).is_err() {
-                    thread_expired.store(true, Ordering::Release);
-                    handle.terminate_execution();
-                }
+            let mut schedule = state.schedule.lock().expect("deadline arm lock");
+            let deadline = Instant::now().checked_add(limit);
+            let id = schedule.next_id.checked_add(1).filter(|_| {
+                !schedule.shutdown
+                    && schedule.active.len() < 64
+                    && deadline.is_some()
+                    && !schedule
+                        .active
+                        .values()
+                        .any(|(_, expired)| expired.load(Ordering::Acquire))
             });
+            if let Some(id) = id {
+                schedule.next_id = id;
+                schedule
+                    .active
+                    .insert(id, (deadline.unwrap(), expired.clone()));
+                state.changed.notify_all();
+            } else {
+                // Exhaustion is fail-closed, never identity reuse or an
+                // execution without a watchdog.
+                expired.store(true, Ordering::Release);
+                state.handle.terminate_execution();
+            }
+            drop(schedule);
             Self {
-                cancel: Some(sender),
+                state,
+                id,
+                deadline,
                 expired,
             }
         }
 
         fn expired(&self) -> bool {
             self.expired.load(Ordering::Acquire)
+                || self
+                    .deadline
+                    .is_some_and(|deadline| Instant::now() >= deadline)
         }
     }
 
     impl Drop for ExecutionDeadline {
         fn drop(&mut self) {
-            if let Some(sender) = self.cancel.take() {
-                let _ = sender.send(());
+            let mut schedule = self.state.schedule.lock().expect("deadline disarm lock");
+            if let Some(id) = self.id {
+                schedule.active.remove(&id);
             }
+            if self.expired.load(Ordering::Acquire)
+                && !schedule
+                    .active
+                    .values()
+                    .any(|(_, expired)| expired.load(Ordering::Acquire))
+            {
+                // Expiry can race the final result check. Do not let its
+                // termination bit poison a later, separately admitted script.
+                self.state.handle.cancel_terminate_execution();
+            }
+            self.state.changed.notify_all();
         }
     }
 
@@ -270,6 +410,7 @@ mod raw_v8 {
 
     #[cfg(unix)]
     struct ContextPlatformHost {
+        retired: Arc<AtomicBool>,
         context: ContextState,
         sender: mpsc::Sender<PlatformHostCompletion>,
         receiver: Mutex<mpsc::Receiver<PlatformHostCompletion>>,
@@ -280,6 +421,8 @@ mod raw_v8 {
     #[cfg(unix)]
     impl ContextPlatformHost {
         fn new(context: ContextState) -> Self {
+            let retired = Arc::new(AtomicBool::new(false));
+            let idb_retired = retired.clone();
             let (sender, receiver) = mpsc::channel();
             let (idb_sender, idb_receiver) = mpsc::channel();
             let idb_context = context.clone();
@@ -288,7 +431,13 @@ mod raw_v8 {
                 .name("oryn-platform-indexeddb".into())
                 .spawn(move || {
                     while let Ok((operation_id, request)) = idb_receiver.recv() {
+                        if idb_retired.load(Ordering::Acquire) {
+                            break;
+                        }
                         let result = execute_platform_request(&idb_context, operation_id, request);
+                        if idb_retired.load(Ordering::Acquire) {
+                            break;
+                        }
                         if idb_completions
                             .send(PlatformHostCompletion {
                                 operation_id,
@@ -302,6 +451,7 @@ mod raw_v8 {
                 })
                 .expect("spawn ordered IndexedDB platform service");
             Self {
+                retired,
                 context,
                 sender,
                 receiver: Mutex::new(receiver),
@@ -318,6 +468,9 @@ mod raw_v8 {
             operation_id: HostOperationId,
             request: PlatformHostRequest,
         ) -> Result<(), String> {
+            if self.retired.load(Ordering::Acquire) {
+                return Err("execution environment is retired".into());
+            }
             if matches!(request, PlatformHostRequest::IndexedDb { .. }) {
                 return self
                     .idb_sender
@@ -326,7 +479,11 @@ mod raw_v8 {
             }
             let context = self.context.clone();
             let sender = self.sender.clone();
-            let is_http_start = matches!(request, PlatformHostRequest::HttpStart { .. });
+            let retired = self.retired.clone();
+            let is_http_start = matches!(
+                request,
+                PlatformHostRequest::HttpStart { .. } | PlatformHostRequest::ImageStart { .. }
+            );
             let cancellable_http_starts = self.cancellable_http_starts.clone();
             if is_http_start {
                 cancellable_http_starts
@@ -337,9 +494,15 @@ mod raw_v8 {
             std::thread::Builder::new()
                 .name(format!("oryn-platform-{}", operation_id.0))
                 .spawn(move || {
+                    if retired.load(Ordering::Acquire) {
+                        return;
+                    }
                     let result = execute_platform_request(&context, operation_id, request);
                     if is_http_start && let Ok(mut operations) = cancellable_http_starts.lock() {
                         operations.remove(&operation_id);
+                    }
+                    if retired.load(Ordering::Acquire) {
+                        return;
                     }
                     let _ = sender.send(PlatformHostCompletion {
                         operation_id,
@@ -375,12 +538,19 @@ mod raw_v8 {
         }
 
         fn drain_completions(&self, limit: usize) -> Vec<PlatformHostCompletion> {
+            if self.retired.load(Ordering::Acquire) {
+                return Vec::new();
+            }
             let Ok(receiver) = self.receiver.lock() else {
                 return Vec::new();
             };
             (0..limit)
                 .filter_map(|_| receiver.try_recv().ok())
                 .collect()
+        }
+
+        fn retire(&self) {
+            self.retired.store(true, Ordering::Release);
         }
     }
 
@@ -395,6 +565,7 @@ mod raw_v8 {
     }
 
     struct PendingFetch {
+        environment: EnvironmentDescriptor,
         context: v8::Global<v8::Context>,
         resolver: v8::Global<v8::PromiseResolver>,
     }
@@ -409,6 +580,7 @@ mod raw_v8 {
         sender: mpsc::Sender<FetchCompletion>,
         receiver: mpsc::Receiver<FetchCompletion>,
         pending: BTreeMap<u64, PendingFetch>,
+        retired: BTreeSet<u64>,
     }
 
     impl Default for AsyncFetches {
@@ -419,6 +591,7 @@ mod raw_v8 {
                 sender,
                 receiver,
                 pending: BTreeMap::new(),
+                retired: BTreeSet::new(),
             }
         }
     }
@@ -432,6 +605,7 @@ mod raw_v8 {
     }
 
     struct DedicatedWorker {
+        environment: EnvironmentDescriptor,
         owner_identity: i32,
         context: v8::Global<v8::Context>,
         binding_state: Option<Rc<V8BindingState>>,
@@ -471,6 +645,7 @@ mod raw_v8 {
     }
 
     struct ScheduledTimer {
+        environment: EnvironmentDescriptor,
         context: v8::Global<v8::Context>,
         callback: v8::Global<v8::Function>,
         arguments: Vec<v8::Global<v8::Value>>,
@@ -493,6 +668,89 @@ mod raw_v8 {
         }
     }
 
+    fn current_environment(scope: &mut v8::PinScope) -> Result<EnvironmentDescriptor, String> {
+        let environment = scope
+            .get_current_context()
+            .get_slot::<EnvironmentDescriptor>()
+            .map(|value| *value)
+            .ok_or_else(|| "execution environment is unavailable".to_string())?;
+        if !scope
+            .get_slot::<AgentEnvironments>()
+            .is_some_and(|registry| registry.is_live(&environment))
+        {
+            return Err("execution environment is retired".into());
+        }
+        Ok(environment)
+    }
+
+    fn retire_environment(isolate: &mut v8::Isolate, id: EnvironmentId) {
+        let retired = isolate
+            .get_slot_mut::<AgentEnvironments>()
+            .map(|registry| registry.retire(id))
+            .unwrap_or_default();
+        let ids = retired
+            .iter()
+            .map(|entry| entry.id)
+            .collect::<BTreeSet<_>>();
+        if let Some(registry) = isolate.get_slot_mut::<TimerRegistry>() {
+            for environment in &retired {
+                registry
+                    .scheduler
+                    .cancel_document(environment.realm, environment.document_generation);
+            }
+            registry
+                .callbacks
+                .retain(|_, timer| !ids.contains(&timer.environment.id));
+        }
+        if let Some(fetches) = isolate.get_slot_mut::<AsyncFetches>() {
+            let pending = fetches
+                .pending
+                .iter()
+                .filter(|(_, fetch)| ids.contains(&fetch.environment.id))
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>();
+            for id in pending {
+                fetches.pending.remove(&id);
+                fetches.retired.insert(id);
+            }
+        }
+        if let Some(workers) = isolate.get_slot_mut::<DedicatedWorkers>() {
+            let retired_workers = workers
+                .workers
+                .iter()
+                .filter(|(_, worker)| ids.contains(&worker.environment.id))
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>();
+            for worker in retired_workers {
+                if let Some(worker) = workers.workers.remove(&worker)
+                    && let Some(state) = worker.binding_state
+                {
+                    state.retire_execution();
+                }
+                workers.outbound.remove(&worker);
+            }
+        }
+    }
+
+    fn bind_document_environment(
+        scope: &mut v8::PinScope,
+        realm: RealmId,
+        generation: u64,
+    ) -> Result<(), HostError> {
+        let current = current_environment(scope).map_err(HostError::Execution)?;
+        if current.realm == realm && current.document_generation == generation {
+            return Ok(());
+        }
+        let replacement = scope
+            .get_slot_mut::<AgentEnvironments>()
+            .unwrap()
+            .create(realm, generation, current.owner)
+            .map_err(|error| HostError::Execution(error.into()))?;
+        retire_environment(scope, current.id);
+        scope.get_current_context().set_slot(Rc::new(replacement));
+        Ok(())
+    }
+
     impl Default for DedicatedWorkers {
         fn default() -> Self {
             Self {
@@ -506,6 +764,17 @@ mod raw_v8 {
     macro_rules! install_host_functions {
         ($scope:expr, $context:expr) => {{
             let context_scope = &mut v8::ContextScope::new($scope, $context);
+            let function = v8::Function::new(context_scope, automation_trace_callback)
+                .expect("allocate automation trace callback");
+            let name = v8::String::new(context_scope, "__oryn_record_automation_event").unwrap();
+            $context.global(context_scope).define_own_property(
+                context_scope,
+                name.into(),
+                function.into(),
+                v8::PropertyAttribute::READ_ONLY
+                    | v8::PropertyAttribute::DONT_DELETE
+                    | v8::PropertyAttribute::DONT_ENUM,
+            );
             if context_scope.get_slot::<FetchState>().is_some() {
                 let function = v8::Function::new(context_scope, fetch_async_callback)
                     .expect("allocate native fetch callback");
@@ -606,13 +875,21 @@ mod raw_v8 {
         mut return_value: v8::ReturnValue<v8::Value>,
     ) {
         let result = (|| -> Result<u64, String> {
+            let environment = match current_environment(scope) {
+                Ok(environment) => environment,
+                // Detached Window timers must not throw. The retired endpoint
+                // returns a numeric no-op handle without retaining a callback.
+                Err(error) if error == "execution environment is retired" => return Ok(0),
+                Err(error) => return Err(error),
+            };
             let callback = v8::Local::<v8::Function>::try_from(args.get(0))
                 .map_err(|_| "timer callback must be callable".to_string())?;
-            let delay = args
-                .get(1)
-                .number_value(scope)
-                .unwrap_or(0.0)
-                .clamp(0.0, 2_147_483_647.0) as u64;
+            // WebIDL `long` conversion wraps modulo 2^32 before HTML
+            // clamps negative timeouts to zero. Preserve conversion exceptions.
+            let Some(delay) = args.get(1).int32_value(scope) else {
+                return Ok(0);
+            };
+            let delay = delay.max(0) as u64;
             let repeating = args.get(2).boolean_value(scope);
             let values = v8::Local::<v8::Array>::try_from(args.get(3))
                 .map_err(|_| "timer arguments must be an array".to_string())?;
@@ -630,22 +907,22 @@ mod raw_v8 {
                 .ok_or_else(|| "timer scheduler is unavailable".to_string())?;
             let now_ms = registry.started.elapsed().as_millis() as u64;
             registry.scheduler.advance_to(now_ms);
-            let delay = Duration::from_millis(if repeating { delay.max(1) } else { delay });
+            let delay = Duration::from_millis(delay);
             let timer_id = if repeating {
                 registry
                     .scheduler
                     .set_interval_with(delay, |timer_id| Task {
                         source: TaskSource::Timer,
-                        realm: RealmId(0),
-                        document_generation: 1,
+                        realm: environment.realm,
+                        document_generation: environment.document_generation,
                         action_id: None,
                         payload: timer_id,
                     })
             } else {
                 registry.scheduler.set_timeout_with(delay, |timer_id| Task {
                     source: TaskSource::Timer,
-                    realm: RealmId(0),
-                    document_generation: 1,
+                    realm: environment.realm,
+                    document_generation: environment.document_generation,
                     action_id: None,
                     payload: timer_id,
                 })
@@ -653,6 +930,7 @@ mod raw_v8 {
             registry.callbacks.insert(
                 timer_id,
                 ScheduledTimer {
+                    environment,
                     context,
                     callback,
                     arguments,
@@ -675,8 +953,18 @@ mod raw_v8 {
         let Some(timer_id) = args.get(0).integer_value(scope).filter(|id| *id > 0) else {
             return;
         };
+        let Ok(environment) = current_environment(scope) else {
+            return;
+        };
         if let Some(registry) = scope.get_slot_mut::<TimerRegistry>() {
             let timer_id = timer_id as u64;
+            if !registry
+                .callbacks
+                .get(&timer_id)
+                .is_some_and(|timer| timer.environment.id == environment.id)
+            {
+                return;
+            }
             registry.scheduler.cancel_timer(timer_id);
             registry.callbacks.remove(&timer_id);
         }
@@ -887,18 +1175,6 @@ mod raw_v8 {
             result
         }
 
-        fn security_token_identity(origin: &str, realm: RealmId) -> String {
-            // V8 uses context security-token identity for cross-context global
-            // access. Same-origin frame realms must therefore share an exact
-            // token, while opaque origins must never accidentally become
-            // same-origin merely because their serialized origin is `null`.
-            if origin == "null" {
-                format!("oryn:opaque-realm:{}", realm.0)
-            } else {
-                format!("oryn:origin:{origin}")
-            }
-        }
-
         pub fn enter_realm(&self) {
             // SAFETY: ExecutableDocument is thread-affine and callers balance
             // every temporary child-realm entry with `exit_realm`.
@@ -1023,6 +1299,7 @@ mod raw_v8 {
                 &include_bytes!(env!("ORYN_STARTUP_SNAPSHOT_PATH"))[..],
             ));
             let mut isolate = v8::Isolate::new(params);
+            let watchdog = ExecutionWatchdog::new(&mut isolate);
             isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
             isolate.set_host_import_module_dynamically_callback(dynamic_import);
             isolate.set_host_initialize_import_meta_object_callback(initialize_import_meta);
@@ -1031,8 +1308,10 @@ mod raw_v8 {
             isolate.set_slot(AsyncFetches::default());
             isolate.set_slot(DedicatedWorkers::default());
             isolate.set_slot(TimerRegistry::default());
+            isolate.set_slot(AgentEnvironments::default());
             isolate.set_slot(ModuleNames::default());
             isolate.set_slot(ModuleCache::default());
+            isolate.set_slot(crate::automation_trace::AutomationTrace::default());
             isolate.set_slot(ModuleResolutionFailures::default());
             isolate.set_promise_reject_callback(promise_reject_callback);
             if let Some(fetch_state) = fetch_state {
@@ -1051,14 +1330,32 @@ mod raw_v8 {
                 .unwrap_or_else(|| "null".into());
             let mut realms = RealmRegistry::default();
             let active_realm = realms.create(origin.clone(), 1, None);
+            let environment = isolate
+                .get_slot_mut::<AgentEnvironments>()
+                .unwrap()
+                .create(active_realm, 1, None)
+                .expect("first execution environment");
             let (context, security_token) = {
                 v8::scope!(let scope, &mut isolate);
-                let context = v8::Context::new(scope, Default::default());
-                let identity = Self::security_token_identity(&origin, active_realm);
+                let template = v8::ObjectTemplate::new(scope);
+                oryn_js::v8_bindings::window_proxy::configure_local_template(scope, template);
+                let context = v8::Context::new(
+                    scope,
+                    v8::ContextOptions {
+                        global_template: Some(template),
+                        ..Default::default()
+                    },
+                );
+                let identity = realms
+                    .get(active_realm)
+                    .unwrap()
+                    .origin
+                    .security_token_key();
                 let token =
                     v8::String::new(scope, &identity).expect("allocate V8 context security token");
                 context.set_security_token(token.into());
                 context.set_slot(Rc::new(realms.get(active_realm).unwrap().clone()));
+                context.set_slot(Rc::new(environment));
                 install_host_functions!(scope, context);
                 (
                     v8::Global::new(scope, context),
@@ -1070,6 +1367,7 @@ mod raw_v8 {
             let mut security_tokens = BTreeMap::new();
             security_tokens.insert(security_token.0, security_token.1);
             Self {
+                watchdog,
                 isolate,
                 contexts,
                 security_tokens,
@@ -1111,7 +1409,10 @@ mod raw_v8 {
                 state.configure_trusted_types(config.clone());
                 context.set_allow_generation_from_strings(*allow_eval);
             }
-            self.binding_states.insert(realm, state);
+            if let Some(previous) = self.binding_states.insert(realm, state) {
+                previous.retire_execution();
+            }
+            bind_document_environment(scope, realm, document_generation)?;
             Ok(())
         }
 
@@ -1153,7 +1454,10 @@ mod raw_v8 {
                 state.configure_trusted_types(config.clone());
                 context.set_allow_generation_from_strings(*allow_eval);
             }
-            self.binding_states.insert(realm, state);
+            if let Some(previous) = self.binding_states.insert(realm, state) {
+                previous.retire_execution();
+            }
+            bind_document_environment(scope, realm, document_generation)?;
             Ok(())
         }
 
@@ -1276,6 +1580,8 @@ mod raw_v8 {
                     HostError::Execution("frame realm descriptor is unavailable".into())
                 })?;
             let same_origin = document.is_some() && parent_origin == child_origin;
+            let parent_origin = parent_origin.serialize();
+            let child_origin = child_origin.serialize();
             if let Some(child) = self.binding_states.get(&realm) {
                 active.bind_frame_target_name(frame, child);
             }
@@ -1562,6 +1868,58 @@ mod raw_v8 {
                 .and_then(|state| state.take_location_navigation())
         }
 
+        pub fn set_forms_allowed(&self, allowed: bool) -> Result<(), HostError> {
+            self.binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active DOM is unavailable".into()))?
+                .set_forms_allowed(allowed);
+            Ok(())
+        }
+
+        pub fn prepare_document_images(&mut self) -> Result<(), HostError> {
+            let state = self
+                .binding_states
+                .get(&self.active_realm)
+                .cloned()
+                .ok_or_else(|| {
+                    HostError::Execution("active image document is unavailable".into())
+                })?;
+            let context = self
+                .contexts
+                .get(&self.active_realm)
+                .cloned()
+                .ok_or_else(|| {
+                    HostError::Execution("active image context is unavailable".into())
+                })?;
+            let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(handle_scope, &context);
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            oryn_js::v8_bindings::prepare_document_images(scope, &state)
+                .map_err(|error| HostError::Execution(error.to_string()))
+        }
+
+        pub fn realm_has_pending_images(&self, realm: RealmId) -> bool {
+            self.binding_states
+                .get(&realm)
+                .is_some_and(|state| state.has_pending_images())
+        }
+
+        pub fn schedule_navigation(
+            &self,
+            request: oryn_js::v8_bindings::LocationNavigation,
+        ) -> Result<(), HostError> {
+            let state = self
+                .binding_states
+                .get(&self.active_realm)
+                .ok_or_else(|| HostError::Execution("active DOM is unavailable".into()))?;
+            state
+                .commit_location(&request.url)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            state.schedule_navigation(request);
+            Ok(())
+        }
+
         pub fn take_history_url_update(&self) -> Option<String> {
             self.binding_states
                 .get(&self.active_realm)
@@ -1594,6 +1952,19 @@ mod raw_v8 {
             self.binding_states
                 .get(&self.active_realm)
                 .map(|state| state.dom())
+        }
+
+        pub(crate) fn validate_primary_arena(&self, dom: &SharedDom) -> Result<(), HostError> {
+            if !self
+                .binding_states
+                .get(&RealmId(0))
+                .is_some_and(|state| Rc::ptr_eq(&state.dom(), dom))
+            {
+                return Err(HostError::Execution(
+                    "window agent primary document arena mismatch".into(),
+                ));
+            }
+            Ok(())
         }
 
         pub fn take_pending_dynamic_scripts(&self) -> Result<Vec<NodeId>, HostError> {
@@ -1733,6 +2104,35 @@ mod raw_v8 {
             let scope = &mut v8::ContextScope::new(handle_scope, context);
             publish_named_window_properties(scope, context, &state, document)
                 .map_err(|error| HostError::Execution(error.to_string()))
+        }
+
+        /// Invoke native form validation/submission without consulting page globals.
+        pub fn request_submit(&mut self, form: NodeId) -> Result<(), HostError> {
+            let state = self
+                .binding_states
+                .get(&self.active_realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active DOM is unavailable".into()))?;
+            let context = self
+                .contexts
+                .get(&self.active_realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("active realm is unavailable".into()))?;
+            let deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(handle_scope, &context);
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            v8::tc_scope!(let scope, scope);
+            let result =
+                oryn_js::v8_bindings::submissions::request_submit(scope, &state, form, None);
+            if deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                reset_mutation_observer_microtask_after_termination(scope);
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
+            result.map_err(|error| HostError::Execution(error.to_string()))
         }
 
         /// Invoke generated JavaScript behavior with a Rust-owned node exposed
@@ -1899,6 +2299,10 @@ mod raw_v8 {
                         });
                     }
                     delivered += usize::from(
+                        fixup_focus_eligibility(scope, &state)
+                            .map_err(|error| HostError::Execution(error.to_string()))?,
+                    );
+                    delivered += usize::from(
                         deliver_selection_change(scope, &state)
                             .map_err(|error| HostError::Execution(error.to_string()))?,
                     );
@@ -1975,6 +2379,9 @@ mod raw_v8 {
                 let Some((context, callback, arguments, repeating)) = timer else {
                     continue;
                 };
+                if !repeating && let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>() {
+                    registry.callbacks.remove(&timer_id);
+                }
                 {
                     let _deadline =
                         ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
@@ -1988,14 +2395,28 @@ mod raw_v8 {
                         .iter()
                         .map(|value| v8::Local::new(scope, value))
                         .collect::<Vec<_>>();
-                    let receiver = v8::undefined(scope).into();
+                    let receiver = context.global(scope).into();
                     if callback.call(scope, receiver, &arguments).is_none() {
-                        let detail = scope
-                            .exception()
-                            .and_then(|value| value.to_string(scope))
-                            .map(|value| value.to_rust_string_lossy(scope))
-                            .unwrap_or_else(|| "timer callback failed".into());
-                        return Err(HostError::Execution(detail));
+                        if _deadline.expired() || scope.is_execution_terminating() {
+                            scope.cancel_terminate_execution();
+                            reset_mutation_observer_microtask_after_termination(scope);
+                            if let Some(registry) = scope.get_slot_mut::<TimerRegistry>() {
+                                registry.scheduler.cancel_timer(timer_id);
+                                registry.callbacks.remove(&timer_id);
+                            }
+                            return Err(HostError::LimitExceeded {
+                                resource: "timer callback wall time".into(),
+                            });
+                        }
+                        let exception = scope.exception();
+                        let message = scope.message();
+                        scope.reset();
+                        // The callback's realm, not the timer-owning Window
+                        // or the thrown object's realm, receives ErrorEvent.
+                        // Ordinary script errors do not terminate the event loop.
+                        if let Some(exception) = exception {
+                            report_timer_exception(scope, callback, exception, message)?;
+                        }
                     }
                     queue_mutation_observer_microtask(scope);
                     scope.perform_microtask_checkpoint();
@@ -2028,9 +2449,8 @@ mod raw_v8 {
                         .get_slot_mut::<AsyncFetches>()
                         .expect("asynchronous fetch registry installed");
                     if fetches.pending.is_empty() {
-                        break;
-                    }
-                    if wait {
+                        fetches.receiver.try_recv().ok()
+                    } else if wait {
                         let remaining =
                             deadline.saturating_duration_since(std::time::Instant::now());
                         if remaining.is_zero() {
@@ -2065,6 +2485,15 @@ mod raw_v8 {
                 let Some(completion) = completion else {
                     break;
                 };
+                if self
+                    .isolate
+                    .get_slot_mut::<AsyncFetches>()
+                    .unwrap()
+                    .retired
+                    .remove(&completion.operation_id)
+                {
+                    continue;
+                }
                 let pending = self
                     .isolate
                     .get_slot_mut::<AsyncFetches>()
@@ -2193,7 +2622,7 @@ mod raw_v8 {
                 let pending = self
                     .binding_states
                     .values()
-                    .any(|state| state.has_pending_platform_work())
+                    .any(|state| state.has_pending_non_image_work())
                     || self
                         .isolate
                         .get_slot::<DedicatedWorkers>()
@@ -2280,34 +2709,46 @@ mod raw_v8 {
         /// context and its immutable security identity.
         pub fn create_realm(
             &mut self,
-            origin: impl Into<String>,
+            origin: impl Into<Origin>,
             document_generation: u64,
             frame_id: Option<u64>,
-        ) -> RealmId {
+        ) -> Result<RealmId, HostError> {
             self.create_realm_with_global(origin.into(), document_generation, frame_id, None)
         }
 
         fn create_realm_with_global(
             &mut self,
-            origin: String,
+            origin: Origin,
             document_generation: u64,
             frame_id: Option<u64>,
             global: Option<v8::Global<v8::Object>>,
-        ) -> RealmId {
+        ) -> Result<RealmId, HostError> {
             let realm = self
                 .realms
-                .create(origin.clone(), document_generation, frame_id);
-            let identity = Self::security_token_identity(&origin, realm);
+                .try_create(origin.clone(), document_generation, frame_id)
+                .map_err(|_| HostError::LimitExceeded {
+                    resource: "realm identities".into(),
+                })?;
+            let identity = origin.security_token_key();
+            let environment = self
+                .isolate
+                .get_slot_mut::<AgentEnvironments>()
+                .unwrap()
+                .create(realm, document_generation, None)
+                .map_err(|error| HostError::Execution(error.into()))?;
             let existing_token = self.security_tokens.get(&identity).cloned();
             let context = {
                 v8::scope!(let scope, &mut self.isolate);
                 let global_object = global
                     .as_ref()
                     .map(|value| v8::Local::new(scope, value).into());
+                let template = v8::ObjectTemplate::new(scope);
+                oryn_js::v8_bindings::window_proxy::configure_local_template(scope, template);
                 let context = v8::Context::new(
                     scope,
                     v8::ContextOptions {
                         global_object,
+                        global_template: Some(template),
                         ..Default::default()
                     },
                 );
@@ -2324,11 +2765,12 @@ mod raw_v8 {
                         .insert(identity, v8::Global::new(scope, token));
                 }
                 context.set_slot(Rc::new(self.realms.get(realm).unwrap().clone()));
+                context.set_slot(Rc::new(environment));
                 install_host_functions!(scope, context);
                 v8::Global::new(scope, context)
             };
             self.contexts.insert(realm, context);
-            realm
+            Ok(realm)
         }
 
         /// Create a fresh frame document realm while retaining the browsing
@@ -2337,7 +2779,7 @@ mod raw_v8 {
         pub fn replace_frame_realm(
             &mut self,
             previous: RealmId,
-            origin: impl Into<String>,
+            origin: impl Into<Origin>,
             document_generation: u64,
         ) -> Result<RealmId, HostError> {
             let frame_id = self
@@ -2346,6 +2788,12 @@ mod raw_v8 {
                 .and_then(|descriptor| descriptor.frame_id)
                 .ok_or_else(|| {
                     HostError::Execution("replacement requires an existing frame realm".into())
+                })?;
+            // Exhaustion must not detach the still-live old WindowProxy.
+            self.realms
+                .ensure_capacity()
+                .map_err(|_| HostError::LimitExceeded {
+                    resource: "realm identities".into(),
                 })?;
             let context = self
                 .contexts
@@ -2365,7 +2813,7 @@ mod raw_v8 {
                 document_generation,
                 Some(frame_id),
                 Some(global),
-            );
+            )?;
             self.remove_realm(previous)?;
             if was_active {
                 self.active_realm = replacement;
@@ -2381,13 +2829,13 @@ mod raw_v8 {
 
         pub fn create_realm_with_dom(
             &mut self,
-            origin: impl Into<String>,
+            origin: impl Into<Origin>,
             document_generation: u64,
             frame_id: Option<u64>,
             dom: Rc<RefCell<oryn_dom::DomRuntime>>,
         ) -> Result<RealmId, HostError> {
             let previous = self.active_realm;
-            let realm = self.create_realm(origin, document_generation, frame_id);
+            let realm = self.create_realm(origin, document_generation, frame_id)?;
             self.activate_realm(realm)?;
             let installed = self.install_dom(dom, document_generation);
             self.activate_realm(previous)?;
@@ -2396,14 +2844,14 @@ mod raw_v8 {
 
         pub fn create_realm_with_dom_root(
             &mut self,
-            origin: impl Into<String>,
+            origin: impl Into<Origin>,
             document_generation: u64,
             frame_id: Option<u64>,
             dom: Rc<RefCell<oryn_dom::DomRuntime>>,
             document: NodeId,
         ) -> Result<RealmId, HostError> {
             let previous = self.active_realm;
-            let realm = self.create_realm(origin, document_generation, frame_id);
+            let realm = self.create_realm(origin, document_generation, frame_id)?;
             self.activate_realm(realm)?;
             let installed = self.install_dom_root(dom, document_generation, document);
             self.activate_realm(previous)?;
@@ -2442,10 +2890,21 @@ mod raw_v8 {
                     "the top-level JavaScript realm cannot be removed".into(),
                 ));
             }
-            self.contexts.remove(&realm).ok_or_else(|| {
+            let context = self.contexts.remove(&realm).ok_or_else(|| {
                 HostError::Execution(format!("unknown JavaScript realm {}", realm.0))
             })?;
-            self.binding_states.remove(&realm);
+            let environment = {
+                v8::scope!(let scope, &mut self.isolate);
+                v8::Local::new(scope, &context)
+                    .get_slot::<EnvironmentDescriptor>()
+                    .map(|value| *value)
+            };
+            if let Some(environment) = environment {
+                retire_environment(&mut self.isolate, environment.id);
+            }
+            if let Some(state) = self.binding_states.remove(&realm) {
+                state.retire_execution();
+            }
             if self.active_realm == realm {
                 self.active_realm = RealmId(0);
             }
@@ -2626,6 +3085,21 @@ mod raw_v8 {
                 .map(|failures| std::mem::take(&mut failures.0))
                 .unwrap_or_default()
         }
+    }
+
+    fn report_timer_exception<'s>(
+        scope: &mut v8::PinScope<'s, '_>,
+        callback: v8::Local<'s, v8::Function>,
+        exception: v8::Local<'s, v8::Value>,
+        message: Option<v8::Local<'s, v8::Message>>,
+    ) -> Result<(), HostError> {
+        let context = callback
+            .get_creation_context(scope)
+            .unwrap_or_else(|| scope.get_current_context());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        oryn_js::v8_bindings::report_exception(scope, exception, message)
+            .map(|_| ())
+            .map_err(|error| HostError::Execution(error.to_string()))
     }
 
     fn install_module_error_reporter(
@@ -2989,6 +3463,50 @@ mod raw_v8 {
             .ok_or_else(|| "invalid dedicated-worker id".into())
     }
 
+    fn automation_trace_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        _: v8::ReturnValue,
+    ) {
+        let realm = scope.get_current_context().get_slot::<RealmDescriptor>();
+        let id = args
+            .get(0)
+            .number_value(scope)
+            .filter(|n| n.is_finite() && *n > 0.0 && *n <= 9007199254740991.0 && n.fract() == 0.0);
+        let operation = args
+            .get(1)
+            .is_string()
+            .then(|| args.get(1).to_rust_string_lossy(scope));
+        let outcome = args
+            .get(2)
+            .is_string()
+            .then(|| args.get(2).to_rust_string_lossy(scope));
+        let Some(trace) = scope.get_slot_mut::<crate::automation_trace::AutomationTrace>() else {
+            throw_type_error(scope, "automation trace unavailable");
+            return;
+        };
+        let accepted = if let (Some(realm), Some(id), Some(operation), Some(outcome)) =
+            (realm, id, operation, outcome)
+        {
+            trace.record(
+                realm.id.0,
+                realm.document_generation,
+                id as u64,
+                &operation,
+                &outcome,
+            )
+        } else {
+            trace.invalidate();
+            false
+        };
+        if !accepted {
+            throw_type_error(
+                scope,
+                "automation trace rejected invalid or excessive observation",
+            );
+        }
+    }
+
     fn current_global_identity(scope: &mut v8::PinScope) -> i32 {
         scope
             .get_current_context()
@@ -3012,6 +3530,7 @@ mod raw_v8 {
         #[cfg(unix)]
         let platform_context = scope.get_slot::<ContextState>().cloned();
         let created = (|| -> Result<u64, String> {
+            let owner_environment = current_environment(scope)?;
             let source = args
                 .get(0)
                 .to_string(scope)
@@ -3044,10 +3563,21 @@ mod raw_v8 {
                     return Err("dedicated-worker limit exceeded".into());
                 }
                 let worker_id = registry.next_id;
-                registry.next_id = worker_id.saturating_add(1);
+                registry.next_id = worker_id
+                    .checked_add(1)
+                    .ok_or("worker identity space exhausted")?;
                 worker_id
             };
+            let worker_realm = u32::try_from(worker_id)
+                .ok()
+                .and_then(|id| id.checked_add(10_000))
+                .ok_or("worker realm identity space exhausted")?;
+            let environment = scope
+                .get_slot_mut::<AgentEnvironments>()
+                .ok_or("agent environments unavailable")?
+                .create(RealmId(worker_realm), 1, Some(owner_environment.id))?;
             let context = v8::Context::new(scope, Default::default());
+            context.set_slot(Rc::new(environment));
             install_host_functions!(scope, context);
             let context_global = v8::Global::new(scope, context);
             scope
@@ -3057,6 +3587,7 @@ mod raw_v8 {
                 .insert(
                     worker_id,
                     DedicatedWorker {
+                        environment,
                         owner_identity,
                         context: context_global,
                         binding_state: None,
@@ -3071,9 +3602,6 @@ mod raw_v8 {
                     .map_err(|error| error.to_string())?;
                 let document = runtime.document();
                 let dom = Rc::new(RefCell::new(runtime));
-                let worker_realm = u32::try_from(worker_id)
-                    .map_err(|_| "worker realm id exceeds u32".to_string())?
-                    .saturating_add(10_000);
                 let binding_state = install_generated_bindings_with_root_for_global(
                     worker_scope,
                     context,
@@ -3220,6 +3748,7 @@ mod raw_v8 {
                 Ok(())
             })();
             if let Err(error) = executed {
+                retire_environment(scope, environment.id);
                 if let Some(registry) = scope.get_slot_mut::<DedicatedWorkers>() {
                     registry.workers.remove(&worker_id);
                     registry.outbound.remove(&worker_id);
@@ -3431,8 +3960,14 @@ mod raw_v8 {
             {
                 return Err("dedicated worker belongs to another realm".into());
             }
-            registry.workers.remove(&worker_id);
+            let environment = registry
+                .workers
+                .remove(&worker_id)
+                .map(|worker| worker.environment);
             registry.outbound.remove(&worker_id);
+            if let Some(environment) = environment {
+                retire_environment(scope, environment.id);
+            }
             Ok(())
         })();
         if let Err(error) = result {
@@ -3500,6 +4035,8 @@ mod raw_v8 {
             && let Some(worker) = registry.workers.get_mut(&worker_id)
         {
             worker.closed = true;
+            let environment = worker.environment;
+            retire_environment(scope, environment.id);
         }
     }
 
@@ -3561,6 +4098,7 @@ mod raw_v8 {
         mut return_value: v8::ReturnValue<v8::Value>,
     ) {
         let result = (|| -> Result<String, String> {
+            current_environment(scope)?;
             let state = scope
                 .get_slot::<ContextState>()
                 .cloned()
@@ -3602,8 +4140,10 @@ mod raw_v8 {
         request: PlatformHostRequest,
     ) -> Result<PlatformHostResult, String> {
         use crate::context_service::WebSocketFrame;
+        let image_request = matches!(request, PlatformHostRequest::ImageStart { .. });
         match request {
-            PlatformHostRequest::HttpStart { request } => {
+            PlatformHostRequest::HttpStart { request }
+            | PlatformHostRequest::ImageStart { request } => {
                 let credentials = match request.credentials.as_str() {
                     "include" => true,
                     "omit" => false,
@@ -3614,22 +4154,31 @@ mod raw_v8 {
                         .zip(url::Url::parse(&request.url).ok())
                         .is_some_and(|(source, target)| source.origin() == target.origin()),
                 };
+                let stream_request = HttpStreamRequest {
+                    request_id: operation_id.0,
+                    method: request.method,
+                    url: request.url.clone(),
+                    headers: request.headers,
+                    body_base64: BASE64.encode(request.body),
+                    credentials,
+                    credentials_mode: Some(request.credentials),
+                    initiator_url: request.initiator_url,
+                    referrer_policy: request.referrer_policy,
+                };
+                let command = if image_request {
+                    ContextServiceRequest::ImageStreamStart {
+                        page_id: state.page_id,
+                        request: stream_request,
+                    }
+                } else {
+                    ContextServiceRequest::HttpStreamStart {
+                        page_id: state.page_id,
+                        request: stream_request,
+                    }
+                };
                 match state
                     .client
-                    .request(ContextServiceRequest::HttpStreamStart {
-                        page_id: state.page_id,
-                        request: HttpStreamRequest {
-                            request_id: operation_id.0,
-                            method: request.method,
-                            url: request.url.clone(),
-                            headers: request.headers,
-                            body_base64: BASE64.encode(request.body),
-                            credentials,
-                            credentials_mode: Some(request.credentials),
-                            initiator_url: request.initiator_url,
-                            referrer_policy: request.referrer_policy,
-                        },
-                    })
+                    .request(command)
                     .map_err(|error| error.to_string())?
                 {
                     ContextServiceResponse::HttpStreamStarted {
@@ -3847,6 +4396,7 @@ mod raw_v8 {
         mut return_value: v8::ReturnValue<v8::Value>,
     ) {
         let started = (|| -> Result<v8::Local<v8::Promise>, String> {
+            let environment = current_environment(scope)?;
             let context_state = scope
                 .get_slot::<ContextState>()
                 .cloned()
@@ -3865,13 +4415,20 @@ mod raw_v8 {
                 .get_slot_mut::<AsyncFetches>()
                 .ok_or_else(|| "asynchronous operation registry unavailable".to_string())?;
             let operation_id = operations.next_operation_id;
-            operations.next_operation_id = operation_id.saturating_add(1);
-            if operations.pending.len() >= 32 {
+            operations.next_operation_id = operation_id
+                .checked_add(1)
+                .ok_or("asynchronous operation identity space exhausted")?;
+            if operations.pending.len() + operations.retired.len() >= 32 {
                 return Err("pending host operation limit exceeded".into());
             }
-            operations
-                .pending
-                .insert(operation_id, PendingFetch { context, resolver });
+            operations.pending.insert(
+                operation_id,
+                PendingFetch {
+                    environment,
+                    context,
+                    resolver,
+                },
+            );
             let sender = operations.sender.clone();
             std::thread::spawn(move || {
                 let result = context_state
@@ -3921,6 +4478,7 @@ mod raw_v8 {
         #[cfg(unix)]
         let context_state = scope.get_slot::<ContextState>().cloned();
         let started = (|| -> Result<v8::Local<v8::Promise>, String> {
+            let environment = current_environment(scope)?;
             let fetch_state = scope
                 .get_slot::<FetchState>()
                 .cloned()
@@ -3973,13 +4531,20 @@ mod raw_v8 {
                 .get_slot_mut::<AsyncFetches>()
                 .ok_or_else(|| "asynchronous fetch registry unavailable".to_string())?;
             let operation_id = async_fetches.next_operation_id;
-            async_fetches.next_operation_id = operation_id.saturating_add(1);
-            if async_fetches.pending.len() >= 32 {
+            async_fetches.next_operation_id = operation_id
+                .checked_add(1)
+                .ok_or("asynchronous operation identity space exhausted")?;
+            if async_fetches.pending.len() + async_fetches.retired.len() >= 32 {
                 return Err("pending fetch limit exceeded".into());
             }
-            async_fetches
-                .pending
-                .insert(operation_id, PendingFetch { context, resolver });
+            async_fetches.pending.insert(
+                operation_id,
+                PendingFetch {
+                    environment,
+                    context,
+                    resolver,
+                },
+            );
             let sender = async_fetches.sender.clone();
             std::thread::spawn(move || {
                 let result = perform_fetch(
@@ -4249,6 +4814,7 @@ mod raw_v8 {
         resource_name: &str,
         specifier: &str,
     ) -> Option<String> {
+        current_environment(scope).ok()?;
         if !(specifier.starts_with('.')
             || specifier.starts_with('/')
             || Url::parse(specifier).is_ok())
@@ -4339,6 +4905,7 @@ mod raw_v8 {
 
     impl Drop for RawV8Host {
         fn drop(&mut self) {
+            self.watchdog.shutdown();
             // `OwnedIsolate` requires itself to be current during destruction.
             // A BFCache-retained host is deliberately exited while frozen, so
             // re-enter it for the automatic field drop and restore the prior
@@ -4347,6 +4914,16 @@ mod raw_v8 {
                 // SAFETY: the page actor drops hosts on their creating thread.
                 unsafe { self.isolate.enter() };
                 self.isolate_entered = true;
+            }
+            for state in self.binding_states.values() {
+                state.retire_execution();
+            }
+            if let Some(workers) = self.isolate.get_slot::<DedicatedWorkers>() {
+                for worker in workers.workers.values() {
+                    if let Some(state) = &worker.binding_state {
+                        state.retire_execution();
+                    }
+                }
             }
         }
     }
@@ -4438,6 +5015,15 @@ mod raw_v8 {
         }
 
         fn evaluate_string(&mut self, source: &str) -> Result<String, HostError> {
+            // Host-only diagnostic command: no page-visible reader and no
+            // traversal through cross-origin script proxies.
+            if source == "__oryn_native_automation_trace" {
+                return self
+                    .isolate
+                    .get_slot::<crate::automation_trace::AutomationTrace>()
+                    .map(|trace| trace.snapshot().to_string())
+                    .ok_or_else(|| HostError::Execution("automation trace unavailable".into()));
+            }
             let _deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
             v8::scope!(let handle_scope, &mut self.isolate);
             let context = v8::Local::new(
@@ -4464,6 +5050,7 @@ mod raw_v8 {
                 None => {
                     let detail = scope
                         .stack_trace()
+                        .filter(|value| !value.is_null_or_undefined())
                         .or_else(|| scope.exception())
                         .and_then(|value| value.to_string(scope))
                         .map(|value| value.to_rust_string_lossy(scope))
@@ -4498,6 +5085,126 @@ mod raw_v8 {
     #[cfg(test)]
     mod native_context_tests {
         use super::*;
+
+        #[cfg(unix)]
+        #[test]
+        fn retired_platform_endpoint_rejects_retained_clones() {
+            let context = crate::Browser::new().new_context();
+            let page = context.new_page();
+            let endpoint = Rc::new(ContextPlatformHost::new(ContextState {
+                client: SharedContextClient::direct(context, page.page_id()),
+                page_id: page.page_id(),
+            }));
+            let retained = endpoint.clone();
+            endpoint.retire();
+            drop(endpoint);
+            assert_eq!(
+                retained
+                    .submit(
+                        HostOperationId(1),
+                        PlatformHostRequest::HttpRead {
+                            stream_id: 1,
+                            max_bytes: 16,
+                        }
+                    )
+                    .unwrap_err(),
+                "execution environment is retired"
+            );
+            assert!(retained.drain_completions(32).is_empty());
+        }
+
+        #[test]
+        fn adopted_cross_realm_wrapper_survives_source_retirement_and_gc() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body></body>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            host.install_dom(dom.clone(), 1).unwrap();
+            let parsed = oryn_dom::html::parse("<section id=kept><span>text</span></section>");
+            let child_document = dom
+                .borrow_mut()
+                .import_subtree(&parsed.dom, parsed.document)
+                .unwrap();
+            let child = host
+                .create_realm_with_dom_root(
+                    "https://example.test",
+                    2,
+                    Some(1),
+                    dom.clone(),
+                    child_document,
+                )
+                .unwrap();
+            expose_child(&mut host, child);
+            host.execute("globalThis.kept=child.document.getElementById('kept');kept.marker=73;document.adoptNode(kept);globalThis.savedOwner=kept.ownerDocument;globalThis.child=null").unwrap();
+            host.remove_realm(child).unwrap();
+            let mutations = dom.borrow_mut().drain_mutations();
+            dom.borrow_mut().release_mutation_roots(&mutations).unwrap();
+            host.isolate.low_memory_notification();
+            host.isolate.low_memory_notification();
+            assert_eq!(host.evaluate_string("kept.marker===73 && kept.ownerDocument===document && savedOwner===document && kept.firstChild.textContent==='text' && kept.parentNode===null").unwrap(), "true");
+            host.execute("document.body.append(kept)").unwrap();
+            assert_eq!(
+                host.evaluate_string("kept.parentNode===document.body")
+                    .unwrap(),
+                "true"
+            );
+        }
+
+        #[test]
+        fn retained_retired_global_cannot_schedule_new_timers() {
+            let mut host = host();
+            let child = host
+                .create_realm("https://example.test", 2, Some(1))
+                .unwrap();
+            expose_child(&mut host, child);
+            host.execute("globalThis.retainedSchedule=child.__oryn_timer_schedule")
+                .unwrap();
+            host.remove_realm(child).unwrap();
+            assert_eq!(
+                host.evaluate_string(
+                    "retainedSchedule(()=>{throw Error('retired timer')},0,false,[])"
+                )
+                .unwrap(),
+                "0"
+            );
+            assert_eq!(host.next_timer_delay(), None);
+        }
+
+        #[test]
+        fn native_security_tokens_follow_structured_origin_identity() {
+            let mut host = host();
+            let normalized = host
+                .create_realm("https://EXAMPLE.test:443/path", 1, Some(1))
+                .unwrap();
+            expose_child(&mut host, normalized);
+            host.execute("child.shared = {value: 7}").unwrap();
+            host.activate_realm(normalized).unwrap();
+            assert_eq!(host.evaluate_string("String(shared.value)").unwrap(), "7");
+            host.activate_realm(RealmId(0)).unwrap();
+            let opaque = host.create_realm("null", 1, Some(2)).unwrap();
+            expose_child(&mut host, opaque);
+            assert_eq!(
+                host.evaluate_string(
+                    "(()=>{try {child.secret=1;return 'allowed'}catch(e){return 'denied'}})()"
+                )
+                .unwrap(),
+                "denied"
+            );
+            let origin = Origin::opaque();
+            let first = host.create_realm(origin.clone(), 1, Some(3)).unwrap();
+            let inherited = host.create_realm(origin, 1, Some(4)).unwrap();
+            assert!(host.realms.same_origin(first, inherited));
+            v8::scope!(let scope, &mut host.isolate);
+            let first = v8::Local::new(scope, host.contexts.get(&first).unwrap());
+            let inherited = v8::Local::new(scope, host.contexts.get(&inherited).unwrap());
+            assert!(
+                first
+                    .get_security_token(scope)
+                    .strict_equals(inherited.get_security_token(scope))
+            );
+        }
 
         fn host() -> RawV8Host {
             RawV8Host::new_with_base_url_and_heap_limit(
@@ -4892,9 +5599,109 @@ mod raw_v8 {
         }
 
         #[test]
+        fn isolate_watchdog_reuses_one_thread_and_disarmed_deadlines_cannot_poison_later_scripts() {
+            let mut host = host();
+            let thread = host.watchdog.thread.as_ref().unwrap().thread().id();
+            for _ in 0..500 {
+                let deadline = ExecutionDeadline::arm(&host.isolate, Duration::ZERO);
+                std::thread::yield_now();
+                drop(deadline);
+                assert_eq!(host.evaluate_string("1+1").unwrap(), "2");
+            }
+            assert_eq!(host.watchdog.thread.as_ref().unwrap().thread().id(), thread);
+            assert!(
+                host.watchdog
+                    .state
+                    .schedule
+                    .lock()
+                    .unwrap()
+                    .active
+                    .is_empty()
+            );
+        }
+
+        #[test]
+        fn isolate_watchdog_exhaustion_is_fail_closed_and_ids_never_wrap() {
+            let host = host();
+            let guards = (0..64)
+                .map(|_| ExecutionDeadline::arm(&host.isolate, Duration::from_secs(30)))
+                .collect::<Vec<_>>();
+            let overflow = ExecutionDeadline::arm(&host.isolate, Duration::from_secs(30));
+            assert!(overflow.expired());
+            assert!(overflow.id.is_none());
+            drop(overflow);
+            drop(guards);
+            host.watchdog.state.schedule.lock().unwrap().next_id = u64::MAX;
+            let overflow = ExecutionDeadline::arm(&host.isolate, Duration::from_secs(30));
+            assert!(overflow.expired());
+            assert!(overflow.id.is_none());
+            assert_eq!(
+                host.watchdog.state.schedule.lock().unwrap().next_id,
+                u64::MAX
+            );
+        }
+
+        #[test]
+        fn isolate_watchdog_preserves_the_earliest_nested_deadline() {
+            let mut host = host();
+            let outer = ExecutionDeadline::arm(&host.isolate, Duration::from_millis(25));
+            let inner = ExecutionDeadline::arm(&host.isolate, Duration::from_secs(30));
+            assert!(matches!(
+                host.execute("for(;;){}"),
+                Err(HostError::LimitExceeded { .. })
+            ));
+            assert!(outer.expired());
+            assert!(!inner.expired());
+            drop(inner);
+            drop(outer);
+            assert_eq!(host.evaluate_string("1+1").unwrap(), "2");
+        }
+
+        #[test]
+        fn isolate_watchdog_is_joined_before_host_destruction_returns() {
+            let host = host();
+            let state = host.watchdog.state.clone();
+            drop(host);
+            assert!(state.schedule.lock().unwrap().shutdown);
+            assert_eq!(Arc::strong_count(&state), 1);
+        }
+
+        #[test]
+        fn timer_exception_is_reported_in_callback_realm_and_peer_tasks_continue() {
+            let mut host = host();
+            host.install_dom(Rc::new(RefCell::new(oryn_dom::DomRuntime::new())), 1)
+                .unwrap();
+            let frame = host
+                .create_realm_with_dom(
+                    "https://example.test",
+                    1,
+                    Some(7),
+                    Rc::new(RefCell::new(oryn_dom::DomRuntime::new())),
+                )
+                .unwrap();
+            expose_child(&mut host, frame);
+            host.execute("globalThis.errors=0;globalThis.peer=0;onerror=()=>errors++;child.errors=0;child.onerror=function(){child.errors++;return false};__oryn_timer_schedule(new child.Function('error','throw error'),0,false,[new Error('timer')]);__oryn_timer_schedule(()=>peer++,0,false,[])").unwrap();
+            host.drain_scheduled_timers(false).unwrap();
+            assert_eq!(
+                host.evaluate_string("[errors,child.errors,peer].join(',')")
+                    .unwrap(),
+                "0,1,1"
+            );
+            host.execute("__oryn_timer_schedule(new child.Function(\"'use strict';globalThis.timerThis=this\"),0,false,[])").unwrap();
+            host.drain_scheduled_timers(false).unwrap();
+            assert_eq!(
+                host.evaluate_string("child.timerThis===globalThis")
+                    .unwrap(),
+                "true"
+            );
+        }
+
+        #[test]
         fn native_context_incumbent_tracks_the_calling_script() {
             let mut host = host();
-            let frame = host.create_realm("https://example.test", 1, Some(7));
+            let frame = host
+                .create_realm("https://example.test", 1, Some(7))
+                .unwrap();
             expose_child(&mut host, frame);
             {
                 let context = host.contexts.get(&frame).unwrap().clone();
@@ -4923,7 +5730,9 @@ mod raw_v8 {
         #[test]
         fn native_context_replacement_preserves_proxy_and_retained_environment() {
             let mut host = host();
-            let frame = host.create_realm("https://example.test", 1, Some(7));
+            let frame = host
+                .create_realm("https://example.test", 1, Some(7))
+                .unwrap();
             host.activate_realm(frame).unwrap();
             host.execute("var marker='old'; var document={generation:1}; function readOld(){return marker+':'+document.generation}").unwrap();
             expose_child(&mut host, frame);
@@ -5103,6 +5912,101 @@ mod tests {
     }
 
     #[test]
+    fn timer_delay_uses_webidl_long_and_preserves_initial_interval_order() {
+        let mut host = RawV8Host::new();
+        host.execute("globalThis.order=[];globalThis.interval=__oryn_timer_schedule(()=>{order.push('interval');__oryn_timer_cancel(interval)},4294967296,true,[]);__oryn_timer_schedule(()=>order.push('timeout'),4294967296,false,[])").unwrap();
+        host.drain_scheduled_timers(false).unwrap();
+        assert_eq!(
+            host.evaluate_string("order.join(',')").unwrap(),
+            "interval,timeout"
+        );
+        assert_eq!(host.next_timer_delay(), None);
+        host.execute("__oryn_timer_schedule(()=>order.push('negative'),2147483648,false,[])")
+            .unwrap();
+        host.drain_scheduled_timers(false).unwrap();
+        assert_eq!(
+            host.evaluate_string("order.join(',')").unwrap(),
+            "interval,timeout,negative"
+        );
+        assert_eq!(
+            host.evaluate_string(
+                "try{__oryn_timer_schedule(()=>{},Symbol(),false,[]);'missed'}catch(e){e.name}"
+            )
+            .unwrap(),
+            "TypeError"
+        );
+        assert_eq!(host.next_timer_delay(), None);
+    }
+
+    #[test]
+    fn timer_watchdog_reports_limit_and_allows_followup_execution() {
+        let mut host = RawV8Host::new_with_wall_limit(Duration::from_millis(25));
+        host.execute("__oryn_timer_schedule(() => { for (;;) {} }, 0, false, [])")
+            .unwrap();
+        let result = host.drain_scheduled_timers(true);
+        assert!(
+            matches!(result, Err(HostError::LimitExceeded { .. })),
+            "{result:?}"
+        );
+        assert_eq!(host.evaluate_string("1 + 1").unwrap(), "2");
+        assert_eq!(host.drain_scheduled_timers(false).unwrap(), 0);
+    }
+
+    #[test]
+    fn frame_retirement_cancels_its_timers_without_cancelling_sibling_timers() {
+        let mut host = RawV8Host::new();
+        let root_timer = host
+            .evaluate_string("globalThis.fired=0;__oryn_timer_schedule(()=>fired++,0,false,[])")
+            .unwrap();
+        let frame = host
+            .create_realm("https://example.test", 7, Some(1))
+            .unwrap();
+        host.activate_realm(frame).unwrap();
+        host.execute(&format!("__oryn_timer_cancel({root_timer});__oryn_timer_schedule(()=>{{throw Error('retired timeout')}},0,false,[]);__oryn_timer_schedule(()=>{{throw Error('retired interval')}},100000,true,[])" )).unwrap();
+        host.remove_realm(frame).unwrap();
+        assert_eq!(host.drain_scheduled_timers(false).unwrap(), 1);
+        assert_eq!(host.evaluate_string("fired").unwrap(), "1");
+        assert_eq!(host.next_timer_delay(), None);
+    }
+
+    #[test]
+    fn frame_retirement_discards_late_fetch_completion_without_running_reactions() {
+        let mut host = RawV8Host::new_with_network(
+            SharedNetworkBroker::new(SlowFixtureBroker),
+            Url::parse("https://example.test/").unwrap(),
+        );
+        let frame = host
+            .create_realm("https://example.test", 7, Some(1))
+            .unwrap();
+        host.activate_realm(frame).unwrap();
+        host.execute("__oryn_fetch_async('/item','GET','','[]','base64','same-origin').then(()=>{throw Error('retired fetch reaction')})").unwrap();
+        host.remove_realm(frame).unwrap();
+        assert!(!host.has_pending_async_fetches());
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(host.drain_async_fetches(false).unwrap(), 0);
+        host.execute("globalThis.result='pending';__oryn_fetch_async('/item','GET','','[]','base64','same-origin').then(()=>result='live')").unwrap();
+        assert_eq!(host.drain_async_fetches(true).unwrap(), 1);
+        assert_eq!(host.evaluate_string("result").unwrap(), "live");
+    }
+
+    #[test]
+    fn evaluation_reports_thrown_values_without_a_stack_trace() {
+        let mut host = RawV8Host::new();
+        for (source, expected) in [
+            ("throw 'diagnostic sentinel'", "diagnostic sentinel"),
+            ("throw 42", "42"),
+            ("throw null", "null"),
+            ("throw undefined", "undefined"),
+        ] {
+            let error = host.evaluate_string(source).unwrap_err();
+            assert!(
+                matches!(error, HostError::Execution(ref detail) if detail == expected),
+                "{error:?}"
+            );
+        }
+    }
+
+    #[test]
     fn v8_watchdog_terminates_execution_before_process_replacement() {
         let mut host = RawV8Host::new_with_wall_limit(Duration::from_millis(25));
         let result = host.evaluate_string("for(;;){}");
@@ -5117,7 +6021,9 @@ mod tests {
     fn frame_realms_share_an_isolate_but_not_global_state() {
         let mut host = RawV8Host::new();
         host.execute("globalThis.marker='top'").unwrap();
-        let frame = host.create_realm("https://example.test", 4, Some(7));
+        let frame = host
+            .create_realm("https://example.test", 4, Some(7))
+            .unwrap();
         host.activate_realm(frame).unwrap();
         assert_eq!(host.evaluate_string("typeof marker").unwrap(), "undefined");
         host.execute("globalThis.marker='frame'").unwrap();

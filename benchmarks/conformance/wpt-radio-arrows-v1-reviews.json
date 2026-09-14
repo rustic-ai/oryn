@@ -1,0 +1,2290 @@
+{
+  "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-default-value.html|window|": {
+    "automation_audit": "Two synchronous default tabIndex getter assertions; no automation.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 2,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-default-value.html": "6c9ff0f7d568adeaddf9f31b81cafc32c2a36feb79e281fcb527709a09d87bef",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "6c9ff0f7d568adeaddf9f31b81cafc32c2a36feb79e281fcb527709a09d87bef",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59902/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-default-value.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59902/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59902/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-negative.html|window|": {
+    "automation_audit": "Reviewed full test: body send_keys Tab requests must cause focus capture callbacks and keyCode 9 assertions. The order test requires nine focus transitions in its explicit expected order; other tests require one target transition. Reviewed upstream send_keys/inView/paint-tree helpers, vendor wrapper and native/CDP keyboard paths. No synthetic reference event or focus override.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Pinned static document and reachable helpers reviewed. No network dependency beyond the listed scripts. Exact response bytes, native automation completion and Chromium native focus/completion/subtest gates are rechecked for this signed dirty-tree candidate; not release attestation. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-negative.html": "a19b3ac7a552aff15ae5668753ca1496ce2ed302974709b6e4655bb6940cdb0c",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "send_keys"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "a19b3ac7a552aff15ae5668753ca1496ce2ed302974709b6e4655bb6940cdb0c",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59912/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-negative.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59912/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59912/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59912/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59912/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-order.html|window|": {
+    "automation_audit": "Reviewed full test: body send_keys Tab requests must cause focus capture callbacks and keyCode 9 assertions. The order test requires nine focus transitions in its explicit expected order; other tests require one target transition. Reviewed upstream send_keys/inView/paint-tree helpers, vendor wrapper and native/CDP keyboard paths. No synthetic reference event or focus override.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 9,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Pinned static document and reachable helpers reviewed. No network dependency beyond the listed scripts. Exact response bytes, native automation completion and Chromium native focus/completion/subtest gates are rechecked for this signed dirty-tree candidate; not release attestation. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-order.html": "4e1c9cf465c286af0301833bb6d8eefeca7e54dfe2b6683b170e2f35e4abb1a6",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "send_keys"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "4e1c9cf465c286af0301833bb6d8eefeca7e54dfe2b6683b170e2f35e4abb1a6",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59973/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-order.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59973/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59973/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59973/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59973/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-positive.html|window|": {
+    "automation_audit": "Reviewed full test: body send_keys Tab requests must cause focus capture callbacks and keyCode 9 assertions. The order test requires nine focus transitions in its explicit expected order; other tests require one target transition. Reviewed upstream send_keys/inView/paint-tree helpers, vendor wrapper and native/CDP keyboard paths. No synthetic reference event or focus override.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Pinned static document and reachable helpers reviewed. No network dependency beyond the listed scripts. Exact response bytes, native automation completion and Chromium native focus/completion/subtest gates are rechecked for this signed dirty-tree candidate; not release attestation. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-positive.html": "fb9841ea3e546149459bca8662ded22ba2005d3d2333f7cfabbfa71e38f02c7c",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "send_keys"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "fb9841ea3e546149459bca8662ded22ba2005d3d2333f7cfabbfa71e38f02c7c",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59985/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-positive.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59985/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59985/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59985/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59985/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-zero.html|window|": {
+    "automation_audit": "Reviewed full test: body send_keys Tab requests must cause focus capture callbacks and keyCode 9 assertions. The order test requires nine focus transitions in its explicit expected order; other tests require one target transition. Reviewed upstream send_keys/inView/paint-tree helpers, vendor wrapper and native/CDP keyboard paths. No synthetic reference event or focus override.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Pinned static document and reachable helpers reviewed. No network dependency beyond the listed scripts. Exact response bytes, native automation completion and Chromium native focus/completion/subtest gates are rechecked for this signed dirty-tree candidate; not release attestation. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-zero.html": "c5ea0334659219bfe9a1385f6d9cae07a46cc9f826319c6d98e7699640f0dfd8",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "send_keys"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "c5ea0334659219bfe9a1385f6d9cae07a46cc9f826319c6d98e7699640f0dfd8",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60047/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-zero.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60047/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60047/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60047/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60047/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/tabindex-getter-frame.html|window|": {
+    "automation_audit": "Four detached frame getter assertions and four iframe-load promises reading frame elements in the same-origin frameset fixture. The frameset fixture is static, with no scripts or further resource references.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 8,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/resources/frameset-using-page.html": "49d6fc2d100d979c76162394d982ed420d5bbc2f4183bc1b06384e9fc5962576",
+      "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/tabindex-getter-frame.html": "20a74cbf8a63bbb38574c38e93d2a9f55236a49b2dfa058efe8844d9cac5d70d",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "20a74cbf8a63bbb38574c38e93d2a9f55236a49b2dfa058efe8844d9cac5d70d",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60087/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/tabindex-getter-frame.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60087/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60087/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "49d6fc2d100d979c76162394d982ed420d5bbc2f4183bc1b06384e9fc5962576",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60087/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/resources/frameset-using-page.html"
+      },
+      "4": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "49d6fc2d100d979c76162394d982ed420d5bbc2f4183bc1b06384e9fc5962576",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60087/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/resources/frameset-using-page.html"
+      },
+      "5": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "49d6fc2d100d979c76162394d982ed420d5bbc2f4183bc1b06384e9fc5962576",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60087/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/resources/frameset-using-page.html"
+      },
+      "6": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "49d6fc2d100d979c76162394d982ed420d5bbc2f4183bc1b06384e9fc5962576",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60087/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/resources/frameset-using-page.html"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/tabindex-getter.html|window|": {
+    "automation_audit": "Thirty elements each check default and -1/0/1 reflected tabIndex values, including SVG links, first/second summary, hidden/disabled controls and shadow hosts. No input automation or focus-navigation claim.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 120,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/tabindex-getter.html": "067ee90128bd427bcb492c67b65d0f29329d150d5015f601cf40a3e39dcbd79c",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "067ee90128bd427bcb492c67b65d0f29329d150d5015f601cf40a3e39dcbd79c",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60128/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/tabindex-getter.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60128/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60128/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/checkbox-click-events.html|window|": {
+    "automation_audit": "Four synchronous checkbox click/MouseEvent dispatch cases check preactivation, cancellation restoration and click/input/change ordering, with no native automation.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 4,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/checkbox-click-events.html": "661f7c26e3ad5ebafe8a62606fd39dcfe0dd80ace99d405c1ae02e5ac1ca7939",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "661f7c26e3ad5ebafe8a62606fd39dcfe0dd80ace99d405c1ae02e5ac1ca7939",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:57930/html/semantics/forms/the-input-element/checkbox-click-events.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:57930/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:57930/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/checkbox.html|window|": {
+    "automation_audit": "Six checkbox cases check disabled click suppression, trusted input/change ordering, indeterminate preactivation and post-dispatch canceled restoration, including a handler that changes indeterminate. Timers perform the deferred checks.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 6,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/checkbox.html": "45f2de76cf7c1af885f300fb898307476437e01dc9e488015cfebc9d34335da2",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "45f2de76cf7c1af885f300fb898307476437e01dc9e488015cfebc9d34335da2",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:57931/html/semantics/forms/the-input-element/checkbox.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:57931/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:57931/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/input-type-checkbox.html|window|": {
+    "automation_audit": "Seven property cases cover initial checkedness, truthy-string assignment, initial and assigned indeterminate, and default/on value getter/setter behavior. The hidden fixture intentionally uses script properties, not device input.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 7,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/input-type-checkbox.html": "d8d1c012cce774a333acdd7093be85106c8851db52499543518e4070c1722a54",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "d8d1c012cce774a333acdd7093be85106c8851db52499543518e4070c1722a54",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58019/html/semantics/forms/the-input-element/input-type-checkbox.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58019/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58019/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/radio-focus-navigation-checked.html|window|": {
+    "automation_audit": "Reviewed full test and focus-utils.js: two animation frames before/after each awaited sequence; Tab down/up and Shift+Tab down/up use Actions key sources and pauses. Reviewed reachable Actions constructor, source creation, tick insertion, keyDown/keyUp, serialization and send, plus test_driver.action_sequence and native/CDP adapters. Expected sequence counts derived from source, not inferred from success.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 17,
+    "expected_resource_errors": {},
+    "expected_subtests": 5,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Pinned static document and reachable helpers reviewed. No network dependency beyond the listed scripts. Exact response bytes, native automation completion and Chromium native focus/completion/subtest gates are rechecked for this signed dirty-tree candidate; not release attestation. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/radio-focus-navigation-checked.html": "f87310e10e6133ad8fe9e53d2626bcdc4fb629363713e19fa36c13af96885698",
+      "html/semantics/forms/the-input-element/resources/focus-utils.js": "26a4782798cf30ee6913ae3f703b472bbe5130c8498b5bf358c64f6b06d01815",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/html/semantics/forms/the-input-element/resources/focus-utils.js",
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "f87310e10e6133ad8fe9e53d2626bcdc4fb629363713e19fa36c13af96885698",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58089/html/semantics/forms/the-input-element/radio-focus-navigation-checked.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58089/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58089/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58089/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58089/resources/testdriver-vendor.js"
+      },
+      "5": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58089/resources/testdriver-actions.js"
+      },
+      "6": {
+        "mime": "text/javascript",
+        "query_sha256": null,
+        "response_sha256": "26a4782798cf30ee6913ae3f703b472bbe5130c8498b5bf358c64f6b06d01815",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58089/html/semantics/forms/the-input-element/resources/focus-utils.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/radio-focus-navigation-disabled.html|window|": {
+    "automation_audit": "Reviewed full test and focus-utils.js: two animation frames before/after each awaited sequence; Tab down/up and Shift+Tab down/up use Actions key sources and pauses. Reviewed reachable Actions constructor, source creation, tick insertion, keyDown/keyUp, serialization and send, plus test_driver.action_sequence and native/CDP adapters. Expected sequence counts derived from source, not inferred from success.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 4,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Pinned static document and reachable helpers reviewed. No network dependency beyond the listed scripts. Exact response bytes, native automation completion and Chromium native focus/completion/subtest gates are rechecked for this signed dirty-tree candidate; not release attestation. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/radio-focus-navigation-disabled.html": "17223ad1f8db20a15be3689cd5c3088a2c6662c762188f83967055eb66b8512b",
+      "html/semantics/forms/the-input-element/resources/focus-utils.js": "26a4782798cf30ee6913ae3f703b472bbe5130c8498b5bf358c64f6b06d01815",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/html/semantics/forms/the-input-element/resources/focus-utils.js",
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "17223ad1f8db20a15be3689cd5c3088a2c6662c762188f83967055eb66b8512b",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58166/html/semantics/forms/the-input-element/radio-focus-navigation-disabled.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58166/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58166/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58166/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58166/resources/testdriver-vendor.js"
+      },
+      "5": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58166/resources/testdriver-actions.js"
+      },
+      "6": {
+        "mime": "text/javascript",
+        "query_sha256": null,
+        "response_sha256": "26a4782798cf30ee6913ae3f703b472bbe5130c8498b5bf358c64f6b06d01815",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58166/html/semantics/forms/the-input-element/resources/focus-utils.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/radio-focus-navigation-group-first-focus.html|window|": {
+    "automation_audit": "Reviewed full test and focus-utils.js: two animation frames before/after each awaited sequence; Tab down/up and Shift+Tab down/up use Actions key sources and pauses. Reviewed reachable Actions constructor, source creation, tick insertion, keyDown/keyUp, serialization and send, plus test_driver.action_sequence and native/CDP adapters. Expected sequence counts derived from source, not inferred from success.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 4,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Pinned static document and reachable helpers reviewed. No network dependency beyond the listed scripts. Exact response bytes, native automation completion and Chromium native focus/completion/subtest gates are rechecked for this signed dirty-tree candidate; not release attestation. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/radio-focus-navigation-group-first-focus.html": "ef7551ff318aa5ad0b5606b9d1e92361bd9d6aabc7a11fb7b0453129143e3669",
+      "html/semantics/forms/the-input-element/resources/focus-utils.js": "26a4782798cf30ee6913ae3f703b472bbe5130c8498b5bf358c64f6b06d01815",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/html/semantics/forms/the-input-element/resources/focus-utils.js",
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "ef7551ff318aa5ad0b5606b9d1e92361bd9d6aabc7a11fb7b0453129143e3669",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58211/html/semantics/forms/the-input-element/radio-focus-navigation-group-first-focus.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58211/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58211/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58211/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58211/resources/testdriver-vendor.js"
+      },
+      "5": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58211/resources/testdriver-actions.js"
+      },
+      "6": {
+        "mime": "text/javascript",
+        "query_sha256": null,
+        "response_sha256": "26a4782798cf30ee6913ae3f703b472bbe5130c8498b5bf358c64f6b06d01815",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58211/html/semantics/forms/the-input-element/resources/focus-utils.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/radio-focus-navigation-group-focusable-focus.html|window|": {
+    "automation_audit": "Reviewed both test bodies and focus-utils helpers. First subtest uses ten Tab/Shift+Tab sequences. Second uses one initial Tab, three arrow sequences and four subsequent Tab/Shift+Tab sequences, totaling eighteen. Assertions verify focus and checked state while skipping an intervening button during arrows but retaining it during Tab. Actions source creation/serialization, frame waits, native scheduler and reference input paths reviewed; all eighteen native completions and matching Chromium outcomes required.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 18,
+    "expected_resource_errors": {},
+    "expected_subtests": 2,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Pinned static document and reachable helpers reviewed. No network dependency beyond the listed scripts. Exact response bytes, native automation completion and Chromium native focus/completion/subtest gates are rechecked for this signed dirty-tree candidate; not release attestation. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/radio-focus-navigation-group-focusable-focus.html": "c5a0604618216b339bd082699621760ef422e974a2d2f973a69535a824661ecc",
+      "html/semantics/forms/the-input-element/resources/focus-utils.js": "26a4782798cf30ee6913ae3f703b472bbe5130c8498b5bf358c64f6b06d01815",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/html/semantics/forms/the-input-element/resources/focus-utils.js",
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "c5a0604618216b339bd082699621760ef422e974a2d2f973a69535a824661ecc",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58256/html/semantics/forms/the-input-element/radio-focus-navigation-group-focusable-focus.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58256/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58256/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58256/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58256/resources/testdriver-vendor.js"
+      },
+      "5": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58256/resources/testdriver-actions.js"
+      },
+      "6": {
+        "mime": "text/javascript",
+        "query_sha256": null,
+        "response_sha256": "26a4782798cf30ee6913ae3f703b472bbe5130c8498b5bf358c64f6b06d01815",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58256/html/semantics/forms/the-input-element/resources/focus-utils.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/radio-groupname-case.html|window|": {
+    "automation_audit": "Seven groups of distinct case and Unicode spellings remain independently checkable. This proves case-sensitive non-normalizing names, not all radio-group membership rules.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 7,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/radio-groupname-case.html": "c8d2a0b69ff3f2e1b7abd9938eb4a7323392ff8176387f794b0c26bbecbc702c",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "c8d2a0b69ff3f2e1b7abd9938eb4a7323392ff8176387f794b0c26bbecbc702c",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58339/html/semantics/forms/the-input-element/radio-groupname-case.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58339/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58339/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/radio-input-cancel.html|window|": {
+    "automation_audit": "Two click cases verify cancel restoration for a standalone radio and a two-radio form group; only click, not input/change, is emitted for canceled activation.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 2,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/radio-input-cancel.html": "76f3d3d8c581238fc014e39c50493b3acbaf1f6ae7c080dc6d8c45a654094bab",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "76f3d3d8c581238fc014e39c50493b3acbaf1f6ae7c080dc6d8c45a654094bab",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58346/html/semantics/forms/the-input-element/radio-input-cancel.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58346/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58346/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/radio-morphed.html|window|": {
+    "automation_audit": "A checked text input changed to radio unchecks the existing checked same-name peer. This is a type-attribute mutation, not a type change inside a click handler.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/radio-morphed.html": "51e80ad3155a6e66e587ddf635b883f446fc36a2c87c29ed1f768832ac75efc8",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "51e80ad3155a6e66e587ddf635b883f446fc36a2c87c29ed1f768832ac75efc8",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58408/html/semantics/forms/the-input-element/radio-morphed.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58408/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58408/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-input-element/radio-multiple-selected.html|window|": {
+    "automation_audit": "One reportValidity assertion checks that a form with a checked required radio and an unchecked required peer is valid. It does not establish the complete constraint-validation API.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-input-element/radio-multiple-selected.html": "000032d0cf9954d4cac53e7c8209f419e7436cb6de33ff58e57fb66b98bd25cd",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "000032d0cf9954d4cac53e7c8209f419e7436cb6de33ff58e57fb66b98bd25cd",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58472/html/semantics/forms/the-input-element/radio-multiple-selected.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58472/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58472/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-label-element/clicking-interactive-content.html|window|": {
+    "automation_audit": "Thirty-six cases clone twelve kinds of interactive descendants into labels, including nested placements and a preceding button; direct and descendant clicks must not forward extra clicks to that button. No test_driver operation. About-blank iframe elements and inline anchor preventDefault are part of the reviewed source.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 36,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-label-element/clicking-interactive-content.html": "e3c8e57405a6d3f6b34dfec7a0676fc9f380da509dd0cb72540fa005c693e65e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "e3c8e57405a6d3f6b34dfec7a0676fc9f380da509dd0cb72540fa005c693e65e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58532/html/semantics/forms/the-label-element/clicking-interactive-content.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58532/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58532/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-label-element/clicking-noninteractive-labelable-content.html|window|": {
+    "automation_audit": "Nine cases for meter, output and progress check direct/descendant click counts and forwarding to a preceding button. First-control cases deliberately assert only greater than zero and less than thirty; no stronger count claim is made.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 9,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-label-element/clicking-noninteractive-labelable-content.html": "c87042f275dae83d427ca6a0985f3246b6e1b367a597fb461f75cb4f4c9276dc",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "c87042f275dae83d427ca6a0985f3246b6e1b367a597fb461f75cb4f4c9276dc",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58542/html/semantics/forms/the-label-element/clicking-noninteractive-labelable-content.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58542/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58542/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-label-element/forward-focus-to-associated-element.html|window|": {
+    "automation_audit": "Six focus-event tests cover explicit/implicit label association, numeric and empty tabindex, and a hidden label. No automation.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 6,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-label-element/forward-focus-to-associated-element.html": "61dccd28573ba975f1e622cc2ba73eacf04bbadf08c578c98751bb730eab3848",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "61dccd28573ba975f1e622cc2ba73eacf04bbadf08c578c98751bb730eab3848",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58663/html/semantics/forms/the-label-element/forward-focus-to-associated-element.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58663/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58663/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-label-element/label-attributes.sub.html|window|": {
+    "automation_audit": "Twenty tests cover duplicate/empty/explicit IDs, first labelable descendant, ordered live lists, detached/shadow trees, iframe moves and label form association. The iframe fixture contains two labels and no scripts. Independently reproduced the two pinned template substitutions using the observed localhost HTTP port.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 20,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-label-element/iframe-label-attributes.html": "cf0b7e15a89577356b180717209b59cda8a4f87770e1020bcade144ec70b81ce",
+      "html/semantics/forms/the-label-element/label-attributes.sub.html": "a96a61d97aab3b8da2b77c3cdc54934c102f7618aa2b241d643300af847bfd82",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "acbf5d384ceb37e6961ceb89f7db03f35ca51a2139e5e13fce2876368752b5d9",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58674/html/semantics/forms/the-label-element/label-attributes.sub.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58674/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58674/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "cf0b7e15a89577356b180717209b59cda8a4f87770e1020bcade144ec70b81ce",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58674/html/semantics/forms/the-label-element/iframe-label-attributes.html"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-label-element/label-forwarded-click-pointer-properties.html|window|": {
+    "automation_audit": "Two promise tests distinguish one native device click from one explicit label.click. Both label/control events must be trusted for device input and untrusted for label.click; pointerType, pointerId, isPrimary and detail must survive forwarding. The helper getEvent only attaches a once listener and cleanup. This execution uses the new queued, hit-tested native pointer sequence, independently covered by native_form_element_click_uses_trusted_pointer_activation. Exactly one completed native click operation.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 2,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-label-element/label-forwarded-click-pointer-properties.html": "7eec48bdb327814a803ce99a3ca8427faa8267a4e822d4208c94b1e0da1cf47e",
+      "pointerevents/pointerevent_support.js": "5e05f5e0d4280b95caa91d682ab798328ea8f55530525b203a347fb8f434f9af",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "click"
+    ],
+    "verified_dependencies": [
+      "/pointerevents/pointerevent_support.js",
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "7eec48bdb327814a803ce99a3ca8427faa8267a4e822d4208c94b1e0da1cf47e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58726/html/semantics/forms/the-label-element/label-forwarded-click-pointer-properties.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58726/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58726/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58726/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58726/resources/testdriver-actions.js"
+      },
+      "5": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58726/resources/testdriver-vendor.js"
+      },
+      "6": {
+        "mime": "text/javascript",
+        "query_sha256": null,
+        "response_sha256": "5e05f5e0d4280b95caa91d682ab798328ea8f55530525b203a347fb8f434f9af",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58726/pointerevents/pointerevent_support.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-label-element/label-inside-anchor.html|window|": {
+    "automation_audit": "Reviewed the entire pinned label-inside-anchor source: one asynchronous test completes from the checkbox change handler after a synchronous span.click(). No native automation or remote network dependency is required. The enclosing javascript link must not be activated; parent scheme policy is unchanged.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-label-element/label-inside-anchor.html": "c2685ba487d53b6a3f625933c363723f010b1f201e3155293c6518e7ea69eb43",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "c2685ba487d53b6a3f625933c363723f010b1f201e3155293c6518e7ea69eb43",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58736/html/semantics/forms/the-label-element/label-inside-anchor.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58736/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58736/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-label-element/labelable-elements.html|window|": {
+    "automation_audit": "Twenty-six synchronous assertions cover all built-in labelable categories, nonlabelable exclusions and retained NodeList identity through hidden-input type transitions.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 26,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-label-element/labelable-elements.html": "25cfea325f1f8c6d524e26c230f923df3e472061d89e67948354a736e7877c5f",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "25cfea325f1f8c6d524e26c230f923df3e472061d89e67948354a736e7877c5f",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58801/html/semantics/forms/the-label-element/labelable-elements.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58801/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58801/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-label-element/proxy-click-to-associated-element.html|window|": {
+    "automation_audit": "Three asynchronous cases check explicit-for and first-descendant label forwarding and preventDefault suppression. The canceled case uses a 500 ms completion timer, not omitted work.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "html/semantics/forms/the-label-element/proxy-click-to-associated-element.html": "e47b962d38a41abbe24757b4188341102b31f8d15d83bd383e8c3692e65b0a90",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "e47b962d38a41abbe24757b4188341102b31f8d15d83bd383e8c3692e65b0a90",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58808/html/semantics/forms/the-label-element/proxy-click-to-associated-element.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58808/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58808/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/dynamic-inert-on-focused-element.html|window|": {
+    "automation_audit": "Six target/parent/grandparent inert mutations followed by two animation frames; each test first proves focus, then verifies body fallback. No native automation operations. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution. Refreshed against the signed form-activation candidate; native click now uses the queued typed pointer path. The scope remains the assertions in this exact source.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 6,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "inert/dynamic-inert-on-focused-element.html": "8f849a6360a895d44ba994725feee6eaf5675533bbf8409fba9037bc309ff14e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "8f849a6360a895d44ba994725feee6eaf5675533bbf8409fba9037bc309ff14e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58877/inert/dynamic-inert-on-focused-element.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58877/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58877/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-and-contenteditable.html|window|": {
+    "automation_audit": "Only consistency of execCommand delete return values and resulting text across four equivalent inert/editable placements is asserted. This does not prove a particular editing result or complete inert editing. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution. Refreshed against the signed form-activation candidate; native click now uses the queued typed pointer path. The scope remains the assertions in this exact source.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 2,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "inert/inert-and-contenteditable.html": "3f31ff55498d3445536e1630db7e6473588b73751401ab69596b1491ee715fff",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "3f31ff55498d3445536e1630db7e6473588b73751401ab69596b1491ee715fff",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58936/inert/inert-and-contenteditable.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58936/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:58936/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-canvas-fallback-content.html|window|": {
+    "automation_audit": "Reviewed all twelve canvas fallback focus assertions: three ordinary fallback targets accept focus; display:none, inert, and their combination reject nine targets. No input automation, visual-pixel, or canvas drawing assertions. All test callbacks follow the reporting adapter and its verified native reference focus. This qualifies only this exact source execution, not arbitrary rendering or focusability. Refreshed against the signed form-activation candidate; native click now uses the queued typed pointer path. The scope remains the assertions in this exact source.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 12,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "inert/inert-canvas-fallback-content.html": "0b2e7aed508918d957620a49f64f58c5511f8415f16f41a1643a87f341886597",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "0b2e7aed508918d957620a49f64f58c5511f8415f16f41a1643a87f341886597",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59005/inert/inert-canvas-fallback-content.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59005/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59005/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-does-not-match-disabled-selector.html|window|": {
+    "automation_audit": "Asserts only that an inert button does not match :disabled. Computed color is read but is not asserted; no visual qualification is claimed. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution. Refreshed against the signed form-activation candidate; native click now uses the queued typed pointer path. The scope remains the assertions in this exact source.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "inert/inert-does-not-match-disabled-selector.html": "361856cf6eb20c61924e477dab529086bc7f38197b6920dc72435fa0ea255d72",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "361856cf6eb20c61924e477dab529086bc7f38197b6920dc72435fa0ea255d72",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59069/inert/inert-does-not-match-disabled-selector.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59069/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59069/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-form-control.html|window|": {
+    "automation_audit": "One native click on a label sets ancestor.inert during propagation; the associated radio must nevertheless finish the initiated activation. One completed native click operation. The new queued pointer route is typed/trusted and hit-tested, not HTMLElement.click substitution.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "inert/inert-form-control.html": "6637d2dc64ad64970b6ba2e5da509014d4f6b5b0d34b2fa8bd4eb78745f77753",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "click"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "6637d2dc64ad64970b6ba2e5da509014d4f6b5b0d34b2fa8bd4eb78745f77753",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59129/inert/inert-form-control.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59129/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59129/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59129/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59129/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-in-shadow-dom.html|window|": {
+    "automation_audit": "Inert shadow host blocks focus events for both an assigned light-tree button and a shadow-tree button. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution. Refreshed against the signed form-activation candidate; native click now uses the queued typed pointer path. The scope remains the assertions in this exact source.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "inert/inert-in-shadow-dom.html": "22328806467a39ef21ae120efc192d007f8a09ad7374b1eb2c77569844c4aba5",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "22328806467a39ef21ae120efc192d007f8a09ad7374b1eb2c77569844c4aba5",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59277/inert/inert-in-shadow-dom.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59277/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59277/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-inlines.html|window|": {
+    "automation_audit": "Reviewed all four inert target cases. Upstream click preflight rejects before vendor dispatch; the catch still asserts no event reached the inert node. The signed independent probe verifies exact interception and no mouse events for these four element categories plus labels and inert ancestors. No successful backend click is claimed.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "independent_probe": {
+      "path": "artifacts/wpt-full-baseline/inert-hit-testing-radio-arrows-v1-probe-2026-09-12.json",
+      "sha256": "99b6271137885b417dc82b0b507201f3cbe66aec44e51be64c818e5cd09505ae"
+    },
+    "source_files": {
+      "inert/inert-inlines.html": "7edb4607a9e8673d47fb3d04cee499df2b28f19ed203c58c333aed8ad2e5f0e5",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "7edb4607a9e8673d47fb3d04cee499df2b28f19ed203c58c333aed8ad2e5f0e5",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59338/inert/inert-inlines.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59338/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59338/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59338/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59338/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-label-focus.html|window|": {
+    "automation_audit": "The source catches both click rejections and assertions; the earlier raw pass was independently disproven. This candidate independently passes the signed exact-interception/focus-preservation probe. Upstream testdriver click preflight rejects before invoking the vendor, so zero completed native operations and no mouse dispatch are expected, matching Chromium. The two programmatic label-focus assertions run directly.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "independent_probe": {
+      "path": "artifacts/wpt-full-baseline/inert-hit-testing-radio-arrows-v1-probe-2026-09-12.json",
+      "sha256": "99b6271137885b417dc82b0b507201f3cbe66aec44e51be64c818e5cd09505ae"
+    },
+    "source_files": {
+      "inert/inert-label-focus.html": "92172efc72ac23ea4b55ff528a1abc22b06ba1d0d00a32183828f68d1beab2f7",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "92172efc72ac23ea4b55ff528a1abc22b06ba1d0d00a32183828f68d1beab2f7",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59350/inert/inert-label-focus.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59350/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59350/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59350/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59350/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-node-is-uneditable.html|window|": {
+    "automation_audit": "Three native key a down/up action sequences. Inert editing hosts retain text; the non-inert control changes text. The third case tests interactivity:auto under an inert ancestor. This does not qualify other keys or editing defaults. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution. Refreshed against the signed form-activation candidate; native click now uses the queued typed pointer path. The scope remains the assertions in this exact source.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 3,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "inert/inert-node-is-uneditable.html": "4e69777ac244fa355d366159a90febe604cb3a3459da5a8a3f69de0711a74056",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "4e69777ac244fa355d366159a90febe604cb3a3459da5a8a3f69de0711a74056",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59414/inert/inert-node-is-uneditable.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59414/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59414/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59414/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59414/resources/testdriver-actions.js"
+      },
+      "5": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59414/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-node-is-unfocusable.html|window|": {
+    "automation_audit": "One setup click establishes focus; direct and ancestor inertness reject subsequent element focus, reflected state remains distinct from inherited inertness, and removing inert restores focus controls. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution. Refreshed against the signed form-activation candidate; native click now uses the queued typed pointer path. The scope remains the assertions in this exact source.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 6,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "inert/inert-node-is-unfocusable.html": "af0db22165bc1338fa61df2136abe324b41846dfe4adbc32d93fa83b6bce0841",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "click"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "af0db22165bc1338fa61df2136abe324b41846dfe4adbc32d93fa83b6bce0841",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59426/inert/inert-node-is-unfocusable.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59426/resources/testdriver.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59426/resources/testdriver-vendor.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59426/resources/testharness.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59426/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-on-slots.html|window|": {
+    "automation_audit": "Two named slots: inert slot blocks its assigned button while the other slot permits focus. Exact test does not cover manual slot assignment. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution. Refreshed against the signed form-activation candidate; native click now uses the queued typed pointer path. The scope remains the assertions in this exact source.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "inert/inert-on-slots.html": "c97e65492a9b84811b78cefe122c467f9393017a36e2aebd60825f66449b9e6d",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "c97e65492a9b84811b78cefe122c467f9393017a36e2aebd60825f66449b9e6d",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59554/inert/inert-on-slots.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59554/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59554/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/nested-inert-unfocusable.html|window|": {
+    "automation_audit": "Input remains unfocusable until both nested inert ancestors have had inert removed. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution. Refreshed against the signed form-activation candidate; native click now uses the queued typed pointer path. The scope remains the assertions in this exact source.",
+    "evidence_sha256": "e3ec5fc32fef053f393c7b5c92e244fdcba1453242769fc07f9d02693fdd9a32",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned test source and reachable helper paths. Test callbacks follow the reporting adapter; this exact execution is qualified only if the current native Chromium focus and completion gates pass. All actual response bytes were independently hashed against the pinned files or the versioned report/vendor adapters; every observed resource completed HTTP 200 with the recorded MIME and no query. Fresh fixture identity and teardown remain required. Signed form-activation candidate, dirty-tree diagnostic only. Revalidated for keyboard-tab-v2; historical reviews are unchanged. Revalidated pinned source and actual response bytes for radio-arrows-v1; prior artifacts unchanged.",
+    "source_files": {
+      "inert/nested-inert-unfocusable.html": "72ddc055eb915d5518361fea67b617feaa00ce81032cb6db877c826fade39322",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "72ddc055eb915d5518361fea67b617feaa00ce81032cb6db877c826fade39322",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59846/inert/nested-inert-unfocusable.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59846/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59846/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  }
+}

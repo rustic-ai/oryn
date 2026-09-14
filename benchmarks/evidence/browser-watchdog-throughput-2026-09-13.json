@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "performance_acceptance": false,
+  "method": "Three alternating before/after samples, 1000 warm actions and three recycled leases per sample; same parent executable; no competing builds or WPT",
+  "benchmark_binary_sha256": "b4fc9bcebf23545404de9a441faf711d61be8d0358e8320bfa37faa73fdede20",
+  "before_source_tree_sha256": "354c50f9c5bc09f691eda09ed12bad7a0bbad554b48a568619bf5dd26b25972a",
+  "before_signed_worker_sha256": "77687f3de09e09d81e65424581fb6d24a2a0a662da3b0754d146ee1faa2e8ac1",
+  "before_bundle": "/private/tmp/oryn-watchdog-before.cDvGT5/OrynPageWorker.app",
+  "after_source_tree_sha256": "cfcbb43d3861d7a43964ed9b19dbd4dafe94d6059b89e2b85e2e9903f180c4b1",
+  "after_signed_worker_sha256": "674bfb9b43ac02d5ab112b52a11a857894d7d53bd610d8714409427eee1879e5",
+  "samples": [
+    {
+      "sample": 1,
+      "worker": "before",
+      "warm_actions_per_second": 195.11226223010001,
+      "reset_or_close_ms": [
+        0.585167,
+        0.255167,
+        3.446875
+      ],
+      "state_erased": true
+    },
+    {
+      "sample": 1,
+      "worker": "after",
+      "warm_actions_per_second": 245.37952152243756,
+      "reset_or_close_ms": [
+        0.613292,
+        0.287958,
+        3.325708
+      ],
+      "state_erased": true
+    },
+    {
+      "sample": 2,
+      "worker": "before",
+      "warm_actions_per_second": 194.72283904375814,
+      "reset_or_close_ms": [
+        0.5737920000000001,
+        0.26699999999999996,
+        3.3265830000000003
+      ],
+      "state_erased": true
+    },
+    {
+      "sample": 2,
+      "worker": "after",
+      "warm_actions_per_second": 243.7785975347222,
+      "reset_or_close_ms": [
+        0.531459,
+        0.284917,
+        3.315917
+      ],
+      "state_erased": true
+    },
+    {
+      "sample": 3,
+      "worker": "before",
+      "warm_actions_per_second": 187.9486731164053,
+      "reset_or_close_ms": [
+        0.612958,
+        0.316916,
+        3.742458
+      ],
+      "state_erased": true
+    },
+    {
+      "sample": 3,
+      "worker": "after",
+      "warm_actions_per_second": 246.58483851544213,
+      "reset_or_close_ms": [
+        0.562958,
+        0.287417,
+        3.479083
+      ],
+      "state_erased": true
+    }
+  ],
+  "median_before": 194.72283904375814,
+  "median_after": 245.37952152243756,
+  "target_actions_per_second": 300,
+  "target_met": false,
+  "startup_metric_note": "Legacy benchmark startup labels are omitted: prepare_workers runs before those timers in recycled mode, so they do not measure cold verification/launch."
+}

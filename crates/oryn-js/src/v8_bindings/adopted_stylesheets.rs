@@ -82,12 +82,7 @@ fn validate(
     ) {
         root
     } else {
-        state
-            .node_documents
-            .borrow()
-            .get(&root)
-            .copied()
-            .unwrap_or(state.document)
+        owner_document_for_node(state, root)?
     };
     if realm != state.realm || owner_node != document {
         return Err(error("NotAllowedError"));

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "evidence_schema_version": 4,
+  "runner_globals": {"window": "supported", "dedicatedworker": "supported", "sharedworker": "unsupported", "serviceworker": "unsupported"},
+  "fixture": {"server": "direct_wptserve", "isolation": "fresh_process_per_execution_and_browser", "tls_validation": "native_verified_reference_bypassed", "trust": "run_local_name_constrained_loopback_ca"},
+  "transports": {"http": "unqualified", "https": "unqualified", "h2": "unqualified", "ws": "unqualified", "wss": "unqualified"},
+  "automation": {
+    "oryn": {"click": "unqualified", "send_keys": "unqualified", "action_sequence": "unqualified", "get_computed_label": "unqualified", "get_computed_role": "unqualified", "get_accessibility_properties_for_element": "unqualified", "get_accessibility_properties_for_accessibility_node": "unqualified"},
+    "chromium": {"click": "unqualified", "send_keys": "unqualified", "action_sequence": "unqualified", "get_computed_label": "unqualified", "get_computed_role": "unqualified", "get_accessibility_properties_for_element": "unqualified", "get_accessibility_properties_for_accessibility_node": "unqualified"}
+  },
+  "chromium_unsupported_variants": ["send_keys modifiers", "touch", "pen", "wheel", "multiple pointer sources", "multiple keyboard sources", "unmapped WebDriver special keys"],
+  "oryn_unsupported_action_variants": ["touch", "pen", "wheel", "multiple pointer sources", "multiple keyboard sources", "unmapped WebDriver special keys", "mixed-frame element origins within one sequence"],
+  "automation_trace": {"oryn": "native_page_isolate_v1", "max_events": 4096, "identity": "host_realm_and_document_generation", "includes": "same-isolate frames including cross-origin and removed frames", "excludes": "separate auxiliary page processes"},
+  "oryn_action_qualification_limits": ["restricted mouse/keyboard scheduler version 1", "full pointer capture and ancestor boundary ordering not qualified", "separate auxiliary-page automation traces are not aggregated", "special-key default actions require source-specific review"],
+  "qualification": "Capability implementation is not qualification; exact-source reviews and live fidelity gates are required."
+}

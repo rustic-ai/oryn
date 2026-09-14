@@ -1,0 +1,206 @@
+{
+  "dom/abort/AbortSignal.any.js|dedicatedworker|": {
+    "evidence_sha256": "37d482dff827ae332b0a66c73dd8c4ef3d3a354a0bcfa7ff9dcec6565cfd6e47",
+    "source_files": {
+      "dom/abort/AbortSignal.any.js": "64be009f125bb0111362b70540f752ae5a1b176746f9941380f48d1e66630c81",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e"
+    },
+    "expected_subtests": 2,
+    "fixture_audit": "Reviewed pinned AbortSignal source: two tests, including a two-second no-abort-event check. Native upstream window/dedicated-worker wrappers and all harness/source responses match the Chromium-reviewed canary by path, hash, MIME, status and multiplicity. No stateful or dynamic prerequisites.",
+    "automation_audit": "Source and completion records require no testdriver operations, trusted input, permissions, uploads, or external automation. Full-cohort subtest names/statuses match the four-canary Chromium comparison.",
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "url": "http://localhost:61382/dom/abort/AbortSignal.any.worker.html",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/html",
+        "response_sha256": "3bd27aaa7c2352911e6ea0a4519834ac1a625a61524b6b1fc4e320fbbdbb6876",
+        "terminal": "complete"
+      },
+      "1": {
+        "url": "http://localhost:61382/resources/testharness.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript; charset=utf-8",
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "terminal": "complete"
+      },
+      "2": {
+        "url": "http://localhost:61382/resources/testharnessreport.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript; charset=utf-8",
+        "response_sha256": "846a3c7c84adb6eae15247a35429b60b5cb30864213b67d3c03a1d017dc9e837",
+        "terminal": "complete"
+      },
+      "3": {
+        "url": "http://localhost:61382/dom/abort/AbortSignal.any.worker.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript",
+        "response_sha256": "b63d8b1864ddeb1ae8647c0a4f8536fe87b72b377fc37ecf718aac1949759c52",
+        "terminal": "complete"
+      },
+      "4": {
+        "url": "http://localhost:61382/resources/testharness.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript; charset=utf-8",
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "terminal": "complete"
+      },
+      "5": {
+        "url": "http://localhost:61382/dom/abort/AbortSignal.any.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript",
+        "response_sha256": "64be009f125bb0111362b70540f752ae5a1b176746f9941380f48d1e66630c81",
+        "terminal": "complete"
+      }
+    },
+    "verified_automation_operations": []
+  },
+  "dom/abort/AbortSignal.any.js|window|": {
+    "evidence_sha256": "37d482dff827ae332b0a66c73dd8c4ef3d3a354a0bcfa7ff9dcec6565cfd6e47",
+    "source_files": {
+      "dom/abort/AbortSignal.any.js": "64be009f125bb0111362b70540f752ae5a1b176746f9941380f48d1e66630c81",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e"
+    },
+    "expected_subtests": 2,
+    "fixture_audit": "Reviewed pinned AbortSignal source: two tests, including a two-second no-abort-event check. Native upstream window/dedicated-worker wrappers and all harness/source responses match the Chromium-reviewed canary by path, hash, MIME, status and multiplicity. No stateful or dynamic prerequisites.",
+    "automation_audit": "Source and completion records require no testdriver operations, trusted input, permissions, uploads, or external automation. Full-cohort subtest names/statuses match the four-canary Chromium comparison.",
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "url": "http://localhost:61382/dom/abort/AbortSignal.any.html",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/html",
+        "response_sha256": "b16bf2af678f162217a232b0eb2639e391512055e0e526833e233d8e4ef030fa",
+        "terminal": "complete"
+      },
+      "1": {
+        "url": "http://localhost:61382/resources/testharness.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript; charset=utf-8",
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "terminal": "complete"
+      },
+      "2": {
+        "url": "http://localhost:61382/resources/testharnessreport.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript; charset=utf-8",
+        "response_sha256": "846a3c7c84adb6eae15247a35429b60b5cb30864213b67d3c03a1d017dc9e837",
+        "terminal": "complete"
+      },
+      "3": {
+        "url": "http://localhost:61382/dom/abort/AbortSignal.any.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript",
+        "response_sha256": "64be009f125bb0111362b70540f752ae5a1b176746f9941380f48d1e66630c81",
+        "terminal": "complete"
+      }
+    },
+    "verified_automation_operations": []
+  },
+  "dom/nodes/Document-createCDATASection.html|window|": {
+    "evidence_sha256": "37d482dff827ae332b0a66c73dd8c4ef3d3a354a0bcfa7ff9dcec6565cfd6e47",
+    "source_files": {
+      "dom/nodes/Document-createCDATASection.html": "41adebac1679cfddbe6564e5c76519e82e0f6c747e8354e82871e0c741c7ab6f",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e"
+    },
+    "expected_subtests": 1,
+    "fixture_audit": "Reviewed unmodified HTML: single_test setup, HTML createCDATASection NotSupportedError assertion, then done. The document and two harness resources are hash-bound, complete, and match the Chromium-reviewed canary.",
+    "automation_audit": "Source and completion records require no testdriver operations, trusted input, permissions, uploads, or external automation. Full-cohort subtest names/statuses match the four-canary Chromium comparison.",
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "url": "http://localhost:61382/dom/nodes/Document-createCDATASection.html",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/html",
+        "response_sha256": "41adebac1679cfddbe6564e5c76519e82e0f6c747e8354e82871e0c741c7ab6f",
+        "terminal": "complete"
+      },
+      "1": {
+        "url": "http://localhost:61382/resources/testharness.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript; charset=utf-8",
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "terminal": "complete"
+      },
+      "2": {
+        "url": "http://localhost:61382/resources/testharnessreport.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript; charset=utf-8",
+        "response_sha256": "846a3c7c84adb6eae15247a35429b60b5cb30864213b67d3c03a1d017dc9e837",
+        "terminal": "complete"
+      }
+    },
+    "verified_automation_operations": []
+  },
+  "fetch/api/request/forbidden-method.any.js|window|": {
+    "evidence_sha256": "37d482dff827ae332b0a66c73dd8c4ef3d3a354a0bcfa7ff9dcec6565cfd6e47",
+    "source_files": {
+      "fetch/api/request/forbidden-method.any.js": "d531582e04abd1857c9de1e8b2b745f5899c7e855c1ac0dc6d2bf8c93d439044",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e"
+    },
+    "expected_subtests": 6,
+    "fixture_audit": "Reviewed pinned source: six synchronous forbidden Request-method constructor checks for upper/lower CONNECT, TRACE and TRACK; no fetch operation. Wrapper, harness and source responses match the Chromium-reviewed canary.",
+    "automation_audit": "Source and completion records require no testdriver operations, trusted input, permissions, uploads, or external automation. Full-cohort subtest names/statuses match the four-canary Chromium comparison.",
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "url": "http://localhost:61382/fetch/api/request/forbidden-method.any.html",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/html",
+        "response_sha256": "b8debdb2e8f09e0ae89c6a6ab328c1aadcc9d4e86ddcff1815eed63c7343039b",
+        "terminal": "complete"
+      },
+      "1": {
+        "url": "http://localhost:61382/resources/testharness.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript; charset=utf-8",
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "terminal": "complete"
+      },
+      "2": {
+        "url": "http://localhost:61382/resources/testharnessreport.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript; charset=utf-8",
+        "response_sha256": "846a3c7c84adb6eae15247a35429b60b5cb30864213b67d3c03a1d017dc9e837",
+        "terminal": "complete"
+      },
+      "3": {
+        "url": "http://localhost:61382/fetch/api/request/forbidden-method.any.js",
+        "query_sha256": null,
+        "status": 200,
+        "mime": "text/javascript",
+        "response_sha256": "d531582e04abd1857c9de1e8b2b745f5899c7e855c1ac0dc6d2bf8c93d439044",
+        "terminal": "complete"
+      }
+    },
+    "verified_automation_operations": []
+  }
+}

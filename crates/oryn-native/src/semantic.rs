@@ -129,6 +129,15 @@ impl SemanticGraph {
         let mut dependency_change = false;
         for mutation in mutations {
             match mutation {
+                Mutation::HostedDocument { frame }
+                | Mutation::DocumentOwnership { node: frame } => {
+                    // Association changes are not DOM child-list mutations.
+                    // Reconcile old retained documents as well as the new tree.
+                    dirty.insert(*frame);
+                    dirty.extend(self.full.keys().copied());
+                    dirty.extend(dom.iter().map(|(id, _)| id));
+                    dependency_change = true;
+                }
                 Mutation::Inserted { node, parent, .. } => {
                     dirty.insert(*node);
                     dirty.extend(parent.iter().copied());
@@ -169,7 +178,9 @@ impl SemanticGraph {
                     dirty.extend(dom.descendants_inclusive(*node).unwrap_or_default());
                     dependency_change = true;
                 }
-                Mutation::FormState { node } | Mutation::EventListener { node, .. } => {
+                Mutation::FormState { node }
+                | Mutation::ImageResource { node }
+                | Mutation::EventListener { node, .. } => {
                     dirty.insert(*node);
                 }
                 Mutation::Focus { previous, current } => {
@@ -1012,7 +1023,7 @@ impl SemanticGraph {
                 self.document_generation,
                 &mut diagnostics,
             ),
-            properties: accessibility_properties(name.local.as_ref(), &node.attributes),
+            properties: accessibility_properties(name.local.as_ref(), node),
             owned_by: None,
             content_trust: ContentTrust::PageAuthored,
             provenance: named.provenance,
@@ -1150,11 +1161,15 @@ impl SemanticGraph {
         self.referenced_by.clear();
         let ids = dom
             .iter()
-            .filter_map(|(id, node)| node.attributes.get("id").map(|value| (value.clone(), id)))
+            .filter_map(|(id, node)| {
+                node.attributes
+                    .get_null("id")
+                    .map(|value| (value.clone(), id))
+            })
             .collect::<BTreeMap<_, _>>();
         for (source, node) in dom.iter() {
             for attribute in ["aria-labelledby", "aria-describedby"] {
-                if let Some(value) = node.attributes.get(attribute) {
+                if let Some(value) = node.attributes.get_null(attribute) {
                     for token in value.split_ascii_whitespace() {
                         if let Some(target) = ids.get(token) {
                             self.referenced_by
@@ -1166,7 +1181,10 @@ impl SemanticGraph {
                 }
             }
             if matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
-                && let Some(target) = node.attributes.get("for").and_then(|value| ids.get(value))
+                && let Some(target) = node
+                    .attributes
+                    .get_null("for")
+                    .and_then(|value| ids.get(value))
             {
                 self.referenced_by
                     .entry(*target)
@@ -1200,6 +1218,26 @@ pub fn project_element(
         return None;
     };
     let ancestors = dom.ancestors(id).ok()?;
+    let mut owner = id;
+    loop {
+        let document = dom.ancestors(owner).ok()?.into_iter().find(|ancestor| {
+            dom.get(*ancestor)
+                .is_ok_and(|node| matches!(node.kind, NodeKind::Document))
+        })?;
+        if dom.document_is_retired(document) {
+            return None;
+        }
+        match dom.document_host(document) {
+            Some(frame) => owner = frame,
+            None => break,
+        }
+    }
+    if ancestors
+        .iter()
+        .any(|document| dom.document_is_retired(*document))
+    {
+        return None;
+    }
     // Wrapper leases deliberately keep detached nodes alive, but detached
     // records are not part of the document's semantic projection. Publishing
     // them allowed OIL to resolve a freshly replaced list item to an old,
@@ -1224,13 +1262,28 @@ pub fn project_element(
         return None;
     }
     let local_name = name.local.as_ref();
-    let parent = ancestors.into_iter().find_map(|ancestor| {
-        matches!(dom.get(ancestor).ok()?.kind, NodeKind::Element { .. }).then_some(SemanticRef {
-            page_id,
-            document_generation,
-            node: (u64::from(ancestor.generation) << 32) | u64::from(ancestor.slot),
+    let parent = ancestors
+        .iter()
+        .copied()
+        .find_map(|ancestor| {
+            matches!(dom.get(ancestor).ok()?.kind, NodeKind::Element { .. }).then_some(
+                SemanticRef {
+                    page_id,
+                    document_generation,
+                    node: (u64::from(ancestor.generation) << 32) | u64::from(ancestor.slot),
+                },
+            )
         })
-    });
+        .or_else(|| {
+            ancestors.iter().find_map(|document| {
+                let frame = dom.document_host(*document)?;
+                Some(SemanticRef {
+                    page_id,
+                    document_generation,
+                    node: (u64::from(frame.generation) << 32) | u64::from(frame.slot),
+                })
+            })
+        });
     let role = computed_role(local_name, &node.attributes);
     let mut accessible =
         accessible_semantics(dom, id, local_name, &role, page_id, document_generation);
@@ -1254,36 +1307,36 @@ pub fn project_element(
     }
     for (present, state) in [
         (
-            node.attributes.contains_key("disabled")
+            node.attributes.contains_null("disabled")
                 || aria_true(&node.attributes, "aria-disabled"),
             NodeState::Disabled,
         ),
         (
-            node.attributes.contains_key("required")
+            node.attributes.contains_null("required")
                 || aria_true(&node.attributes, "aria-required"),
             NodeState::Required,
         ),
         (
-            node.attributes.contains_key("readonly")
+            node.attributes.contains_null("readonly")
                 || aria_true(&node.attributes, "aria-readonly"),
             NodeState::Readonly,
         ),
         (
-            node.attributes.contains_key("data-oryn-focused"),
+            node.attributes.contains_null("data-oryn-focused"),
             NodeState::Focused,
         ),
         (
-            node.attributes.contains_key("checked") || aria_true(&node.attributes, "aria-checked"),
+            node.checked() || aria_true(&node.attributes, "aria-checked"),
             NodeState::Checked,
         ),
         (
-            node.attributes.contains_key("selected")
+            node.attributes.contains_null("selected")
                 || aria_true(&node.attributes, "aria-selected"),
             NodeState::Selected,
         ),
         (
             aria_true(&node.attributes, "aria-expanded")
-                || (local_name == "details" && node.attributes.contains_key("open")),
+                || (local_name == "details" && node.attributes.contains_null("open")),
             NodeState::Expanded,
         ),
     ] {
@@ -1310,7 +1363,7 @@ pub fn project_element(
             ]);
         }
         if local_name == "input" {
-            match node.attributes.get("type").map(String::as_str) {
+            match node.attributes.get_null("type").map(String::as_str) {
                 Some("checkbox" | "radio") => actions.extend([
                     SemanticAction::Click,
                     SemanticAction::Check,
@@ -1346,7 +1399,7 @@ pub fn project_element(
             && descendants(dom, id).into_iter().any(|input| {
                 dom.get(input).is_ok_and(|input| {
                 matches!(&input.kind, NodeKind::Element { name } if name.local.as_ref() == "input")
-                    && input.attributes.get("type").is_some_and(|kind| {
+                    && input.attributes.get_null("type").is_some_and(|kind| {
                         kind.eq_ignore_ascii_case("checkbox") || kind.eq_ignore_ascii_case("radio")
                     })
             })
@@ -1356,13 +1409,13 @@ pub fn project_element(
         }
         if local_name == "form"
             || matches!(
-                node.attributes.get("type").map(String::as_str),
+                node.attributes.get_null("type").map(String::as_str),
                 Some("submit")
             )
         {
             actions.insert(SemanticAction::Submit);
         }
-        if node.attributes.contains_key("onclick") || node.event_listeners.contains("click") {
+        if node.attributes.contains_null("onclick") || node.event_listeners.contains("click") {
             actions.extend([SemanticAction::Click, SemanticAction::Focus]);
         }
         match role.as_str() {
@@ -1410,25 +1463,25 @@ pub fn project_element(
         name: accessible_name,
         selector: node
             .attributes
-            .get("id")
+            .get_null("id")
             .map(|id| format!("#{id}"))
             .or_else(|| {
                 node.attributes
-                    .get("data-testid")
+                    .get_null("data-testid")
                     .map(|value| format!(r#"[data-testid="{value}"]"#))
             }),
         value: if node.sensitive_value
             || (local_name == "input"
                 && node
                     .attributes
-                    .get("type")
+                    .get_null("type")
                     .is_some_and(|kind| kind.eq_ignore_ascii_case("password")))
         {
             (node.value.is_some() || node.sensitive_value).then(|| "[REDACTED]".into())
         } else {
             node.value
                 .clone()
-                .or_else(|| node.attributes.get("value").cloned())
+                .or_else(|| node.attributes.get_null("value").cloned())
         },
         description,
         states,
@@ -1442,9 +1495,9 @@ pub fn project_element(
     })
 }
 
-fn aria_true(attributes: &BTreeMap<String, String>, name: &str) -> bool {
+fn aria_true(attributes: &oryn_dom::AttributeList, name: &str) -> bool {
     attributes
-        .get(name)
+        .get_null(name)
         .is_some_and(|value| value.eq_ignore_ascii_case("true"))
 }
 
@@ -1512,7 +1565,7 @@ fn accessible_semantics(
     };
     let mut evidence = Vec::new();
     let mut provenance = Provenance::BrowserDeterministic;
-    let name = if let Some(labelled_by) = node.attributes.get("aria-labelledby") {
+    let name = if let Some(labelled_by) = node.attributes.get_null("aria-labelledby") {
         let (value, references) =
             referenced_text(dom, id, labelled_by, page_id, document_generation);
         if !value.is_empty() {
@@ -1532,7 +1585,7 @@ fn accessible_semantics(
         name
     } else if let Some(label) = node
         .attributes
-        .get("aria-label")
+        .get_null("aria-label")
         .map(|value| normalize_text(value))
         .filter(|value| !value.is_empty())
     {
@@ -1558,7 +1611,7 @@ fn accessible_semantics(
         value
     } else if let Some(title) = node
         .attributes
-        .get("title")
+        .get_null("title")
         .map(|value| normalize_text(value))
         .filter(|value| !value.is_empty())
     {
@@ -1570,7 +1623,7 @@ fn accessible_semantics(
         title
     } else if let Some(placeholder) = node
         .attributes
-        .get("placeholder")
+        .get_null("placeholder")
         .map(|value| normalize_text(value))
         .filter(|value| !value.is_empty())
     {
@@ -1585,7 +1638,7 @@ fn accessible_semantics(
         String::new()
     };
 
-    let description = if let Some(described_by) = node.attributes.get("aria-describedby") {
+    let description = if let Some(described_by) = node.attributes.get_null("aria-describedby") {
         let (value, references) =
             referenced_text(dom, id, described_by, page_id, document_generation);
         if value.is_empty() {
@@ -1600,7 +1653,7 @@ fn accessible_semantics(
         }
     } else if let Some(value) = node
         .attributes
-        .get("aria-description")
+        .get_null("aria-description")
         .map(|value| normalize_text(value))
         .filter(|value| !value.is_empty())
     {
@@ -1612,12 +1665,12 @@ fn accessible_semantics(
         Some(value)
     } else {
         node.attributes
-            .get("title")
+            .get_null("title")
             .map(|value| normalize_text(value))
             .filter(|value| !value.is_empty() && value != &name)
             .or_else(|| {
                 node.attributes
-                    .get("placeholder")
+                    .get_null("placeholder")
                     .map(|value| normalize_text(value))
                     .filter(|value| !value.is_empty() && value != &name)
             })
@@ -1644,12 +1697,12 @@ pub(crate) fn accessibility_for_node(dom: &DomArena, id: NodeId) -> Option<(Stri
 
 fn host_label(dom: &DomArena, id: NodeId) -> Option<(String, NodeId)> {
     let node = dom.get(id).ok()?;
-    if let Some(control_id) = node.attributes.get("id") {
+    if let Some(control_id) = node.attributes.get_null("id") {
         let labels = dom
             .iter()
             .filter(|(candidate, label)| {
                 matches!(&label.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
-                    && label.attributes.get("for") == Some(control_id)
+                    && label.attributes.get_null("for") == Some(control_id)
                     && tree_scope(dom, *candidate) == tree_scope(dom, id)
             })
             .filter_map(|(candidate, _)| {
@@ -1713,13 +1766,13 @@ fn host_language_name(
         "input"
             if node
                 .attributes
-                .get("type")
+                .get_null("type")
                 .is_some_and(|kind| kind.eq_ignore_ascii_case("image")) =>
         {
             Some(("alt", "input-alt"))
         }
         "input"
-            if node.attributes.get("type").is_some_and(|kind| {
+            if node.attributes.get_null("type").is_some_and(|kind| {
                 matches!(
                     kind.to_ascii_lowercase().as_str(),
                     "button" | "submit" | "reset"
@@ -1731,7 +1784,7 @@ fn host_language_name(
         _ => None,
     };
     if let Some((attribute, source)) = attribute
-        && let Some(value) = node.attributes.get(attribute)
+        && let Some(value) = node.attributes.get_null(attribute)
     {
         // An explicitly empty host-language alternative is authoritative and
         // must suppress lower-priority title/placeholder fallbacks.
@@ -1740,13 +1793,13 @@ fn host_language_name(
     if local_name == "input"
         && node
             .attributes
-            .get("type")
+            .get_null("type")
             .is_some_and(|kind| matches!(kind.to_ascii_lowercase().as_str(), "submit" | "reset"))
     {
         return Some((
             if node
                 .attributes
-                .get("type")
+                .get_null("type")
                 .is_some_and(|kind| kind.eq_ignore_ascii_case("reset"))
             {
                 "Reset"
@@ -1789,7 +1842,7 @@ fn host_language_name(
         }
     }
     if name_from_content(local_name, role)
-        || node.attributes.contains_key("onclick")
+        || node.attributes.contains_null("onclick")
         || node.event_listeners.contains("click")
     {
         let text = normalize_text(&accessible_text_content(dom, id, true));
@@ -1827,7 +1880,7 @@ fn accessible_children(dom: &DomArena, id: NodeId) -> Vec<NodeId> {
     {
         let slot_name = node
             .attributes
-            .get("name")
+            .get_null("name")
             .map(String::as_str)
             .unwrap_or("");
         // Only the first slot with a given name receives matching light DOM.
@@ -1835,7 +1888,7 @@ fn accessible_children(dom: &DomArena, id: NodeId) -> Vec<NodeId> {
             tree_scope(dom, *candidate) == Some(root_id)
                 && dom.get(*candidate).is_ok_and(|candidate| {
                     matches!(&candidate.kind, NodeKind::Element { name } if name.local.as_ref() == "slot")
-                        && candidate.attributes.get("name").map(String::as_str).unwrap_or("") == slot_name
+                        && candidate.attributes.get_null("name").map(String::as_str).unwrap_or("") == slot_name
                 })
         });
         if first_slot == Some(id) {
@@ -1848,7 +1901,7 @@ fn accessible_children(dom: &DomArena, id: NodeId) -> Vec<NodeId> {
                         matches!(child.kind, NodeKind::Element { .. } | NodeKind::Text { .. })
                             && child
                                 .attributes
-                                .get("slot")
+                                .get_null("slot")
                                 .map(String::as_str)
                                 .unwrap_or("")
                                 == slot_name
@@ -1906,7 +1959,7 @@ fn accessible_text_content_excluding(
         && !is_embedded_value
         && let Some(label) = node
             .attributes
-            .get("aria-label")
+            .get_null("aria-label")
             .map(|label| normalize_text(label))
             .filter(|label| !label.is_empty())
     {
@@ -1915,21 +1968,21 @@ fn accessible_text_content_excluding(
     match &node.kind {
         NodeKind::Text { data } => data.clone(),
         NodeKind::Element { name } if name.local.as_ref() == "img" => {
-            node.attributes.get("alt").cloned().unwrap_or_default()
+            node.attributes.get_null("alt").cloned().unwrap_or_default()
         }
         NodeKind::Element { name }
             if name.local.as_ref() == "input"
-                && node.attributes.get("type").is_some_and(|kind| {
+                && node.attributes.get_null("type").is_some_and(|kind| {
                     matches!(
                         kind.to_ascii_lowercase().as_str(),
                         "button" | "submit" | "reset"
                     )
                 }) =>
         {
-            node.attributes.get("value").cloned().unwrap_or_else(|| {
+            node.attributes.get_null("value").cloned().unwrap_or_else(|| {
                 if node
                     .attributes
-                    .get("type")
+                    .get_null("type")
                     .is_some_and(|kind| kind.eq_ignore_ascii_case("reset"))
                 {
                     "Reset".into()
@@ -1942,16 +1995,16 @@ fn accessible_text_content_excluding(
             let role = computed_role(name.local.as_ref(), &node.attributes);
             if matches!(role.as_str(), "slider" | "spinbutton") {
                 node.attributes
-                    .get("aria-valuetext")
-                    .or_else(|| node.attributes.get("aria-valuenow"))
+                    .get_null("aria-valuetext")
+                    .or_else(|| node.attributes.get_null("aria-valuenow"))
                     .cloned()
                     .or_else(|| node.value.clone())
-                    .or_else(|| node.attributes.get("value").cloned())
+                    .or_else(|| node.attributes.get_null("value").cloned())
                     .unwrap_or_default()
             } else {
                 node.value
                     .clone()
-                    .or_else(|| node.attributes.get("value").cloned())
+                    .or_else(|| node.attributes.get_null("value").cloned())
                     .unwrap_or_default()
             }
         }
@@ -1960,10 +2013,10 @@ fn accessible_text_content_excluding(
             .iter()
             .filter_map(|child| dom.get(*child).ok().map(|node| (*child, node)))
             .find(|(_, option)| {
-                option.attributes.contains_key("selected")
+                option.attributes.contains_null("selected")
                     || option
                         .attributes
-                        .get("aria-selected")
+                        .get_null("aria-selected")
                         .is_some_and(|value| value.eq_ignore_ascii_case("true"))
             })
             .or_else(|| {
@@ -1992,7 +2045,7 @@ fn accessible_text_content_excluding(
                         if computed_role(name.local.as_ref(), &option.attributes) == "option")
                         && option
                             .attributes
-                            .get("aria-selected")
+                            .get_null("aria-selected")
                             .is_some_and(|value| value.eq_ignore_ascii_case("true"))
                 })
                 .map(|(option, _)| {
@@ -2015,15 +2068,15 @@ fn accessible_text_content_excluding(
             ) =>
         {
             node.attributes
-                .get("aria-valuetext")
-                .or_else(|| node.attributes.get("aria-valuenow"))
+                .get_null("aria-valuetext")
+                .or_else(|| node.attributes.get_null("aria-valuenow"))
                 .cloned()
                 .unwrap_or_default()
         }
         _ => {
             let action_targets = node
                 .attributes
-                .get("aria-actions")
+                .get_null("aria-actions")
                 .map(|value| {
                     value
                         .split_whitespace()
@@ -2046,7 +2099,7 @@ fn accessible_text_content_excluding(
                 })
                 .filter(|value| !value.is_empty())
                 .collect::<String>();
-            if let Some(owned) = node.attributes.get("aria-owns") {
+            if let Some(owned) = node.attributes.get_null("aria-owns") {
                 for idref in owned.split_whitespace() {
                     let Some(owned_id) = find_element_by_id_scoped(dom, id, idref) else {
                         continue;
@@ -2103,7 +2156,7 @@ fn visible_text_below_hidden_visibility(
 
 fn inline_style_value<'a>(node: &'a crate::dom::Node, property: &str) -> Option<&'a str> {
     node.attributes
-        .get("style")?
+        .get_null("style")?
         .split(';')
         .find_map(|declaration| {
             let (name, value) = declaration.split_once(':')?;
@@ -2114,10 +2167,10 @@ fn inline_style_value<'a>(node: &'a crate::dom::Node, property: &str) -> Option<
 }
 
 fn subtree_excluded_without_visibility(node: &crate::dom::Node) -> bool {
-    node.attributes.contains_key("hidden")
+    node.attributes.contains_null("hidden")
         || node
             .attributes
-            .get("aria-hidden")
+            .get_null("aria-hidden")
             .is_some_and(|value| value.eq_ignore_ascii_case("true"))
         || inline_style_value(node, "display")
             .is_some_and(|value| value.eq_ignore_ascii_case("none"))
@@ -2134,11 +2187,11 @@ fn aria_owner(dom: &DomArena, target: NodeId) -> Option<NodeId> {
     if !aria_owned_target_is_exposable(dom, target) {
         return None;
     }
-    let target_id = dom.get(target).ok()?.attributes.get("id")?;
+    let target_id = dom.get(target).ok()?.attributes.get_null("id")?;
     dom.iter()
         .find(|(_, node)| {
             node.attributes
-                .get("aria-owns")
+                .get_null("aria-owns")
                 .is_some_and(|owned| owned.split_whitespace().any(|id| id == target_id))
         })
         .map(|(id, _)| id)
@@ -2162,10 +2215,10 @@ fn aria_owned_target_is_exposable(dom: &DomArena, target: NodeId) -> bool {
         .into_iter()
         .all(|id| {
             dom.get(id).is_ok_and(|node| {
-                if node.attributes.contains_key("hidden") {
+                if node.attributes.contains_null("hidden") {
                     return false;
                 }
-                !node.attributes.get("style").is_some_and(|style| {
+                !node.attributes.get_null("style").is_some_and(|style| {
                     style.split(';').any(|declaration| {
                         declaration.split_once(':').is_some_and(|(name, value)| {
                             let name = name.trim().to_ascii_lowercase();
@@ -2181,15 +2234,15 @@ fn aria_owned_target_is_exposable(dom: &DomArena, target: NodeId) -> bool {
 }
 
 fn accessibility_hidden(node: &crate::dom::Node) -> bool {
-    if node.attributes.contains_key("hidden")
+    if node.attributes.contains_null("hidden")
         || node
             .attributes
-            .get("aria-hidden")
+            .get_null("aria-hidden")
             .is_some_and(|value| value.eq_ignore_ascii_case("true"))
     {
         return true;
     }
-    node.attributes.get("style").is_some_and(|style| {
+    node.attributes.get_null("style").is_some_and(|style| {
         style.split(';').any(|declaration| {
             declaration.split_once(':').is_some_and(|(name, value)| {
                 let name = name.trim().to_ascii_lowercase();
@@ -2259,7 +2312,8 @@ fn find_element_by_id_scoped(dom: &DomArena, source: NodeId, value: &str) -> Opt
     let scope = tree_scope(dom, source);
     dom.iter()
         .find(|(id, node)| {
-            node.attributes.get("id").is_some_and(|id| id == value) && tree_scope(dom, *id) == scope
+            node.attributes.get_null("id").is_some_and(|id| id == value)
+                && tree_scope(dom, *id) == scope
         })
         .map(|(id, _)| id)
 }
@@ -2295,7 +2349,7 @@ fn referenced_text(
         let text = dom
             .get(id)
             .ok()
-            .and_then(|node| node.attributes.get("aria-label"))
+            .and_then(|node| node.attributes.get_null("aria-label"))
             .map(|label| normalize_text(label))
             .or_else(|| host_label(dom, id).map(|(label, _)| label))
             .unwrap_or_else(|| normalize_text(&accessible_text_content(dom, id, true)));
@@ -2367,7 +2421,7 @@ pub fn project_semantic_observation(
             name: named.name,
             description: named.description,
             relationships,
-            properties: accessibility_properties(name.local.as_ref(), &node.attributes),
+            properties: accessibility_properties(name.local.as_ref(), node),
             owned_by: None,
             content_trust: ContentTrust::PageAuthored,
             provenance: named.provenance,
@@ -2458,7 +2512,7 @@ fn tree_exclusion_reason(dom: &DomArena, id: NodeId, role: &str) -> Option<Strin
     if matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "input")
         && node
             .attributes
-            .get("type")
+            .get_null("type")
             .is_some_and(|value| value.eq_ignore_ascii_case("hidden"))
     {
         return Some("hidden_input".into());
@@ -2467,7 +2521,7 @@ fn tree_exclusion_reason(dom: &DomArena, id: NodeId, role: &str) -> Option<Strin
     lineage.extend(dom.ancestors(id).unwrap_or_default());
     if lineage.iter().any(|candidate| {
         dom.get(*candidate)
-            .is_ok_and(|node| node.attributes.contains_key("inert"))
+            .is_ok_and(|node| node.attributes.contains_null("inert"))
     }) {
         return Some("inert_subtree".into());
     }
@@ -2496,7 +2550,7 @@ fn accessibility_relationships(
         ("aria-errormessage", AccessibilityRelation::ErrorMessage),
         ("aria-flowto", AccessibilityRelation::FlowTo),
     ] {
-        let Some(idrefs) = node.attributes.get(attribute) else {
+        let Some(idrefs) = node.attributes.get_null(attribute) else {
             continue;
         };
         let mut targets = Vec::new();
@@ -2516,8 +2570,9 @@ fn accessibility_relationships(
 
 fn accessibility_properties(
     local_name: &str,
-    attributes: &BTreeMap<String, String>,
+    node: &crate::dom::Node,
 ) -> BTreeMap<String, serde_json::Value> {
+    let attributes = &node.attributes;
     let mut properties = BTreeMap::new();
     for attribute in [
         "aria-expanded",
@@ -2544,17 +2599,35 @@ fn accessibility_properties(
         "aria-atomic",
         "aria-relevant",
     ] {
-        if let Some(value) = attributes.get(attribute) {
+        if let Some(value) = attributes.get_null(attribute) {
             properties.insert(
                 attribute.trim_start_matches("aria-").replace('-', "_"),
                 semantic_property_value(value),
             );
         }
     }
+    if local_name == "input"
+        && attributes.get_null("type").is_some_and(|kind| {
+            kind.eq_ignore_ascii_case("checkbox") || kind.eq_ignore_ascii_case("radio")
+        })
+    {
+        properties.insert(
+            "checked".into(),
+            if node.indeterminate
+                && attributes
+                    .get_null("type")
+                    .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox"))
+            {
+                serde_json::Value::String("mixed".into())
+            } else {
+                serde_json::Value::Bool(node.checked())
+            },
+        );
+    }
     for attribute in [
         "disabled", "required", "readonly", "checked", "selected", "open",
     ] {
-        if attributes.contains_key(attribute) {
+        if attributes.contains_null(attribute) {
             properties
                 .entry(attribute.into())
                 .or_insert(serde_json::Value::Bool(true));
@@ -2618,10 +2691,10 @@ fn project_structures(
         let mut properties = BTreeMap::new();
         properties.insert("member_count".into(), serde_json::json!(members.len()));
         if kind == SemanticStructureKind::Form {
-            if let Some(method) = dom_node.attributes.get("method") {
+            if let Some(method) = dom_node.attributes.get_null("method") {
                 properties.insert("method".into(), serde_json::json!(method));
             }
-            if let Some(action) = dom_node.attributes.get("action") {
+            if let Some(action) = dom_node.attributes.get_null("action") {
                 properties.insert("action".into(), serde_json::json!(action));
             }
         }
@@ -2677,9 +2750,9 @@ fn project_structures(
 fn structure_kind(
     local_name: &str,
     role: &str,
-    attributes: &BTreeMap<String, String>,
+    attributes: &oryn_dom::AttributeList,
 ) -> Option<SemanticStructureKind> {
-    if attributes.contains_key("aria-live")
+    if attributes.contains_null("aria-live")
         || matches!(role, "alert" | "status" | "log" | "marquee" | "timer")
     {
         return Some(SemanticStructureKind::LiveRegion);
@@ -2701,7 +2774,7 @@ fn structure_kind(
             Some(SemanticStructureKind::Landmark)
         }
         "feed" => Some(SemanticStructureKind::RepeatedCollection),
-        _ if local_name == "dl" || attributes.contains_key("data-oryn-collection") => {
+        _ if local_name == "dl" || attributes.contains_null("data-oryn-collection") => {
             Some(SemanticStructureKind::RepeatedCollection)
         }
         _ => None,
@@ -2797,26 +2870,25 @@ fn implicit_live_politeness(role: &str) -> &'static str {
     }
 }
 
-fn computed_role(
-    local_name: &str,
-    attributes: &std::collections::BTreeMap<String, String>,
-) -> String {
-    if let Some(role) = attributes.get("role").and_then(|roles| {
+fn computed_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> String {
+    if let Some(role) = attributes.get_null("role").and_then(|roles| {
         roles
             .split_whitespace()
             .map(str::to_ascii_lowercase)
             .find(|role| {
                 supported_aria_role(role)
                     && (!matches!(role.as_str(), "form" | "region")
-                        || attributes.contains_key("aria-label")
-                        || attributes.contains_key("aria-labelledby"))
+                        || attributes.contains_null("aria-label")
+                        || attributes.contains_null("aria-labelledby"))
             })
     }) {
         let presentation_conflict = matches!(role.as_str(), "none" | "presentation")
             && (matches!(local_name, "button" | "input" | "select" | "textarea")
-                || (local_name == "a" && attributes.contains_key("href"))
-                || attributes.contains_key("tabindex")
-                || attributes.keys().any(|name| is_global_aria_attribute(name)));
+                || (local_name == "a" && attributes.contains_null("href"))
+                || attributes.contains_null("tabindex")
+                || attributes.records().any(|entry| {
+                    entry.namespace.is_none() && is_global_aria_attribute(&entry.local_name)
+                }));
         if !presentation_conflict {
             return match role.as_str() {
                 "img" | "image" => "image".into(),
@@ -2827,8 +2899,8 @@ fn computed_role(
         }
     }
     match local_name {
-        "a" if attributes.contains_key("href") => "link",
-        "input" => match attributes.get("type").map(String::as_str) {
+        "a" if attributes.contains_null("href") => "link",
+        "input" => match attributes.get_null("type").map(String::as_str) {
             Some("checkbox") => "checkbox",
             Some("radio") => "radio",
             Some("range") => "slider",
@@ -2839,9 +2911,9 @@ fn computed_role(
         },
         "textarea" => "textbox",
         "select"
-            if attributes.contains_key("multiple")
+            if attributes.contains_null("multiple")
                 || attributes
-                    .get("size")
+                    .get_null("size")
                     .and_then(|value| value.parse::<u32>().ok())
                     .is_some_and(|size| size > 1) =>
         {
@@ -2850,7 +2922,7 @@ fn computed_role(
         "select" => "combobox",
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => "heading",
         "output" => "status",
-        "img" if attributes.get("alt").is_some_and(String::is_empty) => "none",
+        "img" if attributes.get_null("alt").is_some_and(String::is_empty) => "none",
         "img" => "image",
         "nav" => "navigation",
         "main" => "main",
@@ -2858,8 +2930,8 @@ fn computed_role(
         "header" => "banner",
         "footer" => "contentinfo",
         "form"
-            if attributes.contains_key("aria-label")
-                || attributes.contains_key("aria-labelledby") =>
+            if attributes.contains_null("aria-label")
+                || attributes.contains_null("aria-labelledby") =>
         {
             "form"
         }
@@ -2868,7 +2940,7 @@ fn computed_role(
         "li" => "listitem",
         "table" => "table",
         "tr" => "row",
-        "th" => match attributes.get("scope").map(String::as_str) {
+        "th" => match attributes.get_null("scope").map(String::as_str) {
             Some("row") | Some("rowgroup") => "rowheader",
             _ => "columnheader",
         },
@@ -2893,8 +2965,8 @@ fn computed_role(
         "time" => "time",
         "div" | "span" => "generic",
         "section"
-            if attributes.contains_key("aria-label")
-                || attributes.contains_key("aria-labelledby") =>
+            if attributes.contains_null("aria-label")
+                || attributes.contains_null("aria-labelledby") =>
         {
             "region"
         }
@@ -3068,10 +3140,10 @@ pub(crate) fn is_hidden(dom: &DomArena, id: NodeId) -> bool {
         .collect::<Vec<_>>();
     lineage.iter().any(|candidate| {
         dom.get(*candidate).is_ok_and(|node| {
-            if node.attributes.contains_key("hidden")
+            if node.attributes.contains_null("hidden")
                 || node
                     .attributes
-                    .get("aria-hidden")
+                    .get_null("aria-hidden")
                     .is_some_and(|value| value.eq_ignore_ascii_case("true"))
             {
                 return true;
@@ -3082,7 +3154,7 @@ pub(crate) fn is_hidden(dom: &DomArena, id: NodeId) -> bool {
                     update_visibility(&mut hidden, declarations);
                 }
             }
-            if let Some(style) = node.attributes.get("style") {
+            if let Some(style) = node.attributes.get_null("style") {
                 update_visibility(&mut hidden, style);
             }
             hidden.unwrap_or(false)
@@ -3166,7 +3238,7 @@ fn matches_simple_selector(node: &crate::dom::Node, selector: &str) -> bool {
             .split_once('=')
             .map(|(key, value)| (key, Some(value.trim_matches(['"', '\'']))))
             .unwrap_or((attribute, None));
-        let Some(actual) = node.attributes.get(key) else {
+        let Some(actual) = node.attributes.get_null(key) else {
             return false;
         };
         if expected.is_some_and(|expected| actual != expected) {
@@ -3185,13 +3257,17 @@ fn matches_simple_selector(node: &crate::dom::Node, selector: &str) -> bool {
     }
     if let Some(start) = simple.find('#') {
         let id = simple[start + 1..].split('.').next().unwrap_or_default();
-        if node.attributes.get("id").is_none_or(|value| value != id) {
+        if node
+            .attributes
+            .get_null("id")
+            .is_none_or(|value| value != id)
+        {
             return false;
         }
     }
     simple.split('.').skip(1).all(|class| {
         node.attributes
-            .get("class")
+            .get_null("class")
             .is_some_and(|value| value.split_whitespace().any(|item| item == class))
     })
 }
@@ -3225,6 +3301,43 @@ pub fn empty_observation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retained_replaced_frame_document_is_removed_from_projection() {
+        let mut dom = crate::dom::DomRuntime::new();
+        let frame = dom.create_element("iframe");
+        dom.append_child(dom.document(), frame).unwrap();
+        let old = dom.create(NodeKind::Document);
+        let button = dom.create_element("button");
+        dom.append_child(old, button).unwrap();
+        dom.set_hosted_document(frame, Some(old)).unwrap();
+        dom.retain_native(button).unwrap();
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        assert!(graph.full.contains_key(&button));
+        let cursor = dom.mutation_cursor();
+        dom.remove(frame).unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert!(
+            !graph.full.contains_key(&button),
+            "detached frame must not remain actionable"
+        );
+        let cursor = dom.mutation_cursor();
+        dom.append_child(dom.document(), frame).unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert!(graph.full.contains_key(&button));
+        let cursor = dom.mutation_cursor();
+        let replacement = dom.create(NodeKind::Document);
+        dom.set_hosted_document(frame, Some(replacement)).unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert!(dom.arena().get(button).is_ok(), "retained DOM must survive");
+        assert!(
+            !graph.full.contains_key(&button),
+            "inactive DOM must not be actionable"
+        );
+        assert!(project_element(dom.arena(), button, PageId(1), 1, 1).is_none());
+        dom.release_native(button).unwrap();
+    }
 
     #[test]
     fn incremental_graph_matches_full_projection_after_mutations() {
@@ -3615,7 +3728,7 @@ mod tests {
             document
                 .dom
                 .iter()
-                .find(|(_, node)| node.attributes.get("id").is_some_and(|id| id == value))
+                .find(|(_, node)| node.attributes.get_null("id").is_some_and(|id| id == value))
                 .map(|(id, _)| id)
                 .unwrap()
         };
@@ -3631,14 +3744,13 @@ mod tests {
             accessibility_for_node(&document.dom, host).unwrap().1,
             "before assigned / default / second fallback after"
         );
-        document
-            .dom
-            .get_mut(assigned)
-            .unwrap()
-            .attributes
-            .insert("slot".into(), "unassigned".into());
+        let mut runtime =
+            crate::dom::DomRuntime::from_parsed(document.dom, document.document).unwrap();
+        runtime
+            .set_attribute(assigned, "slot", "unassigned")
+            .unwrap();
         assert_eq!(
-            accessibility_for_node(&document.dom, host).unwrap().1,
+            accessibility_for_node(runtime.arena(), host).unwrap().1,
             "before fallback / default / second fallback after"
         );
     }
@@ -3664,7 +3776,11 @@ mod tests {
             let node = document
                 .dom
                 .iter()
-                .find(|(_, node)| node.attributes.get("id").is_some_and(|value| value == id))
+                .find(|(_, node)| {
+                    node.attributes
+                        .get_null("id")
+                        .is_some_and(|value| value == id)
+                })
                 .map(|(node, _)| node)
                 .expect("fixture id");
             accessibility_for_node(&document.dom, node).expect("accessibility projection")

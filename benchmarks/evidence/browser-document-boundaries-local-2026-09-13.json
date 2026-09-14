@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_local_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "signed_validation_performed": false,
+  "wpt_validation_performed": false,
+  "source_tree_sha256": "cac75a78209f41ac755849d7c9d7092791fff6b6e69e05dc77c8a956941ee835",
+  "native_test_binary_sha256": "db2fca944070cd1ea65b250bde423f9cbf7d91698434b1efdd9d89fcccbb90c2",
+  "changes": [
+    "Remove arena-wide ID lookup authority; use primary-document tree order.",
+    "Reject Document child edges and native embedding cycles before mutations.",
+    "Validate insertion references before altering live Range endpoints.",
+    "Retarget focus through explicit frame hosts; inactive documents return null activeElement."
+  ],
+  "dom_tests": {"passed": 95, "failed": 0, "seconds": 0.28},
+  "js_tests": {"passed": 254, "failed": 0, "ignored": 3, "seconds": 1.55},
+  "layout_tests": {"passed": 73, "failed": 0, "seconds": 0.61},
+  "clippy": {
+    "passed": true,
+    "scope": "DOM, JS, layout and native libraries; V8/sandbox/in-process-probe/core-full features; warnings denied"
+  },
+  "format_and_diff_checks_passed": true,
+  "initial_focus_integration_test": {
+    "passed": false,
+    "note": "Exposed retired-document activeElement fallback. Fixed before the recorded source snapshot; unchanged checks then passed."
+  },
+  "restricted_full_native_attempt": {
+    "status": "interrupted",
+    "exit_code": 130,
+    "complete": false,
+    "reported_failures": [
+      "network::tests::production_http_transport_exchanges_http2_frames",
+      "runtime::tests::asynchronous_xhr_reports_states_headers_and_json",
+      "runtime::tests::cross_origin_credentials_obey_cookie_and_cors_rules"
+    ],
+    "confirmed_environment_failure": "An individual HTTP/2 rerun failed at network.rs:2904 while binding its local server: OS error 1 PermissionDenied, Operation not permitted. Other failures were not individually diagnosed."
+  },
+  "native_full_rerun": {
+    "status": "interrupted",
+    "exit_code": 130,
+    "complete": false,
+    "reason": "Paused without a reported failure to repair newly identified document.open/write/close primary-document targeting. This snapshot is superseded by that follow-up and is not a full native pass.",
+    "command": "target/debug/deps/oryn_native-3f1f84ec431c4250 --test-threads=1 --quiet",
+    "local_networking_permission": true,
+    "competing_builds_or_wpt": false
+  },
+  "remaining": "Native document ownership/adoption, AgentRuntime and subsequent R/W cutovers remain incomplete. Related-window sharing is not activated. Range.insertNode crash remains unresolved and was not rerun in this batch. Prior signed evidence belongs to its recorded source only."
+}

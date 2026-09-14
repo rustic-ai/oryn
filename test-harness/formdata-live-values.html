@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>FormData live-value regression</title>
+<form id="form"><input name="field" value="initial"><textarea name="notes">default
+text</textarea></form>
+<script>
+function check(actual, expected, label) {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw Error(label);
+}
+const form = document.getElementById('form');
+const input = form.querySelector('input');
+const textarea = form.querySelector('textarea');
+check(new FormData(form).get('field'), 'initial', 'attribute default');
+check(new FormData(form).get('notes'), 'default\ntext', 'textarea text default');
+input.value = 'live';
+textarea.value = 'live\nnotes';
+input.setAttribute('value', 'changed-default');
+const snapshot = new FormData(form);
+check(snapshot.get('field'), 'live', 'current input value');
+check(snapshot.get('notes'), 'live\nnotes', 'current textarea value');
+input.value = '';
+textarea.value = '';
+check(new FormData(form).get('field'), '', 'empty input override');
+check(new FormData(form).get('notes'), '', 'empty textarea override');
+check(snapshot.get('field'), 'live', 'stable snapshot');
+const extra = document.createElement('input');
+extra.name = 'field'; extra.value = 'second'; form.appendChild(extra);
+check(new FormData(form).getAll('field'), ['', 'second'], 'property assignment and duplicate order');
+document.title = 'FORMDATA_LIVE_VALUES_PASS';
+</script>

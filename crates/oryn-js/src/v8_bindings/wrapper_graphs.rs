@@ -45,11 +45,9 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
     {
         return 0;
     }
-    let (Ok(node_documents), Ok(wrappers), Ok(mut objects)) = (
-        state.node_documents.try_borrow(),
-        state.wrappers.try_borrow(),
-        state.objects.try_borrow_mut(),
-    ) else {
+    let (Ok(wrappers), Ok(mut objects)) =
+        (state.wrappers.try_borrow(), state.objects.try_borrow_mut())
+    else {
         // Some wrapper factories initialize ownership under a native borrow.
         // Keep the old traced graph until the outer binding checkpoint.
         state.wrapper_graph_revision.set(None);
@@ -83,10 +81,23 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
                 Mutation::Attribute { node, .. } => {
                     changed.insert(node);
                 }
+                Mutation::HostedDocument { .. } => complete_rebuild = true,
+                Mutation::DocumentOwnership { node } => {
+                    let mut pending = vec![node];
+                    while let Some(node) = pending.pop() {
+                        changed.insert(node);
+                        if let Ok(record) = dom.arena().get(node) {
+                            pending.extend(record.children.iter().copied());
+                            pending.extend(record.template_content);
+                            pending.extend(dom.arena().attribute_node_ids(node));
+                        }
+                    }
+                }
                 Mutation::ChildrenReplaced { .. }
                 | Mutation::CharacterData { .. }
                 | Mutation::StyleSheets { .. }
                 | Mutation::FormState { .. }
+                | Mutation::ImageResource { .. }
                 | Mutation::EventListener { .. }
                 | Mutation::Focus { .. } => {}
             }
@@ -101,10 +112,12 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
             .get(*node)
             .map_or(true, |record| matches!(record.kind, NodeKind::Document))
     });
-    for (node, owner) in node_documents.iter().filter(|_| new_owner_document) {
-        if new_nodes.contains(owner)
+    for (node, record) in dom.arena().iter().filter(|_| new_owner_document) {
+        if record
+            .owner_document
+            .is_some_and(|owner| new_nodes.contains(&owner))
             && let Some(object) = wrappers
-                .lookup(state.realm, *node)
+                .lookup(dom.arena().id(), state.realm, node)
                 .and_then(|id| objects.get(&id))
         {
             affected.extend(object.retention_component);
@@ -113,7 +126,7 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
     for node in changed {
         // Both the former and current component matter when a subtree moves.
         if let Some(object) = wrappers
-            .lookup(state.realm, node)
+            .lookup(dom.arena().id(), state.realm, node)
             .and_then(|id| objects.get(&id))
         {
             affected.extend(object.retention_component);
@@ -128,7 +141,7 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
                     continue;
                 }
                 if let Some(object) = wrappers
-                    .lookup(state.realm, descendant)
+                    .lookup(dom.arena().id(), state.realm, descendant)
                     .and_then(|id| objects.get(&id))
                 {
                     affected.extend(object.retention_component);
@@ -155,7 +168,7 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
             }
         }
         for node in &new_nodes {
-            selected.extend(wrappers.lookup(state.realm, *node));
+            selected.extend(wrappers.lookup(dom.arena().id(), state.realm, *node));
         }
     }
     state.wrapper_graph_new_nodes.borrow_mut().clear();
@@ -201,15 +214,15 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
                     local.set_internal_field(5, v8::undefined(scope).into());
                 }
             }
-            if let Some(owner) = node_documents.get(&metadata.node) {
-                owners.insert(metadata.node, *owner);
+            if let Ok(Some(owner)) = dom.arena().node_document(metadata.node) {
+                owners.insert(metadata.node, owner);
             }
             nodes.insert(metadata.node, local);
         }
     }
     for owner in owners.values() {
         if let Some(local) = wrappers
-            .lookup(state.realm, *owner)
+            .lookup(dom.arena().id(), state.realm, *owner)
             .and_then(|id| objects.get(&id))
             .and_then(|object| object.handle.to_local(scope))
         {
@@ -219,7 +232,6 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
     drop(components);
     drop(objects);
     drop(wrappers);
-    drop(node_documents);
     drop(dom);
     for members in groups.values() {
         let mut seen = members
@@ -252,7 +264,67 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
             object.set_internal_field(5, references.into());
         }
     }
+    refresh_agent(scope, state);
     released
+}
+
+/// V8-traced edges for nodes that have crossed document realms in one arena.
+/// Only weak native handles are read; the arrays are ordinary collectable V8
+/// cycles. No native Global cycle or cross-arena wrapper lookup is introduced.
+pub(super) fn refresh_agent(scope: &mut v8::PinScope, state: &V8BindingState) {
+    if !scope
+        .get_slot::<BindingStateRegistry>()
+        .is_some_and(|registry| registry.cross_realm_wrappers.get())
+    {
+        return;
+    }
+    let states = shared_document_states(scope, state);
+    if states.len() < 2 {
+        return;
+    }
+    let Ok(dom) = state.dom.try_borrow() else {
+        return;
+    };
+    let mut nodes = BTreeMap::new();
+    let mut roots = BTreeMap::new();
+    let mut groups = BTreeMap::<NodeId, Vec<(NodeId, v8::Local<v8::Object>)>>::new();
+    for other in states {
+        let (Ok(wrappers), Ok(objects)) = (other.wrappers.try_borrow(), other.objects.try_borrow())
+        else {
+            continue;
+        };
+        for (id, object) in objects.iter() {
+            let Some(metadata) = wrappers.metadata(*id) else {
+                continue;
+            };
+            let Some(local) = object.handle.to_local(scope) else {
+                continue;
+            };
+            if let Some(root) = native_root(&dom, metadata.node, &mut roots) {
+                groups.entry(root).or_default().push((metadata.node, local));
+                nodes.insert(metadata.node, local);
+            }
+        }
+    }
+    for members in groups.values() {
+        let mut references = BTreeMap::new();
+        for (node, object) in members {
+            references.insert(*node, *object);
+            if let Ok(Some(owner)) = dom.arena().node_document(*node)
+                && let Some(object) = nodes.get(&owner)
+            {
+                references.insert(owner, *object);
+            }
+        }
+        let values = references
+            .values()
+            .map(|object| (*object).into())
+            .collect::<Vec<v8::Local<v8::Value>>>();
+        let array: v8::Local<v8::Value> = v8::Array::new_with_elements(scope, &values).into();
+        for (_, object) in members {
+            object.set_internal_field(5, array.into());
+        }
+    }
 }
 
 // A single fresh detached leaf cannot change any existing traced tree.
@@ -297,25 +369,25 @@ pub(super) fn attach_new_leaf(
     {
         return false;
     }
-    let (Ok(documents), Ok(wrappers), Ok(objects)) = (
-        state.node_documents.try_borrow(),
-        state.wrappers.try_borrow(),
-        state.objects.try_borrow(),
-    ) else {
+    let (Ok(wrappers), Ok(objects)) = (state.wrappers.try_borrow(), state.objects.try_borrow())
+    else {
         return false;
     };
-    let owner = documents
-        .get(&node)
-        .and_then(|owner| wrappers.lookup(state.realm, *owner))
+    let owner = dom
+        .arena()
+        .node_document(node)
+        .ok()
+        .flatten()
+        .and_then(|owner| wrappers.lookup(dom.arena().id(), state.realm, owner))
         .and_then(|id| objects.get(&id))
         .and_then(|owner| owner.handle.to_local(scope));
     drop(objects);
     drop(wrappers);
-    drop(documents);
+    let arena = dom.arena().id();
     drop(dom);
     let reference = owner.map_or_else(|| v8::undefined(scope).into(), |owner| owner.into());
     object.set_internal_field(5, reference);
-    if let Some(id) = state.wrappers.borrow().lookup(state.realm, node)
+    if let Some(id) = state.wrappers.borrow().lookup(arena, state.realm, node)
         && let Some(wrapper) = state.objects.borrow_mut().get_mut(&id)
     {
         wrapper.retention_component = Some(node);

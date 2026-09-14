@@ -1,0 +1,34 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>FormData UTF-16 regression</title>
+<form><input><textarea></textarea></form>
+<script>
+function check(value, label) { if (!value) throw Error(label); }
+const form = document.querySelector('form');
+const input = form.querySelector('input');
+const textarea = form.querySelector('textarea');
+const lone = '\uDC01', pair = '\uD83D\uDE00', prefix = '\u{F0000}oryn-wtf16:[56321]';
+for (const value of [lone, '\uD801', pair, prefix]) {
+  input.name = value; input.value = value;
+  check(input.name === value && input.value === value, 'DOMString roundtrip');
+  check(input.getAttribute('name') === value, 'attribute roundtrip');
+  check(input.cloneNode().getAttribute('name') === value, 'clone roundtrip');
+  const normalized = value === lone || value === '\uD801' ? '\uFFFD' : value;
+  check(new FormData(form).get(value) === normalized, 'constructor USV conversion');
+  const data = new FormData(); data.append(value, value);
+  check(data.get(normalized) === normalized, 'append USV conversion');
+  data.set(value, value); check(data.has(normalized), 'set USV conversion');
+  data.delete(value); check(!data.has(value), 'delete USV conversion');
+  data.append('file', new Blob(['x']), value);
+  check(data.get('file').name === normalized, 'filename USV conversion');
+}
+input.value = lone + '\r\n' + pair;
+check(input.value === lone + pair && input.selectionEnd === 3, 'sanitized offset');
+input.setRangeText(lone, 1, 2, 'end');
+check(input.value === lone + lone + '\uDE00' && input.selectionEnd === 2, 'UTF16 splice');
+input.select(); check(input.selectionEnd === 3, 'select code-unit length');
+input.setSelectionRange(1, 100); check(input.selectionStart === 1 && input.selectionEnd === 3, 'selection clamp');
+textarea.value = lone + '\r\n' + pair;
+check(textarea.value === lone + '\n' + pair && textarea.selectionEnd === 4, 'textarea normalization');
+document.title = 'FORMDATA_UTF16_PASS';
+</script>

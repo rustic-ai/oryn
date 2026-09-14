@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "0121f692236293c1fec9670ea681e341fab560eeda02f5f8230750a7605adb58",
+  "native_test_binary_sha256": "1f723275fb09c83701b7fd2fa0fb01810ae7eff1dafcd2f1299d2f5b4fb7f28b",
+  "local_tests": {
+    "dom": {"passed": 101, "failed": 0},
+    "js": {"passed": 260, "failed": 0, "ignored": 3},
+    "native_host": {"passed": 31, "failed": 0, "seconds": 0.53},
+    "native_executable": {"passed": 173, "failed": 0, "ignored": 6, "seconds": 5.49},
+    "full_native_on_this_source": "not run; earlier full run is separately hashed",
+    "strict_library_clippy": "passed",
+    "format_and_diff_check": "passed"
+  },
+  "intermediate_failure": {
+    "source_tree_sha256": "27569593aa506e65377234b5ca7288fe6295c310e0ef78eb4da5197754e93bc5",
+    "native_host_passed": 30,
+    "native_host_failed": 1,
+    "test": "timer_delay_uses_webidl_long_and_preserves_initial_interval_order",
+    "failure": "Cleared interval still reported Some(1ms) instead of no next deadline",
+    "signed_build": "interrupted with exit 130 before qualification",
+    "resolution": "Cancel future and already-queued timer occurrences by scheduler timer identity"
+  },
+  "earlier_signed_worker_recycle_smoke": {
+    "worker_source_tree_sha256": "eab4d4185b13e8e236a9b12b9836509b01c20ccde779479ea7e554002c899c47",
+    "signed_worker_sha256": "b403bfea5a23058245f8c910129505ea9f77dcbaf89a2e6b8c94ab5ba9f5d2c9",
+    "benchmark_binary_sha256": "549db3e5f2709885fc1294b4fe780cf359248df9f05668a533bf164e64aad746",
+    "pages": 3,
+    "actions": 20,
+    "state_erasure_passed": true,
+    "reset_or_close_ms": [0.508959, 0.30825, 3.165208],
+    "performance_acceptance": false
+  },
+  "signed_build": {
+    "passed": true,
+    "protocol_version": 9,
+    "sandbox_probes_passed": true,
+    "parent_sha256": "2a857603b53b5d741feafe874aa815734dff078dbad20eb49c7b128af49739da",
+    "unsigned_worker_sha256": "0407e1b46775ce1116e8ebede1f56fb727ddcf57e3ae483fc4cdf4e54ed1cda8",
+    "signed_worker_sha256": "44c00e835bf114459dc271760d1f5e92ff42625085db90503cad89a139ea7f0d",
+    "code_directory_hash": "f823fac598d473999b724ab12b1101608fbc87d9",
+    "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "v8_bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "wpt": {
+    "adoption": {
+      "files_passed": 3, "files_total": 3,
+      "reported_subtests_passed": 13, "reported_subtests_total": 13,
+      "environment_blocked": 0,
+      "result_path": "/private/tmp/oryn-template-timer-adoption-full-20260913.json",
+      "sha256": "b3300cdd6225f7b552fafb3502482e0ad25bc1c4f7e9bed9e59a4862fea496ac"
+    },
+    "templates": {
+      "files_passed": 8, "files_total": 67,
+      "reported_subtests_passed": 445, "reported_subtests_total": 1167,
+      "environment_blocked": 0, "elapsed_seconds": 46.927,
+      "hierarchy_case": "passed all three subtests; no RSS breach",
+      "result_path": "/private/tmp/oryn-template-timer-templates-20260913.json",
+      "sha256": "52a071d6d45eff08385e75841752d918eacb2bd9b62b9176f70548a48d7f02b3"
+    },
+    "timers": {
+      "files_passed": 9, "files_total": 13,
+      "reported_subtests_passed": 13, "reported_subtests_total": 14,
+      "environment_blocked": 0, "elapsed_seconds": 20.206,
+      "result_path": "/private/tmp/oryn-template-timer-timers-20260913.json",
+      "sha256": "6597ddf91a64b5acd228f75bdc058f2198cacb3442297aedd941f01a294dd5d4"
+    },
+    "denominator_note": "Reported subtests exclude missing results from harness/execution failures; whole-file totals are authoritative."
+  },
+  "remaining": [
+    "custom-element adoption reactions",
+    "parent-authoritative environment routing and atomic in-flight revocation",
+    "process-session ownership and protocol-v10 migration",
+    "synchronous initial iframe environments and connected-window placement",
+    "remaining timer and template family failures",
+    "clean-source release qualification"
+  ]
+}

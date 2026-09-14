@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "required_execution_total": 15,
+  "tests": [
+    {
+      "path": "dom/abort/AbortSignal.any.js",
+      "kind": "script",
+      "root": "dom",
+      "sha256": "64be009f125bb0111362b70540f752ae5a1b176746f9941380f48d1e66630c81",
+      "globals": [
+        "window",
+        "dedicatedworker"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "path": "dom/nodes/Document-createCDATASection.html",
+      "kind": "html",
+      "root": "dom",
+      "sha256": "41adebac1679cfddbe6564e5c76519e82e0f6c747e8354e82871e0c741c7ab6f",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "path": "fetch/api/request/forbidden-method.any.js",
+      "kind": "script",
+      "root": "fetch",
+      "sha256": "d531582e04abd1857c9de1e8b2b745f5899c7e855c1ac0dc6d2bf8c93d439044",
+      "globals": [
+        "window",
+        "dedicatedworker"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "path": "xhr/formdata/constructor.any.js",
+      "kind": "script",
+      "root": "xhr",
+      "sha256": "a49b4e2e5f194f35e5a3fb626ad0665b45d6a02d09fbb5185b2ba9d0e6f6c391",
+      "globals": [
+        "window",
+        "dedicatedworker"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "path": "xhr/abort-with-error.any.js",
+      "kind": "script",
+      "root": "xhr",
+      "sha256": "fe319fcfd28ffe3c64f165d110bc1d784987089f952239d59386b820ecd05943",
+      "globals": [
+        "window",
+        "dedicatedworker"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "path": "xhr/formdata/constructor-formelement.html",
+      "kind": "html",
+      "root": "xhr",
+      "sha256": "f45585072109e7c03998d12a2f39cc96f965bc8615c72fbeab9fbf326ffa3408",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "path": "xhr/formdata/get-formelement.html",
+      "kind": "html",
+      "root": "xhr",
+      "sha256": "85d9894bb502c502653b778702d4c9a21ed79dd564553062f76d7891b6e22dff",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "path": "xhr/formdata/append-formelement.html",
+      "kind": "html",
+      "root": "xhr",
+      "sha256": "fdef2e9f8f0447574b967c1c71c51b4c5e89fd2c6be29ab5659a0c606e6f5e9a",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "path": "xhr/formdata/set-formelement.html",
+      "kind": "html",
+      "root": "xhr",
+      "sha256": "c4168c1e1e5ab2f597249b98a91bcafb795e727c31d759885599849cebfb27b0",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "path": "xhr/formdata/delete-formelement.html",
+      "kind": "html",
+      "root": "xhr",
+      "sha256": "5fdcb6f64d236ba248123b2dbecb6b86fc7e2fe14476528899299ffb97eaca9c",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "path": "xhr/formdata/has-formelement.html",
+      "kind": "html",
+      "root": "xhr",
+      "sha256": "1273ee73b9f784a7b7d4e3d92a2370d56f81c7e78566a83b4976250f183ec606",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ]
+}

@@ -63,7 +63,10 @@ impl<'a> DomElement<'a> {
         }
     }
     fn attr(&self, name: &str) -> Option<&str> {
-        self.node().attributes.get(name).map(String::as_str)
+        self.node()
+            .attributes
+            .namespaced(None, name)
+            .map(|entry| entry.value.as_str())
     }
     fn html_tag(&self, tags: &[&str]) -> bool {
         self.ns() == HTML && tags.contains(&self.tag())
@@ -212,44 +215,16 @@ impl Element for DomElement<'_> {
         name: &<SelectorImpl as selectors::SelectorImpl>::LocalName,
         operation: &AttrSelectorOperation<&AtomString>,
     ) -> bool {
-        // Namespace-bearing Attr nodes are canonical metadata; ordinary HTML attributes
-        // can remain in the compact map until an Attr wrapper is requested.
         let local: &str = name.0.as_ref();
-        let mut namespaced = BTreeSet::new();
-        for (_, node) in self.dom.arena().iter() {
-            if let NodeKind::Attribute {
-                name,
-                local_name,
-                namespace,
-                owner,
-                value,
-                ..
-            } = &node.kind
-            {
-                if *owner != Some(self.id) {
-                    continue;
+        self.node().attributes.records().any(|entry| {
+            let matches_namespace = match ns {
+                NamespaceConstraint::Any => true,
+                NamespaceConstraint::Specific(wanted) => {
+                    wanted.0.as_ref() == entry.namespace.as_deref().unwrap_or("")
                 }
-                if namespace.as_deref().is_some_and(|s| !s.is_empty()) {
-                    namespaced.insert(name.as_str());
-                }
-                let ns_matches = match ns {
-                    NamespaceConstraint::Any => true,
-                    NamespaceConstraint::Specific(wanted) => {
-                        wanted.0.as_ref() == namespace.as_deref().unwrap_or("")
-                    }
-                };
-                if local_name == local && ns_matches && operation.eval_str(value) {
-                    return true;
-                }
-            }
-        }
-        let empty_allowed = match ns {
-            NamespaceConstraint::Any => true,
-            NamespaceConstraint::Specific(wanted) => wanted.0.as_ref().is_empty(),
-        };
-        empty_allowed
-            && !namespaced.contains(local)
-            && self.attr(local).is_some_and(|v| operation.eval_str(v))
+            };
+            matches_namespace && entry.local_name == local && operation.eval_str(&entry.value)
+        })
     }
     fn match_non_ts_pseudo_class(
         &self,
@@ -273,9 +248,10 @@ impl Element for DomElement<'_> {
                             .as_str(),
                         "checkbox" | "radio"
                     )
-                    && self.attr("checked").is_some())
-                    || (self.html_tag(&["option"]) && self.attr("selected").is_some())
+                    && self.node().checked())
+                    || (self.html_tag(&["option"]) && self.node().selected())
             }
+            NonTSPseudoClass::Indeterminate => self.dom.is_indeterminate(self.id).unwrap_or(false),
             NonTSPseudoClass::Focus => self.dom.focused() == Some(self.id),
             NonTSPseudoClass::FocusVisible => {
                 self.dom.focused() == Some(self.id) && self.dom.focus_visible()
@@ -294,6 +270,14 @@ impl Element for DomElement<'_> {
             NonTSPseudoClass::ReadOnly => !self.editable(),
             NonTSPseudoClass::Required => {
                 self.html_tag(&["input", "select", "textarea"]) && self.attr("required").is_some()
+            }
+            NonTSPseudoClass::Valid | NonTSPseudoClass::Invalid => {
+                self.html_tag(&["select"])
+                    && self.dom.select_will_validate(self.id).unwrap_or(false)
+                    && self
+                        .dom
+                        .select_validity(self.id)
+                        .is_ok_and(|valid| valid == matches!(pseudo, NonTSPseudoClass::Valid))
             }
             NonTSPseudoClass::Optional => {
                 self.html_tag(&["input", "select", "textarea"]) && self.attr("required").is_none()

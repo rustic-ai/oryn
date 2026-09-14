@@ -1,0 +1,753 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "required_execution_total": 57,
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/checkbox-click-events.html",
+      "root": "html",
+      "sha256": "661f7c26e3ad5ebafe8a62606fd39dcfe0dd80ace99d405c1ae02e5ac1ca7939",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/checkbox.html",
+      "root": "html",
+      "sha256": "45f2de76cf7c1af885f300fb898307476437e01dc9e488015cfebc9d34335da2",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "script",
+      "path": "html/semantics/forms/the-input-element/input-type-checkbox-switch.tentative.window.js",
+      "root": "html",
+      "sha256": "5ad4102b6afa72a1be7449d356613a9f98a7e49fe3f7d1db668e73da9d8c3dba",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-type-checkbox.html",
+      "root": "html",
+      "sha256": "d8d1c012cce774a333acdd7093be85106c8851db52499543518e4070c1722a54",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-disconnected-group-owner.html",
+      "root": "html",
+      "sha256": "5775e97235a470eaf00736d6daa38e45cf24746641887f8ec2e57b9deaef659b",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-double-activate-pseudo.html",
+      "root": "html",
+      "sha256": "29248c03a5790e9086c81652666e6f041df762724ae4acf74000662c7652b68b",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-focus-navigation-checked.html",
+      "root": "html",
+      "sha256": "f87310e10e6133ad8fe9e53d2626bcdc4fb629363713e19fa36c13af96885698",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-focus-navigation-disabled.html",
+      "root": "html",
+      "sha256": "17223ad1f8db20a15be3689cd5c3088a2c6662c762188f83967055eb66b8512b",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-focus-navigation-group-first-focus.html",
+      "root": "html",
+      "sha256": "ef7551ff318aa5ad0b5606b9d1e92361bd9d6aabc7a11fb7b0453129143e3669",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-focus-navigation-group-focusable-focus.html",
+      "root": "html",
+      "sha256": "c5a0604618216b339bd082699621760ef422e974a2d2f973a69535a824661ecc",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-focused-and-scrolled-into-view.html",
+      "root": "html",
+      "sha256": "8ee79cbd435332a99615762a492c088da395f220a082b67adb03f5c035e0081c",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-groupname-case.html",
+      "root": "html",
+      "sha256": "c8d2a0b69ff3f2e1b7abd9938eb4a7323392ff8176387f794b0c26bbecbc702c",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-input-cancel.html",
+      "root": "html",
+      "sha256": "76f3d3d8c581238fc014e39c50493b3acbaf1f6ae7c080dc6d8c45a654094bab",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-keyboard-navigation-order.html",
+      "root": "html",
+      "sha256": "f2eb4c2101b971910ea90bd7a4ce2f5535298e9dd62159f19fe53e09bcde6f13",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-morphed.html",
+      "root": "html",
+      "sha256": "51e80ad3155a6e66e587ddf635b883f446fc36a2c87c29ed1f768832ac75efc8",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio-multiple-selected.html",
+      "root": "html",
+      "sha256": "000032d0cf9954d4cac53e7c8209f419e7436cb6de33ff58e57fb66b98bd25cd",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/radio.html",
+      "root": "html",
+      "sha256": "b56f05a48a93e92522c6fb878f85def7417e0179dde4d8b2085c46558b50cb40",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/clicking-interactive-content.html",
+      "root": "html",
+      "sha256": "e3c8e57405a6d3f6b34dfec7a0676fc9f380da509dd0cb72540fa005c693e65e",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/clicking-noninteractive-labelable-content.html",
+      "root": "html",
+      "sha256": "c87042f275dae83d427ca6a0985f3246b6e1b367a597fb461f75cb4f4c9276dc",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/clicking-noninteractive-unlabelable-content.html",
+      "root": "html",
+      "sha256": "982b3b5e05bd6c72fe0b56930007f75016373afe4389bccf2e479815b7a2c2a9",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/control-active-with-multiple-clicks.html",
+      "root": "html",
+      "sha256": "bb60d01655d01ac2c7984a2f9e451a7d0ef3ad56e4ca069858be10d7ae2939e7",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/forward-focus-to-associated-element.html",
+      "root": "html",
+      "sha256": "61dccd28573ba975f1e622cc2ba73eacf04bbadf08c578c98751bb730eab3848",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/label-attributes.sub.html",
+      "root": "html",
+      "sha256": "a96a61d97aab3b8da2b77c3cdc54934c102f7618aa2b241d643300af847bfd82",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/label-forwarded-click-pointer-properties.html",
+      "root": "html",
+      "sha256": "7eec48bdb327814a803ce99a3ca8427faa8267a4e822d4208c94b1e0da1cf47e",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/label-inside-anchor.html",
+      "root": "html",
+      "sha256": "c2685ba487d53b6a3f625933c363723f010b1f201e3155293c6518e7ea69eb43",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/labelable-elements.html",
+      "root": "html",
+      "sha256": "25cfea325f1f8c6d524e26c230f923df3e472061d89e67948354a736e7877c5f",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/proxy-click-to-associated-element.html",
+      "root": "html",
+      "sha256": "e47b962d38a41abbe24757b4188341102b31f8d15d83bd383e8c3692e65b0a90",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-label-element/proxy-modifier-click-to-associated-element.tentative.html",
+      "root": "html",
+      "sha256": "3718d0d44ddfb55ec1b023501a986a2913cb55895aefd8031151dbfe3ccb31ad",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/dynamic-inert-on-focused-element.html",
+      "root": "inert",
+      "sha256": "8f849a6360a895d44ba994725feee6eaf5675533bbf8409fba9037bc309ff14e",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-and-contenteditable.html",
+      "root": "inert",
+      "sha256": "3f31ff55498d3445536e1630db7e6473588b73751401ab69596b1491ee715fff",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-and-find-flat-tree.html",
+      "root": "inert",
+      "sha256": "57e0459cdfeeb36584aab892cdee87ded0895843fced4abe687bac3aa267f18d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-and-find.html",
+      "root": "inert",
+      "sha256": "884f7de8b52a544874ab26079551d3a5258e6da1a56ae2896c1a149695fc9dcc",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-canvas-fallback-content.html",
+      "root": "inert",
+      "sha256": "0b2e7aed508918d957620a49f64f58c5511f8415f16f41a1643a87f341886597",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-computed-style.html",
+      "root": "inert",
+      "sha256": "b92726c8688c3c66a45042fb587d9999e59afd78b017868ac572f3518fa7dfa3",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-does-not-match-disabled-selector.html",
+      "root": "inert",
+      "sha256": "361856cf6eb20c61924e477dab529086bc7f38197b6920dc72435fa0ea255d72",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-focus-in-frames.html",
+      "root": "inert",
+      "sha256": "abd371adfee50f69a3c6baa726b85e0ed9ea57bc92ce64f0b3f717baf22a7247",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-form-control.html",
+      "root": "inert",
+      "sha256": "6637d2dc64ad64970b6ba2e5da509014d4f6b5b0d34b2fa8bd4eb78745f77753",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-iframe-hittest.html",
+      "root": "inert",
+      "sha256": "09a2062ff342f397535fab12fa6f978dc6f459a840807784a90f15355bbb840f",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-iframe-tabbing.html",
+      "root": "inert",
+      "sha256": "d6a96f83bc0f69bdc7bdbdb76be44531100c244aba2b63b26e513b51eb26c1be",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-in-shadow-dom.html",
+      "root": "inert",
+      "sha256": "22328806467a39ef21ae120efc192d007f8a09ad7374b1eb2c77569844c4aba5",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-inlines-around-selection-range-in-contenteditable.html",
+      "root": "inert",
+      "sha256": "ed88e7217bd0979ca9a3c4eef3540b8884026e08eb8a1541c3165c06342ca22a",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-inlines.html",
+      "root": "inert",
+      "sha256": "7edb4607a9e8673d47fb3d04cee499df2b28f19ed203c58c333aed8ad2e5f0e5",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-label-focus.html",
+      "root": "inert",
+      "sha256": "92172efc72ac23ea4b55ff528a1abc22b06ba1d0d00a32183828f68d1beab2f7",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-node-is-uneditable.html",
+      "root": "inert",
+      "sha256": "4e69777ac244fa355d366159a90febe604cb3a3459da5a8a3f69de0711a74056",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-node-is-unfocusable.html",
+      "root": "inert",
+      "sha256": "af0db22165bc1338fa61df2136abe324b41846dfe4adbc32d93fa83b6bce0841",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-node-is-unselectable.html",
+      "root": "inert",
+      "sha256": "d22d7c97b751d70f448287da1e11f109550bda1dd8c7d44d664723cb1201edad",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-on-non-html.html",
+      "root": "inert",
+      "sha256": "c241dcaf956833a3495273a9d5522695981d13c501f8c8f0654a17c97b3322bd",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-on-slots.html",
+      "root": "inert",
+      "sha256": "c97e65492a9b84811b78cefe122c467f9393017a36e2aebd60825f66449b9e6d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-pseudo-element-hittest.html",
+      "root": "inert",
+      "sha256": "a4303de6a5bc5a3aacd93a13d4904f38d163adf8e3fa2ed3095fab88a5e6ea5d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-resize-handle.html",
+      "root": "inert",
+      "sha256": "8d0d5c32422643cb869303c4eb0283074341536fc2ca2f532d6919f702dcd2bf",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-scrollbar-hittest.html",
+      "root": "inert",
+      "sha256": "5808762d570fc8e8b9f19e198e6c67ddcc31af7d4ffb37077075a91c6f035b6a",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-svg-hittest.html",
+      "root": "inert",
+      "sha256": "74bda053dc9d0882dccde255a0c2133f36cf0c8eed301deaee4fce89d9133ec3",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-with-fullscreen-element.html",
+      "root": "inert",
+      "sha256": "10385c92c4b13233d4eecef20b78789dc77eceaec3e1c8b32c65214f8a425766",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-with-modal-dialog-001.html",
+      "root": "inert",
+      "sha256": "36d2c99ab8c622025575b36d4e98964650d92dde4e5881bb032981a1a352c667",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-with-modal-dialog-002.html",
+      "root": "inert",
+      "sha256": "a3b19757a264eb6cce6650577432bbe5fcb3ccf639cff0ccaea8ed7e34562ee3",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/inert-with-modal-dialog-003.html",
+      "root": "inert",
+      "sha256": "d0c2118667f53b087720ec25700fe389e86efdc0021f1114d1f63068a45abf57",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "inert/nested-inert-unfocusable.html",
+      "root": "inert",
+      "sha256": "72ddc055eb915d5518361fea67b617feaa00ce81032cb6db877c826fade39322",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ],
+  "selection": {
+    "rule": "All mapped Core inert tests and label-element tests; all mapped Core input-element filenames containing checkbox, radio, or checked. No pass/fail filtering.",
+    "official_manifest_sha256": "566f2c77524c69cc249c5fe18507ad4c11866d9077b201681b19807c4ee28101",
+    "policy_sha256": "a655bd38bbd3cc90e49344f7ceae1db1a3bfb09c8b84419b336ebf72f81eb84f"
+  }
+}

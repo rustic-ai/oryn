@@ -470,8 +470,8 @@ impl selectors::Element for BlitzNode<'_> {
                 .element_state()
                 .intersects(ElementState::VISITED_OR_UNVISITED),
             NonTSPseudoClass::Checked => self.element_state().contains(ElementState::CHECKED),
-            NonTSPseudoClass::Valid => false,
-            NonTSPseudoClass::Invalid => false,
+            NonTSPseudoClass::Valid => self.element_state().contains(ElementState::VALID),
+            NonTSPseudoClass::Invalid => self.element_state().contains(ElementState::INVALID),
             NonTSPseudoClass::Defined => false,
             NonTSPseudoClass::Disabled => self.element_state().contains(ElementState::DISABLED),
             NonTSPseudoClass::Enabled => self.element_state().contains(ElementState::ENABLED),
@@ -484,7 +484,7 @@ impl selectors::Element for BlitzNode<'_> {
             }
             NonTSPseudoClass::Fullscreen => false,
             NonTSPseudoClass::Hover => self.element_state().contains(ElementState::HOVER),
-            NonTSPseudoClass::Indeterminate => false,
+            NonTSPseudoClass::Indeterminate => self.element_state().contains(ElementState::INDETERMINATE),
             NonTSPseudoClass::Dir(ref direction) => self.data
                 .attr(LocalName::from("data-oryn-effective-dir"))
                 .is_some_and(|value| value.eq_ignore_ascii_case(direction)),

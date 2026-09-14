@@ -4,6 +4,8 @@ pub mod async_ops;
 pub mod bindings;
 pub mod generated;
 pub mod indexed_db;
+pub mod navigation;
+pub mod origin;
 pub mod platform;
 pub mod realm;
 pub mod scheduler;

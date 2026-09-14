@@ -200,6 +200,9 @@ pub enum PlatformHostRequest {
     HttpStart {
         request: PlatformHttpRequest,
     },
+    ImageStart {
+        request: PlatformHttpRequest,
+    },
     HttpRead {
         stream_id: u64,
         max_bytes: usize,
@@ -281,5 +284,8 @@ pub trait PlatformHost {
         request: PlatformHostRequest,
     ) -> Result<(), String>;
     fn cancel(&self, operation_id: HostOperationId);
+    /// Revoke this environment's endpoint. Implementations with external
+    /// authority must reject retained clones and queued work after retirement.
+    fn retire(&self);
     fn drain_completions(&self, limit: usize) -> Vec<PlatformHostCompletion>;
 }

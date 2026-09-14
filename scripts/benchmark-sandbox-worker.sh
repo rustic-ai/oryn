@@ -3,12 +3,20 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 output_dir="${1:-$repo_root/artifacts/semantic-sandbox-v4/production}"
-samples="${SAMPLES:-10}"
+samples="${SAMPLES:-30}"
 parent="$repo_root/target/release/oryn"
 app="$repo_root/target/release/OrynPageWorker.app"
 worker="$app/Contents/MacOS/oryn-page-worker"
 fixture="$repo_root/benchmarks/conformance/javascript-mutation-smoke.html"
 mkdir -p "$output_dir"
+source_clean=true
+if [[ -n "$(git -C "$repo_root" status --porcelain)" ]]; then
+  source_clean=false
+  if [[ "${ORYN_ALLOW_DIRTY_BENCHMARK:-0}" != "1" ]]; then
+    echo "Refusing to publish performance evidence from a dirty source tree" >&2
+    exit 2
+  fi
+fi
 
 parent_pid=""
 fifo=""
@@ -51,8 +59,19 @@ for _ in $(seq 1 "$samples"); do
 done
 
 cargo build --release --locked -p oryn-native --example sandbox_page_benchmark
-"$repo_root/target/release/examples/sandbox_page_benchmark" 5 \
-  >"$output_dir/page-creation.json"
+"$repo_root/target/release/examples/sandbox_page_benchmark" 5 10000 \
+  >"$output_dir/isolated-page-creation.json"
+ORYN_BENCH_WORKER_MODE=isolated-prewarmed \
+  "$repo_root/target/release/examples/sandbox_page_benchmark" 5 10000 \
+  >"$output_dir/prewarmed-page-creation.json"
+ORYN_BENCH_WORKER_MODE=recycled \
+  "$repo_root/target/release/examples/sandbox_page_benchmark" 5 10000 \
+  >"$output_dir/recycled-page-creation.json"
+cargo build --release --locked -p oryn-native --example page_group_benchmark
+for page_count in 1 5 20; do
+  "$repo_root/target/release/examples/page_group_benchmark" "$page_count" \
+    >"$output_dir/concurrent-${page_count}.json"
+done
 
 fifo="$output_dir/live-input.fifo"
 mkfifo "$fifo"
@@ -102,7 +121,10 @@ percentile() {
   '
 }
 
-page_creation="$(cat "$output_dir/page-creation.json")"
+isolated_page_creation="$(cat "$output_dir/isolated-page-creation.json")"
+prewarmed_page_creation="$(cat "$output_dir/prewarmed-page-creation.json")"
+recycled_page_creation="$(cat "$output_dir/recycled-page-creation.json")"
+concurrency="$(jq -s '.' "$output_dir/concurrent-1.json" "$output_dir/concurrent-5.json" "$output_dir/concurrent-20.json")"
 crash_restart='null'
 churn_result="${ORYN_CHURN_RESULT:-$repo_root/artifacts/semantic-sandbox-v4/reference-churn.json}"
 if [[ -f "$churn_result" ]]; then
@@ -126,20 +148,25 @@ jq -n \
   --argjson worker_gzip_bytes "$worker_gzip_bytes" \
   --argjson combined_gzip_bytes "$combined_gzip_bytes" \
   --argjson samples "$samples" \
+  --argjson source_clean "$source_clean" \
   --argjson handshake_p50_ms "$(percentile "$output_dir/startup-handshake-ms.txt" 0.50)" \
   --argjson handshake_p95_ms "$(percentile "$output_dir/startup-handshake-ms.txt" 0.95)" \
   --argjson mutation_p50_ms "$(percentile "$output_dir/startup-mutation-ms.txt" 0.50)" \
   --argjson mutation_p95_ms "$(percentile "$output_dir/startup-mutation-ms.txt" 0.95)" \
-  --argjson page_creation "$page_creation" \
+  --argjson isolated_page_creation "$isolated_page_creation" \
+  --argjson prewarmed_page_creation "$prewarmed_page_creation" \
+  --argjson recycled_page_creation "$recycled_page_creation" \
+  --argjson concurrency "$concurrency" \
   --argjson parent_rss_bytes "$parent_rss_bytes" \
   --argjson worker_rss_bytes "$worker_rss_bytes" \
   --argjson crash_restart "$crash_restart" \
   '{
-    schema_version: 4,
+    schema_version: 5,
     run_id: "sandbox-production-macos-arm64",
     captured_at: $captured_at,
     source_commit: $source_commit,
     source_tree_sha256: $source_tree_sha256,
+    publishable: $source_clean,
     runtime: $runtime,
     artifacts: {
       parent: {
@@ -164,18 +191,32 @@ jq -n \
       startup_to_handshake_p95_ms: $handshake_p95_ms,
       startup_to_mutation_p50_ms: $mutation_p50_ms,
       startup_to_mutation_p95_ms: $mutation_p95_ms,
-      page_creation: $page_creation,
+      isolated: $isolated_page_creation,
+      prewarmed: $prewarmed_page_creation,
+      recycled: $recycled_page_creation,
+      concurrency: $concurrency,
       parent_rss_bytes: $parent_rss_bytes,
       worker_rss_bytes: $worker_rss_bytes,
       crash_restart: $crash_restart
     },
     outcome: {
       status: (
-        if $runtime.execution_mode == "sandboxed_worker"
+        ($concurrency | map(.worker_rss_bytes[]) | sort) as $rss_samples
+        | if $runtime.execution_mode == "sandboxed_worker"
           and $runtime.sandboxed
           and $runtime.native_v8
-          and $runtime.worker_protocol_version == 8
+          and $runtime.worker_protocol_version == 9
           and $worker_rss_bytes <= $runtime.limits.worker_rss_bytes
+          and $isolated_page_creation.first_cold_verification_launch_handshake_ms <= 250
+          and $isolated_page_creation.warm_actions_per_second >= 300
+          and ($prewarmed_page_creation.cached_isolated_launch_ms | all(. <= 50))
+          and ($recycled_page_creation.cached_isolated_launch_ms | all(. <= 50))
+          and ($recycled_page_creation.reset_or_close_ms | all(. <= 50))
+          and $recycled_page_creation.recycled_javascript_state_erased
+          and ($concurrency | all(.passed))
+          and ($rss_samples | length > 0)
+          and $rss_samples[(length / 2 | floor)] <= 67108864
+          and ($rss_samples | all(. <= 167772160))
         then "passed"
         else "failed"
         end

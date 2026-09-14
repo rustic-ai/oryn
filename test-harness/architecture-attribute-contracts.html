@@ -1,0 +1,83 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Attribute architecture contract probe</title>
+<script>
+// Development diagnostics, not a WPT replacement or a conformance score.
+const cases = [];
+function check(name, run) {
+  try { cases.push({name, passed: !!run()}); }
+  catch (error) { cases.push({name, passed: false, error: String(error)}); }
+}
+check("attribute insertion order", () => {
+  const e = document.createElement("div");
+  e.setAttribute("z", "1"); e.setAttribute("a", "2");
+  return e.getAttributeNames().join(",") === "z,a";
+});
+check("same qualified name in distinct namespaces", () => {
+  const e = document.createElement("div");
+  e.setAttributeNS("urn:first", "p:item", "first");
+  e.setAttributeNS("urn:second", "p:item", "second");
+  return e.getAttributeNS("urn:first", "item") === "first"
+      && e.getAttributeNS("urn:second", "item") === "second"
+      && e.getAttributeNames().length === 2;
+});
+check("value update preserves existing prefix and identity", () => {
+  const e = document.createElement("div");
+  e.setAttributeNS("urn:test", "p:item", "first");
+  const attr = e.getAttributeNodeNS("urn:test", "item");
+  e.setAttributeNS("urn:test", "q:item", "second");
+  return e.getAttributeNodeNS("urn:test", "item") === attr
+      && attr.prefix === "p" && attr.value === "second"
+      && e.getAttributeNames().join(",") === "p:item";
+});
+check("namespace identity reaches computed style", () => {
+  const style = document.createElement("style");
+  style.textContent = '@namespace p "urn:test"; #ns-style { color: rgb(0, 0, 0) } #ns-style[p|item="yes"] { color: rgb(1, 2, 3) }';
+  document.documentElement.appendChild(style);
+  const e = document.createElement("div");
+  e.id = "ns-style";
+  e.setAttributeNS("urn:test", "p:item", "yes");
+  document.documentElement.appendChild(e);
+  return getComputedStyle(e).color === "rgb(1, 2, 3)";
+});
+check("reflection does not overwrite a foreign attribute", () => {
+  const e = document.createElement("div");
+  e.setAttributeNS("urn:test", "id", "foreign");
+  if (e.id !== "") return false;
+  e.id = "plain";
+  return e.id === "plain" && e.getAttributeNS("urn:test", "id") === "foreign"
+      && e.getAttributeNS(null, "id") === "plain" && e.attributes.length === 2;
+});
+check("live NamedNodeMap replacement and ownership", () => {
+  const e = document.createElement("div"), map = e.attributes;
+  const a = document.createAttributeNS("urn:test", "p:item");
+  a.value = "one";
+  if (!(map instanceof NamedNodeMap) || map !== e.attributes) return false;
+  if (map.setNamedItemNS(a) !== null || map[0] !== a || a.ownerElement !== e) return false;
+  e.setAttributeNS("urn:test", "q:item", "two");
+  if (map[0] !== a || a.value !== "two" || map.getNamedItem("p:item") !== a) return false;
+  return map.removeNamedItemNS("urn:test", "item") === a
+      && map.length === 0 && a.ownerElement === null && a.value === "two";
+});
+check("node equality compares expanded attributes without order", () => {
+  const a = document.createElement("div"), b = document.createElement("div");
+  a.setAttribute("z", "1"); a.setAttributeNS("urn:test", "p:item", "2");
+  b.setAttributeNS("urn:test", "p:item", "2"); b.setAttribute("z", "1");
+  if (!a.isEqualNode(b)) return false;
+  b.removeAttributeNS("urn:test", "item"); b.setAttributeNS("urn:other", "p:item", "2");
+  return !a.isEqualNode(b);
+});
+check("HTML control state ignores foreign selected and disabled", () => {
+  const s = document.createElement("select"), o = document.createElement("option");
+  s.multiple = true;
+  o.setAttributeNS("urn:foreign", "selected", "");
+  o.setAttributeNS("urn:foreign", "disabled", "");
+  s.appendChild(o);
+  if (o.selected || o.disabled) return false;
+  o.defaultSelected = true;
+  if (!o.selected) return false;
+  o.defaultSelected = false;
+  return !o.selected && o.hasAttributeNS("urn:foreign", "selected");
+});
+globalThis.architectureAttributeReport = {schema_version: 1, cases};
+</script>

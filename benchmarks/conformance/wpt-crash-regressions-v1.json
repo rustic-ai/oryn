@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "required_execution_total": 12,
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "custom-elements/form-associated/form-associated-callback.html",
+      "root": "custom-elements",
+      "sha256": "af2765824f5cf75c602699958bb8246315fc40059a8949052965dbc3eef76f7c",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "dom/ranges/Range-insertNode.html",
+      "root": "dom",
+      "sha256": "87b49e7e98b1f6c3406ef18420f86b3dbf54858f190c59acd17dc26d5a2b99a9",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "selection/extend-00.html",
+      "root": "selection",
+      "sha256": "cc05de71eda96c31908bd61d28e1e6a5586aa7d43dbdd2598e8d291dff3dd0bb",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "selection/extend-20.html",
+      "root": "selection",
+      "sha256": "53708c1c4ad1f1eec0a9d797cf1ddfbf4585cb4a2a6e0e319026eaae681b8b40",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "selection/extend-40.html",
+      "root": "selection",
+      "sha256": "a9efbb97df7e751c918931031761d600bf92c59f70da912f12259d7692ffdf44",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "xhr/send-data-unexpected-tostring.htm",
+      "root": "xhr",
+      "sha256": "9ad665736cf155a63208a8761f0167b7870e2aa77d7a40b46f87fbf5a15ae77d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "css/css-images/empty-background-image.html",
+      "root": "css",
+      "sha256": "7bd17ab514515fa9c67fbaefd8298b05adecac62f419481df683f18b912cbf84",
+      "variants": [
+        ""
+      ],
+      "workstream": "necessary"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/canvas/element/pixel-manipulation/2d.imageData.get.double.html",
+      "root": "html",
+      "sha256": "4a50395f17c93723a476bd7ef2f8edeb90a164f9b1d886dcb8b9d2a5bb22b160",
+      "variants": [
+        ""
+      ],
+      "workstream": "necessary"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/canvas/element/pixel-manipulation/2d.imageData.get.source.negative.html",
+      "root": "html",
+      "sha256": "c757e0d15d6b8e82e1a688a9bf2cc4a4dcc2fc6a329ed3e0c426dfdcf49ba529",
+      "variants": [
+        ""
+      ],
+      "workstream": "necessary"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/embedded-content/the-img-element/invalid-src.html",
+      "root": "html",
+      "sha256": "d2d49a1a1c9ce55c2b8cbb36543d40378639188c16c386bd515a78f0a28b3635",
+      "variants": [
+        ""
+      ],
+      "workstream": "necessary"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/embedded-content/the-img-element/update-the-image-data/fail-to-resolve.html",
+      "root": "html",
+      "sha256": "52dd2794a184132534a7a93cd9c014b5a15f7580c6e19028e725120b38aa7f25",
+      "variants": [
+        ""
+      ],
+      "workstream": "necessary"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "navigation-timing/dom-interactive-media-document.html",
+      "root": "navigation-timing",
+      "sha256": "759c2a106a10fa55c2f0773328a9e2df5cbbd735dc2e3e07923ac9c0dfbfb2ea",
+      "variants": [
+        ""
+      ],
+      "workstream": "necessary"
+    }
+  ]
+}

@@ -9,7 +9,6 @@ use std::{
     time::Duration,
 };
 
-use base64::Engine as _;
 use html5ever::{QualName, local_name, ns};
 use oryn_common::v3::SemanticAction;
 use oryn_dom::{
@@ -29,11 +28,33 @@ use crate::{
 };
 use url::Url;
 
-const DOCUMENT_LIFECYCLE_SCRIPT: &str = "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}));if(document.body){if(typeof document.body.onload==='function')globalThis.onload=document.body.onload;else{const source=document.body.getAttribute('onload');if(source)globalThis.onload=Function(source)}}dispatchEvent(new Event('load'))";
+const DOCUMENT_CONTENT_LOADED_SCRIPT: &str =
+    "document.dispatchEvent(new Event('DOMContentLoaded',{bubbles:true}))";
+const DOCUMENT_LOAD_SCRIPT: &str = "if(document.body){if(typeof document.body.onload==='function')globalThis.onload=document.body.onload;else{const source=document.body.getAttribute('onload');if(source)globalThis.onload=Function(source)}}dispatchEvent(new Event('load'))";
 
 struct LiveLayoutProvider {
     dom: SharedDomRuntime,
     viewport: oryn_common::v4::ViewportState,
+}
+
+fn populate_validation_states(
+    dom: &DomRuntime,
+    input: &mut oryn_layout::LayoutInput,
+) -> Result<(), DomError> {
+    for node in &mut input.nodes {
+        let id = NodeId {
+            slot: node.id as u32,
+            generation: (node.id >> 32) as u32,
+        };
+        node.validity = if dom.is_element(id, "http://www.w3.org/1999/xhtml", "select")
+            && dom.select_will_validate(id)?
+        {
+            Some(dom.select_validity(id)?)
+        } else {
+            None
+        };
+    }
+    Ok(())
 }
 
 impl BindingLayoutProvider for LiveLayoutProvider {
@@ -360,6 +381,20 @@ impl BindingLayoutProvider for LiveLayoutProvider {
             .focused()
             .map(|node| (u64::from(node.generation) << 32) | u64::from(node.slot));
         input.focus_visible = self.dom.borrow().focus_visible();
+        populate_validation_states(&self.dom.borrow(), &mut input)
+            .map_err(|error| error.to_string())?;
+        {
+            let dom = self.dom.borrow();
+            for node in &mut input.nodes {
+                let id = NodeId {
+                    slot: node.id as u32,
+                    generation: (node.id >> 32) as u32,
+                };
+                node.indeterminate = dom
+                    .is_indeterminate(id)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
         input.custom_states = custom_states
             .iter()
             .map(|(node, values)| {
@@ -873,7 +908,7 @@ fn parser_checkpoint(
 
 enum DocumentLoad {
     Live(crate::host::DocumentStream),
-    Snapshot(ParsedDocument),
+    Snapshot(Box<ParsedDocument>),
 }
 
 type ScriptRecord = (
@@ -1012,6 +1047,7 @@ impl ParserResourceScheduler {
                         destination: "frame".into(),
                         initiator_url: None,
                         referrer_policy: None,
+                        post: None,
                     },
                 )
                 .map_err(|error| error.to_string())
@@ -1074,6 +1110,7 @@ fn load_parser_stylesheet(
                 destination: "stylesheet".into(),
                 initiator_url,
                 referrer_policy,
+                post: None,
             },
         )
         .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -1153,6 +1190,7 @@ fn load_css_subresources(
                     destination: destination.into(),
                     initiator_url: Some(stylesheet_url.into()),
                     referrer_policy: Some(referrer_policy.into()),
+                    post: None,
                 },
             )
             .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -1231,11 +1269,11 @@ fn load_frame_style_resources(
             load_inline_css_resources(client, page_id, document_url, referrer_policy, &css)?;
         } else if name.local.as_ref() == "link"
             && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
-            && node.attributes.get("rel").is_some_and(|rel| {
+            && node.attributes.get_null("rel").is_some_and(|rel| {
                 rel.split_ascii_whitespace()
                     .any(|token| token.eq_ignore_ascii_case("stylesheet"))
             })
-            && let Some(href) = node.attributes.get("href")
+            && let Some(href) = node.attributes.get_null("href")
         {
             load_parser_stylesheet(
                 client,
@@ -1838,19 +1876,21 @@ globalThis.Headers=OrynHeaders;
 globalThis.Response=OrynResponse;
 class OrynRequest {constructor(input,init={}){this.url=new OrynURL(input&&input.url?input.url:String(input),location.href).href;this.method=String(init.method||'GET').toUpperCase();this.headers=new OrynHeaders(init.headers||[]);this.body=init.body??null;this.signal=init.signal||new OrynAbortSignal();this.credentials=init.credentials||'same-origin'}}
 globalThis.Request=OrynRequest;
-const __orynInputFiles=node=>{const encoded=node.getAttribute('data-oryn-upload-files');if(!encoded)return [];try{return JSON.parse(encoded).map(file=>new File([base64ToBytes(file.body_base64)],file.filename,{type:file.media_type,lastModified:file.last_modified}))}catch(_){return []}};
+const __orynInputFiles=node=>Array.from(node.files||[]);
 const __oryn_testdriver_text_node=(node,last=false)=>{if(!node)return null;if(node.nodeType===3)return node;let fallback=null,children=[...(node.childNodes||[])];if(last)children.reverse();for(const child of children){const found=__oryn_testdriver_text_node(child,last);if(found&&!fallback)fallback=found;if(found&&String(found.data||'').trim())return found}return fallback};
-const __oryn_testdriver_key_name=value=>({"\uE003":'Backspace',"\uE004":'Tab',"\uE007":'Enter',"\uE008":'Shift',"\uE009":'Control',"\uE00A":'Alt',"\uE010":'End',"\uE011":'Home',"\uE017":'Delete',"\uE03D":'Meta'}[value]||value);
+const __oryn_testdriver_key_name=value=>({"\uE003":'Backspace',"\uE004":'Tab',"\uE007":'Enter',"\uE008":'Shift',"\uE009":'Control',"\uE00A":'Alt',"\uE010":'End',"\uE011":'Home',"\uE012":'ArrowLeft',"\uE013":'ArrowUp',"\uE014":'ArrowRight',"\uE015":'ArrowDown',"\uE017":'Delete',"\uE03D":'Meta'}[value]||value);
 const __oryn_testdriver_clipboard={text:'',html:''};
 const __oryn_testdriver_data_transfer=()=>({getData(type){return type==='text/html'?__oryn_testdriver_clipboard.html:__oryn_testdriver_clipboard.text},setData(type,value){if(type==='text/html')__oryn_testdriver_clipboard.html=String(value);else __oryn_testdriver_clipboard.text=String(value)},types:['text/plain','text/html']});
-const __oryn_testdriver_keyboard=(target,value,pressed)=>{
+const __oryn_testdriver_keyboard=(target,value,pressed,repeat=false)=>{
+  target=__oryn_testdriver_key_target(target);
   const key=__oryn_testdriver_key_name(String(value));
   const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set());
   if(pressed&&['Control','Meta','Shift','Alt'].includes(key))modifiers.add(key);
   if(!pressed)modifiers.delete(key);
-  const event=new Event(pressed?'keydown':'keyup',{bubbles:true,cancelable:true});
-  event.key=key;event.code=key.length===1?'Key'+key.toUpperCase():key;
-  event.ctrlKey=modifiers.has('Control');event.metaKey=modifiers.has('Meta');event.altKey=modifiers.has('Alt');event.shiftKey=modifiers.has('Shift');
+  const code=/^[a-z]$/i.test(key)?'Key'+key.toUpperCase():/^[0-9]$/.test(key)?'Digit'+key:key===' '?'Space':key;
+  const keyCode=({Backspace:8,Tab:9,Enter:13,Shift:16,Control:17,Alt:18,Pause:19,CapsLock:20,Escape:27,' ':32,PageUp:33,PageDown:34,End:35,Home:36,ArrowLeft:37,ArrowUp:38,ArrowRight:39,ArrowDown:40,Insert:45,Delete:46,Meta:91,NumLock:144,ScrollLock:145,';':186,':':186,'=':187,'+':187,',':188,'<':188,'-':189,'_':189,'.':190,'>':190,'/':191,'?':191,'`':192,'~':192,'[':219,'{':219,'\\':220,'|':220,']':221,'}':221,"'":222,'"':222})[key]??(/^[a-z0-9]$/i.test(key)?key.toUpperCase().charCodeAt(0):/^F(?:[1-9]|1[0-2])$/.test(key)?111+Number(key.slice(1)):0);
+  const event=new KeyboardEvent(pressed?'keydown':'keyup',{bubbles:true,cancelable:true,composed:true,key,code,repeat,keyCode,charCode:0,
+    ctrlKey:modifiers.has('Control'),metaKey:modifiers.has('Meta'),altKey:modifiers.has('Alt'),shiftKey:modifiers.has('Shift')});
   __oryn_dispatch_user_input(target,pressed?'keydown':'keyup',false,event);
   if(!pressed){modifiers.delete(key);return}
   if(event.defaultPrevented)return;
@@ -1928,12 +1968,9 @@ const __oryn_testdriver_keyboard=(target,value,pressed)=>{
   }
 };
 const __oryn_testdriver_key_target=target=>target?__oryn_resolve_keyboard_target(target):target;
-globalThis.__oryn_testdriver_send_keys=async(target,keys)=>{await Promise.resolve();if(!target)throw new TypeError('testdriver target is required');target=__oryn_testdriver_key_target(target);target.focus?.();keys=String(keys);if(String(target.tagName).toLowerCase()==='input'&&String(target.type).toLowerCase()==='file'){const response=contextCall({operation:'materialize_upload',page_id:__oryn_page_id,label:keys});if(response.result!=='upload_materialized')throw new Error('parent did not authorize the selected upload');target.setAttribute('data-oryn-upload-files',JSON.stringify([{filename:response.filename,media_type:response.media_type,body_base64:response.body_base64,last_modified:response.last_modified}]));target.value=response.filename;target.dispatchEvent(new Event('input',{bubbles:true}));target.dispatchEvent(new Event('change',{bubbles:true}));return}for(const key of [...keys]){__oryn_testdriver_keyboard(target,key,true);__oryn_testdriver_keyboard(target,key,false)}};
+globalThis.__oryn_testdriver_send_keys=async(target,keys)=>{await Promise.resolve();if(!target)throw new TypeError('testdriver target is required');target=__oryn_testdriver_key_target(target);target.focus?.();keys=String(keys);if(String(target.tagName).toLowerCase()==='input'&&String(target.type).toLowerCase()==='file'){const response=contextCall({operation:'materialize_upload',page_id:__oryn_page_id,label:keys});if(response.result!=='upload_materialized')throw new Error('parent did not authorize the selected upload');__oryn_select_file_bytes(target,JSON.stringify([{filename:response.filename,media_type:response.media_type,body_base64:response.body_base64,last_modified:response.last_modified}]));target.dispatchEvent(new Event('input',{bubbles:true}));target.dispatchEvent(new Event('change',{bubbles:true}));return}let currentTarget=target;for(const key of [...keys]){__oryn_testdriver_keyboard(currentTarget,key,true);currentTarget=__oryn_testdriver_key_target(document.activeElement||target);__oryn_testdriver_keyboard(currentTarget,key,false)}};
 const __oryn_pointer_down=target=>{if(!target)return;if(__oryn_dispatch_user_input(target,'pointerdown',false)&&__oryn_dispatch_user_input(target,'mousedown',false))__oryn_focus_from_pointer(target)};
 const __oryn_pointer_up=target=>{if(!target)return;__oryn_dispatch_user_input(target,'pointerup',false);__oryn_dispatch_user_input(target,'mouseup',false)};
-globalThis.__oryn_testdriver_click=async target=>{await Promise.resolve();if(!target)throw new TypeError('testdriver target is required');__oryn_pointer_down(target);__oryn_pointer_up(target);target.click?.()};
-globalThis.__oryn_testdriver_actions=async(sources,keyboardTarget=null)=>{await Promise.resolve();let pointerTarget=null,pointerClicks=0;const modifiers=globalThis.__oryn_testdriver_modifiers||(globalThis.__oryn_testdriver_modifiers=new Set()),touchPointers=new Set(),dispatchInput=(target,type)=>__oryn_dispatch_user_input(target,type,false);const lists=(sources||[]).map(source=>source.actions||[]);const ticks=Math.max(0,...lists.map(actions=>actions.length));for(let tick=0;tick<ticks;tick++)for(let index=0;index<sources.length;index++){const source=sources[index],action=lists[index][tick];if(!action||action.type==='pause')continue;if(action.type==='scroll'){const target=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement||document.body;for(const type of ['wheel','mousewheel'])dispatchInput(target,type);continue}if(action.type==='pointerMove'){if(action.origin&&typeof action.origin==='object')pointerTarget=action.origin;else if(!touchPointers.has(source.id))pointerTarget=document.elementFromPoint?.(Number(action.x)||0,Number(action.y)||0)||document.activeElement;if(touchPointers.has(source.id))dispatchInput(pointerTarget,'touchmove');continue}if(action.type==='pointerDown'){__oryn_pointer_down(pointerTarget);if(source.parameters?.pointerType==='touch'){touchPointers.add(source.id);dispatchInput(pointerTarget,'touchstart')}continue}if(action.type==='pointerUp'){__oryn_pointer_up(pointerTarget);if(touchPointers.delete(source.id))dispatchInput(pointerTarget,'touchend');pointerTarget?.click?.();pointerClicks++;if(pointerClicks===2){const text=__oryn_testdriver_text_node(pointerTarget);if(text){const selection=document.getSelection();selection.setBaseAndExtent(text,0,text,text.data.length)}}continue}const target=keyboardTarget||document.activeElement||document.body;if(action.type==='keyDown')__oryn_testdriver_keyboard(target,action.value,true);else if(action.type==='keyUp'){const key=__oryn_testdriver_key_name(String(action.value));__oryn_testdriver_keyboard(target,action.value,false);modifiers.delete(key)}}};
-if(globalThis.HTMLInputElement)Object.defineProperty(HTMLInputElement.prototype,'files',{configurable:true,get(){return __orynInputFiles(this)}});
 class OrynFormData {constructor(form){this.items=[];if(form)for(const node of [...form.querySelectorAll('input'),...form.querySelectorAll('textarea'),...form.querySelectorAll('select')]){const name=node.getAttribute('name');if(!name||node.disabled)continue;const type=(node.getAttribute('type')||'').toLowerCase();if((type==='checkbox'||type==='radio')&&!node.checked)continue;if(type==='file'){for(const file of __orynInputFiles(node))this.append(name,file);continue}this.append(name,node.value)}}append(name,value,filename){if(filename!==undefined&&value instanceof OrynBlob)value=new OrynFile([value.__bytes],filename,{type:value.type});this.items.push([String(name),value instanceof OrynBlob?value:String(value)])}set(name,value,filename){this.delete(name);this.append(name,value,filename)}get(name){const item=this.items.find(item=>item[0]===String(name));return item?item[1]:null}getAll(name){return this.items.filter(item=>item[0]===String(name)).map(item=>item[1])}has(name){return this.items.some(item=>item[0]===String(name))}delete(name){this.items=this.items.filter(item=>item[0]!==String(name))}entries(){return this.items[Symbol.iterator]()}keys(){return this.items.map(item=>item[0])[Symbol.iterator]()}values(){return this.items.map(item=>item[1])[Symbol.iterator]()}[Symbol.iterator](){return this.entries()}}
 globalThis.FormData=OrynFormData;
 globalThis.crypto={getRandomValues(array){const encoded=__oryn_crypto_sync('random',String(array.byteLength));array.set(base64ToBytes(encoded));return array},randomUUID(){const bytes=new Uint8Array(16);this.getRandomValues(bytes);bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;const hex=[...bytes].map(value=>value.toString(16).padStart(2,'0')).join('');return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`},subtle:{digest(algorithm,value){if(String(algorithm).toUpperCase()!=='SHA-256')return Promise.reject(new Error('unsupported digest'));const result=base64ToBytes(__oryn_crypto_sync('sha256',bytesToBase64(bodyBytes(value))));return Promise.resolve(result.buffer)}}};
@@ -1999,7 +2036,7 @@ class OrynXMLHttpRequest {
   abort(){if(this.__aborted)return;this.__aborted=true;if(this.__controller)this.__controller.abort(new Error('AbortError'));this.status=0;this.readyState=0;this.__event('abort');this.__event('loadend')}
 }
 Object.assign(OrynXMLHttpRequest,{UNSENT:0,OPENED:1,HEADERS_RECEIVED:2,LOADING:3,DONE:4});Object.assign(OrynXMLHttpRequest.prototype,{UNSENT:0,OPENED:1,HEADERS_RECEIVED:2,LOADING:3,DONE:4});globalThis.XMLHttpRequest=OrynXMLHttpRequest;
-if(typeof globalThis.__oryn_context_call==='function')for(const [name,value] of Object.entries(__oryn_generated_platform))if(value!==undefined)globalThis[name]=value;
+for(const [name,value] of Object.entries(__oryn_generated_platform))if(value!==undefined&&(typeof globalThis.__oryn_context_call==='function'||['Blob','File','FormData'].includes(name)))globalThis[name]=value;
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2018,11 +2055,11 @@ pub struct ContextTraceEntry {
 pub struct RustExecutableDocument {
     pub document: ParsedDocument,
     pub diagnostics: Vec<oryn_common::v3::CapabilityDiagnostic>,
-    live_dom: Rc<RefCell<DomRuntime>>,
-    host: RawV8Host,
+    agent: crate::agent::AgentRuntime,
     top_realm: RealmId,
     node_realms: BTreeMap<NodeId, RealmId>,
     frame_realms: BTreeMap<RealmId, FrameRealm>,
+    pending_document_loads: BTreeSet<RealmId>,
     pending_frame_navigations: BTreeMap<(RealmId, NodeId), FrameNavigationContext>,
     base_url: Option<Url>,
     resources: BTreeMap<String, String>,
@@ -2048,6 +2085,7 @@ struct FrameRealm {
 struct FrameNavigationContext {
     initiator_url: Option<String>,
     referrer_policy: Option<String>,
+    post: Option<oryn_js::navigation::PostResource>,
 }
 
 impl RustExecutableDocument {
@@ -2124,7 +2162,7 @@ impl RustExecutableDocument {
         max_heap_bytes: usize,
     ) -> Result<Self, HostError> {
         Self::load_with_options(
-            DocumentLoad::Snapshot(parsed),
+            DocumentLoad::Snapshot(Box::new(parsed)),
             resources,
             broker,
             base_url,
@@ -2196,7 +2234,7 @@ impl RustExecutableDocument {
         ),
     ) -> Result<Self, HostError> {
         Self::load_with_options(
-            DocumentLoad::Snapshot(parsed),
+            DocumentLoad::Snapshot(Box::new(parsed)),
             resources,
             broker,
             base_url,
@@ -2243,11 +2281,11 @@ impl RustExecutableDocument {
                     for chunk in stream.chunks {
                         source.push_str(&chunk?);
                     }
-                    DocumentLoad::Snapshot(oryn_dom::xml::parse_navigation(
+                    DocumentLoad::Snapshot(Box::new(oryn_dom::xml::parse_navigation(
                         &source,
                         Some(&essence),
                         base_url.as_ref().map_or("about:blank", Url::as_str),
-                    ))
+                    )))
                 }
             }
             other => other,
@@ -2336,6 +2374,7 @@ impl RustExecutableDocument {
         }
         let top_realm = host.active_realm();
         host.execute(RUST_RUNTIME_GLOBALS)?;
+        host.execute(include_str!("native_actions.js"))?;
         host.execute(crate::observable::OBSERVABLE_GLOBALS)?;
         host.set_module_sources(&resources);
         if let Some(base_url) = &base_url {
@@ -2448,6 +2487,7 @@ impl RustExecutableDocument {
                         destination: "frame".into(),
                         initiator_url: base_url.as_ref().map(url::Url::to_string),
                         referrer_policy: None,
+                        post: None,
                     },
                 ) {
                     Ok(crate::context_service::ContextServiceResponse::PageResource {
@@ -2526,7 +2566,7 @@ impl RustExecutableDocument {
                     .map_err(|error| HostError::Execution(error.to_string()))?;
                 live_dom
                     .borrow_mut()
-                    .append_child(frame, document)
+                    .set_hosted_document(frame, Some(document))
                     .map_err(|error| HostError::Execution(error.to_string()))?;
                 (live_dom.clone(), document)
             } else {
@@ -2552,7 +2592,18 @@ impl RustExecutableDocument {
                 }
             }
             host.activate_realm(realm)?;
+            let forms_allowed = live_dom
+                .borrow()
+                .attribute_in_null_namespace(frame, "sandbox")
+                .map_err(|error| HostError::Execution(error.to_string()))?
+                .is_none_or(|tokens| {
+                    tokens
+                        .split_ascii_whitespace()
+                        .any(|token| token.eq_ignore_ascii_case("allow-forms"))
+                });
+            host.set_forms_allowed(forms_allowed)?;
             host.execute(RUST_RUNTIME_GLOBALS)?;
+            host.execute(include_str!("native_actions.js"))?;
             host.execute(crate::observable::OBSERVABLE_GLOBALS)?;
             host.install_layout_provider(Rc::new(LiveLayoutProvider {
                 dom: frame_dom.clone(),
@@ -2664,11 +2715,11 @@ impl RustExecutableDocument {
                 events: parser_events,
             },
             diagnostics,
-            live_dom,
-            host,
+            agent: crate::agent::AgentRuntime::new(host, live_dom)?,
             top_realm,
             node_realms,
             frame_realms,
+            pending_document_loads: BTreeSet::new(),
             pending_frame_navigations: BTreeMap::new(),
             base_url,
             resources,
@@ -2679,9 +2730,9 @@ impl RustExecutableDocument {
             context: context_handle,
         };
         for frame in parser_local_frames {
-            page.host.activate_realm(page.top_realm)?;
-            page.host.ensure_provisional_frame_window(frame)?;
-            page.host.schedule_dynamic_frame(frame)?;
+            page.agent.host.activate_realm(page.top_realm)?;
+            page.agent.host.ensure_provisional_frame_window(frame)?;
+            page.agent.host.schedule_dynamic_frame(frame)?;
         }
         // Parser-discovered frame scripts are prepared before the remaining
         // parent scripts, but their lifecycle fires only after the parent has
@@ -2689,36 +2740,44 @@ impl RustExecutableDocument {
         // its own events and scheduler checkpoint before the top-level load
         // barrier is released.
         for realm in initial_frame_realms {
-            page.host.activate_realm(realm)?;
-            page.host.execute(DOCUMENT_LIFECYCLE_SCRIPT)?;
+            page.agent.host.activate_realm(realm)?;
+            page.agent.host.prepare_document_images()?;
+            page.agent.host.drain_async_fetches(true)?;
+            page.queue_document_load(realm)?;
             // A frame's load task may schedule the zero-delay completion task
             // used by testharness and by application bootstraps. Run timers
             // that are due now while the child realm is active; otherwise the
             // top realm can reach its own load barrier with the child remote
             // context permanently awaiting completion.
-            page.host.drain_scheduled_timers(false)?;
+            page.agent.host.drain_scheduled_timers(false)?;
             page.checkpoint()?;
         }
-        page.host.activate_realm(page.top_realm)?;
+        page.agent.host.activate_realm(page.top_realm)?;
         // Dynamic external/module scripts inserted by parser-time JavaScript
         // are force-async but still participate in the document load barrier.
+        // A parser-time submission may replace a just-inserted frame's initial
+        // blank navigation. Resolve those planned actions before firing frame
+        // load handlers, matching the ordering used by ordinary checkpoints.
+        page.drain_default_actions()?;
+        page.drain_frame_location_navigations()?;
         page.drain_dynamic_frames()?;
         page.drain_dynamic_stylesheets()?;
         page.drain_dynamic_scripts()?;
-        page.host.drain_async_fetches(true)?;
+        page.agent.host.prepare_document_images()?;
+        page.agent.host.drain_async_fetches(true)?;
         // Zero-delay framework commits queued before load run at this
         // checkpoint. Future timers retain their deadlines and must not be
         // pulled forward merely because navigation reached the load barrier.
-        page.host.drain_scheduled_timers(false)?;
+        page.agent.host.drain_scheduled_timers(false)?;
         page.checkpoint()?;
-        page.host.execute(DOCUMENT_LIFECYCLE_SCRIPT)?;
-        page.host.drain_scheduled_timers(false)?;
+        page.queue_document_load(page.top_realm)?;
+        page.agent.host.drain_scheduled_timers(false)?;
         page.checkpoint()?;
         Ok(page)
     }
 
     pub fn execute(&mut self, source: &str) -> Result<(), HostError> {
-        self.host.execute(source)?;
+        self.agent.host.execute(source)?;
         self.checkpoint()
     }
 
@@ -2726,7 +2785,7 @@ impl RustExecutableDocument {
         if source.contains("__oryn_drain(true)") {
             self.drain_tasks()?;
         }
-        let value = self.host.evaluate_string(source)?;
+        let value = self.agent.host.evaluate_string(source)?;
         self.checkpoint()?;
         Ok(value)
     }
@@ -2741,16 +2800,17 @@ impl RustExecutableDocument {
 
     pub fn type_text(&mut self, selector: &str, value: &str) -> Result<(), HostError> {
         let node = {
-            let dom = self.live_dom.borrow();
+            let dom = self.agent.dom.borrow();
             dom.query_selector(dom.document(), selector)
         }
         .map_err(|error| HostError::Execution(error.to_string()))?
         .ok_or_else(|| HostError::Execution("no matching element".into()))?;
-        self.live_dom
+        self.agent
+            .dom
             .borrow_mut()
             .set_value(node, value, false)
             .map_err(|error| HostError::Execution(error.to_string()))?;
-        self.host.execute_with_node(
+        self.agent.host.execute_with_node(
             node,
             "__oryn_action_target",
             "__oryn_action_target.dispatchEvent(new Event('input',{bubbles:true}));__oryn_action_target.dispatchEvent(new Event('change',{bubbles:true}))",
@@ -2759,23 +2819,23 @@ impl RustExecutableDocument {
     }
 
     pub fn location(&mut self) -> Result<String, HostError> {
-        self.host.evaluate_string("location.href")
+        self.agent.host.evaluate_string("location.href")
     }
 
     pub fn set_committed_location(&mut self, url: &str) -> Result<(), HostError> {
-        self.host.commit_location(url)
+        self.agent.host.commit_location(url)
     }
 
     pub fn take_location_navigation(&self) -> Option<oryn_js::v8_bindings::LocationNavigation> {
-        self.host.take_location_navigation()
+        self.agent.host.take_location_navigation()
     }
 
     pub fn take_history_traversal(&self) -> Result<Option<i64>, HostError> {
-        self.host.take_history_traversal()
+        self.agent.host.take_history_traversal()
     }
 
     pub fn take_history_url_update(&self) -> Option<String> {
-        self.host.take_history_url_update()
+        self.agent.host.take_history_url_update()
     }
 
     pub fn dispatch_page_transition(
@@ -2785,39 +2845,46 @@ impl RustExecutableDocument {
     ) -> Result<(), HostError> {
         let event_type = serde_json::to_string(event_type)
             .map_err(|error| HostError::Execution(error.to_string()))?;
-        self.host.execute(&format!(
+        self.agent.host.execute(&format!(
             "{{const event=new Event({event_type});Object.defineProperty(event,'persisted',{{value:{persisted},enumerable:true}});dispatchEvent(event)}}"
         ))?;
         self.checkpoint()
     }
 
     pub fn suspend_for_back_forward_cache(&mut self) {
-        self.host.suspend_page_isolate();
+        self.agent.host.suspend_page_isolate();
     }
 
     pub fn resume_from_back_forward_cache(&mut self) {
-        self.host.resume_page_isolate();
+        self.agent.host.resume_page_isolate();
     }
 
     pub fn has_pending_page_work(&mut self) -> bool {
-        self.host.has_pending_page_work()
+        !self.pending_document_loads.is_empty() || self.agent.host.has_pending_page_work()
+    }
+
+    pub fn document_load_complete(&self) -> bool {
+        !self.pending_document_loads.contains(&self.top_realm)
     }
 
     pub fn has_runnable_page_work(&mut self) -> bool {
-        self.host.has_runnable_page_work()
+        !self.pending_document_loads.is_empty() || self.agent.host.has_runnable_page_work()
     }
 
     pub fn storage_snapshot(&mut self) -> Result<(String, String), HostError> {
         Ok((
-            self.host
+            self.agent
+                .host
                 .evaluate_string("JSON.stringify([...localStorage.items])")?,
-            self.host
+            self.agent
+                .host
                 .evaluate_string("JSON.stringify([...sessionStorage.items])")?,
         ))
     }
 
     pub fn take_console_entries(&mut self) -> Result<Vec<ConsoleEntry>, HostError> {
         let value = self
+            .agent
             .host
             .evaluate_string("JSON.stringify(__oryn_take_console())")?;
         serde_json::from_str(&value).map_err(|error| HostError::Execution(error.to_string()))
@@ -2825,6 +2892,7 @@ impl RustExecutableDocument {
 
     pub fn take_context_trace_entries(&mut self) -> Result<Vec<ContextTraceEntry>, HostError> {
         let value = self
+            .agent
             .host
             .evaluate_string("JSON.stringify(__oryn_take_context_trace())")?;
         serde_json::from_str(&value).map_err(|error| HostError::Execution(error.to_string()))
@@ -2836,18 +2904,18 @@ impl RustExecutableDocument {
         // events while timers remain scheduled. Blocking here can strand a
         // popup `postMessage` behind the test/application timeout which is
         // supposed to guard that very workflow.
-        self.host.drain_scheduled_timers(false)?;
-        self.host.execute("__oryn_poll_context()")?;
+        self.agent.host.drain_scheduled_timers(false)?;
+        self.agent.host.execute("__oryn_poll_context()")?;
         // Animation-frame callbacks are page tasks in their own right. They
         // must advance even when the preceding task changed only platform
         // state (for example scroll offsets) and therefore produced no
         // semantic/layout revision that would otherwise trigger a frame.
-        self.host.execute("__oryn_run_animation_frames()")?;
+        self.agent.host.execute("__oryn_run_animation_frames()")?;
         self.checkpoint()
     }
 
     pub fn poll_context_events(&mut self) -> Result<(), HostError> {
-        self.host.execute("__oryn_poll_context()")?;
+        self.agent.host.execute("__oryn_poll_context()")?;
         self.checkpoint()
     }
 
@@ -2874,62 +2942,32 @@ impl RustExecutableDocument {
         target: NodeId,
         files: &[crate::upload::UploadFile],
     ) -> Result<(), HostError> {
-        #[derive(Serialize)]
-        struct PageFile<'a> {
-            filename: &'a str,
-            media_type: &'a str,
-            body_base64: String,
-            last_modified: u64,
-        }
-        let is_file_input = {
-            let dom = self.live_dom.borrow();
-            dom.node_name(target)
-                .is_ok_and(|name| name.eq_ignore_ascii_case("input"))
-                && dom
-                    .attribute(target, "type")
-                    .ok()
-                    .flatten()
-                    .is_some_and(|kind| kind.eq_ignore_ascii_case("file"))
-        };
-        if !is_file_input {
-            return Err(HostError::Execution(
-                "file selection target is not an input[type=file]".into(),
-            ));
-        }
-        let page_files = files
+        let selected = files
             .iter()
-            .map(|file| PageFile {
-                filename: &file.filename,
-                media_type: &file.media_type,
-                body_base64: base64::engine::general_purpose::STANDARD.encode(&file.bytes),
+            .map(|file| oryn_dom::SelectedFile {
+                name: file.filename.clone(),
+                media_type: file.media_type.clone(),
+                bytes: file.bytes.clone().into(),
                 last_modified: 0,
             })
-            .collect::<Vec<_>>();
-        let encoded = serde_json::to_string(&page_files)
+            .collect();
+        self.agent
+            .dom
+            .borrow_mut()
+            .set_selected_files(target, std::sync::Arc::new(selected))
             .map_err(|error| HostError::Execution(error.to_string()))?;
-        {
-            let mut dom = self.live_dom.borrow_mut();
-            dom.set_attribute(target, "data-oryn-upload-files", encoded)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            dom.set_value(
-                target,
-                files.first().map_or("", |file| file.filename.as_str()),
-                false,
-            )
-            .map_err(|error| HostError::Execution(error.to_string()))?;
-        }
         let realm = self
             .node_realms
             .get(&target)
             .copied()
             .unwrap_or(self.top_realm);
-        self.host.activate_realm(realm)?;
-        let result = self.host.execute_with_node(
+        self.agent.host.activate_realm(realm)?;
+        let result = self.agent.host.execute_with_node(
             target,
             "__oryn_action_target",
             "__oryn_action_target.dispatchEvent(new Event('input',{bubbles:true}));__oryn_action_target.dispatchEvent(new Event('change',{bubbles:true}))",
         );
-        self.host.activate_realm(self.top_realm)?;
+        self.agent.host.activate_realm(self.top_realm)?;
         result?;
         self.checkpoint()
     }
@@ -2941,41 +2979,23 @@ impl RustExecutableDocument {
         value: Option<&str>,
         sensitive: bool,
     ) -> Result<(), HostError> {
-        let submission_form = self.submission_form(target, action)?;
-        let submits_form = submission_form.is_some();
+        if action == SemanticAction::Submit {
+            let realm = self
+                .node_realms
+                .get(&target)
+                .copied()
+                .unwrap_or(self.top_realm);
+            self.agent.host.activate_realm(realm)?;
+            let result = self.agent.host.request_submit(target);
+            self.agent.host.activate_realm(self.top_realm)?;
+            result?;
+            return self.checkpoint();
+        }
         let event_source = match action {
-            SemanticAction::Click => {
-                let input_kind = {
-                    let dom = self.live_dom.borrow();
-                    dom.node_name(target)
-                        .is_ok_and(|name| name.eq_ignore_ascii_case("input"))
-                        .then(|| {
-                            dom.attribute(target, "type")
-                                .ok()
-                                .flatten()
-                                .unwrap_or("")
-                                .to_ascii_lowercase()
-                        })
-                };
-                if matches!(input_kind.as_deref(), Some("checkbox" | "radio")) {
-                    let mut dom = self.live_dom.borrow_mut();
-                    if input_kind.as_deref() == Some("checkbox")
-                        && dom
-                            .attribute(target, "checked")
-                            .map_err(|error| HostError::Execution(error.to_string()))?
-                            .is_some()
-                    {
-                        dom.remove_attribute(target, "checked")
-                            .map_err(|error| HostError::Execution(error.to_string()))?;
-                    } else {
-                        dom.set_attribute(target, "checked", "")
-                            .map_err(|error| HostError::Execution(error.to_string()))?;
-                    }
-                }
-                ""
-            }
+            SemanticAction::Click => "",
             SemanticAction::Type | SemanticAction::Clear => {
-                self.live_dom
+                self.agent
+                    .dom
                     .borrow_mut()
                     .set_value(
                         target,
@@ -2990,18 +3010,14 @@ impl RustExecutableDocument {
                 "__oryn_action_target.dispatchEvent(new Event('input',{bubbles:true}));__oryn_action_target.dispatchEvent(new Event('change',{bubbles:true}))"
             }
             SemanticAction::Check | SemanticAction::Uncheck => {
-                let mut dom = self.live_dom.borrow_mut();
-                if action == SemanticAction::Check {
-                    dom.set_attribute(target, "checked", "")
-                } else {
-                    dom.remove_attribute(target, "checked")
-                }
-                .map_err(|error| HostError::Execution(error.to_string()))?;
+                let mut dom = self.agent.dom.borrow_mut();
+                dom.set_checked(target, action == SemanticAction::Check)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
                 "__oryn_action_target.dispatchEvent(new Event('change',{bubbles:true}))"
             }
             SemanticAction::Select => {
                 let requested = value.unwrap_or_default();
-                let mut dom = self.live_dom.borrow_mut();
+                let mut dom = self.agent.dom.borrow_mut();
                 let options = dom
                     .query_selector_all(target, "option")
                     .map_err(|error| HostError::Execution(error.to_string()))?;
@@ -3031,7 +3047,6 @@ impl RustExecutableDocument {
             SemanticAction::Hover => {
                 "__oryn_action_target.dispatchEvent(new Event('mouseover',{bubbles:true}))"
             }
-            SemanticAction::Submit => "",
             _ => {
                 return Err(HostError::Execution(format!(
                     "unsupported native executable action {action:?}"
@@ -3043,99 +3058,51 @@ impl RustExecutableDocument {
             .get(&target)
             .copied()
             .unwrap_or(self.top_realm);
-        self.host.activate_realm(action_realm)?;
+        self.agent.host.activate_realm(action_realm)?;
         let action_accepted = if action == SemanticAction::Click {
-            self.host.evaluate_bool_with_node(
+            self.agent.host.evaluate_bool_with_node(
                 target,
                 "__oryn_action_target",
-                "__oryn_action_target.dispatchEvent(new Event('click',{bubbles:true,cancelable:true}))",
+                "__oryn_action_target.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,composed:true}))",
             )
         } else {
-            self.host
+            self.agent
+                .host
                 .execute_with_node(target, "__oryn_action_target", event_source)
                 .map(|()| true)
         };
-        self.host.activate_realm(self.top_realm)?;
-        let mut default_accepted = action_accepted?;
-        if default_accepted && let Some(form) = submission_form {
-            self.host.activate_realm(action_realm)?;
-            let submit_accepted = self.host.evaluate_bool_with_node(
-                form,
-                "__oryn_submit_form",
-                "__oryn_submit_form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))",
-            );
-            self.host.activate_realm(self.top_realm)?;
-            default_accepted = submit_accepted?;
-        }
+        self.agent.host.activate_realm(self.top_realm)?;
+        let default_accepted = action_accepted?;
         // dispatchEvent already queues anchor/area activation in the generated
         // binding. The checkpoint owns that navigation; doing it here as well
         // creates two browsing contexts for a single target=_blank click.
         let queued_link_activation = action == SemanticAction::Click && {
-            let dom = self.live_dom.borrow();
+            let dom = self.agent.dom.borrow();
             dom.node_name(target).is_ok_and(|name| {
                 name.eq_ignore_ascii_case("a") || name.eq_ignore_ascii_case("area")
             })
         };
-        if default_accepted
-            && !queued_link_activation
-            && matches!(action, SemanticAction::Click | SemanticAction::Submit)
-        {
-            self.apply_default_navigation(target, action, submits_form, action_realm)?;
+        if default_accepted && !queued_link_activation && action == SemanticAction::Click {
+            self.apply_default_navigation(target, action, None, action_realm)?;
         }
         self.checkpoint()
     }
 
-    fn submission_form(
-        &self,
-        target: NodeId,
-        action: SemanticAction,
-    ) -> Result<Option<NodeId>, HostError> {
-        let dom = self.live_dom.borrow();
-        let target_record = dom
-            .arena()
-            .get(target)
-            .map_err(|error| HostError::Execution(error.to_string()))?;
-        let submits = match (&target_record.kind, action) {
-            (NodeKind::Element { name }, SemanticAction::Submit) => name.local.as_ref() == "form",
-            (NodeKind::Element { name }, SemanticAction::Click)
-                if name.local.as_ref() == "button" =>
-            {
-                !target_record.attributes.get("type").is_some_and(|value| {
-                    value.eq_ignore_ascii_case("button") || value.eq_ignore_ascii_case("reset")
-                })
-            }
-            (NodeKind::Element { name }, SemanticAction::Click)
-                if name.local.as_ref() == "input" =>
-            {
-                target_record.attributes.get("type").is_some_and(|value| {
-                    value.eq_ignore_ascii_case("submit") || value.eq_ignore_ascii_case("image")
-                })
-            }
-            _ => false,
-        };
-        if !submits {
-            return Ok(None);
-        }
-        let mut candidate = Some(target);
-        while let Some(node) = candidate {
-            let record = dom
-                .arena()
-                .get(node)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            if matches!(&record.kind, NodeKind::Element { name } if name.local.as_ref() == "form") {
-                return Ok(Some(node));
-            }
-            candidate = record.parent;
-        }
-        Ok(None)
+    pub(crate) fn focus_visible(&self) -> bool {
+        self.agent.dom.borrow().focus_visible()
     }
 
-    pub(crate) fn focus_visible(&self) -> bool {
-        self.live_dom.borrow().focus_visible()
+    pub(crate) fn populate_validation_states(
+        &self,
+        input: &mut oryn_layout::LayoutInput,
+    ) -> Result<(), HostError> {
+        populate_validation_states(&self.agent.dom.borrow(), input)
+            .map_err(|error| HostError::Execution(error.to_string()))
     }
 
     pub(crate) fn focused_layout_node(&self) -> Option<u64> {
-        self.live_dom
+        self.agent
+            .dom
             .borrow()
             .focused()
             .map(|node| (u64::from(node.generation) << 32) | u64::from(node.slot))
@@ -3150,7 +3117,8 @@ impl RustExecutableDocument {
     /// MutationObserver delivery uses a separate journal cursor.
     pub fn take_semantic_mutations(&mut self) -> (Vec<Mutation>, bool) {
         let batch = self
-            .live_dom
+            .agent
+            .dom
             .borrow()
             .mutations_since(self.semantic_mutation_cursor);
         self.semantic_mutation_cursor = batch.next;
@@ -3162,18 +3130,19 @@ impl RustExecutableDocument {
         output: &oryn_layout::LayoutOutput,
         viewport: oryn_common::v4::ViewportState,
     ) -> Result<(), HostError> {
-        self.host
+        self.agent
+            .host
             .install_layout(binding_layout_from_output(output))?;
-        self.host.execute(&format!(
+        self.agent.host.execute(&format!(
             "globalThis.innerWidth={};globalThis.innerHeight={}",
             viewport.width, viewport.height
         ))?;
-        self.host.execute("__oryn_run_geometry_observers()")?;
+        self.agent.host.execute("__oryn_run_geometry_observers()")?;
         self.checkpoint()
     }
 
     pub fn run_animation_frame_phase(&mut self) -> Result<(), HostError> {
-        self.host.execute("__oryn_run_animation_frames()")?;
+        self.agent.host.execute("__oryn_run_animation_frames()")?;
         self.checkpoint()
     }
 
@@ -3186,9 +3155,58 @@ impl RustExecutableDocument {
             .map_err(|error| HostError::Execution(error.to_string()))?;
         let reduced_motion = serde_json::to_string(reduced_motion)
             .map_err(|error| HostError::Execution(error.to_string()))?;
-        self.host.execute(&format!(
+        self.agent.host.execute(&format!(
             "__oryn_media={{color_scheme:{color_scheme},reduced_motion:{reduced_motion}}}"
         ))
+    }
+
+    fn queue_document_load(&mut self, realm: RealmId) -> Result<(), HostError> {
+        self.agent.host.activate_realm(realm)?;
+        self.agent.host.execute(DOCUMENT_CONTENT_LOADED_SCRIPT)?;
+        self.pending_document_loads.insert(realm);
+        self.flush_document_loads()
+    }
+
+    fn flush_document_loads(&mut self) -> Result<(), HostError> {
+        let previous_realm = self.agent.host.active_realm();
+        let pending = self
+            .pending_document_loads
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        for realm in pending {
+            if self.agent.host.realm_descriptor(realm).is_none() {
+                self.pending_document_loads.remove(&realm);
+                continue;
+            }
+            let pending_child = self.pending_document_loads.iter().any(|child| {
+                let mut ancestor = *child;
+                while let Some(owner) = self.frame_realms.get(&ancestor) {
+                    if owner.parent_realm == realm {
+                        return true;
+                    }
+                    ancestor = owner.parent_realm;
+                }
+                false
+            });
+            if pending_child || self.agent.host.realm_has_pending_images(realm) {
+                continue;
+            }
+            // Remove before authored handlers run; their navigations and newly
+            // inserted frames must not redispatch this document's load event.
+            self.pending_document_loads.remove(&realm);
+            self.agent.host.activate_realm(realm)?;
+            self.agent.host.execute(DOCUMENT_LOAD_SCRIPT)?;
+            if let Some(owner) = self.frame_realms.get(&realm).cloned() {
+                self.agent.host.activate_realm(owner.parent_realm)?;
+                self.agent.host.execute_with_node(
+                    owner.frame,
+                    "__oryn_dynamic_frame",
+                    "__oryn_dynamic_frame.dispatchEvent(new Event('load'))",
+                )?;
+            }
+        }
+        self.agent.host.activate_realm(previous_realm)
     }
 
     fn checkpoint(&mut self) -> Result<(), HostError> {
@@ -3197,51 +3215,52 @@ impl RustExecutableDocument {
         // Run a bounded page-wide fixed point instead of relying on an
         // unrelated future command to tick that realm.
         for _ in 0..8 {
-            self.host.drain_async_fetches(false)?;
+            self.agent.host.drain_async_fetches(false)?;
             self.drain_dynamic_referrer_policies()?;
             self.drain_default_actions()?;
             self.drain_frame_location_navigations()?;
             self.drain_dynamic_frames()?;
             self.drain_dynamic_stylesheets()?;
             self.drain_dynamic_scripts()?;
-            self.host.drain_async_fetches(false)?;
-            for realm in self.host.realm_ids() {
-                self.host.activate_realm(realm)?;
-                self.host.execute("__oryn_drain()")?;
-                self.host.execute("__oryn_run_custom_reactions()")?;
-                self.host.run_dom_observer_checkpoint()?;
-                for report in self.host.take_module_error_reports() {
+            self.agent.host.drain_async_fetches(false)?;
+            self.flush_document_loads()?;
+            for realm in self.agent.host.realm_ids() {
+                self.agent.host.activate_realm(realm)?;
+                self.agent.host.execute("__oryn_drain()")?;
+                self.agent.host.execute("__oryn_run_custom_reactions()")?;
+                self.agent.host.run_dom_observer_checkpoint()?;
+                for report in self.agent.host.take_module_error_reports() {
                     self.diagnostics
                         .push(script_diagnostic(HostError::Execution(report)));
                 }
-                for rejection in self.host.take_unhandled_promise_rejections() {
+                for rejection in self.agent.host.take_unhandled_promise_rejections() {
                     self.diagnostics
                         .push(script_diagnostic(HostError::Execution(format!(
                             "unhandled promise rejection: {rejection}"
                         ))));
                 }
-                self.host.process_binding_releases()?;
+                self.agent.host.process_binding_releases()?;
             }
         }
-        self.host.activate_realm(self.top_realm)?;
-        for report in self.host.take_module_error_reports() {
+        self.agent.host.activate_realm(self.top_realm)?;
+        for report in self.agent.host.take_module_error_reports() {
             self.diagnostics
                 .push(script_diagnostic(HostError::Execution(report)));
         }
-        for rejection in self.host.take_unhandled_promise_rejections() {
+        for rejection in self.agent.host.take_unhandled_promise_rejections() {
             self.diagnostics
                 .push(script_diagnostic(HostError::Execution(format!(
                     "unhandled promise rejection: {rejection}"
                 ))));
         }
-        let (dom, document) = self.live_dom.borrow().snapshot();
+        let (dom, document) = self.agent.dom.borrow().snapshot();
         self.document.dom = dom;
         self.document.document = document;
         Ok(())
     }
 
     fn drain_dynamic_referrer_policies(&mut self) -> Result<(), HostError> {
-        let pending = self.host.take_all_pending_referrer_policies()?;
+        let pending = self.agent.host.take_all_pending_referrer_policies()?;
         #[cfg(unix)]
         if let Some((client, page_id, _)) = &self.context {
             for (realm, policy) in pending {
@@ -3274,45 +3293,56 @@ impl RustExecutableDocument {
     fn drain_frame_location_navigations(&mut self) -> Result<(), HostError> {
         let mut navigations = Vec::new();
         for (realm, mut owner) in self.frame_realms.clone() {
-            self.host.activate_realm(realm)?;
+            self.agent.host.activate_realm(realm)?;
             // History commits retain the frame's document. Consume these
             // before looking for a Location navigation, including when both
             // operations occurred in the same script task.
-            if let Some(url) = self.host.take_history_url_update() {
+            if let Some(url) = self.agent.host.take_history_url_update() {
                 owner.committed_url = url;
                 self.frame_realms.insert(realm, owner.clone());
             }
-            let href = self.host.evaluate_string("location.href")?;
+            let request = self.agent.host.take_location_navigation();
+            let href = request
+                .as_ref()
+                .map(|request| request.url.clone())
+                .unwrap_or(self.agent.host.evaluate_string("location.href")?);
             if let Some(source) = href.strip_prefix("javascript:") {
-                execute_javascript_url(&mut self.host, source, &owner.committed_url)?;
+                execute_javascript_url(&mut self.agent.host, source, &owner.committed_url)?;
                 continue;
             }
-            if href != owner.committed_url
+            if (request.is_some() || href != owner.committed_url)
                 && Url::parse(&href).is_ok_and(|url| matches!(url.scheme(), "http" | "https"))
             {
                 let opaque = self
+                    .agent
                     .host
                     .evaluate_string("String(globalThis.__oryn_opaque_origin===true)")?
                     == "true";
                 let initiator_url = (!opaque)
                     .then(|| {
-                        self.host
+                        self.agent
+                            .host
                             .evaluate_string("globalThis.__oryn_request_initiator_url")
                             .ok()
                     })
                     .flatten()
                     .filter(|value| !value.trim().is_empty());
                 let referrer_policy = self
+                    .agent
                     .host
                     .evaluate_string("globalThis.__oryn_referrer_policy")
                     .ok()
                     .filter(|value| !value.trim().is_empty());
-                navigations.push((owner, href, initiator_url, referrer_policy));
+                let post = request.as_ref().and_then(|request| request.post.clone());
+                let referrer_policy = request
+                    .and_then(|request| request.referrer_policy)
+                    .or(referrer_policy);
+                navigations.push((owner, href, initiator_url, referrer_policy, post));
             }
         }
-        for (owner, href, initiator_url, referrer_policy) in navigations {
-            self.host.activate_realm(owner.parent_realm)?;
-            let dom = self.host.active_dom().ok_or_else(|| {
+        for (owner, href, initiator_url, referrer_policy, post) in navigations {
+            self.agent.host.activate_realm(owner.parent_realm)?;
+            let dom = self.agent.host.active_dom().ok_or_else(|| {
                 HostError::Execution("frame-navigation parent DOM is unavailable".into())
             })?;
             {
@@ -3327,31 +3357,57 @@ impl RustExecutableDocument {
                 FrameNavigationContext {
                     initiator_url,
                     referrer_policy,
+                    post,
                 },
             );
-            self.host.reschedule_dynamic_frame(owner.frame)?;
+            self.agent.host.reschedule_dynamic_frame(owner.frame)?;
         }
-        self.host.activate_realm(self.top_realm)?;
+        self.agent.host.activate_realm(self.top_realm)?;
         Ok(())
     }
 
     fn drain_default_actions(&mut self) -> Result<(), HostError> {
         use oryn_js::v8_bindings::PendingDefaultAction;
 
-        self.host.activate_realm(self.top_realm)?;
+        self.agent.host.activate_realm(self.top_realm)?;
         for _ in 0..1024 {
-            let pending = self.host.take_pending_default_actions()?;
+            let pending = self.agent.host.take_pending_default_actions()?;
             if pending.is_empty() {
                 return Ok(());
             }
             for (realm, action) in pending {
-                self.host.activate_realm(realm)?;
+                self.agent.host.activate_realm(realm)?;
                 match action {
-                    PendingDefaultAction::Click(node) => {
-                        self.apply_default_navigation(node, SemanticAction::Click, false, realm)?;
+                    PendingDefaultAction::Click(target) => {
+                        self.apply_default_navigation(
+                            target.node,
+                            SemanticAction::Click,
+                            None,
+                            realm,
+                        )?;
                     }
-                    PendingDefaultAction::Submit(node) => {
-                        self.apply_default_navigation(node, SemanticAction::Submit, true, realm)?;
+                    PendingDefaultAction::Submit(transaction) => {
+                        let current_generation = self
+                            .agent
+                            .host
+                            .realm_descriptor(realm)
+                            .is_some_and(|descriptor| {
+                                descriptor.document_generation == transaction.document_generation
+                            });
+                        let valid = current_generation
+                            && self.agent.host.active_dom().is_some_and(|dom| {
+                                let dom = dom.borrow();
+                                dom.arena().resolve(transaction.document.root()).is_ok()
+                                    && dom.is_connected(transaction.form).unwrap_or(false)
+                            });
+                        if valid {
+                            self.apply_default_navigation(
+                                transaction.form,
+                                SemanticAction::Submit,
+                                Some(&transaction),
+                                realm,
+                            )?;
+                        }
                     }
                 }
             }
@@ -3368,13 +3424,13 @@ impl RustExecutableDocument {
                     .expect("xml-stylesheet href regex")
             });
         for _ in 0..1024 {
-            let pending = self.host.take_all_pending_dynamic_stylesheets()?;
+            let pending = self.agent.host.take_all_pending_dynamic_stylesheets()?;
             if pending.is_empty() {
                 return Ok(());
             }
             for (realm, stylesheet) in pending {
-                self.host.activate_realm(realm)?;
-                let active_dom = self.host.active_dom().ok_or_else(|| {
+                self.agent.host.activate_realm(realm)?;
+                let active_dom = self.agent.host.active_dom().ok_or_else(|| {
                     HostError::Execution("dynamic-stylesheet realm DOM is unavailable".into())
                 })?;
                 let (name, href, css, element_policy) = {
@@ -3450,10 +3506,11 @@ impl RustExecutableDocument {
                 };
                 #[cfg(unix)]
                 let loaded = if let Some((client, page_id, _)) = &self.context {
-                    let document_url = self.host.evaluate_string("location.href")?;
+                    let document_url = self.agent.host.evaluate_string("location.href")?;
                     let policy = element_policy
                         .or_else(|| {
-                            self.host
+                            self.agent
+                                .host
                                 .evaluate_string("globalThis.__oryn_referrer_policy")
                                 .ok()
                         })
@@ -3502,7 +3559,7 @@ impl RustExecutableDocument {
                                     .map_err(|error| HostError::Execution(error.to_string()))?;
                             }
                             drop(dom);
-                            self.host.execute_with_node(
+                            self.agent.host.execute_with_node(
                                 stylesheet,
                                 "__oryn_dynamic_stylesheet",
                                 "__oryn_dynamic_stylesheet.dispatchEvent(new Event('load'))",
@@ -3514,7 +3571,7 @@ impl RustExecutableDocument {
                             .push(script_diagnostic(HostError::Execution(format!(
                                 "dynamic stylesheet failed: {error}"
                             ))));
-                        let _ = self.host.execute_with_node(
+                        let _ = self.agent.host.execute_with_node(
                             stylesheet,
                             "__oryn_dynamic_stylesheet",
                             "__oryn_dynamic_stylesheet.dispatchEvent(new Event('error'))",
@@ -3533,7 +3590,7 @@ impl RustExecutableDocument {
         // preparation loop so recursive insertion is deterministic and cannot
         // monopolize the page worker indefinitely.
         for _ in 0..1024 {
-            let pending = self.host.take_all_pending_dynamic_scripts()?;
+            let pending = self.agent.host.take_all_pending_dynamic_scripts()?;
             if pending.is_empty() {
                 return Ok(());
             }
@@ -3542,8 +3599,8 @@ impl RustExecutableDocument {
             #[cfg(unix)]
             let mut scheduled = 0usize;
             for (realm, script) in pending {
-                self.host.activate_realm(realm)?;
-                let active_dom = self.host.active_dom().ok_or_else(|| {
+                self.agent.host.activate_realm(realm)?;
+                let active_dom = self.agent.host.active_dom().ok_or_else(|| {
                     HostError::Execution("dynamic-script realm DOM is unavailable".into())
                 })?;
                 let (script_type, src, nonce, inline) = {
@@ -3579,11 +3636,12 @@ impl RustExecutableDocument {
                     let src = src.to_owned();
                     let nonce = nonce.clone();
                     let initiator_url = self
+                        .agent
                         .host
                         .evaluate_string("globalThis.__oryn_request_initiator_url")
                         .ok()
                         .filter(|value| !value.trim().is_empty())
-                        .or_else(|| self.host.evaluate_string("location.href").ok());
+                        .or_else(|| self.agent.host.evaluate_string("location.href").ok());
                     let referrer_policy = active_dom
                         .borrow()
                         .attribute(script, "referrerpolicy")
@@ -3592,7 +3650,8 @@ impl RustExecutableDocument {
                         .map(str::to_owned)
                         .filter(|value| !value.trim().is_empty())
                         .or_else(|| {
-                            self.host
+                            self.agent
+                                .host
                                 .evaluate_string("globalThis.__oryn_referrer_policy")
                                 .ok()
                                 .filter(|value| !value.trim().is_empty())
@@ -3636,7 +3695,7 @@ impl RustExecutableDocument {
                 let (realm, script, module, loaded) = completion_receiver.recv().map_err(|_| {
                     HostError::Execution("dynamic-script scheduler disconnected".into())
                 })?;
-                self.host.activate_realm(realm)?;
+                self.agent.host.activate_realm(realm)?;
                 self.finish_dynamic_script(script, module, loaded)?;
             }
         }
@@ -3651,7 +3710,7 @@ impl RustExecutableDocument {
         // fixed point in the same page task so its successor does not depend
         // on an unrelated future command ticking the page.
         for _ in 0..1024 {
-            let pending = self.host.take_all_pending_dynamic_frames()?;
+            let pending = self.agent.host.take_all_pending_dynamic_frames()?;
             if pending.is_empty() {
                 return Ok(());
             }
@@ -3665,8 +3724,8 @@ impl RustExecutableDocument {
                 // browsing-context owner from the nearest mapped ancestor
                 // instead of trusting the realm that happened to enqueue the
                 // insertion callback.
-                self.host.activate_realm(scheduled_realm)?;
-                let scheduled_dom = self.host.active_dom().ok_or_else(|| {
+                self.agent.host.activate_realm(scheduled_realm)?;
+                let scheduled_dom = self.agent.host.active_dom().ok_or_else(|| {
                     HostError::Execution("dynamic-frame scheduled DOM is unavailable".into())
                 })?;
                 let (document_realm, document_referrer_policy) = {
@@ -3719,31 +3778,35 @@ impl RustExecutableDocument {
                             .then_some(*realm)
                     })
                     .collect::<Vec<_>>();
-                self.host.activate_realm(parent_realm)?;
-                let parent_dom = self.host.active_dom().ok_or_else(|| {
+                self.agent.host.activate_realm(parent_realm)?;
+                let parent_dom = self.agent.host.active_dom().ok_or_else(|| {
                     HostError::Execution("dynamic-frame realm DOM is unavailable".into())
                 })?;
-                self.host.activate_realm(document_realm)?;
+                self.agent.host.activate_realm(document_realm)?;
                 let parent_url = self
+                    .agent
                     .host
                     .evaluate_string("location.href")
                     .ok()
                     .and_then(|value| Url::parse(&value).ok())
                     .or_else(|| self.base_url.clone());
                 let parent_base_url = self
+                    .agent
                     .host
                     .evaluate_string("document.baseURI")
                     .ok()
                     .and_then(|value| Url::parse(&value).ok())
                     .or_else(|| parent_url.clone());
                 let parent_security_url = self
+                    .agent
                     .host
                     .evaluate_string("globalThis.__oryn_request_initiator_url")
                     .ok()
                     .and_then(|value| Url::parse(&value).ok())
                     .or_else(|| parent_url.clone());
                 let mut parent_policy = document_referrer_policy.or_else(|| {
-                    self.host
+                    self.agent
+                        .host
                         .evaluate_string("globalThis.__oryn_referrer_policy")
                         .ok()
                         .filter(|value| !value.trim().is_empty())
@@ -3761,8 +3824,8 @@ impl RustExecutableDocument {
                 {
                     parent_policy = Some(value);
                 }
-                self.host.activate_realm(parent_realm)?;
-                let (requested, mut srcdoc, opaque_sandbox, element_referrer_policy) = {
+                self.agent.host.activate_realm(parent_realm)?;
+                let (requested, mut srcdoc, opaque_sandbox, forms_allowed, element_referrer_policy) = {
                     let dom = parent_dom.borrow();
                     let requested = dom
                         .attribute(frame, "src")
@@ -3781,12 +3844,23 @@ impl RustExecutableDocument {
                             .split_ascii_whitespace()
                             .any(|token| token.eq_ignore_ascii_case("allow-same-origin"))
                     });
+                    let forms_allowed = sandbox.is_none_or(|tokens| {
+                        tokens
+                            .split_ascii_whitespace()
+                            .any(|token| token.eq_ignore_ascii_case("allow-forms"))
+                    });
                     let element_referrer_policy = dom
                         .attribute(frame, "referrerpolicy")
                         .map_err(|error| HostError::Execution(error.to_string()))?
                         .map(str::to_owned)
                         .filter(|value| !value.trim().is_empty());
-                    (requested, srcdoc, opaque_sandbox, element_referrer_policy)
+                    (
+                        requested,
+                        srcdoc,
+                        opaque_sandbox,
+                        forms_allowed,
+                        element_referrer_policy,
+                    )
                 };
                 let javascript_url = requested
                     .as_deref()
@@ -3837,6 +3911,9 @@ impl RustExecutableDocument {
                                 .map(|context| context.initiator_url.clone())
                                 .unwrap_or_else(|| parent_url.as_ref().map(Url::to_string)),
                             referrer_policy: request_referrer_policy,
+                            post: navigation_context
+                                .as_ref()
+                                .and_then(|context| context.post.clone()),
                         },
                     ) {
                         Ok(crate::context_service::ContextServiceResponse::PageResource {
@@ -4004,7 +4081,7 @@ impl RustExecutableDocument {
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     (parent_dom.clone(), document)
                 };
-                let realm = self.host.create_realm_with_dom_root(
+                let realm = self.agent.host.create_realm_with_dom_root(
                     frame_url
                         .as_ref()
                         .filter(|_| !opaque_sandbox)
@@ -4015,31 +4092,39 @@ impl RustExecutableDocument {
                     frame_dom.clone(),
                     child_document,
                 )?;
-                if !cross_origin && Rc::ptr_eq(&parent_dom, &self.live_dom) {
+                if !cross_origin && Rc::ptr_eq(&parent_dom, &self.agent.dom) {
                     for node in subtree_nodes(&frame_dom.borrow(), child_document)? {
                         self.node_realms.insert(node, realm);
                     }
                 }
-                self.host.activate_realm(realm)?;
+                self.agent.host.activate_realm(realm)?;
+                self.agent.host.set_forms_allowed(forms_allowed)?;
                 if is_srcdoc || inherited_about_blank {
-                    self.host
+                    self.agent
+                        .host
                         .set_inherited_base_url(parent_base_url.as_ref().map(Url::to_string))?;
                 }
-                self.host.execute(RUST_RUNTIME_GLOBALS).map_err(|error| {
-                    HostError::Execution(format!("dynamic frame runtime bootstrap: {error}"))
-                })?;
-                self.host
+                self.agent
+                    .host
+                    .execute(RUST_RUNTIME_GLOBALS)
+                    .map_err(|error| {
+                        HostError::Execution(format!("dynamic frame runtime bootstrap: {error}"))
+                    })?;
+                self.agent.host.execute(include_str!("native_actions.js"))?;
+                self.agent
+                    .host
                     .execute(crate::observable::OBSERVABLE_GLOBALS)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
-                self.host
+                self.agent
+                    .host
                     .install_layout_provider(Rc::new(LiveLayoutProvider {
                         dom: frame_dom.clone(),
                         viewport: oryn_common::v4::ViewportState::default(),
                     }))?;
-                self.host.set_module_sources(&self.resources);
+                self.agent.host.set_module_sources(&self.resources);
                 #[cfg(unix)]
                 if let Some((_, page_id, _)) = &self.context {
-                    configure_frame_context(&mut self.host, page_id.0).map_err(|error| {
+                    configure_frame_context(&mut self.agent.host, page_id.0).map_err(|error| {
                         HostError::Execution(format!("dynamic frame context: {error}"))
                     })?;
                 }
@@ -4053,17 +4138,21 @@ impl RustExecutableDocument {
                         .map_or_else(|| url.clone(), Url::to_string)
                 };
                 if frame_url.is_some() {
-                    self.host.commit_location(&committed_url).map_err(|error| {
-                        HostError::Execution(format!("dynamic frame location: {error}"))
-                    })?;
+                    self.agent
+                        .host
+                        .commit_location(&committed_url)
+                        .map_err(|error| {
+                            HostError::Execution(format!("dynamic frame location: {error}"))
+                        })?;
                 }
                 let referrer = serde_json::to_string(&document_referrer)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
-                self.host
+                self.agent
+                    .host
                     .execute(&format!("globalThis.__oryn_document_referrer={referrer}"))?;
                 let child_referrer_policy = serde_json::to_string(&child_referrer_policy)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
-                self.host.execute(&format!(
+                self.agent.host.execute(&format!(
                     "globalThis.__oryn_referrer_policy={child_referrer_policy}"
                 ))?;
                 let request_initiator = serde_json::to_string(&if inherited_about_blank {
@@ -4072,11 +4161,11 @@ impl RustExecutableDocument {
                     frame_url.as_ref().map_or_else(String::new, Url::to_string)
                 })
                 .map_err(|error| HostError::Execution(error.to_string()))?;
-                self.host.execute(&format!(
+                self.agent.host.execute(&format!(
                     "globalThis.__oryn_request_initiator_url={request_initiator}"
                 ))?;
                 if opaque_sandbox {
-                    self.host
+                    self.agent.host
                         .execute("globalThis.__oryn_security_origin='null';globalThis.__oryn_opaque_origin=true")
                         .map_err(|error| {
                             HostError::Execution(format!("dynamic frame opaque origin: {error}"))
@@ -4088,7 +4177,7 @@ impl RustExecutableDocument {
                 {
                     let frame_origin = serde_json::to_string(&frame_origin)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
-                    self.host
+                    self.agent.host
                         .execute(&format!(
                             "globalThis.__oryn_security_origin={frame_origin};globalThis.__oryn_opaque_origin=false"
                         ))
@@ -4102,52 +4191,37 @@ impl RustExecutableDocument {
                 let replacing_document = !replaced_realms.is_empty();
                 for realm in replaced_realms {
                     self.frame_realms.remove(&realm);
-                    self.host.remove_realm(realm)?;
+                    self.agent.host.remove_realm(realm)?;
                     self.node_realms
                         .retain(|_, node_realm| *node_realm != realm);
                 }
                 if replacing_document {
-                    let old_documents = {
-                        let dom = parent_dom.borrow();
-                        dom.arena()
-                            .get(frame)
-                            .map_err(|error| HostError::Execution(error.to_string()))?
-                            .children
-                            .iter()
-                            .copied()
-                            .filter(|child| {
-                                dom.arena()
-                                    .get(*child)
-                                    .is_ok_and(|record| matches!(record.kind, NodeKind::Document))
-                            })
-                            .collect::<Vec<_>>()
-                    };
-                    for document in old_documents {
-                        parent_dom
-                            .borrow_mut()
-                            .remove_child(frame, document)
-                            .map_err(|error| HostError::Execution(error.to_string()))?;
-                    }
+                    parent_dom
+                        .borrow_mut()
+                        .set_hosted_document(frame, None)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
                 }
                 if !cross_origin {
                     parent_dom
                         .borrow_mut()
-                        .append_child(frame, child_document)
+                        .set_hosted_document(frame, Some(child_document))
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                 }
                 // Establish parent/top and the frame's contentWindow before child
                 // script execution. Frame scripts are allowed to synchronously
                 // observe their parent relationship while booting.
-                self.host.activate_realm(parent_realm)?;
-                self.host.ensure_provisional_frame_window(frame)?;
+                self.agent.host.activate_realm(parent_realm)?;
+                self.agent.host.ensure_provisional_frame_window(frame)?;
                 if cross_origin {
-                    self.host.set_opaque_frame_realm(frame, realm)?;
+                    self.agent.host.set_opaque_frame_realm(frame, realm)?;
                 } else {
-                    self.host.set_frame_realm(frame, child_document, realm)?;
+                    self.agent
+                        .host
+                        .set_frame_realm(frame, child_document, realm)?;
                 }
-                self.host.activate_realm(realm)?;
+                self.agent.host.activate_realm(realm)?;
                 if let Some(source) = javascript_url.as_deref() {
-                    execute_javascript_url(&mut self.host, source, &committed_url)?;
+                    execute_javascript_url(&mut self.agent.host, source, &committed_url)?;
                 }
                 let child_scripts = if javascript_url.is_some() {
                     // `execute_javascript_url` commits its string completion
@@ -4167,11 +4241,11 @@ impl RustExecutableDocument {
                             Ok(resolve_script_record(
                                 (
                                     script,
-                                    record.attributes.get("src").cloned(),
-                                    record.attributes.get("type").cloned(),
+                                    record.attributes.get_null("src").cloned(),
+                                    record.attributes.get_null("type").cloned(),
                                     dom.arena().text_content(script)?,
                                     false,
-                                    record.attributes.contains_key("nomodule"),
+                                    record.attributes.contains_null("nomodule"),
                                     false,
                                 ),
                                 frame_url.as_ref(),
@@ -4182,7 +4256,7 @@ impl RustExecutableDocument {
                 };
                 for script in &child_scripts {
                     run_script_record(
-                        &mut self.host,
+                        &mut self.agent.host,
                         &frame_dom,
                         &mut self.resources,
                         script,
@@ -4190,16 +4264,13 @@ impl RustExecutableDocument {
                         #[cfg(unix)]
                         self.context.as_ref(),
                     )?;
-                    self.host.refresh_named_window_properties()?;
+                    self.agent.host.refresh_named_window_properties()?;
                 }
-                self.host.activate_realm(parent_realm)?;
-                self.host.activate_realm(realm)?;
-                self.host
-                    .execute(DOCUMENT_LIFECYCLE_SCRIPT)
-                    .map_err(|error| {
-                        HostError::Execution(format!("dynamic frame lifecycle: {error}"))
-                    })?;
-                self.host.activate_realm(parent_realm)?;
+                self.agent.host.activate_realm(parent_realm)?;
+                self.agent.host.activate_realm(realm)?;
+                self.agent.host.prepare_document_images()?;
+                self.agent.host.drain_async_fetches(true)?;
+                self.agent.host.activate_realm(parent_realm)?;
                 self.frame_realms.insert(
                     realm,
                     FrameRealm {
@@ -4208,22 +4279,16 @@ impl RustExecutableDocument {
                         committed_url,
                     },
                 );
-                self.host
-                    .execute_with_node(
-                        frame,
-                        "__oryn_dynamic_frame",
-                        "__oryn_dynamic_frame.dispatchEvent(new Event('load'))",
-                    )
-                    .map_err(|error| {
-                        HostError::Execution(format!("dynamic frame element load: {error}"))
-                    })?;
+                self.queue_document_load(realm)?;
+                self.agent.host.activate_realm(parent_realm)?;
                 if let Some(refresh_url) = refresh_url {
-                    self.host.activate_realm(realm)?;
+                    self.agent.host.activate_realm(realm)?;
                     let refresh_url = serde_json::to_string(&refresh_url)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
-                    self.host
+                    self.agent
+                        .host
                         .execute(&format!("setTimeout(()=>location.href={refresh_url},0)"))?;
-                    self.host.activate_realm(parent_realm)?;
+                    self.agent.host.activate_realm(parent_realm)?;
                 }
             }
         }
@@ -4239,6 +4304,7 @@ impl RustExecutableDocument {
         loaded: Result<(String, String), HostError>,
     ) -> Result<(), HostError> {
         let element_referrer_policy = self
+            .agent
             .host
             .active_dom()
             .and_then(|dom| {
@@ -4261,31 +4327,38 @@ impl RustExecutableDocument {
                         &mut self.resources,
                     )?;
                 }
-                self.host
-                    .execute_module_script(&resource_name, &source, &self.resources, true)
+                self.agent.host.execute_module_script(
+                    &resource_name,
+                    &source,
+                    &self.resources,
+                    true,
+                )
             } else {
                 let previous_policy = self
+                    .agent
                     .host
                     .evaluate_string("globalThis.__oryn_referrer_policy")
                     .unwrap_or_default();
                 if let Some(policy) = &element_referrer_policy {
                     let policy = serde_json::to_string(policy)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
-                    self.host
+                    self.agent
+                        .host
                         .execute(&format!("globalThis.__oryn_referrer_policy={policy}"))?;
                 }
-                let result = self.host.execute(&source);
+                let result = self.agent.host.execute(&source);
                 if element_referrer_policy.is_some() {
                     let previous = serde_json::to_string(&previous_policy)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
-                    self.host
+                    self.agent
+                        .host
                         .execute(&format!("globalThis.__oryn_referrer_policy={previous}"))?;
                 }
                 result
             }
         });
         match result {
-            Ok(()) => self.host.execute_with_node(
+            Ok(()) => self.agent.host.execute_with_node(
                 script,
                 "__oryn_dynamic_script",
                 "__oryn_dynamic_script.dispatchEvent(new Event('load'))",
@@ -4298,7 +4371,7 @@ impl RustExecutableDocument {
                 // Resource/script errors are reported to the element and
                 // diagnostics but do not turn appendChild into an exception
                 // after it has already returned.
-                let _ = self.host.execute_with_node(
+                let _ = self.agent.host.execute_with_node(
                     script,
                     "__oryn_dynamic_script",
                     "__oryn_dynamic_script.dispatchEvent(new Event('error'))",
@@ -4334,12 +4407,14 @@ impl RustExecutableDocument {
         #[cfg(unix)]
         if let Some((client, page_id, _)) = &self.context {
             let initiator_url = self
+                .agent
                 .host
                 .evaluate_string("globalThis.__oryn_request_initiator_url")
                 .ok()
                 .filter(|value| !value.trim().is_empty())
-                .or_else(|| self.host.evaluate_string("location.href").ok());
+                .or_else(|| self.agent.host.evaluate_string("location.href").ok());
             let referrer_policy = self
+                .agent
                 .host
                 .evaluate_string("globalThis.__oryn_referrer_policy")
                 .ok()
@@ -4426,22 +4501,29 @@ impl RustExecutableDocument {
     }
 
     pub fn node_by_id(&self, id: &str) -> Option<NodeId> {
-        self.live_dom.borrow().find_by_id(id)
+        self.agent.dom.borrow().find_by_id(id)
     }
 
     fn apply_default_navigation(
         &mut self,
         target: NodeId,
         action: SemanticAction,
-        submits_form: bool,
+        submission: Option<&oryn_js::v8_bindings::submissions::SubmissionTransaction>,
         source_realm: oryn_js::realm::RealmId,
     ) -> Result<(), HostError> {
-        self.host.activate_realm(source_realm)?;
-        let source_dom = self.host.active_dom().ok_or_else(|| {
+        self.agent.host.activate_realm(source_realm)?;
+        let source_dom = self.agent.host.active_dom().ok_or_else(|| {
             HostError::Execution("default-action realm DOM is unavailable".into())
         })?;
-        self.host.activate_realm(source_realm)?;
-        let (href, target_name, navigation_referrer_policy) = {
+        self.agent.host.activate_realm(source_realm)?;
+        let (href, target_name, navigation_referrer_policy) = if let Some(transaction) = submission
+        {
+            (
+                transaction.navigation.url.clone(),
+                transaction.target.clone(),
+                transaction.navigation.referrer_policy.clone(),
+            )
+        } else {
             let dom = source_dom.borrow();
             let mut candidate = Some(target);
             let mut result = None;
@@ -4451,21 +4533,41 @@ impl RustExecutableDocument {
                     .get(node)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
                 if let NodeKind::Element { name } = &record.kind {
+                    // A label or checkable input owns its click activation.
+                    // Forwarding a label click to its control does not also
+                    // activate a surrounding hyperlink (for either dispatch).
+                    if action == SemanticAction::Click
+                        && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                        && (matches!(name.local.as_ref(), "label" | "button")
+                            || (name.local.as_ref() == "input"
+                                && record.attributes.get_null("type").is_some_and(|kind| {
+                                    kind.eq_ignore_ascii_case("checkbox")
+                                        || kind.eq_ignore_ascii_case("radio")
+                                        || kind.eq_ignore_ascii_case("submit")
+                                        || kind.eq_ignore_ascii_case("image")
+                                })))
+                    {
+                        break;
+                    }
                     if matches!(name.local.as_ref(), "a" | "area")
                         && action == SemanticAction::Click
-                        && let Some(href) = record.attributes.get("href")
+                        && let Some(href) = record.attributes.get_null("href")
                     {
                         result = Some((
                             href.clone(),
-                            record.attributes.get("target").cloned().unwrap_or_default(),
                             record
                                 .attributes
-                                .get("referrerpolicy")
+                                .get_null("target")
+                                .cloned()
+                                .unwrap_or_default(),
+                            record
+                                .attributes
+                                .get_null("referrerpolicy")
                                 .cloned()
                                 .or_else(|| {
                                     record
                                         .attributes
-                                        .get("rel")
+                                        .get_null("rel")
                                         .is_some_and(|value| {
                                             value.split_ascii_whitespace().any(|token| {
                                                 token.eq_ignore_ascii_case("noreferrer")
@@ -4473,16 +4575,6 @@ impl RustExecutableDocument {
                                         })
                                         .then(|| "no-referrer".into())
                                 }),
-                        ));
-                        break;
-                    }
-                    if name.local.as_ref() == "form"
-                        && (action == SemanticAction::Submit || submits_form)
-                    {
-                        result = Some((
-                            record.attributes.get("action").cloned().unwrap_or_default(),
-                            record.attributes.get("target").cloned().unwrap_or_default(),
-                            None,
                         ));
                         break;
                     }
@@ -4495,6 +4587,7 @@ impl RustExecutableDocument {
             result
         };
         let resolved = self
+            .agent
             .host
             .evaluate_string("location.href")
             .ok()
@@ -4505,6 +4598,15 @@ impl RustExecutableDocument {
             .or_else(|| Url::parse(&href).ok())
             .map(|url| url.to_string())
             .unwrap_or(href);
+        let post = submission.and_then(|transaction| transaction.navigation.post.clone());
+        // GET form authorization is independent of target transport. POST
+        // frames/popups are authorized by their parent-owned body loader.
+        if submission.is_some()
+            && post.is_none()
+            && !self.authorize_form_navigation(&resolved, "GET")?
+        {
+            return Ok(());
+        }
         if target_name.eq_ignore_ascii_case("_blank") {
             #[cfg(unix)]
             if let Some((client, page_id, _)) = &self.context {
@@ -4512,13 +4614,16 @@ impl RustExecutableDocument {
                     .request(crate::context_service::ContextServiceRequest::OpenPage {
                         opener_page_id: *page_id,
                         url: Some(resolved),
+                        post: submission
+                            .and_then(|transaction| transaction.navigation.post.clone()),
+                        referrer_policy: navigation_referrer_policy,
                     })
                     .map_err(|error| HostError::Execution(error.to_string()))?;
                 match response {
                     crate::context_service::ContextServiceResponse::PageOpened {
                         page_id: opened_page_id,
                     } => {
-                        self.host.execute(&format!(
+                        self.agent.host.execute(&format!(
                             "__oryn_context_trace.push({{kind:'page_created',detail:{{page_id:{},opener_page_id:{}}}}})",
                             opened_page_id.0, page_id.0
                         ))?;
@@ -4526,7 +4631,7 @@ impl RustExecutableDocument {
                     crate::context_service::ContextServiceResponse::PageDenied { reason } => {
                         let reason = serde_json::to_string(&reason)
                             .map_err(|error| HostError::Execution(error.to_string()))?;
-                        self.host.execute(&format!(
+                        self.agent.host.execute(&format!(
                             "__oryn_context_trace.push({{kind:'capability_failure',detail:{{capability:'popup.open',detail:{reason}}}}})"
                         ))?;
                     }
@@ -4552,8 +4657,8 @@ impl RustExecutableDocument {
                         && dom.is_connected(frame).unwrap_or(false)
                         && record
                             .attributes
-                            .get("name")
-                            .or_else(|| record.attributes.get("id"))
+                            .get_null("name")
+                            .or_else(|| record.attributes.get_null("id"))
                             .is_some_and(|name| name == &target_name))
                     .then_some(frame)
                 })
@@ -4561,23 +4666,87 @@ impl RustExecutableDocument {
             if let Some(frame) = target_frame {
                 source_dom
                     .borrow_mut()
+                    .remove_attribute(frame, "srcdoc")
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                source_dom
+                    .borrow_mut()
                     .set_attribute(frame, "src", &resolved)
                     .map_err(|error| HostError::Execution(error.to_string()))?;
-                if let Some(policy) = navigation_referrer_policy {
+                if let Some(policy) = &navigation_referrer_policy {
                     source_dom
                         .borrow_mut()
-                        .set_attribute(frame, "referrerpolicy", &policy)
+                        .set_attribute(frame, "referrerpolicy", policy)
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                 }
-                self.host.activate_realm(source_realm)?;
-                self.host.reschedule_dynamic_frame(frame)?;
+                self.agent.host.activate_realm(source_realm)?;
+                self.pending_frame_navigations.insert(
+                    (source_realm, frame),
+                    FrameNavigationContext {
+                        initiator_url: self.base_url.as_ref().map(ToString::to_string),
+                        referrer_policy: navigation_referrer_policy,
+                        post: submission
+                            .and_then(|transaction| transaction.navigation.post.clone()),
+                    },
+                );
+                self.agent.host.reschedule_dynamic_frame(frame)?;
                 return Ok(());
             }
         }
-        let resolved = serde_json::to_string(&resolved)
-            .map_err(|error| HostError::Execution(error.to_string()))?;
-        self.host.activate_realm(source_realm)?;
-        self.host.execute(&format!("location.href={resolved}"))
+        let destination_realm = match target_name.to_ascii_lowercase().as_str() {
+            "_top" => self.top_realm,
+            "_parent" => self
+                .frame_realms
+                .get(&source_realm)
+                .map_or(source_realm, |owner| owner.parent_realm),
+            _ => source_realm,
+        };
+        if post.is_some()
+            && destination_realm == self.top_realm
+            && !self.authorize_form_navigation(&resolved, "POST")?
+        {
+            return Ok(());
+        }
+        self.agent.host.activate_realm(destination_realm)?;
+        self.agent
+            .host
+            .schedule_navigation(oryn_js::v8_bindings::LocationNavigation {
+                url: resolved,
+                replace: false,
+                reload: false,
+                post,
+                referrer_policy: navigation_referrer_policy,
+            })
+    }
+
+    fn authorize_form_navigation(&mut self, url: &str, method: &str) -> Result<bool, HostError> {
+        #[cfg(unix)]
+        if let Some((client, page_id, _)) = &self.context {
+            match client
+                .request(
+                    crate::context_service::ContextServiceRequest::AuthorizeFormSubmission {
+                        page_id: *page_id,
+                        url: url.into(),
+                        method: method.into(),
+                    },
+                )
+                .map_err(|error| HostError::Execution(error.to_string()))?
+            {
+                crate::context_service::ContextServiceResponse::FormSubmissionAuthorized => {}
+                crate::context_service::ContextServiceResponse::PageDenied { reason } => {
+                    self.diagnostics
+                        .push(script_diagnostic(HostError::Execution(reason)));
+                    return Ok(false);
+                }
+                _ => {
+                    return Err(HostError::Execution(
+                        "invalid form authorization response".into(),
+                    ));
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = (url, method);
+        Ok(true)
     }
 }
 
@@ -4607,8 +4776,8 @@ fn configure_frame_context(host: &mut RawV8Host, page_id: u64) -> Result<(), Hos
         .realm_descriptor(host.active_realm())
         .ok_or_else(|| HostError::Execution("frame realm metadata is unavailable".into()))?
         .origin;
-    let origin =
-        serde_json::to_string(origin).map_err(|error| HostError::Execution(error.to_string()))?;
+    let origin = serde_json::to_string(&origin.serialize())
+        .map_err(|error| HostError::Execution(error.to_string()))?;
     host.execute(&format!(
         "__oryn_configure_context({page_id},null,{origin})"
     ))
@@ -4731,10 +4900,11 @@ mod tests {
         .unwrap();
         assert!(page.diagnostics.is_empty(), "{:#?}", page.diagnostics);
         let result = page
-            .live_dom
+            .agent
+            .dom
             .borrow()
             .find_by_id("oryn-wpt-result")
-            .and_then(|node| page.live_dom.borrow().arena().text_content(node).ok())
+            .and_then(|node| page.agent.dom.borrow().arena().text_content(node).ok())
             .unwrap_or_default();
         assert!(
             !result.is_empty(),
@@ -5018,7 +5188,7 @@ mod tests {
                     if(id==='click')promise=__oryn_testdriver_click(target);
                     else if(id==='keys')promise=__oryn_testdriver_send_keys(target,'x');
                     else promise=__oryn_testdriver_actions([{type:'pointer',id:'mouse',actions:[
-                        {type:'pointerMove',origin:target},{type:'pointerDown',button:0},{type:'pointerUp',button:0}
+                        {type:'pointerMove',origin:target,x:0,y:0},{type:'pointerDown',button:0},{type:'pointerUp',button:0}
                     ]}]);
                     checks.push(promise instanceof Promise&&document.activeElement!==target);
                     await promise;
@@ -5038,7 +5208,7 @@ mod tests {
     #[test]
     fn native_focus_visibility_uses_input_default_actions() {
         let mut page = RustExecutableDocument::load(
-            "<style>*{outline-color:black}:focus-visible{outline-color:green}</style><body><button id='one'></button><button id='two'></button><input id='text'></body>"
+            "<style>*{outline-color:black}:focus-visible{outline-color:green}</style><body><button id='one'></button><button id='two'></button><input id='text'><div id='blank' style='height:100px;width:200px'></div></body>"
         ).unwrap();
         page.execute(r#"globalThis.focusTestResult="pending";(async () => {
             const one=document.getElementById('one'),two=document.getElementById('two'),text=document.getElementById('text');
@@ -5053,7 +5223,7 @@ mod tests {
             await __oryn_testdriver_click(two);if(document.activeElement!==two||visible(two))return 'pointer focus transfer';
             await __oryn_testdriver_click(text);if(!visible(text))return 'text input';
             text.blur();one.focus();if(visible(one))return 'script focus after pointer text input';
-            let bodyClick=false;document.body.addEventListener('click',()=>bodyClick=true,{once:true});await __oryn_testdriver_click(document.body);if(!bodyClick||document.activeElement!==one)return 'nonfocusable pointer target';
+            let bodyClick=false;document.body.addEventListener('click',()=>bodyClick=true,{once:true});await __oryn_testdriver_click(document.getElementById('blank'));if(!bodyClick||document.activeElement!==one)return 'nonfocusable pointer target';
             return 'ok';
         })().then(value=>globalThis.focusTestResult=value,error=>globalThis.focusTestResult=String(error))"#).unwrap();
         assert_eq!(
@@ -5082,6 +5252,427 @@ mod tests {
         assert_eq!(
             page.evaluate("__oryn_drain(true);focusTestResult").unwrap(),
             "ok"
+        );
+    }
+
+    #[test]
+    fn native_focus_fixup_blurs_dynamic_inertness_and_preserves_reentrant_focus() {
+        let mut page = RustExecutableDocument::load(
+            "<body><input id='outside'><div id='outer'><input id='target'></div></body>",
+        )
+        .unwrap();
+        page.execute(r#"
+            globalThis.events=[];
+            target.addEventListener('blur',e=>events.push('blur:'+e.isTrusted+':'+(e.relatedTarget===null)));
+            target.addEventListener('focusout',e=>events.push('focusout:'+e.isTrusted));
+            target.focus();outer.inert=true;
+        "#).unwrap();
+        assert_eq!(
+            page.evaluate("(document.activeElement===document.body)+'|'+events.join(',')")
+                .unwrap(),
+            "true|blur:true:true,focusout:true"
+        );
+        page.execute(
+            "outer.inert=false;target.focus();outer.inert=true;outer.inert=false;events=[]",
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("(document.activeElement===target)+'|'+events.length")
+                .unwrap(),
+            "true|0"
+        );
+        page.execute("target.addEventListener('blur',()=>outside.focus(),{once:true});outer.setAttribute('inert','')").unwrap();
+        assert_eq!(
+            page.evaluate("(document.activeElement===outside)+'|'+events.join(',')")
+                .unwrap(),
+            "true|blur:true:true,focusout:true"
+        );
+    }
+
+    #[test]
+    fn native_focus_fixup_tracks_live_slot_assignment() {
+        let mut page = RustExecutableDocument::load(
+            "<body><div id='host'><input id='target' slot='free'></div></body>",
+        )
+        .unwrap();
+        page.execute(
+            r#"
+            const root=host.attachShadow({mode:'closed'});
+            const free=document.createElement('slot'),blocked=document.createElement('slot');
+            free.name='free';blocked.name='blocked';blocked.inert=true;
+            root.appendChild(free);root.appendChild(blocked);
+            target.focus();target.setAttribute('slot','blocked');
+        "#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("document.activeElement===document.body")
+                .unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn native_focus_respects_computed_display_and_visibility() {
+        let mut page = RustExecutableDocument::load(
+            "<style>.gone{display:none}.invisible{visibility:hidden}.visible{visibility:visible}</style><body><input id='outside'><section id='parent' class='gone'><input id='target'></section><section class='invisible'><input id='hidden'><input id='visible' class='visible'></section><canvas><input id='fallback'></canvas></body>",
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            outside.focus();target.focus();if(document.activeElement!==outside)return 'display:none';
+            hidden.focus();if(document.activeElement!==outside)return 'visibility:hidden';
+            visible.focus();if(document.activeElement!==visible)return 'visible override';
+            fallback.focus();if(document.activeElement!==fallback)return 'canvas fallback';
+            document.getElementById('parent').className='';target.focus();if(document.activeElement!==target)return 'restored display';
+            return 'ok';
+        })()"#).unwrap(), "ok");
+        page.execute("globalThis.blurs=0;target.onblur=()=>blurs++;document.getElementById('parent').className='gone'")
+            .unwrap();
+        assert_eq!(
+            page.evaluate("(document.activeElement===document.body)+'|'+blurs")
+                .unwrap(),
+            "true|1"
+        );
+        page.execute("document.getElementById('parent').className='';outside.focus();outside.onblur=()=>document.getElementById('parent').className='gone';target.focus()").unwrap();
+        assert_eq!(
+            page.evaluate("document.activeElement!==target").unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn native_select_validity_drives_queries_and_computed_style() {
+        let mut page = RustExecutableDocument::load("<style>select{color:black}select:valid{color:green}select:invalid{color:red}</style><body><select id=s required></select></body>").unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const verify=(valid,color)=>{
+                check(s.matches(':valid')===(valid===true)&&s.matches(':invalid')===(valid===false),'matching');
+                check((document.querySelector('select:invalid')===s)===(valid===false),'query');
+                check(getComputedStyle(s).color===color,'computed '+getComputedStyle(s).color);
+            };
+            verify(false,'rgb(255, 0, 0)');s.add(new Option('chosen'));verify(true,'rgb(0, 128, 0)');
+            const observer=new MutationObserver(()=>{});observer.observe(s,{attributes:true,childList:true,characterData:true,subtree:true});
+            s.setCustomValidity('error');verify(false,'rgb(255, 0, 0)');
+            check(observer.takeRecords().length===0,'custom error must not synthesize DOM mutations');
+            s.setCustomValidity('');verify(true,'rgb(0, 128, 0)');
+            s.disabled=true;verify(null,'rgb(0, 0, 0)');s.disabled=false;verify(true,'rgb(0, 128, 0)');
+            s.selectedIndex=-1;verify(false,'rgb(255, 0, 0)');
+            s.required=false;verify(true,'rgb(0, 128, 0)');
+            check(!document.body.matches(':valid,:invalid'),'non-control');return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn attribute_map_is_live_and_records_use_local_names() {
+        let mut page =
+            RustExecutableDocument::load("<!doctype html><body><div id=target></div>").unwrap();
+        assert_eq!(page.evaluate(r#"(() => {
+            const e = document.getElementById('target');
+            const attrs = e.attributes;
+            if (!(attrs instanceof NamedNodeMap) || attrs !== e.attributes) return 'brand/identity';
+            e.setAttribute('z', 'one');
+            if (attrs.length !== 2 || attrs.item(1) !== e.getAttributeNode('z')) return 'live index';
+            const observer = new MutationObserver(() => {});
+            observer.observe(e, {attributes:true, attributeOldValue:true});
+            e.setAttributeNS('urn:test', 'p:item', 'one');
+            e.setAttributeNS('urn:test', 'q:item', 'two');
+            const records = observer.takeRecords();
+            if (records.length !== 2 || records.some(r => r.attributeName !== 'item' || r.attributeNamespace !== 'urn:test')) return 'mutation names';
+            if (records[1].oldValue !== 'one') return 'old value';
+            const a = attrs.getNamedItemNS('urn:test', 'item');
+            if (attrs.removeNamedItemNS('urn:test', 'item') !== a || a.ownerElement !== null) return 'remove';
+            a.value = 'detached';
+            if (attrs.setNamedItemNS(a) !== null || a.ownerElement !== e || a.value !== 'detached') return 'reattach';
+            const replacement = document.createAttributeNS('urn:test','r:item'); replacement.value = 'replacement';
+            if (e.setAttributeNodeNS(replacement) !== a || a.ownerElement !== null || attrs.item(2) !== replacement) return 'replace';
+            if (replacement.prefix !== 'r' || attrs.getNamedItem('r:item') !== replacement || a.prefix !== 'p') return 'replacement prefix';
+            try { document.body.setAttributeNode(replacement); return 'in-use accepted'; } catch(error) { if(error.name !== 'InUseAttributeError') return error.name; }
+            for (const receiver of [{}, new Proxy(attrs, {})]) {
+                try { NamedNodeMap.prototype.item.call(receiver, 0); return 'forged receiver'; } catch(error) { if(!(error instanceof TypeError)) return 'receiver error'; }
+            }
+            if(Array.from(attrs).length !== 3 || Object.keys(attrs).some(key => key === 'id')) return 'enumeration';
+            const differentOrder = document.createElement('div');
+            for(const attribute of Array.from(attrs).reverse()) differentOrder.setAttributeNS(attribute.namespaceURI, attribute.name, attribute.value);
+            if(!differentOrder.isEqualNode(e)) return 'order-dependent equality';
+            differentOrder.removeAttributeNS('urn:test', 'item');
+            differentOrder.setAttributeNS('urn:other', 'r:item', 'replacement');
+            if(differentOrder.isEqualNode(e)) return 'namespace-blind equality';
+            const input = document.createElement('input');
+            input.setAttributeNS('urn:foreign','disabled','');
+            input.disabled = true; input.disabled = false;
+            if(input.disabled || input.getAttributeNS('urn:foreign','disabled') !== '') return 'boolean reflection';
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn architecture_attribute_contracts_run_through_native_bindings() {
+        let mut page = RustExecutableDocument::load(include_str!(
+            "../../../test-harness/architecture-attribute-contracts.html"
+        ))
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                "JSON.stringify(architectureAttributeReport.cases.filter(c => !c.passed))"
+            )
+            .unwrap(),
+            "[]"
+        );
+        assert_eq!(page.evaluate(r#"(() => {
+            const e = document.createElement('div');
+            e.setAttributeNS('urn:first', 'p:item', 'first');
+            e.setAttributeNS('urn:second', 'p:item', 'second');
+            const first = e.getAttributeNodeNS('urn:first', 'item');
+            const second = e.getAttributeNodeNS('urn:second', 'item');
+            if(e.attributes[0] !== first || e.attributes[1] !== second) return 'indices';
+            const copy = e.cloneNode(true);
+            if(copy.getAttributeNS('urn:first','item') !== 'first' || copy.getAttributeNS('urn:second','item') !== 'second') return 'clone';
+            if(!e.matches('[*|item="second"]')) return 'selector';
+            e.removeAttributeNS('urn:first', 'item');
+            if(first.ownerElement !== null || second.ownerElement !== e || e.getAttributeNS('urn:second','item') !== 'second') return 'remove';
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_form_activation_keeps_style_attributes_and_submission_consistent() {
+        let mut page = RustExecutableDocument::load(
+            "<style>input{color:black} input:checked{color:blue} input[checked]{background-color:red}</style><body><form id=f><label id=l><input id=c name=c type=checkbox checked></label></form></body>",
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            c.checked=false;
+            if(c.matches(':checked') || getComputedStyle(c).color!=='rgb(0, 0, 0)')return 'live false';
+            if(!c.matches('[checked]') || getComputedStyle(c).backgroundColor!=='rgb(255, 0, 0)')return 'default attribute';
+            if(new FormData(f).has('c'))return 'unchecked submission';
+            let events=[];c.onclick=()=>events.push('click');c.oninput=()=>events.push('input');c.onchange=()=>events.push('change');
+            l.click();
+            if(!c.checked || events.join()!=='click,input,change')return 'label activation';
+            if(!c.matches(':checked') || getComputedStyle(c).color!=='rgb(0, 0, 255)')return 'live true';
+            if(new FormData(f).get('c')!=='on')return 'default-on value';
+            c.indeterminate=true;
+            if(!c.matches(':indeterminate'))return 'indeterminate selector';
+            c.onclick=e=>e.preventDefault();c.click();
+            if(!c.checked || !c.indeterminate)return 'canceled restore';
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_radio_arrow_actions_accept_webdriver_key_values() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body><input type=radio name=g id=a><input type=radio name=g id=b></body>").unwrap();
+        page.execute(r#"a.focus();globalThis.arrowResult='pending';
+            __oryn_testdriver_actions([{id:'keys',type:'key',actions:[
+                {type:'keyDown',value:'\uE015'},{type:'keyUp',value:'\uE015'}
+            ]}]).then(()=>arrowResult=document.activeElement===b&&b.checked?'ok':'wrong target',e=>arrowResult=e.message);
+        "#).unwrap();
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);arrowResult").unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn native_radio_arrows_use_tree_order_and_cancelable_activation() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html><body><form id=f><input type=radio name=g id=a checked><button>skip</button><input type=radio name=g disabled><input type=radio name=g inert><input type=radio name=g style='display:none'></form><input type=radio name=g form=f id=b tabindex=-1><input type=radio name=g form=f id=c tabindex=1><input type=radio name=g id=other></body>",
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const arrow=(key='\uE014')=>{__oryn_testdriver_keyboard(document.activeElement,key,true);__oryn_testdriver_keyboard(document.activeElement,key,false)};
+            const events=[];b.addEventListener('click',e=>{check(e.isTrusted&&e.pointerId===-1,'keyboard click metadata');events.push('click')});
+            b.addEventListener('input',()=>events.push('input'));b.addEventListener('change',()=>events.push('change'));
+            a.focus();arrow();check(document.activeElement===b&&b.checked&&!a.checked,'external negative tabindex peer');
+            check(events.join()==='click,input,change','activation order');
+            b.addEventListener('keydown',e=>e.preventDefault(),{once:true});arrow();check(document.activeElement===b,'canceled key');
+            c.addEventListener('click',e=>e.preventDefault(),{once:true});arrow();check(document.activeElement===c&&b.checked&&!c.checked,'canceled activation restores selection');
+            arrow();check(document.activeElement===a&&a.checked,'wrap excludes other form');
+            arrow('\uE012');check(document.activeElement===c&&c.checked,'reverse tree order');
+            c.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));check(document.activeElement===c,'synthetic key no default');
+            __oryn_testdriver_keyboard(c,'Control',true);arrow();check(document.activeElement===c,'shortcut no default');__oryn_testdriver_keyboard(c,'Control',false);
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_radio_arrow_rechecks_focus_listener_mutations() {
+        let mut page = RustExecutableDocument::load("<body><input type=radio name=g id=a checked><input type=radio name=g id=b><input id=other></body>").unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            let clicks=0;b.onclick=()=>clicks++;b.onfocus=()=>{b.disabled=true;other.focus()};
+            a.focus();__oryn_testdriver_keyboard(a,'ArrowRight',true);
+            if(clicks!==0||!a.checked||b.checked||document.activeElement!==other)throw Error('stale activation');
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_radio_arrow_direction_follows_computed_rtl() {
+        let mut page = RustExecutableDocument::load("<body style='direction:rtl'><input type=radio name=g id=a><input type=radio name=g id=b><input type=radio name=g id=c></body>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"(()=>{
+            b.focus();__oryn_testdriver_keyboard(b,'ArrowRight',true);
+            if(document.activeElement!==a||!a.checked)throw Error('rtl right');
+            __oryn_testdriver_keyboard(a,'ArrowDown',true);
+            if(document.activeElement!==b||!b.checked)throw Error('rtl down');
+            return 'ok';
+        })()"#
+            )
+            .unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn native_keyboard_tab_ignores_non_elements_and_reverses_radio_group() {
+        let mut page = RustExecutableDocument::load(
+            "<!doctype html>\n<!-- before root --><html><head><title>Tab</title></head><body>\n<input id=start> text <!-- between -->\n<input type=radio name=g id=a><input type=radio name=g id=b>\n<input id=end></body></html>",
+        ).unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const tab=()=>__oryn_testdriver_keyboard(document.activeElement,'Tab',true);
+            start.focus();tab();check(document.activeElement===a,'forward first radio');
+            tab();check(document.activeElement===end,'group exit');
+            __oryn_testdriver_keyboard(end,'Shift',true);
+            tab();check(document.activeElement===a,'reverse first radio');
+            tab();check(document.activeElement===start,'reverse group exit');
+            __oryn_testdriver_keyboard(start,'Shift',false);
+            return 'ok';
+        })()"#
+            )
+            .unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn native_keyboard_send_keys_retargets_keyup_after_tab_default() {
+        let mut page =
+            RustExecutableDocument::load("<body><input id=a><input id=b><input id=c></body>")
+                .unwrap();
+        page.execute(r#"
+            globalThis.events=[];globalThis.finished=false;
+            for(const kind of ['keydown','keyup'])document.addEventListener(kind,e=>events.push(kind+':'+e.target.id+':'+e.keyCode));
+            __oryn_testdriver_send_keys(a,'\uE004\uE004').then(()=>finished=true);
+        "#).unwrap();
+        assert_eq!(
+            page.evaluate(
+                "__oryn_drain(true);finished+'|'+events.join(',')+'|'+document.activeElement.id"
+            )
+            .unwrap(),
+            "true|keydown:a:9,keyup:b:9,keydown:b:9,keyup:c:9|c"
+        );
+    }
+
+    #[test]
+    fn native_keyboard_tab_orders_candidates_and_honors_cancellation() {
+        let mut page = RustExecutableDocument::load(
+            "<body><input id=z><input id=b tabindex=2><input id=a tabindex=1><input tabindex=-1><input disabled><input inert><input style='display:none'><input id=last></body>",
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const tab=()=>{const target=document.activeElement;__oryn_testdriver_keyboard(target,'Tab',true);__oryn_testdriver_keyboard(document.activeElement,'Tab',false)};
+            let down=[];document.addEventListener('keydown',e=>{down.push([e.key,e.code,e.keyCode,e.charCode,e.isTrusted]);});
+            tab();check(document.activeElement===a,'positive first');tab();check(document.activeElement===b,'positive second');
+            b.addEventListener('keydown',e=>e.preventDefault(),{once:true});tab();check(document.activeElement===b,'canceled');
+            tab();check(document.activeElement===z,'zero order');tab();check(document.activeElement===last,'skip negative disabled inert hidden');
+            __oryn_testdriver_keyboard(last,'Shift',true);tab();check(document.activeElement===z,'reverse');__oryn_testdriver_keyboard(z,'Shift',false);
+            z.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true}));check(document.activeElement===z,'synthetic no default');
+            const negative=document.querySelector('[tabindex="-1"]');negative.focus();tab();check(document.activeElement===last,'negative starting point');
+            check(down[0].join()==='Tab,Tab,9,0,true','metadata');
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_keyboard_tab_enters_shadow_scopes_and_radio_groups() {
+        let mut page = RustExecutableDocument::load(
+            "<body><input id=before><div id=host><input id=assigned slot=x></div><input type=radio name=g id=r1><input type=radio name=g id=r2 checked><input id=after></body>",
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const root=host.attachShadow({mode:'closed'});root.innerHTML='<input id=inner tabindex=1><slot name=x><input id=fallback></slot>';
+            const inner=root.getElementById('inner');
+            const tab=()=>__oryn_testdriver_keyboard(document.activeElement,'Tab',true);
+            before.focus();tab();check(root.activeElement===inner,'shadow entry');
+            tab();check(document.activeElement===assigned,'assigned slot, not fallback');
+            tab();check(document.activeElement===r2,'checked radio only');tab();check(document.activeElement===after,'radio exit');
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_form_inert_label_click_does_not_hide_focus_failure() {
+        let mut page = RustExecutableDocument::load(
+            "<body><label id=l inert for=c>label</label><input id=c><input id=other></body>",
+        )
+        .unwrap();
+        page.execute("other.focus();globalThis.result='pending';__oryn_testdriver_click(l).then(()=>result=document.activeElement===document.body?'body':'wrong focus',e=>result=e.message)").unwrap();
+        let result = page.evaluate("__oryn_drain(true);result").unwrap();
+        assert!(
+            matches!(result.as_str(), "body" | "element click intercepted"),
+            "{result}"
+        );
+    }
+
+    #[test]
+    fn native_form_label_focus_resolves_association_and_eligibility() {
+        let mut page = RustExecutableDocument::load(
+            "<body><label id=l for=c>label</label><input id=c><input id=other></body>",
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            l.focus();check(document.activeElement===c,'forward');
+            l.tabIndex=0;l.focus();check(document.activeElement===l,'tabindex');
+            l.tabIndex=-1;l.focus();check(document.activeElement===l,'negative');
+            l.setAttribute('tabindex','');l.focus();check(document.activeElement===c,'empty tabindex');
+            l.tabIndex=0;l.style.display='none';other.focus();l.focus();check(document.activeElement===c,'hidden label');
+            l.style.display='';l.removeAttribute('tabindex');l.inert=true;other.focus();l.focus();check(document.activeElement===c,'inert label');
+            c.inert=true;other.focus();l.focus();check(document.activeElement===other,'inert control');
+            c.inert=false;c.disabled=true;l.focus();check(document.activeElement===other,'disabled control');
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_form_activation_does_not_activate_an_ancestor_link() {
+        let mut page = RustExecutableDocument::load(
+            "<body><a href='#unexpected'><label for=c><span id=s>choose</span></label><input id=c type=checkbox></a><a href='#expected'><span id=linktext>navigate</span></a></body>",
+        ).unwrap();
+        page.execute("document.getElementById('s').click()")
+            .unwrap();
+        page.drain_default_actions().unwrap();
+        assert_eq!(
+            page.evaluate("document.getElementById('c').checked")
+                .unwrap(),
+            "true"
+        );
+        assert_eq!(page.evaluate("location.hash").unwrap(), "");
+        page.execute("document.getElementById('c').click()")
+            .unwrap();
+        page.drain_default_actions().unwrap();
+        assert_eq!(page.evaluate("location.hash").unwrap(), "");
+        page.execute("document.getElementById('linktext').click()")
+            .unwrap();
+        page.drain_default_actions().unwrap();
+        assert_eq!(page.evaluate("location.hash").unwrap(), "#expected");
+    }
+
+    #[test]
+    fn native_form_element_click_uses_trusted_pointer_activation() {
+        let mut page = RustExecutableDocument::load(
+            "<style>label{display:block;width:200px;height:30px}</style><body><label id=l for=c>choose</label><input id=c type=checkbox></body>",
+        ).unwrap();
+        page.execute(r#"
+            globalThis.clickResult='pending';globalThis.clickLog=[];
+            l.onclick=e=>clickLog.push([e.isTrusted,e.pointerType,e.pointerId,e.detail]);
+            c.onclick=e=>clickLog.push([e.isTrusted,e.pointerType,e.pointerId,e.detail]);
+            __oryn_testdriver_click(l).then(()=>clickResult=JSON.stringify([c.checked,clickLog]),e=>clickResult=String(e));
+        "#).unwrap();
+        assert_eq!(
+            page.evaluate("__oryn_drain(true);clickResult").unwrap(),
+            r#"[true,[[true,"mouse",1,1],[true,"mouse",1,1]]]"#
         );
     }
 
@@ -5143,6 +5734,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(page.evaluate("namedElementResolved").unwrap(), "true");
+    }
+
+    #[test]
+    fn frame_indices_are_native_live_own_properties() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<body><iframe srcdoc='<input>'></iframe><iframe srcdoc='<p>second</p>'></iframe></body>",
+            &BTreeMap::new(), None, Some(Url::parse("https://parent.example.test/").unwrap()),
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const elements=document.querySelectorAll('iframe');
+            const first=elements[0].contentWindow,second=elements[1].contentWindow;
+            if(frames!==window||length!==2||frames[0]!==first||frames[1]!==second||frames[2]!==undefined)return 'lookup';
+            const descriptor=Object.getOwnPropertyDescriptor(window,'0');
+            if(!descriptor||descriptor.value!==first||descriptor.writable||!descriptor.enumerable)return 'descriptor';
+            if(!frames[0].document.querySelector('input'))return 'document';
+            elements[0].remove();
+            if(length!==1||frames[0]!==second||frames[1]!==undefined)return 'removal';
+            elements[1].remove();
+            if(length!==0||0 in window)return 'empty';
+            return 'ok';
+        })()"#).unwrap(), "ok");
     }
 
     #[test]
@@ -5276,7 +5888,7 @@ mod tests {
                     .get(*node)
                     .ok()?
                     .attributes
-                    .get("id")
+                    .get_null("id")
                     .cloned()
             })
             .collect::<Vec<_>>();
@@ -5359,7 +5971,7 @@ mod tests {
                 .unwrap(),
             "pending"
         );
-        page.host.drain_scheduled_timers(true).unwrap();
+        page.agent.host.drain_scheduled_timers(true).unwrap();
         page.checkpoint().unwrap();
         assert_eq!(
             page.evaluate("order.join(',')").unwrap(),
@@ -5376,6 +5988,173 @@ mod tests {
         page.drain_tasks().unwrap();
         page.drain_tasks().unwrap();
         assert_eq!(page.evaluate("String(count)").unwrap(), "1");
+    }
+
+    #[test]
+    fn native_formdata_preserves_submitter_and_runs_guarded_callbacks() {
+        let mut page = RustExecutableDocument::load("<!doctype html><body><form id=f><input name=a value=one><input type=file name=file><button id=b name=button value=yes>send</button><input id=image type=image name=pic><input type=reset name=reset value=no></form></body>").unwrap();
+        assert_eq!(page.evaluate(r#"(() => {
+            let calls=0;
+            f.onformdata = event => {
+                calls++;
+                if(!(event instanceof FormDataEvent) || event.target!==f || !event.bubbles || event.cancelable || !event.isTrusted) throw Error('event');
+                try { new FormData(f); throw Error('recursion accepted'); } catch(error) { if(error.name!=='InvalidStateError') throw error; }
+                event.formData.append('callback','added');
+            };
+            const data = new FormData(f,b);
+            if(data.get('button')!=='yes' || data.has('reset') || data.has('pic.x') || data.get('callback')!=='added') return JSON.stringify({button:data.get('button'),reset:data.has('reset'),image:data.has('pic.x'),callback:data.get('callback'),calls});
+            const file = data.get('file');
+            if(!(file instanceof File) || file.name!=='' || file.size!==0 || file.type!=='application/octet-stream') return 'empty file';
+            const imageData = new FormData(f,image);
+            if(imageData.get('pic.x')!=='0' || imageData.get('pic.y')!=='0') return 'image';
+            if(calls!==2) return 'callback count';
+            const event = new FormDataEvent('formdata',{formData:data});
+            if(event.formData!==data) return 'event identity';
+            try { new FormDataEvent('formdata',{}); return 'missing accepted'; } catch(error) { if(!(error instanceof TypeError)) return 'missing error'; }
+            f.onformdata = null;
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_file_selection_is_not_an_attribute_and_obeys_input_lifetime() {
+        let mut page = RustExecutableDocument::load("<!doctype html><form id=f><input id=a type=file name=upload><input id=b type=file></form>").unwrap();
+        let a = page.node_by_id("a").unwrap();
+        page.set_files(
+            a,
+            &[crate::upload::UploadFile {
+                filename: "selected.txt".into(),
+                media_type: "text/plain".into(),
+                bytes: b"native bytes".to_vec(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+          const check=(v,m)=>{if(!v)throw Error(m)};
+          check(!a.hasAttribute('data-oryn-upload-files'),'attribute transport remains');
+          const files=a.files, file=files[0];
+          check(files instanceof FileList&&files===a.files&&files.length===1&&files.item(0)===file&&file.name==='selected.txt','native list');
+          check(files.item(1)===null&&files[1]===undefined&&[...files][0]===file,'indexed list');
+          check(a.value==='C:\\fakepath\\selected.txt','fakepath');
+          a.setAttribute('data-oryn-upload-files','[{"filename":"forged","media_type":"text/plain","body_base64":"eA==","last_modified":0}]');
+          check(a.files===files&&new FormData(f).get('upload')===file,'authored attribute changed selection or File identity');
+          try { a.value='forged';return 'value accepted'; } catch(e) {check(e.name==='InvalidStateError','value error')}
+          b.files=files; check(b.files===files,'assigned FileList identity');
+          b.files=null;b.files=undefined;check(b.files===files,'nullable assignment changed files');
+          for(const invalid of [[],[file],{},new Proxy(files,{})]) {
+            try {b.files=invalid;return 'invalid FileList accepted'} catch(e) {check(e instanceof TypeError,'assignment brand error')}
+          }
+          a.type='FILE';check(a.files===files,'same type cleared files');
+          const clone=a.cloneNode();check(clone.files[0].name==='selected.txt','clone files');
+          a.value='';check(a.files.length===0&&files.length===1&&b.files.length===1,'clear snapshot');
+          b.type='text';check(b.files===null,'non-file null');b.type='file';check(b.files.length===0,'type transition');
+          a.files=files;f.reset();check(a.files.length===0,'reset');
+          try { FileList.prototype.item.call({},0);return 'forged receiver'; } catch(e) {check(e instanceof TypeError,'brand error')}
+          return 'ok';
+        })()"#).unwrap(),"ok");
+    }
+
+    #[test]
+    fn native_form_navigation_owns_post_body_after_synchronous_formdata_callbacks() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<form id=f action=/old method=get><input id=a name=x value=initial><button id=b name=button value=yes></button></form>",
+            &BTreeMap::new(), None, Some(Url::parse("https://forms.test/start").unwrap()),
+        ).unwrap();
+        page.execute("globalThis.events=[];f.onformdata=e=>{events.push('formdata');e.formData.append('extra','a\\nb');b.setAttribute('formaction','/accepted?keep=1');b.setAttribute('formmethod','post');f.requestSubmit();};f.requestSubmit(b);a.value='later';events.push('returned')").unwrap();
+        assert_eq!(
+            page.evaluate("events.join(',')").unwrap(),
+            "formdata,returned"
+        );
+        let request = page.take_location_navigation().unwrap();
+        assert_eq!(request.url, "https://forms.test/accepted?keep=1");
+        let post = request.post.unwrap();
+        assert_eq!(post.content_type, "application/x-www-form-urlencoded");
+        assert_eq!(post.bytes, b"x=initial&button=yes&extra=a%0D%0Ab");
+    }
+
+    #[test]
+    fn native_form_navigation_get_supersession_and_detachment_are_transactional() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<form id=f action='/send?old=discarded#keep'><input id=a name=x value=first></form>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://forms.test/start").unwrap()),
+        )
+        .unwrap();
+        page.execute("f.submit();a.value='second';f.submit();a.value='third'")
+            .unwrap();
+        let request = page.take_location_navigation().unwrap();
+        assert_eq!(request.url, "https://forms.test/send?x=second#keep");
+        assert!(request.post.is_none());
+        page.execute("f.onformdata=()=>f.remove();f.submit()")
+            .unwrap();
+        assert!(page.take_location_navigation().is_none());
+    }
+
+    #[test]
+    fn native_form_data_uses_shared_directionality_and_case_insensitive_charset() {
+        let mut page = RustExecutableDocument::load("<form id=f dir=rtl><input name=t value=abc dirname=t.dir><input name=a value='123 ת' dir=auto dirname=a.dir><textarea name=b dir=auto dirname=b.dir>123 A</textarea><input type=checkbox checked name=c dirname=ignored><input type=hidden name=_CHARSET_ value=wrong></form>").unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify([...new FormData(f)])")
+                .unwrap(),
+            r#"[["t","abc"],["t.dir","rtl"],["a","123 ת"],["a.dir","rtl"],["b","123 A"],["b.dir","ltr"],["c","on"],["_CHARSET_","UTF-8"]]"#
+        );
+    }
+
+    #[test]
+    fn sandboxed_frame_submission_is_blocked_before_events() {
+        let mut page = RustExecutableDocument::load_with_environment("<iframe id=frame sandbox='allow-scripts allow-same-origin' srcdoc='<form id=f><input required></form><script>globalThis.seen=[];f.onsubmit=()=>seen.push(\"submit\");f.onformdata=()=>seen.push(\"formdata\");f.firstChild.oninvalid=()=>seen.push(\"invalid\");f.requestSubmit();f.submit();</script>'></iframe>", &BTreeMap::new(), None, Some(Url::parse("https://forms.test/start").unwrap())).unwrap();
+        assert_eq!(
+            page.evaluate("frame.contentWindow.seen.join(',')").unwrap(),
+            ""
+        );
+        assert!(page.take_location_navigation().is_none());
+    }
+
+    #[test]
+    fn dialog_submission_constructs_formdata_then_closes_without_navigation() {
+        let mut page = RustExecutableDocument::load("<dialog id=d open><form id=f method=dialog><button id=b value=accepted>OK</button></form></dialog>").unwrap();
+        page.execute("globalThis.seen=[];f.onformdata=()=>seen.push('data');d.onclose=()=>seen.push('close');f.requestSubmit(b)").unwrap();
+        assert_eq!(
+            page.evaluate("[d.open,d.returnValue,seen.join(',')].join('|')")
+                .unwrap(),
+            "false|accepted|data,close"
+        );
+        assert!(page.take_location_navigation().is_none());
+    }
+
+    #[test]
+    fn native_semantic_submission_uses_shared_validation_without_duplicate_events() {
+        let mut page = RustExecutableDocument::load(
+            "<body><a href='#wrong'><form id=f action='#submitted'><select id=s required></select><button id=b>Submit</button></form></a><button id=external form=f>External</button></body>",
+        ).unwrap();
+        page.execute("globalThis.events=[];s.oninvalid=()=>events.push('invalid');f.onsubmit=e=>{events.push(e instanceof SubmitEvent?'submit':'untyped');e.preventDefault()}").unwrap();
+        let button = page.node_by_id("b").unwrap();
+        let form = page.node_by_id("f").unwrap();
+        let external = page.node_by_id("external").unwrap();
+        for (target, action) in [
+            (button, SemanticAction::Click),
+            (form, SemanticAction::Submit),
+            (external, SemanticAction::Click),
+        ] {
+            page.apply_action(target, action, None).unwrap();
+        }
+        assert_eq!(
+            page.evaluate("events.join()+'|'+location.hash").unwrap(),
+            "invalid,invalid,invalid|"
+        );
+        page.execute("s.required=false;events=[];HTMLFormElement.prototype.requestSubmit=()=>{throw Error('page override reached')}").unwrap();
+        for (target, action) in [
+            (button, SemanticAction::Click),
+            (form, SemanticAction::Submit),
+            (external, SemanticAction::Click),
+        ] {
+            page.apply_action(target, action, None).unwrap();
+        }
+        assert_eq!(
+            page.evaluate("events.join()+'|'+location.hash").unwrap(),
+            "submit,submit,submit|"
+        );
     }
 
     #[test]
@@ -5421,8 +6200,8 @@ mod tests {
             Some(Url::parse("https://child.example.test/frame").unwrap()),
         )
         .unwrap();
-        page.host.execute("globalThis.__oryn_context_call=()=>JSON.stringify({result:'security_origin',serialized:'https://parent.example.test',opaque:false})").unwrap();
-        configure_frame_context(&mut page.host, 1).unwrap();
+        page.agent.host.execute("globalThis.__oryn_context_call=()=>JSON.stringify({result:'security_origin',serialized:'https://parent.example.test',opaque:false})").unwrap();
+        configure_frame_context(&mut page.agent.host, 1).unwrap();
         assert_eq!(
             page.evaluate("[origin,location.origin,__oryn_opaque_origin].join('|')")
                 .unwrap(),
@@ -5430,8 +6209,8 @@ mod tests {
         );
         // An inherited srcdoc URL has an opaque URL origin but retains the
         // actual document realm's origin for messaging and access decisions.
-        page.host.commit_location("about:srcdoc").unwrap();
-        configure_frame_context(&mut page.host, 1).unwrap();
+        page.agent.host.commit_location("about:srcdoc").unwrap();
+        configure_frame_context(&mut page.agent.host, 1).unwrap();
         assert_eq!(
             page.evaluate("[origin,location.origin,__oryn_opaque_origin].join('|')")
                 .unwrap(),
@@ -5515,14 +6294,14 @@ mod tests {
         )
         .unwrap();
         let button = {
-            let dom = page.live_dom.borrow();
+            let dom = page.agent.dom.borrow();
             dom.arena()
                 .iter()
                 .find(|(id, node)| {
                     dom.is_connected(*id).unwrap_or(false)
                         && node
                             .attributes
-                            .get("onclick")
+                            .get_null("onclick")
                             .is_some_and(|source| source.contains("flow-cart.html"))
                 })
                 .map(|(node, _)| node)
@@ -5644,10 +6423,12 @@ mod tests {
     #[test]
     fn node_error_native_termination_still_reaches_host_and_removes_once_listener() {
         let mut page=RustExecutableDocument::load("<body><script>document.body.addEventListener('probe',()=>{while(true){}},{once:true})</script>").unwrap();
-        page.host
+        page.agent
+            .host
             .set_execution_wall_limit(std::time::Duration::from_millis(50));
         assert!(page.diagnostics.is_empty(), "{:?}", page.diagnostics);
         let result = page
+            .agent
             .host
             .execute("document.body.dispatchEvent(new Event('probe'))");
         assert!(
@@ -5659,10 +6440,12 @@ mod tests {
                 .unwrap(),
             "true"
         );
-        page.host
+        page.agent
+            .host
             .execute("document.body.addEventListener('eval-probe',()=>{while(true){}},{once:true})")
             .unwrap();
         let result = page
+            .agent
             .host
             .evaluate_string("document.body.dispatchEvent(new Event('eval-probe'))");
         assert!(
@@ -5753,10 +6536,16 @@ mod tests {
                 .unwrap(),
             "1:true"
         );
-        assert!(page.host.take_unhandled_promise_rejections().is_empty());
-        assert!(page.host.take_module_error_reports().is_empty());
-        page.host.execute("onerror=()=>false").unwrap();
-        page.host
+        assert!(
+            page.agent
+                .host
+                .take_unhandled_promise_rejections()
+                .is_empty()
+        );
+        assert!(page.agent.host.take_module_error_reports().is_empty());
+        page.agent.host.execute("onerror=()=>false").unwrap();
+        page.agent
+            .host
             .execute_module_script(
                 "https://example.test/late.js",
                 "await new Promise((resolve,reject)=>globalThis.rejectAgain=reject)",
@@ -5764,9 +6553,14 @@ mod tests {
                 true,
             )
             .unwrap();
-        page.host.execute("rejectAgain(payload)").unwrap();
-        assert_eq!(page.host.take_module_error_reports().len(), 1);
-        assert!(page.host.take_unhandled_promise_rejections().is_empty());
+        page.agent.host.execute("rejectAgain(payload)").unwrap();
+        assert_eq!(page.agent.host.take_module_error_reports().len(), 1);
+        assert!(
+            page.agent
+                .host
+                .take_unhandled_promise_rejections()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -5776,7 +6570,8 @@ mod tests {
         )
         .unwrap();
         assert!(
-            page.host
+            page.agent
+                .host
                 .execute_module(
                     "https://example.test/syntax.js",
                     "let = ;",
@@ -5785,7 +6580,8 @@ mod tests {
                 .is_err()
         );
         assert!(
-            page.host
+            page.agent
+                .host
                 .execute_module(
                     "https://example.test/runtime.js",
                     "throw 42",
@@ -5800,7 +6596,7 @@ mod tests {
             "globalThis.count=(globalThis.count||0)+1;export const value={}".into(),
         );
         for name in ["a", "b", "a"] {
-            page.host
+            page.agent.host
                 .execute_module_script(
                     &format!("https://example.test/{name}.js"),
                     "import {value} from './dep.js';globalThis.seen=value;globalThis.roots=(globalThis.roots||0)+1",
@@ -5816,10 +6612,11 @@ mod tests {
     fn module_error_native_reporting_obeys_wall_deadline() {
         let mut page =
             RustExecutableDocument::load("<script>onerror=()=>{while(true){}}</script>").unwrap();
-        page.host
+        page.agent
+            .host
             .set_execution_wall_limit(std::time::Duration::from_millis(50));
         assert!(matches!(
-            page.host.execute_module_script(
+            page.agent.host.execute_module_script(
                 "https://example.test/fail.js",
                 "throw 1",
                 &BTreeMap::new(),
@@ -5975,11 +6772,16 @@ mod tests {
     #[test]
     fn parser_error_native_reporting_keeps_wall_deadline() {
         let mut page = RustExecutableDocument::load("<body>").unwrap();
-        page.host.execute("onerror=()=>{while(true){}}").unwrap();
-        page.host
+        page.agent
+            .host
+            .execute("onerror=()=>{while(true){}}")
+            .unwrap();
+        page.agent
+            .host
             .set_execution_wall_limit(std::time::Duration::from_millis(50));
         assert!(matches!(
-            page.host
+            page.agent
+                .host
                 .execute_parser_script("throw 1", "https://example.test/fail.js", false),
             Err(HostError::LimitExceeded { .. })
         ));
@@ -7414,6 +8216,59 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "diagnostic only; requires ORYN_WPT_CHECKOUT"]
+    fn pinned_range_insert_node_fixture_does_not_overflow_native_stack() {
+        let root = std::path::PathBuf::from(std::env::var("ORYN_WPT_CHECKOUT").unwrap());
+        let source =
+            std::fs::read_to_string(root.join("dom/ranges/Range-insertNode.html")).unwrap();
+        let mut resources = BTreeMap::new();
+        for path in [
+            "resources/testharness.js",
+            "dom/common.js",
+            "dom/ranges/Range-test-iframe.html",
+        ] {
+            resources.insert(
+                format!("https://wpt.example/{path}"),
+                std::fs::read_to_string(root.join(path)).unwrap(),
+            );
+        }
+        resources.insert(
+            "https://wpt.example/resources/testharnessreport.js".into(),
+            include_str!("../../../scripts/wpt-report.js").into(),
+        );
+        for (alias, path) in [
+            ("/resources/testharness.js", "resources/testharness.js"),
+            ("../common.js", "dom/common.js"),
+            (
+                "Range-test-iframe.html",
+                "dom/ranges/Range-test-iframe.html",
+            ),
+        ] {
+            resources.insert(
+                alias.into(),
+                std::fs::read_to_string(root.join(path)).unwrap(),
+            );
+        }
+        resources.insert(
+            "/resources/testharnessreport.js".into(),
+            include_str!("../../../scripts/wpt-report.js").into(),
+        );
+        let mut page = RustExecutableDocument::load_with_environment(
+            &source,
+            &resources,
+            None,
+            Some(Url::parse("https://wpt.example/dom/ranges/Range-insertNode.html").unwrap()),
+        )
+        .unwrap();
+        eprintln!("diagnostics: {:?}", page.diagnostics);
+        eprintln!(
+            "completion: {:?}",
+            page.evaluate("JSON.stringify(globalThis.__oryn_wpt_completion)")
+                .map(|value| value.chars().take(500).collect::<String>())
+        );
+    }
+
+    #[test]
     fn generated_click_default_action_navigates_a_named_iframe() {
         let mut resources = BTreeMap::new();
         resources.insert(
@@ -7581,6 +8436,109 @@ mod tests {
                 .unwrap(),
             "ready|https://frame.example.test|true|true"
         );
+    }
+
+    #[test]
+    fn same_origin_frame_adoption_preserves_cross_realm_identity_and_owner_document() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<iframe id=frame srcdoc='<section id=source><span data-kept="yes">text</span></section>'></iframe>"#,
+            &BTreeMap::new(), None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"
+            const frame=document.getElementById('frame'), childDocument=frame.contentDocument;
+            const node=childDocument.getElementById('source'), descendant=node.firstChild;
+            const attribute=descendant.getAttributeNode('data-kept');
+            node.marker=73;
+            const adopted=document.adoptNode(node);
+            const first=[adopted===node,node.marker===73,node.ownerDocument===document,
+                         descendant.ownerDocument===document,attribute.ownerDocument===document,
+                         childDocument.getElementById('source')===null];
+            document.body.append(node);
+            first.push(node.parentNode===document.body);
+            const returned=childDocument.adoptNode(node);
+            first.concat([returned===node,node.ownerDocument===childDocument,
+                          descendant.ownerDocument===childDocument,node.parentNode===null]).join('|')
+        "#).unwrap(), "true|true|true|true|true|true|true|true|true|true|true");
+    }
+
+    #[test]
+    fn frame_document_writes_preserve_parent_siblings_and_execution_realm() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<main id=parent>parent</main><iframe id=a srcdoc='<p>old a</p>'></iframe><iframe id=b srcdoc='<p>old b</p>'></iframe>"#,
+            &BTreeMap::new(), None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"
+            const parent=document.getElementById('parent');
+            const a=document.getElementById('a'), b=document.getElementById('b');
+            const ad=a.contentDocument, bd=b.contentDocument;
+            ad.open();bd.open();
+            ad.write('<p id="written">a</p><script>globalThis.writeMarker="a"</scr'+'ipt>');
+            bd.write('<p id="written">b</p><script>globalThis.writeMarker="b"</scr'+'ipt>');
+            bd.close();ad.close();
+            [document.getElementById('parent')===parent, parent.textContent==='parent',
+             a.contentDocument===ad,b.contentDocument===bd,
+             ad.getElementById('written').textContent==='a',bd.getElementById('written').textContent==='b',
+             a.contentWindow.writeMarker==='a',b.contentWindow.writeMarker==='b',
+             typeof globalThis.writeMarker==='undefined',document.querySelector('#written')===null].join('|')
+        "#).unwrap(), "true|true|true|true|true|true|true|true|true|true");
+    }
+
+    #[test]
+    fn hosted_frame_focus_is_document_local_and_retargets_to_the_parent_frame() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<input id=shared><iframe id=frame srcdoc='<input id=shared>'></iframe>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const frame=document.getElementById('frame');
+            const parentInput=document.getElementById('shared');
+            const child=frame.contentDocument;
+            const childInput=child.getElementById('shared');
+            childInput.focus();
+            const focused=document.activeElement===frame && child.activeElement===childInput;
+            parentInput.focus();
+            const restored=document.activeElement===parentInput && child.activeElement===child.body;
+            childInput.focus();
+            frame.remove();
+            [focused,restored,document.activeElement===document.body,
+             child.activeElement===null,document.getElementById('shared')===parentInput].join('|')
+        "#
+            )
+            .unwrap(),
+            "true|true|true|true|true"
+        );
+    }
+
+    #[test]
+    fn frame_clones_do_not_capture_the_live_child_document() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<iframe id=frame srcdoc='<p id=inside>initial</p>'></iframe>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"
+            const frame=document.getElementById('frame');
+            const child=frame.contentDocument;
+            child.getElementById('inside').textContent='live-only';
+            const copy=frame.cloneNode(true);
+            const imported=document.importNode(frame,true);
+            [copy.childNodes.length===0,imported.childNodes.length===0,
+             frame.childNodes.length===0,child.parentNode===null,
+             document.querySelector('#inside')===null,
+             child.documentElement.getRootNode()===child,
+             copy.contentDocument===null,imported.contentDocument===null,
+             copy.ownerDocument===document,imported.ownerDocument===document,
+             frame.contentDocument===child,child.getElementById('inside').textContent==='live-only'].every(Boolean)
+        "#).unwrap(), "true");
     }
 
     #[test]
@@ -7801,14 +8759,15 @@ mod tests {
         page.evaluate("globalThis.frame=document.querySelector('#frame');globalThis.oldDocument=frame.contentDocument;globalThis.oldWindow=frame.contentWindow;frame.removeAttribute('srcdoc');frame.src='/unavailable'").unwrap();
         assert!(page.frame_realms.contains_key(&old_realm));
         assert_eq!(page.evaluate("String(frame.contentDocument===oldDocument)+'|'+String(frame.contentWindow===oldWindow)+'|'+oldDocument.querySelector('p').textContent").unwrap(), "true|true|old");
-        page.host.activate_realm(old_realm).unwrap();
+        page.agent.host.activate_realm(old_realm).unwrap();
         assert_eq!(
-            page.host
+            page.agent
+                .host
                 .evaluate_string("document.querySelector('p').textContent")
                 .unwrap(),
             "old"
         );
-        page.host.activate_realm(RealmId(0)).unwrap();
+        page.agent.host.activate_realm(RealmId(0)).unwrap();
         page.evaluate("frame.src='/replacement'").unwrap();
         assert!(!page.frame_realms.contains_key(&old_realm));
         assert_eq!(page.evaluate("String(frame.contentDocument!==oldDocument)+'|'+String(frame.contentWindow===oldWindow)+'|'+frame.contentDocument.querySelector('p').textContent").unwrap(), "true|true|new");
@@ -7911,6 +8870,74 @@ mod tests {
                 .unwrap(),
             "https://frame.example.test|null"
         );
+    }
+
+    #[test]
+    fn automation_trace_retains_cross_origin_realm_identity_without_exposing_reader() {
+        let mut resources = BTreeMap::new();
+        resources.insert("https://remote.example.test/child.html".into(),
+            "<script>__oryn_record_automation_event(1,'click','started');__oryn_record_automation_event(1,'click','completed')</script>".into());
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<script>__oryn_record_automation_event(1,'click','started');__oryn_record_automation_event(1,'click','completed')</script><iframe src='https://remote.example.test/child.html'></iframe>",
+            &resources,None,Some(Url::parse("https://parent.example.test/").unwrap())).unwrap();
+        assert_eq!(
+            page.evaluate("typeof globalThis.__oryn_native_automation_trace")
+                .unwrap(),
+            "undefined"
+        );
+        let snapshot: serde_json::Value =
+            serde_json::from_str(&page.evaluate("__oryn_native_automation_trace").unwrap())
+                .unwrap();
+        assert_eq!(snapshot["complete"], true);
+        let events = snapshot["events"].as_array().unwrap();
+        assert_eq!(events.len(), 4);
+        assert_ne!(events[0]["context_id"], events[2]["context_id"]);
+        assert_eq!(events[0]["id"], events[2]["id"]);
+        page.execute("document.querySelector('iframe').remove()")
+            .unwrap();
+        let retained: serde_json::Value =
+            serde_json::from_str(&page.evaluate("__oryn_native_automation_trace").unwrap())
+                .unwrap();
+        assert_eq!(retained, snapshot);
+        let mut fresh = RustExecutableDocument::load("<body>").unwrap();
+        let empty: serde_json::Value =
+            serde_json::from_str(&fresh.evaluate("__oryn_native_automation_trace").unwrap())
+                .unwrap();
+        assert!(empty["events"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn frame_native_actions_preserve_realm_and_message_completion() {
+        for origin in ["https://parent.example.test", "https://remote.example.test"] {
+            let child = format!("{origin}/child.html");
+            let mut resources = BTreeMap::new();
+            resources.insert(
+                child.clone(),
+                r#"<!doctype html><input><script>
+              addEventListener('load',async()=>{
+                try {
+                  const input=document.querySelector('input');
+                  await __oryn_testdriver_actions([{type:'pointer',id:'mouse',actions:[
+                    {type:'pointerMove',origin:input,x:0,y:0},
+                    {type:'pointerDown',button:0},{type:'pointerUp',button:0}]}]);
+                  await __oryn_testdriver_actions([{type:'key',id:'keyboard',actions:
+                    [...'PASS'].flatMap(value=>[{type:'keyDown',value},{type:'keyUp',value}])}]);
+                  parent.postMessage(input.value,'*');
+                } catch(error) {parent.postMessage(String(error),'*');}
+              });
+            </script>"#
+                    .into(),
+            );
+            let mut page = RustExecutableDocument::load_with_environment(
+                &format!("<iframe src='{child}'></iframe><script>globalThis.result='waiting';addEventListener('message',event=>result=event.data)</script>"),
+                &resources, None, Some(Url::parse("https://parent.example.test/").unwrap()),
+            ).unwrap();
+            assert_eq!(
+                page.evaluate("__oryn_drain(true);result").unwrap(),
+                "PASS",
+                "{origin}"
+            );
+        }
     }
 
     #[test]

@@ -1,0 +1,1638 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "required_execution_total": 125,
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "script",
+      "path": "html/semantics/forms/the-optgroup-element/optgroup-removal.window.js",
+      "root": "html",
+      "sha256": "15eb88857deac362cb08ea2832237a1d6699790a0706bc1b26e1e4d4a69777c3",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-element-constructor.html",
+      "root": "html",
+      "sha256": "a1dc2f907407405dc9d67effd5f96a0985513d8ab1c9641c30db5b9304d497d1",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-form.html",
+      "root": "html",
+      "sha256": "2795343edf5b397475d213d6d84fdfad97e6a6fde3ceee6b9a9fda39f797f37d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-index.html",
+      "root": "html",
+      "sha256": "be8d6cdfb337e4ba50448c1858c42e1d89873efc811ca6369671e324cddb2281",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-label.html",
+      "root": "html",
+      "sha256": "26b3e1c8e5f47ca530576d40c7c96842da41849efa4615b42d31ac4ec57ddfb8",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-selected.html",
+      "root": "html",
+      "sha256": "40ace430fedb0ab7acba5528dcf07a17fbe5e4d091931dfa204cddbd080597e0",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-text-backslash.html",
+      "root": "html",
+      "sha256": "bec7c4a49dedaca8b294099a9f89cbf1b14e4c3e64128f10bff4c5fd1e4f5183",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-text-label.html",
+      "root": "html",
+      "sha256": "de1f3fc2b97e6c1de8efb28bb3a9bec974ca2d87bea1058ab3f6d2ae3aa012bd",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-text-recurse.html",
+      "root": "html",
+      "sha256": "5b2a7069d8588296aad2d90a0bb256a277507de3b1a7b17428b6b2cb48f9dfc9",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-text-setter.html",
+      "root": "html",
+      "sha256": "0d38a4d3e7d0eb58a14517e57e068233c8af2bae0ad9f61e70be50749bdd324e",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-text-spaces.html",
+      "root": "html",
+      "sha256": "5e4f2d29046cd3091cf348253e4954a36da74c15445ce8aa5149cfce02768695",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-value.html",
+      "root": "html",
+      "sha256": "9b7e9d7d7ec03152f90ad1b4d2106c0a5ab54cb64c6ff116bb870faabdbbebec",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/common-HTMLOptionsCollection-add.html",
+      "root": "html",
+      "sha256": "6f21a741f158dca03b57dc9ca754dd50fb7146739c496c3e2f19864567aa45e9",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/common-HTMLOptionsCollection-namedItem.html",
+      "root": "html",
+      "sha256": "f5822d6dd151aa0dd83b30a014e88b7c9a10bf3216163f021864d64f8f3c5c26",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/common-HTMLOptionsCollection.html",
+      "root": "html",
+      "sha256": "836efb8c1fcb93c367ccc3bceb707ff2d94f88563dcd8fded53d5514368dbb34",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select-listbox/customizable-select-listbox-keyboard-behavior.optional.html",
+      "root": "html",
+      "sha256": "fd56d1e791137607c98ede77382b976100fcbc02353ae0807ad136f15e6c15c0",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select-listbox/customizable-select-listbox-mouse-behavior.html",
+      "root": "html",
+      "sha256": "305eb188e9b769326943680c667a4fa29d0923f8fdeda7383ab1c64a51fbb618",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select-listbox/select-listbox-home-end-pagedown-pageup.optional.html",
+      "root": "html",
+      "sha256": "ac8d2ddf878ab84ae08e5cd06738ae886457b67acb77700e8f5dc6b4437f27f4",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select-listbox/select-listbox-typeahead.optional.html",
+      "root": "html",
+      "sha256": "d94920d3eb69d0fc4dd461641dde53e58778c11a575e6d89b41421f8618e2c28",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select-listbox/selectedcontent-listbox.html",
+      "root": "html",
+      "sha256": "eee1d4390527575b0f0c60ae6bb55a9614e3f3dc605c2e3a1469a56b8ba87001",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select-multiple-popup/select-multiple-popup-keyboard-behavior.tentative.html",
+      "root": "html",
+      "sha256": "997ae6c7ba7a75e969fe163411dbe3f0b959e2436173a6c09847aa693652de98",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select-multiple-popup/select-multiple-popup-mouse-behavior.tentative.html",
+      "root": "html",
+      "sha256": "24b46f418636c417590d3e8f065e3bb0f6228af591ff370c451da1a6e1c0ef85",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select-multiple-popup/select-multiple-validity-invalidation.tentative.html",
+      "root": "html",
+      "sha256": "de337d534821dcbde03e3c012eb1679278b2c6c31c693456896be95da7605a66",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select-multiple-popup/selectedcontent-multiple-restore.optional.html",
+      "root": "html",
+      "sha256": "35d2d458fd7e4ceba13b20ba940947e27c38f26146dac15acb1003ef1eec1951",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select-multiple-popup/selectedcontent-multiple.tentative.html",
+      "root": "html",
+      "sha256": "1cbabdd0b9216b71e88032f290f6cc8eea02cf022c051123f0b2340f466f6d47",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/base-appearance-inheritance.html",
+      "root": "html",
+      "sha256": "de87ee84fafeb27285e37ef1a92e990f3809b346597eb02114673fb9a81625cb",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/button-in-popover.html",
+      "root": "html",
+      "sha256": "5b978157dd4b3b43c16ff98cc3a1d58c5f47dd9457bc61d9745d901ff045aa26",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/checkmark-animation.html",
+      "root": "html",
+      "sha256": "72003f53cfb02d65f97161ddc428d59c05c7d5e7a743d787ac5cba3b782bcdb1",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/nested-options.html",
+      "root": "html",
+      "sha256": "1ce95eb9f7926ccf31dc932a8693bec446a950b60b5840a01568d106ec2f6fd6",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/option-color-inheritance.html",
+      "root": "html",
+      "sha256": "14884c06960a979734110480c52ba4078a4b64e918712b653e5a2b1784d449c6",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/option-disabled-invalid-nesting.html",
+      "root": "html",
+      "sha256": "ba169f3ecc28daca264c44f1876702adf3f3b29162d7ead08798c24c22f91a9e",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/option-disabled-optgroup-wrapper.html",
+      "root": "html",
+      "sha256": "47ab919db7799627253a5626b73b7f57fc292a9d78111a26044c141a27f753e0",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/option-disabled-optgroup.html",
+      "root": "html",
+      "sha256": "596c2adb5d9555b3e24032005918bea2d6cf424615ce3a2a2dbd5c3ed935cb98",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/option-form-ancestor-select.html",
+      "root": "html",
+      "sha256": "4280f4a26946a820ba0863b9a779da47fb04c980849f3d686011cb70c9f39204",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/option-list-wrapped-optgroup.html",
+      "root": "html",
+      "sha256": "3741fb0e03e184fc819c50e839775071597a3b2ab4874904faa2dfdce9ef0887",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/option-list.html",
+      "root": "html",
+      "sha256": "c73fd2901e7f7bbe040307ef3a69e8f3670775b3e09b5f36d93d742fb81c8cbc",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/picker-icon-animation.html",
+      "root": "html",
+      "sha256": "6ef9b0c5e6aafa7bb825f296d53ccec86073691c66f246a0c60354d54c739c3f",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-accessibility-minimum-target-size.html",
+      "root": "html",
+      "sha256": "4dda6b23573944401e36536dbe8d3f5d7385273f88f491a710be05493f920a87",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-anchor-regression.html",
+      "root": "html",
+      "sha256": "4c299727d9f689ade9128dd771f7f41a2ce3db7a2354a8d3df428a9cdb6404e1",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-base-appearance-computed-style.html",
+      "root": "html",
+      "sha256": "f5269d50ecfdde3dc3968d0b56342a38658735531c5080294e8b04c07cbdbc96",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-button-behaviors.html",
+      "root": "html",
+      "sha256": "6c1fdacb62aba005e13b76a43299c4b46ff5597da101d8a0f49866f561ae6063",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-click-drag-option.optional.html",
+      "root": "html",
+      "sha256": "c575d71991b8223b1a4e978587b9ae8ed6160229a0d30bd71323356b2c382a25",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-click-picker-light-dismiss.tentative.html",
+      "root": "html",
+      "sha256": "9b5ffc1d488b873943b5ae9e59b4eefdd6c924120e0b035ed892e8f6fb8e43bd",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-dialog-mode-focus.optional.html",
+      "root": "html",
+      "sha256": "0066d6f3c543259b72d3c696320a63dffea39c0b654710f5527dd48e47a9e597",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-disabled.html",
+      "root": "html",
+      "sha256": "4056f575e373a931f59d3b9529007bc060a65c8f33feb851095fede490dee835",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-events-2.optional.html",
+      "root": "html",
+      "sha256": "b67997be15b6f1259e8a169fa415fa520b75498872e44cb231a638917d229673",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-events.optional.html",
+      "root": "html",
+      "sha256": "5e30e023fcfae00254ba688729c0dbbeb895151ac82352e8f676ffc400be2148",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-focus-visible-with-mouse.html",
+      "root": "html",
+      "sha256": "ea66f31069257f44c80e368eddb64682d1866782875171732537f65e63a2e026",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-home-end-pagedown-pageup-detailed.optional.html",
+      "root": "html",
+      "sha256": "f2dc151aae3ca1b833e3a8ccfa2678f944849cea8c38c517125d2b333cc975cc",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-home-end-pagedown-pageup.optional.html",
+      "root": "html",
+      "sha256": "8c045ad150563bd7c7eb578368f144b960566a98aef7e21fb64342f7f49f95db",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-initial-focus-display-animation.html",
+      "root": "html",
+      "sha256": "f1036a372d9aa9898589b50ed4aa147ca8eda8d8995b1681a478f5acb641fbf1",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-input-parsing.tentative.html",
+      "root": "html",
+      "sha256": "c49ae9b16381d8211de8e3cdf3a09daa4c17cc5932e0dc1a932adc4eca9639a2",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-inside-top-layer.html",
+      "root": "html",
+      "sha256": "31a46e3c5adfda5753ac3b4f7329ceb29285cfd17376bba462647d7ca2f630c8",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-iterate-before-beginning.optional.html",
+      "root": "html",
+      "sha256": "d69711e1d217ec99c44f4524e78bdf866239d8ef16adb7951f9a6d878b1d7a43",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-keyboard-behavior.optional.html",
+      "root": "html",
+      "sha256": "67662dac554da5e80c3ce013646b3fa409e26317bb33aadd215d4d221f8c4be2",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-keyboard-focus-change-for-hidden-options.optional.html",
+      "root": "html",
+      "sha256": "2f19546822ed3e9a47919b8ee60bfbf0b117af09c25761d80680e31fa94d36d7",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-mouse-behavior.html",
+      "root": "html",
+      "sha256": "e4d309e53da8c2f5693e539fcd13b0655ead8c7ee0d1107d6d8f42a5e5612f41",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-mousedown-slot-mutation.optional.html",
+      "root": "html",
+      "sha256": "12d23c986a6af787eddc047d2afb9d88bbb55140d66c05de19282b2961a59e08",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-multiple-removed.html",
+      "root": "html",
+      "sha256": "e870820df1fbf67648c65bf8db09add85baf6007539e3e561380079b933069b6",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-optgroup-arrow-keys.optional.html",
+      "root": "html",
+      "sha256": "ac7a49f55fc4b88dc8ebfd50b87bb3a3528fb04071b120a70ffca0b591bc56c6",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-option-arrow-scroll.optional.html",
+      "root": "html",
+      "sha256": "84a90e2302cfa8ef056c41828b2171b57541065c2d3956215c94b4e51397db05",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-option-hover-styles.html",
+      "root": "html",
+      "sha256": "c84da41454310faa0a50dad4abd971db6d5d3fe31b8bab94017f9a970a13b77b",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-options-id.html",
+      "root": "html",
+      "sha256": "f9bd59d61f10e9d1f63b511b1a19f0f8d1080d7e8e0d9791f161f2bd20e721ea",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-parsing.html",
+      "root": "html",
+      "sha256": "0a497ad9d9d757cbb2fdb55c1ea2129d2c34a32cebcacda2011d9966e855ab7c",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-picker-animations.html",
+      "root": "html",
+      "sha256": "c6adc9f3f4f9753556ad483c82a4a866e6a3b461c93f67ce4bc4fbbe0792a7be",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-picker-exit-animation.html",
+      "root": "html",
+      "sha256": "cbfdb46039b2cd2258429ada77662f7f4e46145ebe5c9d8c5812db863dd835d0",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-picker-hover-active-pseudo.html",
+      "root": "html",
+      "sha256": "a8ebfae6d815723af08914d8377d7ee5f50e9d8e2b578ea9bb7a674143290ee9",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-picker-interactive-element-focus.optional.html",
+      "root": "html",
+      "sha256": "8977a9d26112d7874eb77d1936484e9eedac9fb4d8e22cd801ba7bb193632bbc",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-picker-option-animation-reopens.html",
+      "root": "html",
+      "sha256": "04fb89fcee43d020f089a1fecb32d0ef1ee1bf3bed6a78106c83a9d6a2f858e2",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-picker-popover-open-invalid.tentative.html",
+      "root": "html",
+      "sha256": "389a94f7930910ae20af0011c60bdf5dbd28bc5dcf74ad1e520100b62e50825a",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-picker-starting-style.html",
+      "root": "html",
+      "sha256": "a41a75ad3136aa7519824088552c06d3c5211b8b52066d940e9a0d7d55b1e2b5",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-pseudo-light-dismiss-invalidation.html",
+      "root": "html",
+      "sha256": "f0e6a0be14b3571c4b3f326c915cbb7a0c17194f18552f9be53cb889f41eeedc",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-pseudo-open.html",
+      "root": "html",
+      "sha256": "6bb202f86044d3f0c53b3103fa1cebc3451ed7cd6be3be0e7f4f1acf79f1cc2c",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-size-change.html",
+      "root": "html",
+      "sha256": "ffb949ec0c28eb9bc74d3c74ad67838a28af9cbab7860e402c598d673b7ad5be",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-synthetic-events.html",
+      "root": "html",
+      "sha256": "1c115da4123593502dd696e15fdb101c25478e5927ecb26041da3250658c45a2",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-tabindex-order.html",
+      "root": "html",
+      "sha256": "834d9aa26b9b6c26ba6e82a2bed87be9e1fd52f58106d0afe677b394882719eb",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-type-to-search.tentative.html",
+      "root": "html",
+      "sha256": "d4945188bcc45b30db12a241e7408376396472065f1cbd746234fb3dcd732d73",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-value-selectedOption.html",
+      "root": "html",
+      "sha256": "d62c874c77dfde150cf1612b16f5883b1c07f10417f2cc5c0384261c916037d7",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/select-vertical-writing-mode-navigation.optional.html",
+      "root": "html",
+      "sha256": "fc7670bcff886a8d8aa33b9d0b11a43d8f7f2b843950d9615c5b3b897af49a12",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/selectedcontent-insertion-removal.html",
+      "root": "html",
+      "sha256": "f068ce10a8c08ff8289f4f74a0a56cdd52d4831ae23f05a9c7e537d66703e6f9",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/selectedcontent-movebefore.html",
+      "root": "html",
+      "sha256": "bf121e53ad3728cbebc3cf973eb6da5a0c44c218495e791cd4cf9a76ae85bd49",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/selectedcontent-mutations.html",
+      "root": "html",
+      "sha256": "28de2521f813b6c26802ce701b9fa644ed9d5df3c085353f375d7b63929497ba",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/selectedcontent-nested.html",
+      "root": "html",
+      "sha256": "93625f20d177cbe42c14a12b1570887a12d477b697dd8540dd05f80eed6294e4",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/selectedcontent-restore.optional.html",
+      "root": "html",
+      "sha256": "c6cacf3dfde4937c01748f6df19eeafee51e5ea77ac5bebc454c5163ba5e86e5",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/selectedcontent.html",
+      "root": "html",
+      "sha256": "c592dc5e79c218d6f170b33d1d11f8c6b653c9ef124e1f77e4c8dcbc3e3e88a0",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/selectedcontentelement-attr.tentative.html",
+      "root": "html",
+      "sha256": "d806027ae8ba01ad2e12a0ba9d114882aa658c3a0c7397b631bdf4fe38cfbcac",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/customizable-select/switch-picker-appearance.html",
+      "root": "html",
+      "sha256": "d4472ce82af83b12d2b085a9357ffd7ba9f67dffbb566aa889d260fe9209caff",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/filterable-select/filterable-select-filtered-pseudo.tentative.html",
+      "root": "html",
+      "sha256": "597bca6525e51866cbe383d9e3b5443db60108c05ad61d7565708f932c077566",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/filterable-select/filterable-select-keyboard-behavior.tentative.html",
+      "root": "html",
+      "sha256": "1cac264dc2f08f2e9165b8503b3aea6a4eb1ad800229403510fa6ff540ffc110",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/filterable-select/select-beforefilter.tentative.html",
+      "root": "html",
+      "sha256": "87bea384b08e9b7c38aed514f58d255293fb03b520ac299e518df53e00cd820f",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/inserted-or-removed.html",
+      "root": "html",
+      "sha256": "dd9b56322caee7b5b429e3b7f7748b394dbb8a40f51fbd4b6b8b08c8cd8a192a",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/option-selectedness-script-mutation.html",
+      "root": "html",
+      "sha256": "0622b1502368f41fb79a35fc0e21d64225592815c034ee1e74e7075754231848",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-add-optgroup.html",
+      "root": "html",
+      "sha256": "69465deecdba029b490e2e62a713842381c4458447f76b211d65227105b8c1da",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-add.html",
+      "root": "html",
+      "sha256": "6af88415b85d5c601016c9184d224eb9a2ce8b17df8ad92f19b4b31b2347b6c6",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-ask-for-reset.html",
+      "root": "html",
+      "sha256": "603e16105321fee4ad38b8560c49c8cf371c99666d770c34d3806f70ceb1187a",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-clear-reappend.tentative.html",
+      "root": "html",
+      "sha256": "1c6e9cd4c3e5c76d892dc9835f6dff6b048e68c1fe8c3778bf18a32d3d197335",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-click-does-not-open-picker.html",
+      "root": "html",
+      "sha256": "7ff2f6a649d2a18b01748378edcf1c00446d42387f10b361622333d003eb9bcf",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-listbox-touch.optional.html",
+      "root": "html",
+      "sha256": "1afbd69ac45aef71b70957f77e8503cdb86b0ea0444866b886291f669c3aa4f3",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-many-options.tentative.html",
+      "root": "html",
+      "sha256": "86043fb078a29f50634153ec25cdfa8e0af3ed9c935876b4aec3271f47bf13a7",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-multiple-resize-does-not-autoscroll.html",
+      "root": "html",
+      "sha256": "7b6f00599c73d15906653c540f07de604a76ce2c94ad158ddc6468bee436d710",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-multiple.html",
+      "root": "html",
+      "sha256": "ecc4fbbc874d4d6e63ac9938a28b058785984d395dedd38e9f0681ad1f1b14a6",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-named-getter.html",
+      "root": "html",
+      "sha256": "3464f8e7033152f22068695ce0687f2a85c4e68e21ef1220b04cbdae6d17ff93",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-option-display-inherit.tentative.html",
+      "root": "html",
+      "sha256": "bc52b20c0254174a97daa850f75c0f0f30aae67ecdc4d76175feef9e8ad37807",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-option-focusable.tentative.html",
+      "root": "html",
+      "sha256": "46b93148adcc1820d5fac80c75c9db42bd9a9d292fbacca03f25e217fabfe1fa",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-popover-position-with-zoom.tentative.html",
+      "root": "html",
+      "sha256": "7bd884ae3a0d9b586f3e41698080ae444a37ec975316a4beb5b07379ae3337e9",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-remove.html",
+      "root": "html",
+      "sha256": "0629763acb491dc77fd443bce9046cfc64490b80393652af12b5112c74e4849b",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-required-attribute.tentative.html",
+      "root": "html",
+      "sha256": "ab3f9d5bc3cca6b93fc39516ff590649eefc5b7d8ab8a0b4a07005975652bb50",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-restore-invalid-option.html",
+      "root": "html",
+      "sha256": "71bd0ba149a55c60ec259ad94c6824c3739b7590a0d9c240b4428a42d3525284",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "script",
+      "path": "html/semantics/forms/the-select-element/select-selectedOptions-nesting.window.js",
+      "root": "html",
+      "sha256": "46c2b68b2b9ef91f73620ba4f7bcbf24098d2db60304b8ba0b807b8f66b875da",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-selectedOptions.html",
+      "root": "html",
+      "sha256": "e413758973fba53ba2274204929cfe4c52250c3629360b722c2565cedfc26586",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-setcustomvalidity.html",
+      "root": "html",
+      "sha256": "6cefc2f462fe6fc3955fc1cc24de24650fe4ab822ca301ae9f28a66b7578457a",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-tab-navigation.tentative.html",
+      "root": "html",
+      "sha256": "06487c718d344ddc36480ccdb2c876c8bffa9263f44ee8c1d3a74b50ef5e1491",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-validity.html",
+      "root": "html",
+      "sha256": "2b1a14affe7e5ac52bc9bac35b1602b87c876033d2b3304b558b6a3cd88b64e3",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-validity.tentative.html",
+      "root": "html",
+      "sha256": "47b4d2e88b100814e5d050b8b69af6856435110907e6e321513a787c1a616af6",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-value-option.tentative.html",
+      "root": "html",
+      "sha256": "62c473e97314be581726a6eda5cf96f00d327d45ee5defb83079b4dc6eb41c45",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-value.html",
+      "root": "html",
+      "sha256": "99eb542ec722130b89cb24db8e832218df64c99abe209369dd59992ca9d37735",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/select-willvalidate-readonly-attribute.html",
+      "root": "html",
+      "sha256": "41dcb5048b1c286015ff91c1815795875718c57a855e18e18e9169948a4f86e5",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/selected-index.html",
+      "root": "html",
+      "sha256": "0d0e270f8637ce5c50797af9a50bf97b322cb3920df5ec78e9c5d2cad7809fdb",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/show-picker-being-cv-hidden.html",
+      "root": "html",
+      "sha256": "24c5ae4ed95427e765b011da33a057a1878a2a38e01836c1289b446a0033f1cb",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/show-picker-being-rendered.html",
+      "root": "html",
+      "sha256": "65aaf4133449c28c6c333f7d0aed078e0fb1e0dde50f807613c462ef275e5ffb",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/show-picker-cross-origin-iframe.html",
+      "root": "html",
+      "sha256": "84571c9023d4714b1bb33fd54159d5c08d4060f978d2c623b94219a244f4df1c",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/show-picker-disabled.html",
+      "root": "html",
+      "sha256": "634167a8f50faeb6a1ab263effc42900f23eb85d8409d85032c266a9f4e70526",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/show-picker-multiple.html",
+      "root": "html",
+      "sha256": "2675ee195297575e940b28f5fa69fb18c11bbb901db8f63d8a08509fdd5b4cba",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/show-picker-size.html",
+      "root": "html",
+      "sha256": "a1e530bf614f708d21cf0cbe262320c4991d05e3caeeed6fef44cf2decde8685",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-select-element/show-picker-user-gesture.html",
+      "root": "html",
+      "sha256": "ca708633a56a457cae94ab1c0fe8b2edce7b6afe17d97d493e097623286a34de",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ],
+  "selection": {
+    "rule": "All mapped Core testharness executions under the-option-element, the-select-element and the-optgroup-element in inventory-v3, without outcome filtering.",
+    "official_manifest_sha256": "566f2c77524c69cc249c5fe18507ad4c11866d9077b201681b19807c4ee28101",
+    "policy_sha256": "a655bd38bbd3cc90e49344f7ceae1db1a3bfb09c8b84419b336ebf72f81eb84f"
+  },
+  "selection_rationale": "Broader select/option API diagnostic selection; does not replace the full Core ledger or exempt unsupported/manual coverage."
+}

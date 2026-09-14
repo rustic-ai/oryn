@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_local_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "signed_validation_performed": false,
+  "wpt_validation_performed": false,
+  "linux_validation_performed": false,
+  "source_tree_sha256": "8438a2eb9b0393188bc8ab13f6452b1ed85ad939b7e9acd3849b0bfa3d524e45",
+  "native_test_binary_sha256": "e0be9c42e72fc12c70638a9e02ae554e64788f861855375b0105f9949bfbff50",
+  "features": ["v8-host", "v8-sandbox", "in-process-probe", "core-full"],
+  "dom_tests": {"passed": 96, "failed": 0, "seconds": 0.28},
+  "js_tests": {"passed": 255, "failed": 0, "ignored": 3, "seconds": 1.55},
+  "layout_tests": {"passed": 73, "failed": 0, "seconds": 0.61},
+  "clippy": {
+    "passed": true,
+    "scope": "DOM, JS, layout and native libraries, warnings denied"
+  },
+  "format_and_diff_checks_passed": true,
+  "native_full_run": {
+    "status": "passed",
+    "passed": 455,
+    "failed": 0,
+    "ignored": 6,
+    "seconds": 589.47,
+    "command": "target/debug/deps/oryn_native-3f1f84ec431c4250 --test-threads=1 --quiet",
+    "local_networking_permission": true,
+    "competing_builds_or_wpt": false
+  },
+  "changes": [
+    "Primary-document ID lookup follows document-local tree order, not an arena-wide cache.",
+    "Native Document child edges and embedding cycles are rejected before mutation.",
+    "Rejected insertBefore operations leave Range endpoints and tree state unchanged.",
+    "Focus retargets through explicit document hosts; inactive documents return null activeElement.",
+    "Native document replacement validates and targets its explicit Document receiver.",
+    "Document write buffers are receiver-scoped, retain the aggregate 1 MiB budget, and hold native leases released on close and binding teardown.",
+    "Two-frame interleaved document writes preserve parent and sibling identities and execute scripts in the corresponding frame realm.",
+    "Detached-document write tests cover independent buffers, inert scripts, reopening and budget rejection/recovery."
+  ],
+  "supersedes_local_snapshot": "browser-document-boundaries-local-2026-09-13.json",
+  "remaining": "Full HTML incremental dynamic-markup behavior, native document ownership/adoption, AgentRuntime and subsequent R/W cutovers remain incomplete. No related-window sharing activation. Range.insertNode crash remains unresolved and was not rerun in this batch. Earlier signed evidence applies only to its recorded source."
+}

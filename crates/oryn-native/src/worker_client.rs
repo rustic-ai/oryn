@@ -1,14 +1,19 @@
 #![cfg(unix)]
 
 use std::{
+    collections::{BTreeSet, HashMap},
     fs,
     os::{
         fd::{AsRawFd, RawFd},
+        unix::fs::MetadataExt,
         unix::{net::UnixStream, process::CommandExt},
     },
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc, Condvar, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -18,7 +23,10 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     BrowserConfig, BrowserContext, ContextOptions, RuntimeBuildInfo,
-    context_service::{ParentContextService, serve_context_service},
+    context_service::{
+        ContextServiceRequest, ContextServiceResponse, ContextTransport, ParentContextService,
+        serve_context_transport,
+    },
     cookies::{CookieRequestContext, CookieRequestKind},
     csp::{CspDestination, CspRequest},
     network::{
@@ -36,18 +44,137 @@ const EXPECTED_STYLE_ENGINE_VERSION: &str = oryn_common::STYLE_ENGINE_VERSION;
 const EXPECTED_BOX_ENGINE_VERSION: &str = "taffy-0.14";
 const EXPECTED_INLINE_ENGINE_VERSION: &str = "parley-0.11.1";
 
+#[derive(Default)]
+struct RouteAdmissions {
+    retired: bool,
+    active: usize,
+    network_requests: BTreeSet<u64>,
+}
+
+/// Parent-owned admission barrier. Revocation and admission serialize on the
+/// same lock; an accepted operation retains its lease until all its work ends.
+#[derive(Default)]
+struct RouteAuthority {
+    state: Mutex<RouteAdmissions>,
+    drained: Condvar,
+}
+
+struct RouteAdmission {
+    authority: Arc<RouteAuthority>,
+    network_request: Option<u64>,
+}
+
+impl RouteAuthority {
+    fn ensure_live(&self) -> Result<(), NetworkError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| NetworkError::Transport("worker route lock poisoned".into()))?;
+        if state.retired {
+            return Err(NetworkError::Transport(
+                "worker network route revoked".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn admit(
+        self: &Arc<Self>,
+        network_request: Option<u64>,
+    ) -> Result<RouteAdmission, NetworkError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| NetworkError::Transport("worker route lock poisoned".into()))?;
+        if state.retired {
+            return Err(NetworkError::Transport(
+                "worker network route revoked".into(),
+            ));
+        }
+        if state.active >= 64 {
+            return Err(NetworkError::Transport(
+                "worker route admission capacity exceeded".into(),
+            ));
+        }
+        if let Some(id) = network_request
+            && !state.network_requests.insert(id)
+        {
+            return Err(NetworkError::Transport(
+                "duplicate active worker network request".into(),
+            ));
+        }
+        state.active += 1;
+        Ok(RouteAdmission {
+            authority: self.clone(),
+            network_request,
+        })
+    }
+
+    fn revoke(&self) -> Result<Vec<u64>, RuntimeError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("worker route lock poisoned".into()))?;
+        state.retired = true;
+        self.drained.notify_all();
+        Ok(state.network_requests.iter().copied().collect())
+    }
+
+    fn wait_drained(&self, timeout: Duration) -> Result<(), RuntimeError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("worker route lock poisoned".into()))?;
+        if !state.retired {
+            return Err(RuntimeError::ProtocolViolation(
+                "cannot drain an active worker route".into(),
+            ));
+        }
+        let (state, _) = self
+            .drained
+            .wait_timeout_while(state, timeout, |state| state.active != 0)
+            .map_err(|_| RuntimeError::ContextService("worker route lock poisoned".into()))?;
+        if state.active != 0 {
+            return Err(RuntimeError::ContextService(
+                "worker route did not drain before reset deadline".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for RouteAdmission {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.authority.state.lock() {
+            state.active -= 1;
+            if let Some(id) = self.network_request {
+                state.network_requests.remove(&id);
+            }
+            if state.active == 0 {
+                self.authority.drained.notify_all();
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 struct PageNetworkBroker {
+    authority: Arc<RouteAuthority>,
     inner: crate::network::SharedNetworkBroker,
     context: BrowserContext,
     page_id: PageId,
 }
 
 impl PageNetworkBroker {
+    fn ensure_bound(&self) -> Result<(), NetworkError> {
+        self.authority.ensure_live()
+    }
+
     fn prepare(
         &self,
         mut request: NetworkRequest,
     ) -> Result<(NetworkRequest, String), NetworkError> {
+        self.ensure_bound()?;
         let page_url = self
             .context
             .page_url(self.page_id)
@@ -115,6 +242,8 @@ impl PageNetworkBroker {
 
 impl NetworkBroker for PageNetworkBroker {
     fn send(&self, mut request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        let _admission = self.authority.admit(Some(request.request_id))?;
+        self.ensure_bound()?;
         let page_url = self
             .context
             .page_url(self.page_id)
@@ -177,6 +306,7 @@ impl NetworkBroker for PageNetworkBroker {
             redirect_chain_cross_site: request.security.redirect_chain_cross_site,
         };
         let response = self.inner.send(request.clone())?;
+        self.ensure_bound()?;
         if request.security.kind == CookieRequestKind::Frame {
             let frame_policy =
                 crate::csp::CspPolicySet::from_headers(request.url.clone(), &response.headers);
@@ -208,20 +338,31 @@ impl NetworkBroker for PageNetworkBroker {
     }
 
     fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        let admission = self.authority.admit(Some(request.request_id))?;
         let (request, page_url) = self.prepare(request)?;
         let request_id = request.request_id;
         let request_kind = request.security.kind;
         let request_url = request.url.clone();
         let context = self.context.clone();
         let page_id = self.page_id;
+        let route = self.clone();
         let mut operation = self.inner.start_operation(request)?;
-        let demand = operation.demand.clone();
+        let demand = operation.demand.take();
         let (sender, events) = tokio::sync::mpsc::channel(8);
         std::thread::spawn(move || {
+            let _admission = admission;
             let mut response_headers = Vec::new();
             let mut body = Vec::new();
             let mut prepared_meta_count = 0_usize;
             while let Some(event) = operation.events.blocking_recv() {
+                if let Err(error) = route.ensure_bound() {
+                    let _ = route.inner.cancel_operation(request_id);
+                    let _ = sender.blocking_send(NetworkEvent::Failed {
+                        request_id,
+                        error: error.to_string(),
+                    });
+                    return;
+                }
                 if let NetworkEvent::Headers {
                     status, headers, ..
                 } = &event
@@ -286,7 +427,11 @@ impl NetworkBroker for PageNetworkBroker {
                         prepared_meta_count = prepared_meta_count.saturating_add(1);
                     }
                 }
-                if sender.blocking_send(event).is_err() {
+                let terminal = matches!(
+                    event,
+                    NetworkEvent::Complete { .. } | NetworkEvent::Failed { .. }
+                );
+                if sender.blocking_send(event).is_err() || terminal {
                     return;
                 }
             }
@@ -299,7 +444,164 @@ impl NetworkBroker for PageNetworkBroker {
     }
 
     fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
-        self.inner.cancel_operation(request_id)
+        let _admission = self.authority.admit(None)?;
+        let owned = self
+            .authority
+            .state
+            .lock()
+            .map_err(|_| NetworkError::Transport("worker route lock poisoned".into()))?
+            .network_requests
+            .contains(&request_id);
+        if owned {
+            self.inner.cancel_operation(request_id)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(Clone)]
+struct BoundWorkerRoute {
+    network: PageNetworkBroker,
+    context: Arc<ParentContextService>,
+}
+
+#[derive(Default)]
+enum WorkerRouteState {
+    #[default]
+    Unbound,
+    Bound(BoundWorkerRoute),
+    Draining,
+}
+
+#[derive(Default)]
+struct WorkerBrokerRouter {
+    route: Mutex<WorkerRouteState>,
+}
+
+impl WorkerBrokerRouter {
+    fn bind(&self, route: BoundWorkerRoute) -> Result<(), RuntimeError> {
+        let mut current = self
+            .route
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("worker router lock poisoned".into()))?;
+        if !matches!(*current, WorkerRouteState::Unbound) {
+            return Err(RuntimeError::ProtocolViolation(
+                "worker broker router is already bound".into(),
+            ));
+        }
+        route
+            .network
+            .ensure_bound()
+            .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+        *current = WorkerRouteState::Bound(route);
+        Ok(())
+    }
+
+    fn unbind(&self) -> Result<(), RuntimeError> {
+        self.unbind_with_timeout(Duration::from_secs(2))
+    }
+
+    fn unbind_with_timeout(&self, timeout: Duration) -> Result<(), RuntimeError> {
+        let mut current = self
+            .route
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("worker router lock poisoned".into()))?;
+        let previous = match std::mem::replace(&mut *current, WorkerRouteState::Draining) {
+            WorkerRouteState::Bound(previous) => previous,
+            WorkerRouteState::Unbound => {
+                *current = WorkerRouteState::Unbound;
+                return Ok(());
+            }
+            WorkerRouteState::Draining => {
+                return Err(RuntimeError::ContextService(
+                    "worker route is still draining".into(),
+                ));
+            }
+        };
+        let requests = previous.network.authority.revoke()?;
+        drop(current);
+        previous.context.cancel_all_network_operations();
+        for request in requests {
+            let _ = previous.network.inner.cancel_operation(request);
+        }
+        // A failed drain leaves the router permanently unavailable. The caller
+        // kills this worker rather than issuing Reset or admitting a new lease.
+        previous.network.authority.wait_drained(timeout)?;
+        // An operation admitted before revocation could have registered a
+        // resource while the first cleanup ran. No such operation remains now.
+        previous.context.cancel_all_network_operations();
+        *self
+            .route
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("worker router lock poisoned".into()))? =
+            WorkerRouteState::Unbound;
+        Ok(())
+    }
+
+    fn current(&self) -> Result<BoundWorkerRoute, RuntimeError> {
+        let current = self
+            .route
+            .lock()
+            .map_err(|_| RuntimeError::ContextService("worker router lock poisoned".into()))?;
+        match &*current {
+            WorkerRouteState::Bound(route) => Ok(route.clone()),
+            _ => Err(RuntimeError::ContextService(
+                "worker is not bound to a page".into(),
+            )),
+        }
+    }
+}
+
+impl NetworkBroker for WorkerBrokerRouter {
+    fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        self.current()
+            .map_err(|error| NetworkError::Transport(error.to_string()))?
+            .network
+            .send(request)
+    }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        self.current()
+            .map_err(|error| NetworkError::Transport(error.to_string()))?
+            .network
+            .start_operation(request)
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.current()
+            .map_err(|error| NetworkError::Transport(error.to_string()))?
+            .network
+            .cancel_operation(request_id)
+    }
+}
+
+impl NetworkBroker for Arc<WorkerBrokerRouter> {
+    fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        NetworkBroker::send(&**self, request)
+    }
+
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        NetworkBroker::start_operation(&**self, request)
+    }
+
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        NetworkBroker::cancel_operation(&**self, request_id)
+    }
+}
+
+impl ContextTransport for WorkerBrokerRouter {
+    fn request(
+        &self,
+        request: ContextServiceRequest,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
+        let route = self.current()?;
+        let _admission = route
+            .network
+            .authority
+            .admit(None)
+            .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+        ContextTransport::request(&*route.context, request)
     }
 }
 
@@ -309,7 +611,40 @@ const EXPECTED_BUNDLE_ID: &str = "ai.rustic.oryn.page-worker";
 const EXPECTED_TEAM_ID: &str = "5HVA9VFF8K";
 const EXPECTED_SIGNING_CERT_SHA1: &str = "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90";
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
-static NEXT_CERTIFICATE_DIRECTORY_ID: AtomicU64 = AtomicU64::new(1);
+static WORKER_VERIFICATION_CACHE: OnceLock<Mutex<HashMap<WorkerFileIdentity, WorkerVerification>>> =
+    OnceLock::new();
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct WorkerFileIdentity {
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+    size: u64,
+    modified_seconds: i64,
+    modified_nanoseconds: i64,
+    changed_seconds: i64,
+    changed_nanoseconds: i64,
+    manifest_sha256: String,
+}
+
+fn worker_file_identity(
+    path: PathBuf,
+    manifest_bytes: &[u8],
+) -> Result<WorkerFileIdentity, RuntimeError> {
+    let metadata =
+        fs::metadata(&path).map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+    Ok(WorkerFileIdentity {
+        path,
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        size: metadata.size(),
+        modified_seconds: metadata.mtime(),
+        modified_nanoseconds: metadata.mtime_nsec(),
+        changed_seconds: metadata.ctime(),
+        changed_nanoseconds: metadata.ctime_nsec(),
+        manifest_sha256: format!("{:x}", Sha256::digest(manifest_bytes)),
+    })
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkerVerification {
@@ -355,11 +690,50 @@ pub struct WorkerClient {
     runtime: RuntimeBuildInfo,
     binary_sha256: String,
     verification: Option<WorkerVerification>,
+    router: Arc<WorkerBrokerRouter>,
+    leases: usize,
+    rss_monitor: Arc<RssMonitor>,
+    code_directory_hash: Option<String>,
+}
+
+struct RssMonitor {
+    resident_bytes: AtomicUsize,
+    failed: AtomicBool,
+    stop: AtomicBool,
+}
+
+impl RssMonitor {
+    fn start(pid: u32) -> Result<Arc<Self>, RuntimeError> {
+        let resident = resident_bytes(pid)?;
+        let monitor = Arc::new(Self {
+            resident_bytes: AtomicUsize::new(resident),
+            failed: AtomicBool::new(false),
+            stop: AtomicBool::new(false),
+        });
+        let sampler = monitor.clone();
+        std::thread::Builder::new()
+            .name("oryn-worker-rss-monitor".into())
+            .spawn(move || {
+                while !sampler.stop.load(Ordering::Acquire) {
+                    match resident_bytes(pid) {
+                        Ok(bytes) => sampler.resident_bytes.store(bytes, Ordering::Release),
+                        Err(_) => {
+                            sampler.failed.store(true, Ordering::Release);
+                            break;
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            })
+            .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+        Ok(monitor)
+    }
 }
 
 fn request_timeout(request: &WorkerRequest, limits: &WorkerLimits) -> Duration {
     match request {
         WorkerRequest::Goto { .. }
+        | WorkerRequest::GotoResource { .. }
         | WorkerRequest::Back
         | WorkerRequest::Forward
         | WorkerRequest::Refresh
@@ -381,6 +755,11 @@ fn request_timeout(request: &WorkerRequest, limits: &WorkerLimits) -> Duration {
                 .clamp(1, limits.queue_capacity.max(1));
             Duration::from_millis(limits.navigation_wall_ms.saturating_mul(commands as u64))
         }
+        WorkerRequest::ExecuteBatch { actions } => Duration::from_millis(
+            limits
+                .command_wall_ms
+                .saturating_mul(actions.len().clamp(1, limits.queue_capacity.max(1)) as u64),
+        ),
         _ => Duration::from_millis(limits.command_wall_ms),
     }
 }
@@ -432,6 +811,13 @@ impl WorkerClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .env_clear();
+        if let Some(binary_sha256) = verification
+            .as_ref()
+            .map(|item| item.binary_sha256.as_str())
+            .or(launch_binary_sha256.as_deref())
+        {
+            command.env("ORYN_TRUSTED_WORKER_SHA256", binary_sha256);
+        }
         // SAFETY: this closure runs after fork and before exec, and only
         // duplicates an already-open socket descriptor to the agreed slot.
         unsafe {
@@ -448,35 +834,62 @@ impl WorkerClient {
         let mut child = command
             .spawn()
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+        #[cfg(target_os = "macos")]
+        if let Err(error) = verify_running_worker(child.id(), launch_path) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+        #[cfg(target_os = "macos")]
+        let launch_code_directory_hash = Some(running_code_directory_hash(child.id())?);
+        #[cfg(not(target_os = "macos"))]
+        let launch_code_directory_hash: Option<String> = None;
+        let rss_monitor = match RssMonitor::start(child.id()) {
+            Ok(monitor) => monitor,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
         drop(child_broker);
         drop(child_context);
 
         let parent_network = context_owner.shared_network_broker().ok_or_else(|| {
             RuntimeError::SandboxUnavailable("parent network broker is unavailable".into())
         })?;
+        let parent_network = parent_network.for_worker(child.id()).for_page(page_id.0);
         let broker_network = PageNetworkBroker {
-            inner: parent_network.clone(),
+            authority: Arc::new(RouteAuthority::default()),
+            inner: parent_network.clone().for_page(page_id.0),
             context: context_owner.clone(),
             page_id,
         };
+        let router = Arc::new(WorkerBrokerRouter::default());
+        router.bind(BoundWorkerRoute {
+            network: broker_network,
+            context: Arc::new(ParentContextService::new_with_network(
+                context_owner,
+                page_id,
+                Some(parent_network),
+            )),
+        })?;
         let frame_limit = config.max_ipc_frame_bytes;
+        let network_router = router.clone();
         std::thread::Builder::new()
             .name("oryn-worker-network-broker".into())
             .spawn(move || {
-                let _ = serve_ipc_broker(parent_broker, broker_network, frame_limit);
+                let _ = serve_ipc_broker(parent_broker, network_router, frame_limit);
             })
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
         std::thread::Builder::new()
             .name("oryn-worker-context-service".into())
-            .spawn(move || {
-                let _ = serve_context_service(
-                    parent_context,
-                    ParentContextService::new_with_network(
-                        context_owner,
-                        page_id,
-                        Some(parent_network),
-                    ),
-                );
+            .spawn({
+                let context_router = router.clone();
+                move || {
+                    let transport: Arc<dyn ContextTransport> = context_router;
+                    let _ = serve_context_transport(parent_context, transport);
+                }
             })
             .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
 
@@ -502,6 +915,10 @@ impl WorkerClient {
             runtime: crate::runtime_build_info(),
             binary_sha256: String::new(),
             verification,
+            router,
+            leases: 1,
+            rss_monitor,
+            code_directory_hash: launch_code_directory_hash.clone(),
         };
         let response = client.request_with_timeout(
             WorkerRequest::Initialize {
@@ -523,6 +940,7 @@ impl WorkerClient {
             sandbox_state,
             secret_environment_present,
             limits: effective_limits,
+            code_identity,
         } = response
         else {
             client.kill();
@@ -556,6 +974,9 @@ impl WorkerClient {
                 != Some("b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5")
             || effective_limits != limits
             || binary_sha256 != verified_hash
+            || code_identity.process_id != client.child.id()
+            || code_identity.binary_sha256 != binary_sha256
+            || code_identity.code_directory_hash != launch_code_directory_hash
             || policy_digest != crate::worker::policy_digest(context)
             || sandbox_state
                 != if cfg!(target_os = "macos") {
@@ -579,6 +1000,8 @@ impl WorkerClient {
             ));
         }
         client.runtime = runtime;
+        client.runtime.worker_lifecycle = config.worker_lifecycle.name().into();
+        client.runtime.worker_code_directory_hash = client.code_directory_hash.clone();
         client.runtime.policy_digest = Some(policy_digest);
         client.runtime.sandbox_state = sandbox_state;
         client.binary_sha256 = binary_sha256;
@@ -596,6 +1019,146 @@ impl WorkerClient {
 
     pub fn verification(&self) -> Option<&WorkerVerification> {
         self.verification.as_ref()
+    }
+
+    pub(crate) fn reset(&mut self) -> Result<(), RuntimeError> {
+        // The entire transition is unbound. Teardown cannot acquire fresh
+        // authority, even while an old broker thread retains a route clone.
+        if let Err(error) = self.router.unbind() {
+            self.kill();
+            return Err(error);
+        }
+        let nonce = handshake_nonce(self.session_id);
+        let response = self.request(WorkerRequest::Reset {
+            nonce: nonce.clone(),
+        })?;
+        let WorkerResponse::ResetReady {
+            nonce: returned_nonce,
+            code_identity,
+        } = response
+        else {
+            self.kill();
+            return Err(RuntimeError::ProtocolViolation(
+                "worker did not acknowledge reset".into(),
+            ));
+        };
+        if returned_nonce != nonce
+            || code_identity.process_id != self.child.id()
+            || code_identity.binary_sha256 != self.binary_sha256
+            || code_identity.code_directory_hash != self.code_directory_hash
+        {
+            self.kill();
+            return Err(RuntimeError::ProtocolViolation(
+                "worker identity changed during reset".into(),
+            ));
+        }
+        self.session_id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed);
+        self.next_message_id = 1;
+        Ok(())
+    }
+
+    pub(crate) fn rebind(
+        &mut self,
+        config: &BrowserConfig,
+        context: &ContextOptions,
+        page_id: PageId,
+        opener_page_id: Option<PageId>,
+        context_owner: BrowserContext,
+    ) -> Result<(), RuntimeError> {
+        let parent_network = context_owner.shared_network_broker().ok_or_else(|| {
+            RuntimeError::SandboxUnavailable("parent network broker is unavailable".into())
+        })?;
+        let parent_network = parent_network
+            .for_worker(self.child.id())
+            .for_page(page_id.0);
+        self.router.bind(BoundWorkerRoute {
+            network: PageNetworkBroker {
+                authority: Arc::new(RouteAuthority::default()),
+                inner: parent_network.clone().for_page(page_id.0),
+                context: context_owner.clone(),
+                page_id,
+            },
+            context: Arc::new(ParentContextService::new_with_network(
+                context_owner,
+                page_id,
+                Some(parent_network),
+            )),
+        })?;
+        let nonce = handshake_nonce(self.session_id);
+        let result = self.request_with_timeout(
+            WorkerRequest::Initialize {
+                nonce: nonce.clone(),
+                limits: self.limits.clone(),
+                context: Box::new(context.clone()),
+                page_id,
+                opener_page_id,
+                document_generation_base: config.document_generation_base,
+            },
+            config.command_timeout,
+        );
+        let response = match result {
+            Ok(response) => response,
+            Err(error) => {
+                let _ = self.router.unbind();
+                self.kill();
+                return Err(error);
+            }
+        };
+        let WorkerResponse::Ready {
+            nonce: returned_nonce,
+            protocol_version,
+            runtime,
+            binary_sha256,
+            policy_digest,
+            sandbox_state,
+            secret_environment_present,
+            limits,
+            code_identity,
+        } = response
+        else {
+            self.kill();
+            return Err(RuntimeError::ProtocolViolation(
+                "recycled worker did not return an initialization response".into(),
+            ));
+        };
+        if returned_nonce != nonce
+            || protocol_version != WORKER_PROTOCOL_VERSION
+            || !runtime.native_v8
+            || runtime.v8_version != self.runtime.v8_version
+            || runtime.contract_version != self.runtime.contract_version
+            || runtime.binding_abi_version != self.runtime.binding_abi_version
+            || runtime.v8_heap_sandbox != self.runtime.v8_heap_sandbox
+            || runtime.semantic_graph_version != self.runtime.semantic_graph_version
+            || runtime.style_engine_version != self.runtime.style_engine_version
+            || runtime.box_engine_version != self.runtime.box_engine_version
+            || runtime.inline_engine_version != self.runtime.inline_engine_version
+            || runtime.embedded_font_sha256 != self.runtime.embedded_font_sha256
+            || binary_sha256 != self.binary_sha256
+            || policy_digest != crate::worker::policy_digest(context)
+            || sandbox_state != self.runtime.sandbox_state
+            || secret_environment_present
+            || limits != self.limits
+            || code_identity.process_id != self.child.id()
+            || code_identity.binary_sha256 != self.binary_sha256
+            || code_identity.code_directory_hash != self.code_directory_hash
+        {
+            self.kill();
+            return Err(RuntimeError::ProtocolViolation(
+                "recycled worker handshake metadata changed".into(),
+            ));
+        }
+        self.runtime.policy_digest = Some(policy_digest);
+        self.runtime.worker_lifecycle = config.worker_lifecycle.name().into();
+        self.leases = self.leases.saturating_add(1);
+        Ok(())
+    }
+
+    pub(crate) fn leases(&self) -> usize {
+        self.leases
+    }
+
+    pub(crate) fn mark_prepared(&mut self) {
+        self.leases = 0;
     }
 
     fn request_with_timeout(
@@ -659,13 +1222,7 @@ impl WorkerClient {
                     "worker exited with {status}"
                 )));
             }
-            if resident_bytes(self.child.id()).is_some_and(|rss| rss > self.limits.worker_rss_bytes)
-            {
-                self.kill();
-                return Err(RuntimeError::WorkerLimitExceeded {
-                    resource: "RSS".into(),
-                });
-            }
+            self.check_rss()?;
             let remaining = timeout.saturating_sub(started.elapsed());
             if remaining.is_zero() {
                 self.kill();
@@ -741,13 +1298,7 @@ impl WorkerClient {
                     "worker exited with {status}"
                 )));
             }
-            if resident_bytes(self.child.id()).is_some_and(|rss| rss > self.limits.worker_rss_bytes)
-            {
-                self.kill();
-                return Err(RuntimeError::WorkerLimitExceeded {
-                    resource: "RSS".into(),
-                });
-            }
+            self.check_rss()?;
             let remaining = timeout.saturating_sub(started.elapsed());
             if remaining.is_zero() {
                 self.kill();
@@ -755,7 +1306,7 @@ impl WorkerClient {
                     resource: "wall time".into(),
                 });
             }
-            let poll_ms = remaining.min(Duration::from_millis(250)).as_millis() as i32;
+            let poll_ms = remaining.min(Duration::from_millis(10)).as_millis() as i32;
             let mut descriptor = libc::pollfd {
                 fd: self.output.as_raw_fd(),
                 events: libc::POLLIN | libc::POLLHUP,
@@ -802,8 +1353,26 @@ impl WorkerClient {
     }
 
     fn kill(&mut self) {
+        self.rss_monitor.stop.store(true, Ordering::Release);
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let _ = self.router.unbind();
+    }
+
+    fn check_rss(&mut self) -> Result<(), RuntimeError> {
+        if self.rss_monitor.failed.load(Ordering::Acquire) {
+            self.kill();
+            return Err(RuntimeError::WorkerCrashed(
+                "worker RSS measurement failed".into(),
+            ));
+        }
+        if self.rss_monitor.resident_bytes.load(Ordering::Acquire) > self.limits.worker_rss_bytes {
+            self.kill();
+            return Err(RuntimeError::WorkerLimitExceeded {
+                resource: "RSS".into(),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -835,6 +1404,7 @@ pub fn runtime_report(
     };
     runtime.worker_protocol_version = Some(WORKER_PROTOCOL_VERSION);
     runtime.worker_binary_sha256 = Some(client.binary_sha256.clone());
+    runtime.worker_code_directory_hash = client.code_directory_hash.clone();
     runtime.worker_bundle_id = client.verification().map(|item| item.bundle_id.clone());
     runtime.worker_team_id = client.verification().map(|item| item.team_id.clone());
     runtime.worker_signing_cert_sha1 = client
@@ -918,65 +1488,25 @@ pub fn verify_worker(path: &Path) -> Result<WorkerVerification, RuntimeError> {
     let path = fs::canonicalize(path)
         .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
     let app = containing_app(&path)?;
-    let verify = Command::new("/usr/bin/codesign")
-        .args(["--verify", "--deep", "--strict", "--verbose=2"])
-        .arg(&app)
-        .output()
-        .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
-    if !verify.status.success() {
-        return Err(RuntimeError::SandboxUnavailable(
-            String::from_utf8_lossy(&verify.stderr).trim().to_string(),
-        ));
-    }
-    let details = Command::new("/usr/bin/codesign")
-        .args(["-dvvv"])
-        .arg(&path)
-        .output()
-        .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
-    let details = String::from_utf8_lossy(&details.stderr);
-    let bundle_id = detail_value(&details, "Identifier=").unwrap_or_default();
-    let team_id = detail_value(&details, "TeamIdentifier=").unwrap_or_default();
-    if bundle_id != EXPECTED_BUNDLE_ID || team_id != EXPECTED_TEAM_ID {
-        return Err(RuntimeError::SandboxUnavailable(format!(
-            "worker identity mismatch: bundle={bundle_id}, team={team_id}"
-        )));
-    }
-    if !details.contains("Authority=Apple Development:")
-        || !details.contains("flags=0x10000(runtime)")
-    {
-        return Err(RuntimeError::SandboxUnavailable(
-            "worker lacks the trusted Apple Development chain or hardened runtime".into(),
-        ));
-    }
-    let signing_cert_sha1 = signing_certificate_sha1(&path)?;
-    if signing_cert_sha1 != EXPECTED_SIGNING_CERT_SHA1 {
-        return Err(RuntimeError::SandboxUnavailable(format!(
-            "worker signing certificate mismatch: {signing_cert_sha1}"
-        )));
-    }
-    let entitlements = Command::new("/usr/bin/codesign")
-        .args(["-d", "--entitlements", ":-"])
-        .arg(&path)
-        .output()
-        .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
-    let entitlements = String::from_utf8_lossy(&entitlements.stdout);
-    let expected = std::collections::BTreeSet::from([
-        "com.apple.security.app-sandbox".to_string(),
-        "com.apple.security.cs.allow-jit".to_string(),
-    ]);
-    if entitlement_keys(&entitlements) != expected
-        || expected
-            .iter()
-            .any(|key| !entitlement_is_true(&entitlements, key))
-    {
-        return Err(RuntimeError::SandboxUnavailable(
-            "worker entitlement set is not exactly app-sandbox plus allow-jit".into(),
-        ));
-    }
-
     let manifest_path = app.join("Contents/Resources/worker-manifest.json");
     let manifest_bytes = fs::read(&manifest_path)
         .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+    let identity = worker_file_identity(path.clone(), &manifest_bytes)?;
+    let cache = WORKER_VERIFICATION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache.lock().map_err(|_| {
+        RuntimeError::SandboxUnavailable("worker verification cache poisoned".into())
+    })?;
+    if let Some(verification) = cache.get(&identity) {
+        return Ok(verification.clone());
+    }
+    // Discard stale entries for an earlier file at the same canonical path.
+    cache.retain(|key, _| key.path != path);
+    #[cfg(target_os = "macos")]
+    verify_static_worker(&app)?;
+    let bundle_id = EXPECTED_BUNDLE_ID.to_string();
+    let team_id = EXPECTED_TEAM_ID.to_string();
+    let signing_cert_sha1 = EXPECTED_SIGNING_CERT_SHA1.to_string();
+
     let manifest: WorkerManifest = serde_json::from_slice(&manifest_bytes)
         .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
     let binary_sha256 = sha256_file(&path)?;
@@ -1002,17 +1532,142 @@ pub fn verify_worker(path: &Path) -> Result<WorkerVerification, RuntimeError> {
             "signed worker manifest does not match the executable".into(),
         ));
     }
-    Ok(WorkerVerification {
+    let verification = WorkerVerification {
         path,
         bundle_id,
         team_id,
         signing_cert_sha1,
         binary_sha256,
-        manifest_sha256: format!("{:x}", Sha256::digest(manifest_bytes)),
+        manifest_sha256: identity.manifest_sha256.clone(),
         app_sandbox: true,
         allow_jit: true,
         hardened_runtime: true,
+    };
+    cache.insert(identity, verification.clone());
+    Ok(verification)
+}
+
+pub(crate) fn prepare_worker_verification() -> Result<(), RuntimeError> {
+    let worker_path = discover_worker()?;
+    if requires_trusted_worker() {
+        verify_worker(&worker_path)?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn worker_requirement()
+-> Result<security_framework::os::macos::code_signing::SecRequirement, RuntimeError> {
+    use security_framework::os::macos::code_signing::SecRequirement;
+    use std::str::FromStr;
+
+    SecRequirement::from_str(&format!(
+        "identifier \"{EXPECTED_BUNDLE_ID}\" and anchor apple generic and certificate leaf = H\"{EXPECTED_SIGNING_CERT_SHA1}\" and certificate leaf[subject.OU] = \"{EXPECTED_TEAM_ID}\" and entitlement[\"com.apple.security.app-sandbox\"] exists and entitlement[\"com.apple.security.cs.allow-jit\"] exists and ! entitlement[\"com.apple.security.network.client\"] exists and ! entitlement[\"com.apple.security.network.server\"] exists and ! entitlement[\"com.apple.security.cs.allow-unsigned-executable-memory\"] exists and ! entitlement[\"com.apple.security.cs.allow-dyld-environment-variables\"] exists and ! entitlement[\"com.apple.security.cs.disable-library-validation\"] exists and ! entitlement[\"com.apple.security.cs.disable-executable-page-protection\"] exists and ! entitlement[\"com.apple.security.get-task-allow\"] exists"
+    ))
+    .map_err(|error| RuntimeError::SandboxUnavailable(format!(
+        "invalid worker code requirement: {error}"
+    )))
+}
+
+#[cfg(target_os = "macos")]
+fn verify_static_worker(app: &Path) -> Result<(), RuntimeError> {
+    use core_foundation::url::CFURL;
+    use security_framework::os::macos::code_signing::{Flags, SecStaticCode};
+
+    let url = CFURL::from_path(app, true).ok_or_else(|| {
+        RuntimeError::SandboxUnavailable("worker bundle path is not a valid file URL".into())
+    })?;
+    let code = SecStaticCode::from_path(&url, Flags::NONE)
+        .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+    code.check_validity(
+        Flags::CHECK_ALL_ARCHITECTURES
+            | Flags::CHECK_NESTED_CODE
+            | Flags::STRICT_VALIDATE
+            | Flags::NO_NETWORK_ACCESS,
+        &worker_requirement()?,
+    )
+    .map_err(|error| {
+        RuntimeError::SandboxUnavailable(format!(
+            "worker signature or code requirement failed: {error}"
+        ))
     })
+}
+
+#[cfg(target_os = "macos")]
+fn verify_running_worker(pid: u32, expected_path: &Path) -> Result<(), RuntimeError> {
+    use security_framework::os::macos::code_signing::{Flags, GuestAttributes, SecCode};
+
+    let mut attributes = GuestAttributes::new();
+    attributes.set_pid(pid.cast_signed());
+    let deadline = Instant::now() + Duration::from_millis(100);
+    loop {
+        match SecCode::copy_guest_with_attribues(None, &attributes, Flags::NONE) {
+            Ok(code) => {
+                code.check_validity(
+                    Flags::STRICT_VALIDATE | Flags::NO_NETWORK_ACCESS,
+                    &worker_requirement()?,
+                )
+                .map_err(|error| {
+                    RuntimeError::SandboxUnavailable(format!(
+                        "launched worker failed dynamic code validation: {error}"
+                    ))
+                })?;
+                let actual_path = code
+                    .path(Flags::NONE)
+                    .ok()
+                    .and_then(|url| url.to_path())
+                    .and_then(|path| fs::canonicalize(path).ok());
+                let expected_bundle = containing_app(expected_path).ok();
+                if actual_path.as_deref() != Some(expected_path)
+                    && actual_path.as_ref() != expected_bundle.as_ref()
+                {
+                    return Err(RuntimeError::SandboxUnavailable(
+                        "launched worker path does not match the verified executable".into(),
+                    ));
+                }
+                return Ok(());
+            }
+            Err(error) if Instant::now() < deadline => {
+                let _ = error;
+                std::thread::yield_now();
+            }
+            Err(error) => {
+                return Err(RuntimeError::SandboxUnavailable(format!(
+                    "unable to authenticate launched worker PID: {error}"
+                )));
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn running_code_directory_hash(pid: u32) -> Result<String, RuntimeError> {
+    const CS_OPS_CDHASH: u32 = 5;
+    unsafe extern "C" {
+        fn csops(
+            pid: libc::pid_t,
+            ops: u32,
+            useraddr: *mut libc::c_void,
+            usersize: libc::size_t,
+        ) -> libc::c_int;
+    }
+    let mut hash = [0_u8; 20];
+    // SAFETY: csops writes at most the supplied fixed-size CDHash buffer for
+    // the already authenticated child PID.
+    let status = unsafe {
+        csops(
+            pid.cast_signed(),
+            CS_OPS_CDHASH,
+            hash.as_mut_ptr().cast(),
+            hash.len(),
+        )
+    };
+    if status != 0 {
+        return Err(RuntimeError::SandboxUnavailable(
+            "unable to read launched worker Code Directory hash".into(),
+        ));
+    }
+    Ok(hash.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 fn containing_app(path: &Path) -> Result<PathBuf, RuntimeError> {
@@ -1055,28 +1710,6 @@ fn set_nonblocking(fd: RawFd) -> std::io::Result<()> {
     Ok(())
 }
 
-fn detail_value(details: &str, prefix: &str) -> Option<String> {
-    details
-        .lines()
-        .find_map(|line| line.strip_prefix(prefix).map(str::to_string))
-}
-
-fn entitlement_keys(xml: &str) -> std::collections::BTreeSet<String> {
-    xml.split("<key>")
-        .skip(1)
-        .filter_map(|part| part.split_once("</key>").map(|(key, _)| key.to_string()))
-        .collect()
-}
-
-fn entitlement_is_true(xml: &str, key: &str) -> bool {
-    xml.split_once(&format!("<key>{key}</key>"))
-        .map(|(_, remainder)| {
-            let value = remainder.split("<key>").next().unwrap_or(remainder);
-            value.contains("<true/>") || value.contains("<true />")
-        })
-        .unwrap_or(false)
-}
-
 fn expected_entitlement_sha256() -> String {
     format!(
         "{:x}",
@@ -1095,76 +1728,61 @@ fn compiled_policy_sha256() -> String {
     format!("{:x}", digest.finalize())
 }
 
+#[cfg(target_os = "macos")]
+fn sha256_file(path: &Path) -> Result<String, RuntimeError> {
+    use std::{fs::File, os::fd::AsRawFd};
+
+    unsafe extern "C" {
+        fn CC_SHA256(data: *const libc::c_void, len: u32, digest: *mut u8) -> *mut u8;
+    }
+    let file =
+        File::open(path).map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
+    let length = file
+        .metadata()
+        .map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?
+        .len();
+    let length_u32 = u32::try_from(length).map_err(|_| {
+        RuntimeError::SandboxUnavailable("worker is too large for CommonCrypto SHA-256".into())
+    })?;
+    if length == 0 {
+        return Ok(format!("{:x}", Sha256::digest([])));
+    }
+    // SAFETY: the read-only private mapping is bounded by the opened file's
+    // measured length and remains live until after CommonCrypto returns.
+    let mapping = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            length as usize,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            file.as_raw_fd(),
+            0,
+        )
+    };
+    if mapping == libc::MAP_FAILED {
+        return Err(RuntimeError::SandboxUnavailable(
+            std::io::Error::last_os_error().to_string(),
+        ));
+    }
+    let mut digest = [0_u8; 32];
+    // SAFETY: mapping and digest both point to valid buffers of the lengths
+    // supplied to CommonCrypto.
+    let result = unsafe { CC_SHA256(mapping.cast_const(), length_u32, digest.as_mut_ptr()) };
+    // SAFETY: mapping was returned by mmap with exactly this length.
+    unsafe { libc::munmap(mapping, length as usize) };
+    if result.is_null() {
+        return Err(RuntimeError::SandboxUnavailable(
+            "CommonCrypto SHA-256 failed".into(),
+        ));
+    }
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[cfg(not(target_os = "macos"))]
 fn sha256_file(path: &Path) -> Result<String, RuntimeError> {
     let bytes =
         fs::read(path).map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
-}
-
-fn signing_certificate_sha1(path: &Path) -> Result<String, RuntimeError> {
-    use sha1::{Digest, Sha1};
-
-    let directory = create_certificate_directory()?;
-    let prefix = directory.join("certificate-");
-    let extraction = Command::new("/usr/bin/codesign")
-        .arg("-d")
-        .arg(format!("--extract-certificates={}", prefix.display()))
-        .arg(path)
-        .output();
-    let extraction = match extraction {
-        Ok(extraction) => extraction,
-        Err(error) => {
-            let _ = fs::remove_dir_all(&directory);
-            return Err(RuntimeError::SandboxUnavailable(error.to_string()));
-        }
-    };
-    let leaf_path = PathBuf::from(format!("{}0", prefix.display()));
-    let leaf = fs::read(&leaf_path);
-    let trust = Command::new("/usr/bin/security")
-        .args(["verify-cert", "-c"])
-        .arg(&leaf_path)
-        .args(["-p", "codeSign"])
-        .output();
-    let _ = fs::remove_dir_all(&directory);
-    if !extraction.status.success() {
-        return Err(RuntimeError::SandboxUnavailable(
-            "unable to extract worker signing certificate".into(),
-        ));
-    }
-    let leaf = leaf.map_err(|error| {
-        RuntimeError::SandboxUnavailable(format!(
-            "unable to read extracted signing certificate: {error}"
-        ))
-    })?;
-    let trust = trust.map_err(|error| RuntimeError::SandboxUnavailable(error.to_string()))?;
-    if !trust.status.success() {
-        return Err(RuntimeError::SandboxUnavailable(
-            "worker signing certificate is not trusted for code signing".into(),
-        ));
-    }
-    Ok(format!("{:X}", Sha1::digest(leaf)))
-}
-
-fn create_certificate_directory() -> Result<PathBuf, RuntimeError> {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    for _ in 0..16 {
-        let sequence = NEXT_CERTIFICATE_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
-        let directory = std::env::temp_dir().join(format!(
-            "oryn-worker-cert-{}-{nanos}-{sequence}",
-            std::process::id()
-        ));
-        match fs::create_dir(&directory) {
-            Ok(()) => return Ok(directory),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(RuntimeError::SandboxUnavailable(error.to_string())),
-        }
-    }
-    Err(RuntimeError::SandboxUnavailable(
-        "unable to allocate a unique certificate-verification directory".into(),
-    ))
 }
 
 fn handshake_nonce(session_id: u64) -> String {
@@ -1175,19 +1793,51 @@ fn handshake_nonce(session_id: u64) -> String {
     format!("{}-{session_id}-{nanos}", std::process::id())
 }
 
-fn resident_bytes(pid: u32) -> Option<usize> {
+#[cfg(target_os = "macos")]
+pub fn resident_bytes(pid: u32) -> Result<usize, RuntimeError> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_taskinfo>::zeroed();
+    let info_size = i32::try_from(std::mem::size_of::<libc::proc_taskinfo>())
+        .expect("proc_taskinfo fits in an i32");
+    // SAFETY: proc_pidinfo writes at most the supplied proc_taskinfo-sized
+    // buffer. The PID belongs to the live child checked immediately before
+    // this call.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid.cast_signed(),
+            libc::PROC_PIDTASKINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            info_size,
+        )
+    };
+    if written != info_size {
+        return Err(RuntimeError::WorkerCrashed(
+            "unable to measure worker RSS with proc_pidinfo".into(),
+        ));
+    }
+    // SAFETY: the kernel reported that it initialized the complete structure.
+    let resident = unsafe { info.assume_init() }.pti_resident_size;
+    usize::try_from(resident).map_err(|_| RuntimeError::WorkerLimitExceeded {
+        resource: "RSS measurement overflow".into(),
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn resident_bytes(pid: u32) -> Result<usize, RuntimeError> {
     let output = Command::new("/bin/ps")
         .args(["-o", "rss=", "-p", &pid.to_string()])
         .output()
-        .ok()?;
+        .map_err(|error| RuntimeError::WorkerCrashed(error.to_string()))?;
     if !output.status.success() {
-        return None;
+        return Err(RuntimeError::WorkerCrashed(
+            "unable to measure worker RSS".into(),
+        ));
     }
     let kib = String::from_utf8_lossy(&output.stdout)
         .trim()
         .parse::<usize>()
-        .ok()?;
-    Some(kib.saturating_mul(1024))
+        .map_err(|error| RuntimeError::WorkerCrashed(error.to_string()))?;
+    Ok(kib.saturating_mul(1024))
 }
 
 #[cfg(test)]
@@ -1224,6 +1874,7 @@ mod tests {
             .unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let broker = PageNetworkBroker {
+            authority: Arc::new(RouteAuthority::default()),
             inner: crate::network::SharedNetworkBroker::new(CaptureBroker {
                 requests: requests.clone(),
             }),
@@ -1271,29 +1922,232 @@ mod tests {
     }
 
     #[test]
-    fn extracts_codesign_detail_values() {
-        let details = "Identifier=ai.rustic.oryn.page-worker\nTeamIdentifier=5HVA9VFF8K\n";
-        assert_eq!(
-            detail_value(details, "Identifier=").as_deref(),
-            Some(EXPECTED_BUNDLE_ID)
-        );
-        assert_eq!(
-            detail_value(details, "TeamIdentifier=").as_deref(),
-            Some(EXPECTED_TEAM_ID)
-        );
+    fn signed_worker_evidence_hashes_are_stable() {
+        assert_eq!(expected_entitlement_sha256().len(), 64);
+        assert_eq!(compiled_policy_sha256().len(), 64);
     }
 
     #[test]
-    fn entitlement_parser_requires_exact_true_keys() {
-        let xml = "<dict><key>com.apple.security.app-sandbox</key><true/><key>com.apple.security.cs.allow-jit</key><true/></dict>";
-        assert_eq!(entitlement_keys(xml).len(), 2);
-        assert!(entitlement_is_true(xml, "com.apple.security.app-sandbox"));
-        assert!(!entitlement_is_true(
-            xml,
-            "com.apple.security.network.client"
+    fn verification_identity_tracks_file_and_manifest_changes() {
+        let path =
+            std::env::temp_dir().join(format!("oryn-verification-identity-{}", std::process::id()));
+        fs::write(&path, b"first").unwrap();
+        let first = worker_file_identity(path.clone(), b"manifest-a").unwrap();
+        let same = worker_file_identity(path.clone(), b"manifest-a").unwrap();
+        let changed_manifest = worker_file_identity(path.clone(), b"manifest-b").unwrap();
+        fs::write(&path, b"different-size").unwrap();
+        let changed_file = worker_file_identity(path.clone(), b"manifest-a").unwrap();
+        fs::remove_file(path).unwrap();
+        assert_eq!(first, same);
+        assert_ne!(first, changed_manifest);
+        assert_ne!(first, changed_file);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_rss_measurement_succeeds_and_fails_closed() {
+        assert!(resident_bytes(std::process::id()).unwrap() > 0);
+        assert!(resident_bytes(u32::MAX).is_err());
+    }
+
+    #[test]
+    fn asynchronous_network_admission_is_held_until_revocation_cancels_the_operation() {
+        struct HeldOperationBroker {
+            sender: Mutex<Option<tokio::sync::mpsc::Sender<NetworkEvent>>>,
+            cancelled: Arc<Mutex<Vec<u64>>>,
+        }
+        impl NetworkBroker for HeldOperationBroker {
+            fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                unreachable!("asynchronous operation required")
+            }
+            fn start_operation(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkOperation, NetworkError> {
+                let (sender, events) = tokio::sync::mpsc::channel(1);
+                *self.sender.lock().unwrap() = Some(sender);
+                Ok(NetworkOperation {
+                    request_id: request.request_id,
+                    events,
+                    demand: None,
+                })
+            }
+            fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+                self.cancelled.lock().unwrap().push(request_id);
+                self.sender.lock().unwrap().take();
+                Ok(())
+            }
+        }
+        let cancelled = Arc::new(Mutex::new(Vec::new()));
+        let mut route = fixture_worker_route();
+        route.network.inner = crate::network::SharedNetworkBroker::new(HeldOperationBroker {
+            sender: Mutex::new(None),
+            cancelled: cancelled.clone(),
+        });
+        let authority = route.network.authority.clone();
+        let router = WorkerBrokerRouter::default();
+        router.bind(route).unwrap();
+        let operation = router
+            .start_operation(NetworkRequest {
+                request_id: 17,
+                method: "GET".into(),
+                url: "https://example.test/".into(),
+                headers: Vec::new(),
+                body: Vec::new(),
+                credentials: false,
+                security: CookieRequestContext::default(),
+                resolved_addrs: Vec::new(),
+            })
+            .unwrap();
+        assert_eq!(authority.state.lock().unwrap().active, 1);
+        // An unknown cancellation must not be forwarded to another route's work.
+        router.cancel_operation(18).unwrap();
+        assert!(cancelled.lock().unwrap().is_empty());
+        router.unbind().unwrap();
+        assert_eq!(*cancelled.lock().unwrap(), [17]);
+        assert_eq!(authority.state.lock().unwrap().active, 0);
+        drop(operation);
+        router.bind(fixture_worker_route()).unwrap();
+        router.unbind().unwrap();
+    }
+
+    #[test]
+    fn route_revocation_waits_for_admitted_work_and_never_reopens_old_authority() {
+        let authority = Arc::new(RouteAuthority::default());
+        let admission = authority.admit(Some(7)).unwrap();
+        assert!(authority.admit(Some(7)).is_err());
+        assert_eq!(authority.revoke().unwrap(), [7]);
+        assert!(authority.admit(None).is_err());
+        assert!(authority.wait_drained(Duration::ZERO).is_err());
+        drop(admission);
+        authority.wait_drained(Duration::ZERO).unwrap();
+        assert!(authority.admit(Some(8)).is_err());
+    }
+
+    #[test]
+    fn route_admission_is_bounded_and_releases_capacity() {
+        let authority = Arc::new(RouteAuthority::default());
+        let admissions = (0..64)
+            .map(|_| authority.admit(None).unwrap())
+            .collect::<Vec<_>>();
+        assert!(authority.admit(None).is_err());
+        drop(admissions);
+        drop(authority.admit(None).unwrap());
+        authority.revoke().unwrap();
+        authority.wait_drained(Duration::ZERO).unwrap();
+    }
+
+    fn fixture_worker_route() -> BoundWorkerRoute {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        let network = crate::network::SharedNetworkBroker::new(CaptureBroker {
+            requests: Arc::new(Mutex::new(Vec::new())),
+        });
+        BoundWorkerRoute {
+            context: Arc::new(ParentContextService::new_with_network(
+                context.clone(),
+                page.page_id(),
+                Some(network.clone()),
+            )),
+            network: PageNetworkBroker {
+                authority: Arc::new(RouteAuthority::default()),
+                inner: network,
+                context,
+                page_id: page.page_id(),
+            },
+        }
+    }
+
+    #[test]
+    fn draining_router_rejects_rebinding_until_every_admission_has_ended() {
+        let router = Arc::new(WorkerBrokerRouter::default());
+        let route = fixture_worker_route();
+        let authority = route.network.authority.clone();
+        let admission = authority.admit(None).unwrap();
+        router.bind(route).unwrap();
+        let draining = router.clone();
+        let thread = std::thread::spawn(move || draining.unbind());
+        let state = authority.state.lock().unwrap();
+        let (state, _) = authority
+            .drained
+            .wait_timeout_while(state, Duration::from_secs(1), |state| !state.retired)
+            .unwrap();
+        assert!(state.retired);
+        drop(state);
+        assert!(router.current().is_err());
+        assert!(router.bind(fixture_worker_route()).is_err());
+        drop(admission);
+        thread.join().unwrap().unwrap();
+        router.bind(fixture_worker_route()).unwrap();
+        assert!(authority.ensure_live().is_err());
+        router.unbind().unwrap();
+    }
+
+    #[test]
+    fn failed_drain_permanently_retires_router_even_after_late_completion() {
+        let router = WorkerBrokerRouter::default();
+        let route = fixture_worker_route();
+        let admission = route.network.authority.admit(None).unwrap();
+        router.bind(route).unwrap();
+        assert!(router.unbind_with_timeout(Duration::ZERO).is_err());
+        drop(admission);
+        assert!(router.bind(fixture_worker_route()).is_err());
+        assert!(router.unbind().is_err());
+    }
+
+    #[test]
+    fn unbound_worker_router_rejects_page_network_authority() {
+        let router = WorkerBrokerRouter::default();
+        let error = router
+            .send(NetworkRequest {
+                request_id: 1,
+                method: "GET".into(),
+                url: "https://example.test/".into(),
+                headers: Vec::new(),
+                body: Vec::new(),
+                credentials: false,
+                security: CookieRequestContext::default(),
+                resolved_addrs: Vec::new(),
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("not bound to a page"));
+    }
+
+    #[test]
+    fn unbinding_revokes_context_even_when_a_broker_thread_retains_a_clone() {
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        let network = crate::network::SharedNetworkBroker::new(CaptureBroker {
+            requests: Arc::new(Mutex::new(Vec::new())),
+        });
+        let service = Arc::new(ParentContextService::new_with_network(
+            context.clone(),
+            page.page_id(),
+            Some(network.clone()),
         ));
-        assert_eq!(expected_entitlement_sha256().len(), 64);
-        assert_eq!(compiled_policy_sha256().len(), 64);
+        let router = WorkerBrokerRouter::default();
+        router
+            .bind(BoundWorkerRoute {
+                network: PageNetworkBroker {
+                    authority: Arc::new(RouteAuthority::default()),
+                    inner: network,
+                    context,
+                    page_id: page.page_id(),
+                },
+                context: service.clone(),
+            })
+            .unwrap();
+        let retained = router.current().unwrap();
+        router.unbind().unwrap();
+        assert!(router.current().is_err());
+        assert!(retained.network.ensure_bound().is_err());
+        let error = retained
+            .context
+            .handle(ContextServiceRequest::GetReferrerPolicy {
+                page_id: page.page_id(),
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("shutting down"));
     }
 
     #[test]
@@ -1334,27 +2188,5 @@ mod tests {
             request_timeout(&oversized, &limits),
             Duration::from_millis(limits.navigation_wall_ms * limits.queue_capacity as u64)
         );
-    }
-
-    #[test]
-    fn certificate_verification_directories_are_unique_under_concurrency() {
-        let threads = (0..32)
-            .map(|_| std::thread::spawn(create_certificate_directory))
-            .collect::<Vec<_>>();
-        let mut directories = threads
-            .into_iter()
-            .map(|thread| {
-                thread
-                    .join()
-                    .expect("join allocator")
-                    .expect("allocate directory")
-            })
-            .collect::<Vec<_>>();
-        directories.sort();
-        directories.dedup();
-        assert_eq!(directories.len(), 32);
-        for directory in directories {
-            fs::remove_dir(directory).expect("remove certificate directory");
-        }
     }
 }

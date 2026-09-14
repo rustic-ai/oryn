@@ -30,6 +30,93 @@ INVENTORY_SPEC.loader.exec_module(INVENTORY)
 
 
 class UpstreamWptRunnerTests(unittest.TestCase):
+    def test_fixture_shutdown_releases_upstream_before_joining_proxy_handlers(self):
+        events = []
+        listener, thread, official = mock.Mock(), mock.Mock(), mock.Mock()
+        listener.shutdown.side_effect = lambda: events.append('stop_accepting')
+        thread.join.side_effect = lambda: events.append('join_listener')
+        official.terminate.side_effect = lambda: events.append('terminate_upstream')
+        official.wait.side_effect = lambda timeout: events.append('upstream_exited')
+        listener.server_close.side_effect = lambda: events.append('join_proxy_handlers')
+        RUNNER.close_fixture_servers([listener], [thread], official)
+        self.assertEqual(events, ['stop_accepting', 'join_listener',
+                                 'terminate_upstream', 'upstream_exited', 'join_proxy_handlers'])
+
+    def test_fixture_shutdown_kills_unresponsive_upstream_before_proxy_join(self):
+        listener, official = mock.Mock(), mock.Mock()
+        official.wait.side_effect = [subprocess.TimeoutExpired('wptserve', 5), 0]
+        listener.server_close.side_effect = lambda: official.kill.assert_called_once_with()
+        RUNNER.close_fixture_servers([listener], [], official)
+        self.assertEqual(official.wait.call_args_list, [mock.call(timeout=5), mock.call(timeout=5)])
+
+    def test_pool_failure_halts_submission_but_individual_crash_does_not(self):
+        self.assertTrue(RUNNER.fatal_session_failure({'execution': {'error': 'worker pool capacity limit'}}))
+        self.assertTrue(RUNNER.fatal_session_failure({'execution': {'replacement_error': 'spawn failed'}}))
+        self.assertTrue(RUNNER.fatal_session_failure({'execution': {'cleanup_errors': ['worker_retirement_timeout']}}))
+        self.assertFalse(RUNNER.fatal_session_failure({'execution': {'error': 'worker crashed'}}))
+
+    def test_upstream_profile_preserves_html_bytes_security_headers_and_nested_helpers(self):
+        for path in ('/editing/run/a.html', '/common/security-features/scope/document.py'):
+            handler = object.__new__(RUNNER.Handler)
+            handler.harness_profile = 'upstream'
+            handler.root = Path('/fixture')
+            handler.path, handler.command = path, 'GET'
+            handler.headers = {'Host': 'localhost:8123'}
+            handler.server = mock.Mock(server_address=('127.0.0.1', 8123))
+            handler.connection = mock.Mock()
+            handler.official_wpt_port = 9123
+            handler.wfile = io.BytesIO()
+            handler.send_response = mock.Mock()
+            handler.send_header = mock.Mock()
+            handler.end_headers = mock.Mock()
+            body = b'<meta charset=windows-1252><script src=/resources/testharness.js></script><p>caf\xe9</p>'
+            headers = {'content-type': 'text/html; charset=windows-1252',
+                       'content-security-policy': "script-src 'none'", 'content-length': str(len(body))}
+            response = mock.Mock(status=200, reason='OK')
+            response.read.return_value = body
+            response.getheader.side_effect = lambda name, default=None: headers.get(name.lower(), default)
+            response.getheaders.return_value = list(headers.items())
+            with mock.patch.object(RUNNER.http.client, 'HTTPConnection') as connection:
+                connection.return_value.getresponse.return_value = response
+                handler._proxy_to_wptserve(instrument_html_path=handler.root / path.lstrip('/'))
+            self.assertEqual(handler.wfile.getvalue(), body)
+            handler.send_header.assert_any_call('content-security-policy', "script-src 'none'")
+
+    def test_sub_resources_delegate_full_template_grammar(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            for name in ["child.html", "child.sub.html", "child.sub.js"]:
+                with self.subTest(name=name):
+                    (root / name).write_text("{{location[scheme]}}")
+                    handler = object.__new__(RUNNER.Handler)
+                    handler.root = root
+                    handler.path = "/" + name
+                    handler._proxy_to_wptserve = mock.Mock()
+                    handler.do_GET()
+                    expected = {"instrument_html_path": root / name} if name.endswith(".html") else {}
+                    handler._proxy_to_wptserve.assert_called_once_with(**expected)
+
+    def test_helper_preflight_rejects_json_error_before_test_execution(self) -> None:
+        response = mock.Mock(status=500)
+        response.read.return_value = b'{"error":"missing template port"}'
+        response.getheader.return_value = "application/json"
+        with mock.patch.object(RUNNER.http.client, "HTTPConnection") as connection:
+            connection.return_value.getresponse.return_value = response
+            with self.assertRaisesRegex(RuntimeError, "WPT helper preflight failed"):
+                RUNNER.verify_wpt_helpers(8000, 8443)
+            connection.return_value.close.assert_called_once()
+
+    def test_helper_preflight_checks_both_schemes(self) -> None:
+        response = mock.Mock(status=200)
+        response.read.return_value = b'const origin = "https://localhost:8443";'
+        response.getheader.return_value = "application/javascript"
+        with mock.patch.object(RUNNER.http.client, "HTTPConnection") as plain, mock.patch.object(RUNNER.http.client, "HTTPSConnection") as secure:
+            plain.return_value.getresponse.return_value = response
+            secure.return_value.getresponse.return_value = response
+            evidence = RUNNER.verify_wpt_helpers(8000, 8443)
+        self.assertEqual(len(evidence), 16)
+        self.assertEqual({entry["scheme"] for entry in evidence}, {"http", "https"})
+
     def test_plain_html_sub_pipeline_preserves_request_and_instruments_response(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -64,6 +151,31 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             handler.send_header.assert_any_call("content-type", headers["content-type"])
             handler.send_header.assert_any_call("content-length", str(len(result)))
             handler.send_response.assert_called_once_with(200, "OK")
+
+    def test_upstream_literal_tokens_and_redirect_are_not_transformed(self) -> None:
+        handler = object.__new__(RUNNER.Handler)
+        handler.path = "/literal.txt"
+        handler.command = "GET"
+        handler.headers = {"Host": "www1.localhost:8123"}
+        handler.server = mock.Mock(server_address=("127.0.0.1", 8123))
+        handler.connection = mock.Mock()
+        handler.official_wpt_port = 9123
+        handler.wfile = io.BytesIO()
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock()
+        response = mock.Mock(status=302, reason="Found")
+        body = b"caf\xe9 {{domains[www1]}}"
+        headers = {"content-type": "text/plain; charset=windows-1252",
+                   "location": "http://www2.alt.localhost:8101/path?x=1#fragment"}
+        response.read.return_value = body
+        response.getheader.side_effect = lambda name, default=None: headers.get(name.lower(), default)
+        response.getheaders.return_value = list(headers.items())
+        with mock.patch.object(RUNNER.http.client, "HTTPConnection") as connection:
+            connection.return_value.getresponse.return_value = response
+            handler._proxy_to_wptserve()
+        self.assertEqual(handler.wfile.getvalue(), body)
+        handler.send_header.assert_any_call("location", headers["location"])
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is needed to execute the WPT publisher")
     def test_worker_publication_preserves_assertions_through_text_extraction(self) -> None:
@@ -199,6 +311,21 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             )
         validator.validate_passed_assertion({"status": "failed"}, "test")
 
+    def test_release_validator_counts_observed_subtests(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "validate_runtime_result_subtests",
+            ROOT / "scripts/validate-runtime-api-style-semantics-result.py",
+        )
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        self.assertEqual(
+            validator.subtest_counts(
+                {"result": {"tests": [{"status": 0}, {"status": 1}, {"status": 0}]}}
+            ),
+            (2, 3),
+        )
+        self.assertEqual(validator.subtest_counts({"diagnostics": ["timeout"]}), (0, 0))
+
     def test_editing_variants_preserve_one_execution_and_all_assertions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -301,15 +428,15 @@ class UpstreamWptRunnerTests(unittest.TestCase):
     def test_proxied_redirects_preserve_public_tls_and_alt_origin(self) -> None:
         self.assertEqual(
             RUNNER.rewrite_wpt_location("http://localhost:8443/resource", True),
-            "https://localhost:8443/resource",
+            "http://localhost:8443/resource",
         )
         self.assertEqual(
             RUNNER.rewrite_wpt_location("http://www1.localhost:8000/resource", False),
-            "http://127.0.0.1:8000/resource",
+            "http://www1.localhost:8000/resource",
         )
         self.assertEqual(
             RUNNER.rewrite_wpt_location("http://www1.127.0.0.1:8000/resource", False),
-            "http://127.0.0.1:8000/resource",
+            "http://www1.127.0.0.1:8000/resource",
         )
 
     def test_fs_path_tokens_resolve_only_inside_checkout(self) -> None:
@@ -345,6 +472,19 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             INVENTORY.html_variants(source), ["?1-1000", "?1001-last"]
         )
         self.assertEqual(INVENTORY.html_variants("<title>no variants</title>"), [""])
+
+    def test_inventory_excludes_declared_path_prefixes(self) -> None:
+        prefixes = [Path("html/rendering"), Path("svg/painting")]
+        self.assertTrue(INVENTORY.is_excluded_path(Path("html/rendering/pixels.html"), prefixes))
+        self.assertTrue(INVENTORY.is_excluded_path(Path("svg/painting/reftest.html"), prefixes))
+        self.assertFalse(INVENTORY.is_excluded_path(Path("html/interaction/focus.html"), prefixes))
+
+    def test_inventory_normalizes_legacy_worker_global(self) -> None:
+        self.assertEqual(INVENTORY.normalize_global("worker"), "dedicatedworker")
+        self.assertEqual(
+            INVENTORY.normalize_global("dedicatedworker-module"),
+            "dedicatedworker-module",
+        )
 
     def test_runner_expands_declared_html_variants(self) -> None:
         source = """
@@ -387,6 +527,24 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             "add_completion_callback", 1
         )[0]
         self.assertNotIn("__oryn_publish_wpt", result_callback)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is needed to execute the WPT adapter")
+    def test_machine_report_disables_only_visual_output_and_preserves_results(self) -> None:
+        adapter = (RUNNER.ROOT / "scripts/wpt-report.js").read_text()
+        script = """
+            let properties, complete;
+            globalThis.setup = value => properties = value;
+            globalThis.add_completion_callback = callback => complete = callback;
+        """ + adapter + """
+            complete([{name:'two  spaces',status:1,message:'failure'}], {status:0,message:''});
+            process.stdout.write(JSON.stringify({properties,result:globalThis.__oryn_wpt_completion}));
+        """
+        result = subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["properties"], {"output": False})
+        self.assertEqual(payload["result"]["tests"], [{"name": "two  spaces", "status": 1, "message": "failure"}])
+        self.assertEqual(payload["result"]["completion_count"], 1)
+        self.assertTrue(payload["result"]["complete"])
 
     def test_worker_result_element_is_created_only_after_completion(self) -> None:
         source = inspect.getsource(RUNNER.Handler.do_GET)

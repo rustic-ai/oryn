@@ -1,0 +1,440 @@
+{
+  "inert/dynamic-inert-on-focused-element.html|window|": {
+    "automation_audit": "Six target/parent/grandparent inert mutations followed by two animation frames; each test first proves focus, then verifies body fallback. No native automation operations. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution.",
+    "evidence_sha256": "40e7ad01239ed2fb18754059cf7a2eb4d5fc550c25687f6e86b78c9e78d61b13",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 6,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned source: all tests and setup callbacks follow the standard reporting adapter. Actual document and helper response hashes match their unchanged pinned bytes, except the versioned report and vendor adapters bound by this run. All observed resources completed HTTP 200; no omitted prerequisites or expected failures. Fresh fixture generations and clean teardown are recorded.",
+    "source_files": {
+      "inert/dynamic-inert-on-focused-element.html": "8f849a6360a895d44ba994725feee6eaf5675533bbf8409fba9037bc309ff14e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "8f849a6360a895d44ba994725feee6eaf5675533bbf8409fba9037bc309ff14e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:52495/inert/dynamic-inert-on-focused-element.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:52495/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:52495/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-and-contenteditable.html|window|": {
+    "automation_audit": "Only consistency of execCommand delete return values and resulting text across four equivalent inert/editable placements is asserted. This does not prove a particular editing result or complete inert editing. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution.",
+    "evidence_sha256": "40e7ad01239ed2fb18754059cf7a2eb4d5fc550c25687f6e86b78c9e78d61b13",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 2,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned source: all tests and setup callbacks follow the standard reporting adapter. Actual document and helper response hashes match their unchanged pinned bytes, except the versioned report and vendor adapters bound by this run. All observed resources completed HTTP 200; no omitted prerequisites or expected failures. Fresh fixture generations and clean teardown are recorded.",
+    "source_files": {
+      "inert/inert-and-contenteditable.html": "3f31ff55498d3445536e1630db7e6473588b73751401ab69596b1491ee715fff",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "3f31ff55498d3445536e1630db7e6473588b73751401ab69596b1491ee715fff",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:52496/inert/inert-and-contenteditable.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:52496/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:52496/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-does-not-match-disabled-selector.html|window|": {
+    "automation_audit": "Asserts only that an inert button does not match :disabled. Computed color is read but is not asserted; no visual qualification is claimed. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution.",
+    "evidence_sha256": "40e7ad01239ed2fb18754059cf7a2eb4d5fc550c25687f6e86b78c9e78d61b13",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned source: all tests and setup callbacks follow the standard reporting adapter. Actual document and helper response hashes match their unchanged pinned bytes, except the versioned report and vendor adapters bound by this run. All observed resources completed HTTP 200; no omitted prerequisites or expected failures. Fresh fixture generations and clean teardown are recorded.",
+    "source_files": {
+      "inert/inert-does-not-match-disabled-selector.html": "361856cf6eb20c61924e477dab529086bc7f38197b6920dc72435fa0ea255d72",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "361856cf6eb20c61924e477dab529086bc7f38197b6920dc72435fa0ea255d72",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:52766/inert/inert-does-not-match-disabled-selector.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:52766/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:52766/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-in-shadow-dom.html|window|": {
+    "automation_audit": "Inert shadow host blocks focus events for both an assigned light-tree button and a shadow-tree button. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution.",
+    "evidence_sha256": "40e7ad01239ed2fb18754059cf7a2eb4d5fc550c25687f6e86b78c9e78d61b13",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned source: all tests and setup callbacks follow the standard reporting adapter. Actual document and helper response hashes match their unchanged pinned bytes, except the versioned report and vendor adapters bound by this run. All observed resources completed HTTP 200; no omitted prerequisites or expected failures. Fresh fixture generations and clean teardown are recorded.",
+    "source_files": {
+      "inert/inert-in-shadow-dom.html": "22328806467a39ef21ae120efc192d007f8a09ad7374b1eb2c77569844c4aba5",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "22328806467a39ef21ae120efc192d007f8a09ad7374b1eb2c77569844c4aba5",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53011/inert/inert-in-shadow-dom.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53011/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53011/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-node-is-uneditable.html|window|": {
+    "automation_audit": "Three native key a down/up action sequences. Inert editing hosts retain text; the non-inert control changes text. The third case tests interactivity:auto under an inert ancestor. This does not qualify other keys or editing defaults. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution.",
+    "evidence_sha256": "40e7ad01239ed2fb18754059cf7a2eb4d5fc550c25687f6e86b78c9e78d61b13",
+    "expected_native_automation_calls": 3,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned source: all tests and setup callbacks follow the standard reporting adapter. Actual document and helper response hashes match their unchanged pinned bytes, except the versioned report and vendor adapters bound by this run. All observed resources completed HTTP 200; no omitted prerequisites or expected failures. Fresh fixture generations and clean teardown are recorded.",
+    "source_files": {
+      "inert/inert-node-is-uneditable.html": "4e69777ac244fa355d366159a90febe604cb3a3459da5a8a3f69de0711a74056",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "4e69777ac244fa355d366159a90febe604cb3a3459da5a8a3f69de0711a74056",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53311/inert/inert-node-is-uneditable.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53311/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53311/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53311/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53311/resources/testdriver-actions.js"
+      },
+      "5": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53311/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-node-is-unfocusable.html|window|": {
+    "automation_audit": "One setup click establishes focus; direct and ancestor inertness reject subsequent element focus, reflected state remains distinct from inherited inertness, and removing inert restores focus controls. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution.",
+    "evidence_sha256": "40e7ad01239ed2fb18754059cf7a2eb4d5fc550c25687f6e86b78c9e78d61b13",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 6,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned source: all tests and setup callbacks follow the standard reporting adapter. Actual document and helper response hashes match their unchanged pinned bytes, except the versioned report and vendor adapters bound by this run. All observed resources completed HTTP 200; no omitted prerequisites or expected failures. Fresh fixture generations and clean teardown are recorded.",
+    "source_files": {
+      "inert/inert-node-is-unfocusable.html": "af0db22165bc1338fa61df2136abe324b41846dfe4adbc32d93fa83b6bce0841",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "click"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "af0db22165bc1338fa61df2136abe324b41846dfe4adbc32d93fa83b6bce0841",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53440/inert/inert-node-is-unfocusable.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53440/resources/testdriver.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53440/resources/testdriver-vendor.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53440/resources/testharness.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53440/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/inert-on-slots.html|window|": {
+    "automation_audit": "Two named slots: inert slot blocks its assigned button while the other slot permits focus. Exact test does not cover manual slot assignment. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution.",
+    "evidence_sha256": "40e7ad01239ed2fb18754059cf7a2eb4d5fc550c25687f6e86b78c9e78d61b13",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned source: all tests and setup callbacks follow the standard reporting adapter. Actual document and helper response hashes match their unchanged pinned bytes, except the versioned report and vendor adapters bound by this run. All observed resources completed HTTP 200; no omitted prerequisites or expected failures. Fresh fixture generations and clean teardown are recorded.",
+    "source_files": {
+      "inert/inert-on-slots.html": "c97e65492a9b84811b78cefe122c467f9393017a36e2aebd60825f66449b9e6d",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "c97e65492a9b84811b78cefe122c467f9393017a36e2aebd60825f66449b9e6d",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53591/inert/inert-on-slots.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53591/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:53591/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "inert/nested-inert-unfocusable.html|window|": {
+    "automation_audit": "Input remains unfocusable until both nested inert ancestors have had inert removed. Reporting-adapter native Window.focus and hasFocus verification precede these test callbacks; this exact reference has verified real focus and matching names/statuses. No focus emulation or synthetic event substitution. Qualification is confined to this execution.",
+    "evidence_sha256": "40e7ad01239ed2fb18754059cf7a2eb4d5fc550c25687f6e86b78c9e78d61b13",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed pinned source: all tests and setup callbacks follow the standard reporting adapter. Actual document and helper response hashes match their unchanged pinned bytes, except the versioned report and vendor adapters bound by this run. All observed resources completed HTTP 200; no omitted prerequisites or expected failures. Fresh fixture generations and clean teardown are recorded.",
+    "source_files": {
+      "inert/nested-inert-unfocusable.html": "72ddc055eb915d5518361fea67b617feaa00ce81032cb6db877c826fade39322",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "72ddc055eb915d5518361fea67b617feaa00ce81032cb6db877c826fade39322",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:54312/inert/nested-inert-unfocusable.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:54312/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:54312/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  }
+}

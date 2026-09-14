@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "354c50f9c5bc09f691eda09ed12bad7a0bbad554b48a568619bf5dd26b25972a",
+  "native_test_binary_sha256": "218e69ed54f7a7c13376064f226c0c5e2ea504bff0dc905cd3b2d08e8a28c76a",
+  "local_tests": {
+    "worker_client_default_features": {"passed": 13, "failed": 0},
+    "worker_client_v8_features": {"passed": 13, "failed": 0},
+    "strict_library_clippy_default_and_v8": "passed",
+    "format_and_diff_check": "passed"
+  },
+  "mixed_snapshot_recycle_diagnostic": {
+    "benchmark_binary_sha256": "b4fc9bcebf23545404de9a441faf711d61be8d0358e8320bfa37faa73fdede20",
+    "worker_source_tree_sha256": "d48fef837d13dc1bd9a67e339e123f6d229113ffb41c4edc5386e1952deaa397",
+    "signed_worker_sha256": "45362cff99b6255f3f98b4a8bf9646e1ce3359cad84545691c2a434d4ff409ff",
+    "pages": 3, "actions": 20, "state_erasure_passed": true,
+    "reset_or_close_ms": [0.350584, 0.350417, 3.121041],
+    "performance_acceptance": false
+  },
+  "signed_build": {
+    "passed": true, "sandbox_probes_passed": true, "protocol_version": 9,
+    "parent_sha256": "6bf929a144170ef8ca41fd4cee21c703746674bb0d847e491c44ef7ddab3c546",
+    "unsigned_worker_sha256": "eeba3384576a9ee10d51a3f350bf38a97817f8381f04754ee7587d44d1766009",
+    "signed_worker_sha256": "77687f3de09e09d81e65424581fb6d24a2a0a662da3b0754d146ee1faa2e8ac1",
+    "code_directory_hash": "aee7bc234630b29a7fc3256ff61217ae5dc278fc",
+    "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "v8_bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "matched_source_recycle_smoke": {
+    "pages": 3, "actions": 20, "state_erasure_passed": true,
+    "benchmark_binary_sha256": "b4fc9bcebf23545404de9a441faf711d61be8d0358e8320bfa37faa73fdede20",
+    "reset_or_close_ms": [0.350083, 0.267792, 3.453125],
+    "performance_acceptance": false
+  },
+  "wpt": {
+    "timers_serial_repeat": {
+      "files_passed": 10, "files_total": 13, "environment_blocked": 0,
+      "elapsed_seconds": 39.484,
+      "result_path": "/private/tmp/oryn-parent-drain-timers-serial-20260913.json",
+      "sha256": "94c4749e5370045f105956ca88ce8f6a8cf1c307c8870a682a966ca067ceafba",
+      "qualification": "Diagnostic repeat only; does not erase the parallel timing failure"
+    },
+    "timers_parallel": {
+      "files_passed": 9, "files_total": 13,
+      "reported_subtests_passed": 13, "reported_subtests_total": 15,
+      "environment_blocked": 0, "elapsed_seconds": 19.645,
+      "result_path": "/private/tmp/oryn-parent-drain-timers-20260913.json",
+      "sha256": "dd081a85404d12cd17536b745d95d8dbc47a1635081155d8bf0caa99456d199c",
+      "additional_failure": "timer-nesting-not-inherited-in-microtask.html: measured 4.1 ms versus required less than 4 ms"
+    },
+    "templates": {
+      "files_passed": 8, "files_total": 67,
+      "reported_subtests_passed": 445, "reported_subtests_total": 1167,
+      "environment_blocked": 0, "elapsed_seconds": 46.697,
+      "result_path": "/private/tmp/oryn-parent-drain-templates-20260913.json",
+      "sha256": "bd4b8dfed58c39c9e15cd2aab7580ee5b021d39c84e1c4766a693503d057336f"
+    },
+    "adoption": {
+      "files_passed": 3, "files_total": 3,
+      "reported_subtests_passed": 13, "reported_subtests_total": 13,
+      "environment_blocked": 0, "elapsed_seconds": 5.448,
+      "result_path": "/private/tmp/oryn-parent-drain-adoption-20260913.json",
+      "sha256": "ab5b289eb478f28a2dca8f4e82a0074898218b0be61715626d2e8832276ed9de"
+    },
+    "denominator_note": "Reported subtests omit missing results in harness failures; whole-file totals are authoritative."
+  },
+  "full_native": {
+    "passed": 468, "failed": 1, "ignored": 6, "seconds": 596.82,
+    "failed_test": "runtime::tests::slow_paint_images_do_not_hold_the_page_actor",
+    "failure": "observe must not queue behind image I/O: Elapsed(()) at runtime.rs:15084",
+    "execution": "serial test threads; loopback permissions; no competing builds or WPT runs",
+    "status": "failed; failure not waived"
+  },
+  "focused_failure_repeat": {
+    "test": "runtime::tests::slow_paint_images_do_not_hold_the_page_actor",
+    "passed": 1, "failed": 0, "seconds": 0.10,
+    "qualification": "Does not erase or establish the cause of the full-suite failure"
+  },
+  "scope": "Admission/revocation/drain under existing isolated placement; not protocol-v10 environment authentication"
+}

@@ -107,7 +107,11 @@ impl McpServer {
 
     async fn ensure_session(&mut self) -> Result<&mut NativeContextOilSession, RpcError> {
         if self.session.is_none() {
-            let context = Browser::new().new_context();
+            let browser = Browser::new();
+            browser
+                .prepare_workers()
+                .map_err(|error| RpcError::new(-32000, error.to_string()))?;
+            let context = browser.new_context();
             if let Some(descriptor) = self.secret_fd.take() {
                 crate::secret_input::provision_context_from_fd(&context, descriptor)
                     .map_err(|error| RpcError::new(-32000, error.to_string()))?;

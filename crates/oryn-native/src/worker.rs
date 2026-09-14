@@ -19,7 +19,7 @@ use crate::{
     runtime::NativeAction,
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 8;
+pub const WORKER_PROTOCOL_VERSION: u32 = 9;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
 
@@ -72,6 +72,7 @@ impl WorkerLimits {
     pub fn browser_config(&self) -> BrowserConfig {
         BrowserConfig {
             runtime_profile: self.runtime_profile,
+            worker_lifecycle: crate::runtime::WorkerLifecycle::IsolatedOnDemand,
             worker_queue_capacity: self.queue_capacity.min(32),
             request_timeout: Duration::from_millis(self.navigation_wall_ms.min(30_000)),
             max_response_bytes: 16 * 1024 * 1024,
@@ -129,6 +130,11 @@ pub enum WorkerRequest {
     Ping,
     Goto {
         url: String,
+    },
+    GotoResource {
+        url: String,
+        post: Option<oryn_js::navigation::PostResource>,
+        referrer_policy: Option<String>,
     },
     Back,
     Forward,
@@ -197,6 +203,9 @@ pub enum WorkerRequest {
     Execute {
         action: NativeActionRequest,
     },
+    ExecuteBatch {
+        actions: Vec<NativeActionRequest>,
+    },
     SetFiles {
         target: SemanticRef,
         files: Vec<crate::upload::UploadFile>,
@@ -205,6 +214,9 @@ pub enum WorkerRequest {
         input: String,
     },
     Trace,
+    Reset {
+        nonce: String,
+    },
     Close,
     Exit,
 }
@@ -232,6 +244,11 @@ pub enum WorkerResponse {
         sandbox_state: String,
         secret_environment_present: bool,
         limits: WorkerLimits,
+        code_identity: WorkerCodeIdentity,
+    },
+    ResetReady {
+        nonce: String,
+        code_identity: WorkerCodeIdentity,
     },
     Pong {
         protocol_version: u32,
@@ -282,6 +299,9 @@ pub enum WorkerResponse {
     Action {
         result: oryn_common::v3::ActionResult,
     },
+    Actions {
+        results: Vec<oryn_common::v3::ActionResult>,
+    },
     Oil {
         outputs: Vec<NativeOilOutput>,
     },
@@ -315,6 +335,13 @@ pub enum WorkerResponse {
     LimitExceeded {
         resource: String,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkerCodeIdentity {
+    pub process_id: u32,
+    pub binary_sha256: String,
+    pub code_directory_hash: Option<String>,
 }
 
 struct PageSession {
@@ -438,6 +465,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                 )
                 .await
             };
+            let reset = matches!(response, WorkerResponse::ResetReady { .. });
             let exiting = matches!(response, WorkerResponse::Exiting);
             let response = WorkerEnvelope {
                 protocol_version: WORKER_PROTOCOL_VERSION,
@@ -449,6 +477,10 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             serde_json::to_writer(&mut writer, &response)?;
             writer.write_all(b"\n")?;
             writer.flush()?;
+            if reset {
+                active_session_id = None;
+                last_message_id = 0;
+            }
             if exiting {
                 break;
             }
@@ -543,6 +575,11 @@ async fn dispatch(
             },
             secret_environment_present: secret_environment_present(),
             limits: effective,
+            code_identity: WorkerCodeIdentity {
+                process_id: std::process::id(),
+                binary_sha256: current_binary_sha256().unwrap_or_default(),
+                code_directory_hash: current_code_directory_hash(),
+            },
         };
     }
     if matches!(request, WorkerRequest::Ping) {
@@ -553,6 +590,26 @@ async fn dispatch(
     if matches!(request, WorkerRequest::Exit) {
         return WorkerResponse::Exiting;
     }
+    if let WorkerRequest::Reset { nonce } = request {
+        let Some(active) = session.take() else {
+            return WorkerResponse::Error {
+                error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
+                    "worker has not been initialized".into(),
+                )),
+            };
+        };
+        if let Err(value) = active.page.close().await {
+            return error(value);
+        }
+        return WorkerResponse::ResetReady {
+            nonce,
+            code_identity: WorkerCodeIdentity {
+                process_id: std::process::id(),
+                binary_sha256: current_binary_sha256().unwrap_or_default(),
+                code_directory_hash: current_code_directory_hash(),
+            },
+        };
+    }
     let Some(session) = session.as_mut() else {
         return WorkerResponse::Error {
             error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
@@ -562,6 +619,11 @@ async fn dispatch(
     };
     match request {
         WorkerRequest::Goto { url } => navigation(session.page.goto(url).await),
+        WorkerRequest::GotoResource {
+            url,
+            post,
+            referrer_policy,
+        } => navigation(session.page.goto_resource(url, post, referrer_policy).await),
         WorkerRequest::Back => navigation(session.page.back().await),
         WorkerRequest::Forward => navigation(session.page.forward().await),
         WorkerRequest::Refresh => navigation(session.page.refresh().await),
@@ -699,6 +761,33 @@ async fn dispatch(
                 Err(value) => error(value),
             }
         }
+        WorkerRequest::ExecuteBatch { actions } => {
+            if actions.len() > 10_000 {
+                return WorkerResponse::LimitExceeded {
+                    resource: "action batch".into(),
+                };
+            }
+            let mut results = Vec::with_capacity(actions.len());
+            for action in actions {
+                let native_action = NativeAction {
+                    target: action.target,
+                    action: action.action,
+                    value: action.value,
+                };
+                let result = if action.sensitive {
+                    session.page.execute_sensitive(native_action).await
+                } else if action.force {
+                    session.page.execute_forced(native_action).await
+                } else {
+                    session.page.execute(native_action).await
+                };
+                match result {
+                    Ok(result) => results.push(result),
+                    Err(value) => return error(value),
+                }
+            }
+            WorkerResponse::Actions { results }
+        }
         WorkerRequest::SetFiles { target, files } => {
             match session.page.set_files_materialized(target, files).await {
                 Ok(result) => WorkerResponse::Action { result },
@@ -718,7 +807,10 @@ async fn dispatch(
             Ok(()) => WorkerResponse::Closed,
             Err(value) => error(value),
         },
-        WorkerRequest::Initialize { .. } | WorkerRequest::Ping | WorkerRequest::Exit => {
+        WorkerRequest::Initialize { .. }
+        | WorkerRequest::Ping
+        | WorkerRequest::Reset { .. }
+        | WorkerRequest::Exit => {
             unreachable!("handled before session dispatch")
         }
     }
@@ -758,6 +850,47 @@ pub fn precompute_binary_sha256() -> std::io::Result<()> {
     let bytes = std::fs::read(std::env::current_exe()?)?;
     let _ = WORKER_BINARY_SHA256.set(format!("{:x}", Sha256::digest(bytes)));
     Ok(())
+}
+
+pub fn initialize_binary_sha256(value: String) -> std::io::Result<()> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid trusted worker SHA-256",
+        ));
+    }
+    let _ = WORKER_BINARY_SHA256.set(value.to_ascii_lowercase());
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn current_code_directory_hash() -> Option<String> {
+    const CS_OPS_CDHASH: u32 = 5;
+    unsafe extern "C" {
+        fn csops(
+            pid: libc::pid_t,
+            ops: u32,
+            useraddr: *mut libc::c_void,
+            usersize: libc::size_t,
+        ) -> libc::c_int;
+    }
+    let mut hash = [0_u8; 20];
+    // SAFETY: csops writes exactly the supplied fixed-size CDHash buffer for
+    // the current process.
+    let status = unsafe {
+        csops(
+            std::process::id().cast_signed(),
+            CS_OPS_CDHASH,
+            hash.as_mut_ptr().cast(),
+            hash.len(),
+        )
+    };
+    (status == 0).then(|| hash.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn current_code_directory_hash() -> Option<String> {
+    None
 }
 
 pub fn policy_digest(context: &ContextOptions) -> String {
@@ -884,6 +1017,76 @@ mod tests {
         assert_eq!(values[0]["status"], "pong");
         assert_eq!(values[1]["status"], "error");
         assert_eq!(values[2]["status"], "exiting");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn reset_destroys_the_session_and_accepts_a_fresh_nonce_and_session() {
+        let requests = [
+            HostEnvelope {
+                protocol_version: WORKER_PROTOCOL_VERSION,
+                session_id: 41,
+                message_id: 1,
+                command: WorkerRequest::Initialize {
+                    nonce: "first".into(),
+                    limits: WorkerLimits::default(),
+                    context: Box::new(ContextOptions::default()),
+                    page_id: PageId(1),
+                    opener_page_id: None,
+                    document_generation_base: 0,
+                },
+            },
+            HostEnvelope {
+                protocol_version: WORKER_PROTOCOL_VERSION,
+                session_id: 41,
+                message_id: 2,
+                command: WorkerRequest::Reset {
+                    nonce: "reset".into(),
+                },
+            },
+            HostEnvelope {
+                protocol_version: WORKER_PROTOCOL_VERSION,
+                session_id: 42,
+                message_id: 1,
+                command: WorkerRequest::Initialize {
+                    nonce: "second".into(),
+                    limits: WorkerLimits::default(),
+                    context: Box::new(ContextOptions::default()),
+                    page_id: PageId(2),
+                    opener_page_id: None,
+                    document_generation_base: 1_u64 << 32,
+                },
+            },
+            HostEnvelope {
+                protocol_version: WORKER_PROTOCOL_VERSION,
+                session_id: 42,
+                message_id: 2,
+                command: WorkerRequest::Exit,
+            },
+        ];
+        let mut input = Vec::new();
+        for request in requests {
+            serde_json::to_writer(&mut input, &request).unwrap();
+            input.push(b'\n');
+        }
+        let mut output = Vec::new();
+        serve(BufReader::new(Cursor::new(input)), &mut output)
+            .await
+            .unwrap();
+        let responses = output
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice::<WorkerEnvelope>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(responses[0].response, WorkerResponse::Ready { ref nonce, .. } if nonce == "first")
+        );
+        assert!(
+            matches!(responses[1].response, WorkerResponse::ResetReady { ref nonce, .. } if nonce == "reset")
+        );
+        assert!(
+            matches!(responses[2].response, WorkerResponse::Ready { ref nonce, .. } if nonce == "second")
+        );
+        assert!(matches!(responses[3].response, WorkerResponse::Exiting));
     }
 
     #[tokio::test(flavor = "current_thread")]

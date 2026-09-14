@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "4c5200497df135cd08529f9ad85f241d1d5dd9f3e32df74172c69ac6477bd820",
+  "parent_sha256": "955bc922660733d03fe8ea25ae2e0c681e5066fa782b3097471ce1f0be4c19f3",
+  "worker_build_sha256": "fcee21930b0d895f39f859f21df25e5985a319c588fdc768cf451dc9995b0dcc",
+  "worker_signed_sha256": "ac475e40496808e38813dabe2fa923ba0f3ca6d86194ab07875cd118f5dfd289",
+  "code_directory_hash": "9884c19218b40d52611c8808f823f3aaf1c77f73",
+  "protocol_version": 9,
+  "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+  "bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+  "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+  "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+  "sandbox_denial_checks_passed": true,
+  "native_tests": {"passed":451,"failed":0,"ignored":6,"seconds":680.09},
+  "js_tests": {"passed":251,"failed":0,"ignored":3},
+  "layout_tests": {"passed":73,"failed":0},
+  "linux_compile": {
+    "target":"aarch64-unknown-linux-gnu",
+    "rustc":"1.98.0 (88d9e12ae 2026-08-18)",
+    "command":"cargo check --locked --release -p oryn-native --no-default-features",
+    "passed":true,
+    "seconds":33.53,
+    "archive_sha256":"84520bb4ae47080286e6f1aad69c6b6e92d4547c7208f3cd3c1ae39cc6fe7da7",
+    "scope":"compile only; no V8 or Linux runtime qualification; pool modes disabled"
+  },
+  "runs": [
+    {"path":"/private/tmp/oryn-image-corrected-formdata-20260913.json","sha256":"26283926b5aee32b1bfffb75b00ef99515b9a1d45c480f54421c3544143921d4","selected":18,"passed":18,"environment_blocked":0},
+    {"path":"/private/tmp/oryn-image-corrected-submission-20260913.json","sha256":"aa8d85252e71e36be3deb51e5d0646287904da51bb20e72cb674d5883bb0ac6e","selected":35,"passed":11,"environment_blocked":0}
+  ],
+  "note":"Selected window/default executions, not all upstream variants or a full baseline. Includes nonblocking image lifecycle, native request retention, intrinsic dimensions and collapsible block whitespace repair. Predates form/submitter reflection follow-up. File-level comparison with the prior corrected submission run shows submit-entity-body.html and url-encoded.html changed from failed to passed, with no file-level pass-to-failure regressions; this does not establish subtest-level monotonicity."
+}

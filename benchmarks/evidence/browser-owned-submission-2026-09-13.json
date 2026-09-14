@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_commit": "42cc4ae02ecc96a99c4c652201b0b61a5cd5b8c0",
+  "source_tree_sha256": "d52858ded793d88263618c5b2451145f24c46b4335198aa07cfe4f8bb13e50e9",
+  "parent_sha256": "59da2a1e1ca667fbdc16c42d0055cb217a9c645f6c87101fe8aefa9c468b91a4",
+  "worker_build_sha256": "9383f31378ca0429eee1807dc178a0d901a3f61b96c8b1ba3ec7114ed94c0cc6",
+  "worker_signed_sha256": "1694ab8ff491bd6b7d979923a677da3850ff66d7ec0c2deb8c204359c39b2350",
+  "code_directory_hash": "745e4fca9f3c3afc4a684f10e4d68a5d900f871b",
+  "protocol_version": 9,
+  "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+  "bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+  "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+  "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+  "sandbox_denial_checks_passed": true,
+  "native_tests": {"passed":448,"ignored":6,"failed":0,"seconds":654.60},
+  "runs": [
+    {
+      "path": "/private/tmp/oryn-owned-formdata-20260913.json",
+      "sha256": "e994452db590155e302f296890867a1af65f17f2342ad3f6c43e93a4cc21704e",
+      "selected":18,"passed":12,"environment_blocked":0,
+      "scope":"selected window executions, not all upstream variants"
+    },
+    {
+      "path": "/private/tmp/oryn-owned-submission-20260913.json",
+      "sha256": "430373936eca5eb03dd18489fa74a1ba9dcfa9cbfe203e1a6b6a59c9e768181c",
+      "selected":35,"passed":9,"environment_blocked":0,
+      "scope":"selected executions, not a full conformance baseline"
+    }
+  ],
+  "note":"These immutable initial outcomes predate the later live-iterator, File, image-coordinate, redirect-policy and parser-time scheduling repairs. Do not relabel them as results for current source."
+}

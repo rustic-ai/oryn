@@ -28,6 +28,10 @@ pub fn initialize_v8_icu_data() {
         .unwrap_or_else(|status| panic!("profile ICU data was rejected with status {status}"));
 }
 
+#[cfg(feature = "v8-host")]
+mod agent;
+#[cfg(feature = "v8-host")]
+mod automation_trace;
 pub mod challenge;
 #[cfg(unix)]
 pub mod context_service;
@@ -50,6 +54,7 @@ mod observable;
 pub mod oil;
 pub mod referrer;
 pub mod replay;
+pub mod resource_audit;
 pub mod runtime;
 pub mod security;
 pub mod semantic;
@@ -94,7 +99,7 @@ pub use replay::{
 pub use runtime::{
     Browser, BrowserConfig, BrowserContext, CacheMode, ContentKind, ContextOptions, LifecycleState,
     NativeAction, NavigationResult, PageHandle, RuntimeError, RuntimeProfile, ScrollRequest,
-    WaitPredicate,
+    WaitPredicate, WorkerLifecycle,
 };
 pub use security::{
     ActionPolicy, ConfirmationToken, ConsequentialAction, NetworkPolicy, PolicyDecision,
@@ -113,9 +118,11 @@ pub struct RuntimeBuildInfo {
     pub build_profile: String,
     pub capabilities: Vec<String>,
     pub execution_mode: String,
+    pub worker_lifecycle: String,
     pub sandboxed: bool,
     pub worker_protocol_version: Option<u32>,
     pub worker_binary_sha256: Option<String>,
+    pub worker_code_directory_hash: Option<String>,
     pub worker_bundle_id: Option<String>,
     pub worker_team_id: Option<String>,
     pub worker_signing_cert_sha1: Option<String>,
@@ -198,9 +205,11 @@ pub fn runtime_build_info() -> RuntimeBuildInfo {
         },
         capabilities,
         execution_mode: "in_process_probe".into(),
+        worker_lifecycle: "isolated_on_demand".into(),
         sandboxed: false,
         worker_protocol_version: None,
         worker_binary_sha256: None,
+        worker_code_directory_hash: None,
         worker_bundle_id: None,
         worker_team_id: None,
         worker_signing_cert_sha1: None,
@@ -254,9 +263,19 @@ pub fn production_runtime_build_info() -> Result<RuntimeBuildInfo, runtime::Runt
 pub fn production_runtime_build_info_with_options(
     options: ContextOptions,
 ) -> Result<RuntimeBuildInfo, runtime::RuntimeError> {
+    production_runtime_build_info_with_config(BrowserConfig::default(), options)
+}
+
+pub fn production_runtime_build_info_with_config(
+    config: BrowserConfig,
+    options: ContextOptions,
+) -> Result<RuntimeBuildInfo, runtime::RuntimeError> {
+    config.worker_lifecycle.validate()?;
     #[cfg(unix)]
     if runtime::uses_worker_process() {
-        return worker_client::runtime_report(&BrowserConfig::default(), &options);
+        return worker_client::runtime_report(&config, &options);
     }
-    Ok(runtime_build_info())
+    let mut runtime = runtime_build_info();
+    runtime.worker_lifecycle = config.worker_lifecycle.name().into();
+    Ok(runtime)
 }

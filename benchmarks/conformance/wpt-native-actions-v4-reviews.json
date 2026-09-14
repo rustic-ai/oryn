@@ -1,0 +1,595 @@
+{
+  "infrastructure/testdriver/actions/actionsWithKeyPressed.html|window|": {
+    "automation_audit": "Reviewed Shift down/up interleaved with three mouse clicks; asserts actual modifier states [true,true,false], not unsupported special-key defaults. Native bounded page-isolate trace is complete, has no overflow, and every operation has one terminal completion. Valid independent Chromium completion matches named subtests and statuses. Qualification is restricted to this exact execution and source.",
+    "evidence_sha256": "10d751cfbe98a6974b697e17c10bf83125a3e543cc55bb04db0f6a003a29ce82",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed unchanged pinned source and child dependencies, fresh direct fixture generations, all observed HTTP 200 completed responses with recorded hashes, and clean teardown. Only versioned report/vendor adapters are substituted; their hashes are bound by the run harness metadata. No absent prerequisite or expected error allowance.",
+    "source_files": {
+      "infrastructure/testdriver/actions/actionsWithKeyPressed.html": "dba93f1dc05314b7bbce963aa5aa51b3dc0052a969deb0a92be5d5f0e32e1ad7",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "dba93f1dc05314b7bbce963aa5aa51b3dc0052a969deb0a92be5d5f0e32e1ad7",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51295/infrastructure/testdriver/actions/actionsWithKeyPressed.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51295/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "93124768ea41e62d95a1bebc2f5c59b1b8dcf246587366a6ef87c7a5e520db7b",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51295/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51295/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51295/resources/testdriver-actions.js"
+      },
+      "5": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51295/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "infrastructure/testdriver/actions/crossOrigin.sub.html|window|": {
+    "automation_audit": "Reviewed HTTPS child support/actions.html?parent: click input, type PASS, post only PASS/FAIL to parent. Native trace includes two completed child-realm action_sequence calls; Chromium matches. Certificate validation behavior is not asserted. Native bounded page-isolate trace is complete, has no overflow, and every operation has one terminal completion. Valid independent Chromium completion matches named subtests and statuses. Qualification is restricted to this exact execution and source.",
+    "evidence_sha256": "10d751cfbe98a6974b697e17c10bf83125a3e543cc55bb04db0f6a003a29ce82",
+    "expected_native_automation_calls": 2,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed unchanged pinned source and child dependencies, fresh direct fixture generations, all observed HTTP 200 completed responses with recorded hashes, and clean teardown. Only versioned report/vendor adapters are substituted; their hashes are bound by the run harness metadata. No absent prerequisite or expected error allowance.",
+    "source_files": {
+      "infrastructure/testdriver/actions/crossOrigin.sub.html": "256c95a253ff0b754924ca97bb8c086fb9a2fffd55ea3343b3ca93bb4ee4f8b1",
+      "infrastructure/testdriver/actions/support/actions.html": "4c2e2987ff4ff078c08579499fe23c2e8148c18e73c217ba7306d0ab132105dc",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "e56f85208e077a3c4e3af2f8494845eb6fe670bf3f096b276c6e3cc2c810471f",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51447/infrastructure/testdriver/actions/crossOrigin.sub.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51447/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "93124768ea41e62d95a1bebc2f5c59b1b8dcf246587366a6ef87c7a5e520db7b",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51447/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51447/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51447/resources/testdriver-vendor.js"
+      },
+      "5": {
+        "mime": "text/html",
+        "query_sha256": "e47125968b3b71049fbc4802d1e40a71ea1359decfabacf70b34588037d4ff0c",
+        "response_sha256": "4c2e2987ff4ff078c08579499fe23c2e8148c18e73c217ba7306d0ab132105dc",
+        "status": 200,
+        "terminal": "complete",
+        "url": "https://localhost:51450/infrastructure/testdriver/actions/support/actions.html"
+      },
+      "6": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "https://localhost:51450/resources/testdriver.js"
+      },
+      "7": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "https://localhost:51450/resources/testdriver-vendor.js"
+      },
+      "8": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "https://localhost:51450/resources/testdriver-actions.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "infrastructure/testdriver/actions/elementPosition.html|window|": {
+    "automation_audit": "Reviewed clipped fixed element geometry: only mouse move/down/up, assertion observes actual click client coordinates [50,25]. Native bounded page-isolate trace is complete, has no overflow, and every operation has one terminal completion. Valid independent Chromium completion matches named subtests and statuses. Qualification is restricted to this exact execution and source.",
+    "evidence_sha256": "10d751cfbe98a6974b697e17c10bf83125a3e543cc55bb04db0f6a003a29ce82",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed unchanged pinned source and child dependencies, fresh direct fixture generations, all observed HTTP 200 completed responses with recorded hashes, and clean teardown. Only versioned report/vendor adapters are substituted; their hashes are bound by the run harness metadata. No absent prerequisite or expected error allowance.",
+    "source_files": {
+      "infrastructure/testdriver/actions/elementPosition.html": "8ba71aa36fa02a8d78a9cb2f4287a52b3e9b3eae834dce2f8270d283e39a921d",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "8ba71aa36fa02a8d78a9cb2f4287a52b3e9b3eae834dce2f8270d283e39a921d",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51194/infrastructure/testdriver/actions/elementPosition.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51194/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "93124768ea41e62d95a1bebc2f5c59b1b8dcf246587366a6ef87c7a5e520db7b",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51194/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51194/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51194/resources/testdriver-actions.js"
+      },
+      "5": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51194/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "infrastructure/testdriver/actions/elementTiming.html|window|": {
+    "automation_audit": "Reviewed two serialized mouse clicks; the first reveals and moves the second target. Assertion observes its new [50,150] center, with click watchers and a bounded timer. Native bounded page-isolate trace is complete, has no overflow, and every operation has one terminal completion. Valid independent Chromium completion matches named subtests and statuses. Qualification is restricted to this exact execution and source.",
+    "evidence_sha256": "10d751cfbe98a6974b697e17c10bf83125a3e543cc55bb04db0f6a003a29ce82",
+    "expected_native_automation_calls": 2,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed unchanged pinned source and child dependencies, fresh direct fixture generations, all observed HTTP 200 completed responses with recorded hashes, and clean teardown. Only versioned report/vendor adapters are substituted; their hashes are bound by the run harness metadata. No absent prerequisite or expected error allowance.",
+    "source_files": {
+      "infrastructure/testdriver/actions/elementTiming.html": "a6ec40b931e3ae68c86de1afa372af766599c111d4569eb73bdb9cf0e78211c8",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "a6ec40b931e3ae68c86de1afa372af766599c111d4569eb73bdb9cf0e78211c8",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51192/infrastructure/testdriver/actions/elementTiming.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51192/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "93124768ea41e62d95a1bebc2f5c59b1b8dcf246587366a6ef87c7a5e520db7b",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51192/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51192/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51192/resources/testdriver-actions.js"
+      },
+      "5": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51192/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "infrastructure/testdriver/actions/iframe.html|window|": {
+    "automation_audit": "Reviewed same-origin child containing one text input, element-origin click then explicit frame-context PASS key pairs. Native trace has both completed calls and the real child input assertion passes. Native bounded page-isolate trace is complete, has no overflow, and every operation has one terminal completion. Valid independent Chromium completion matches named subtests and statuses. Qualification is restricted to this exact execution and source.",
+    "evidence_sha256": "10d751cfbe98a6974b697e17c10bf83125a3e543cc55bb04db0f6a003a29ce82",
+    "expected_native_automation_calls": 2,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed unchanged pinned source and child dependencies, fresh direct fixture generations, all observed HTTP 200 completed responses with recorded hashes, and clean teardown. Only versioned report/vendor adapters are substituted; their hashes are bound by the run harness metadata. No absent prerequisite or expected error allowance.",
+    "source_files": {
+      "infrastructure/testdriver/actions/iframe.html": "fa8e32999bb6c4f93028b3beb6148cab738c78c39b60c5e10427f6fc0d3272fe",
+      "infrastructure/testdriver/actions/iframeChild.html": "b8d6c030fc34ee3fbce7b615650b80973ad883d539ea58708e0f779ea9773eb5",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "fa8e32999bb6c4f93028b3beb6148cab738c78c39b60c5e10427f6fc0d3272fe",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51405/infrastructure/testdriver/actions/iframe.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51405/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "93124768ea41e62d95a1bebc2f5c59b1b8dcf246587366a6ef87c7a5e520db7b",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51405/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51405/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51405/resources/testdriver-vendor.js"
+      },
+      "5": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51405/resources/testdriver-actions.js"
+      },
+      "6": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "b8d6c030fc34ee3fbce7b615650b80973ad883d539ea58708e0f779ea9773eb5",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51405/infrastructure/testdriver/actions/iframeChild.html"
+      }
+    },
+    "verified_websockets": []
+  },
+  "infrastructure/testdriver/actions/mouseClickCount.html|window|": {
+    "automation_audit": "Reviewed five mouse clicks with one position change; asserts event detail [1,2,1,2,3]. Native and reference click-count regression tests cover this pattern. Native bounded page-isolate trace is complete, has no overflow, and every operation has one terminal completion. Valid independent Chromium completion matches named subtests and statuses. Qualification is restricted to this exact execution and source.",
+    "evidence_sha256": "10d751cfbe98a6974b697e17c10bf83125a3e543cc55bb04db0f6a003a29ce82",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed unchanged pinned source and child dependencies, fresh direct fixture generations, all observed HTTP 200 completed responses with recorded hashes, and clean teardown. Only versioned report/vendor adapters are substituted; their hashes are bound by the run harness metadata. No absent prerequisite or expected error allowance.",
+    "source_files": {
+      "infrastructure/testdriver/actions/mouseClickCount.html": "c6e4274bbc87de45c082cdd2b980d9ab0404a0a90fd908e4c978f01908e4cd99",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "c6e4274bbc87de45c082cdd2b980d9ab0404a0a90fd908e4c978f01908e4cd99",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51366/infrastructure/testdriver/actions/mouseClickCount.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51366/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "93124768ea41e62d95a1bebc2f5c59b1b8dcf246587366a6ef87c7a5e520db7b",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51366/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51366/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51366/resources/testdriver-actions.js"
+      },
+      "5": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51366/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "infrastructure/testdriver/actions/pause.html|window|": {
+    "automation_audit": "Reviewed a single 1000 ms empty tick and the greater-than-1000 ms performance.now assertion; no device input or rendering prerequisites. Native bounded page-isolate trace is complete, has no overflow, and every operation has one terminal completion. Valid independent Chromium completion matches named subtests and statuses. Qualification is restricted to this exact execution and source.",
+    "evidence_sha256": "10d751cfbe98a6974b697e17c10bf83125a3e543cc55bb04db0f6a003a29ce82",
+    "expected_native_automation_calls": 1,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Reviewed unchanged pinned source and child dependencies, fresh direct fixture generations, all observed HTTP 200 completed responses with recorded hashes, and clean teardown. Only versioned report/vendor adapters are substituted; their hashes are bound by the run harness metadata. No absent prerequisite or expected error allowance.",
+    "source_files": {
+      "infrastructure/testdriver/actions/pause.html": "91c83235b5687095c7053df099efb30b90560d1602195f8abd4afe31200775c7",
+      "resources/testdriver-actions.js": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "resources/testdriver-vendor.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resources/testdriver.js": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [
+      "action_sequence"
+    ],
+    "verified_dependencies": [
+      "/resources/testdriver-actions.js",
+      "/resources/testdriver-vendor.js",
+      "/resources/testdriver.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "91c83235b5687095c7053df099efb30b90560d1602195f8abd4afe31200775c7",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51288/infrastructure/testdriver/actions/pause.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51288/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "93124768ea41e62d95a1bebc2f5c59b1b8dcf246587366a6ef87c7a5e520db7b",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51288/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51288/resources/testdriver.js"
+      },
+      "4": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51288/resources/testdriver-actions.js"
+      },
+      "5": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:51288/resources/testdriver-vendor.js"
+      }
+    },
+    "verified_websockets": []
+  }
+}

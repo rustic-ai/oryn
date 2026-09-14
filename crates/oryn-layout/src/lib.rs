@@ -198,8 +198,30 @@ pub struct LayoutNode {
     pub namespace: String,
     #[serde(default)]
     pub attributes: BTreeMap<String, String>,
+    /// Namespace-bearing attributes, kept separate from the null-namespace
+    /// compatibility projection so equal qualified names cannot overwrite.
+    #[serde(default)]
+    pub namespaced_attributes: Vec<LayoutAttribute>,
+    /// Live native input state, distinct from the default content attribute.
+    #[serde(default)]
+    pub checked: Option<bool>,
+    /// Native constraint validity; None means no validation pseudo-class.
+    #[serde(default)]
+    pub validity: Option<bool>,
+    #[serde(default)]
+    pub indeterminate: bool,
+    #[serde(default)]
+    pub intrinsic_image_size: Option<(u32, u32)>,
     #[serde(default)]
     pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutAttribute {
+    pub namespace: String,
+    pub local_name: String,
+    pub prefix: Option<String>,
+    pub value: String,
 }
 
 /// The native tree supplies scope ownership; Stylo performs scope matching.
@@ -368,11 +390,22 @@ impl LayoutElement<'_> {
 
     fn state(&self) -> ElementState {
         let mut state = ElementState::ENABLED;
+        if let Some(valid) = self.node.validity {
+            state.insert(if valid {
+                ElementState::VALID
+            } else {
+                ElementState::INVALID
+            });
+        }
         if self.node.attributes.contains_key("disabled") {
             state.remove(ElementState::ENABLED);
             state.insert(ElementState::DISABLED);
         }
-        if self.node.attributes.contains_key("checked") {
+        if self
+            .node
+            .checked
+            .unwrap_or_else(|| self.node.attributes.contains_key("checked"))
+        {
             state.insert(ElementState::CHECKED);
         }
         if self.node.attributes.contains_key("required") {
@@ -478,14 +511,28 @@ impl SelectorElement for LayoutElement<'_> {
 
     fn attr_matches(
         &self,
-        _ns: &NamespaceConstraint<&<SelectorImpl as selectors::SelectorImpl>::NamespaceUrl>,
+        ns: &NamespaceConstraint<&<SelectorImpl as selectors::SelectorImpl>::NamespaceUrl>,
         local_name: &<SelectorImpl as selectors::SelectorImpl>::LocalName,
         operation: &AttrSelectorOperation<&AtomString>,
     ) -> bool {
-        self.node
-            .attributes
-            .get(local_name.0.as_ref())
-            .is_some_and(|value| operation.eval_str(value))
+        let null_namespace = matches!(ns, NamespaceConstraint::Any)
+            || matches!(ns, NamespaceConstraint::Specific(wanted) if wanted.0.as_ref().is_empty());
+        (null_namespace
+            && self
+                .node
+                .attributes
+                .get(local_name.0.as_ref())
+                .is_some_and(|value| operation.eval_str(value)))
+            || self.node.namespaced_attributes.iter().any(|entry| {
+                entry.local_name == local_name.0.as_ref()
+                    && match ns {
+                        NamespaceConstraint::Any => true,
+                        NamespaceConstraint::Specific(wanted) => {
+                            wanted.0.as_ref() == entry.namespace
+                        }
+                    }
+                    && operation.eval_str(&entry.value)
+            })
     }
 
     fn match_non_ts_pseudo_class(
@@ -498,6 +545,8 @@ impl SelectorElement for LayoutElement<'_> {
             NonTSPseudoClass::Active => state.contains(ElementState::ACTIVE),
             NonTSPseudoClass::AnyLink => state.intersects(ElementState::VISITED_OR_UNVISITED),
             NonTSPseudoClass::Checked => state.contains(ElementState::CHECKED),
+            NonTSPseudoClass::Valid => state.contains(ElementState::VALID),
+            NonTSPseudoClass::Invalid => state.contains(ElementState::INVALID),
             NonTSPseudoClass::Disabled => state.contains(ElementState::DISABLED),
             NonTSPseudoClass::Enabled => state.contains(ElementState::ENABLED),
             NonTSPseudoClass::Focus => state.contains(ElementState::FOCUS),
@@ -945,6 +994,9 @@ fn stylo_computed_values_with_provenance(
         style_threading: blitz_dom::StyleThreading::Sequential,
         ..Default::default()
     });
+    document.add_user_agent_stylesheet(
+        "input[type=image i] { appearance:none; padding:0; border:0; width:auto; height:auto; }",
+    );
     let html_namespace = Namespace::from("http://www.w3.org/1999/xhtml");
     let by_id = input
         .nodes
@@ -971,6 +1023,16 @@ fn stylo_computed_values_with_provenance(
                             value: value.clone(),
                         })
                         .collect::<Vec<_>>();
+                    attributes.extend(node.namespaced_attributes.iter().map(|entry| {
+                        BlitzAttribute {
+                            name: QualName::new(
+                                entry.prefix.as_deref().map(Into::into),
+                                Namespace::from(entry.namespace.as_str()),
+                                LocalName::from(entry.local_name.as_str()),
+                            ),
+                            value: entry.value.clone(),
+                        }
+                    }));
                     if let Some(states) = input.custom_states.get(&node.id) {
                         attributes.extend(states.iter().map(|state| BlitzAttribute {
                             name: QualName::new(
@@ -1059,6 +1121,34 @@ fn stylo_computed_values_with_provenance(
             if !mutator.node_has_parent(child) {
                 mutator.append_children(parent, &[child]);
             }
+        }
+    }
+    for input_node in &input.nodes {
+        if !input_node.tag.starts_with('#')
+            && let Some(mirror) = mirror_ids.get(&input_node.id).copied()
+        {
+            let node = document
+                .get_node_mut(mirror)
+                .expect("mapped validation node");
+            node.element_state_mut()
+                .set(ElementState::VALID, input_node.validity == Some(true));
+            node.element_state_mut()
+                .set(ElementState::INVALID, input_node.validity == Some(false));
+        }
+        if let Some(mirror) = mirror_ids.get(&input_node.id).copied()
+            && input_node.namespace == "http://www.w3.org/1999/xhtml"
+            && (input_node.tag == "progress"
+                || (input_node.tag == "input"
+                    && input_node.attributes.get("type").is_some_and(|kind| {
+                        kind.eq_ignore_ascii_case("checkbox") || kind.eq_ignore_ascii_case("radio")
+                    })))
+        {
+            let node = document.get_node_mut(mirror).expect("mapped input node");
+            if let Some(checked) = input_node.checked {
+                node.element_state_mut().set(ElementState::CHECKED, checked);
+            }
+            node.element_state_mut()
+                .set(ElementState::INDETERMINATE, input_node.indeterminate);
         }
     }
     // The native DOM owns focus. Set Stylo state directly on the fresh mirror;
@@ -1908,7 +1998,14 @@ fn layout_node(
         font_size,
         input.viewport,
     );
-    let intrinsic_text =
+    let specified_height = optional_length(
+        style_value(style, "height", "auto"),
+        input.viewport.height,
+        font_size,
+        input.viewport,
+    );
+    let border_box_sizing = style_value(style, "box-sizing", "content-box") == "border-box";
+    let mut intrinsic_text =
         if node.text.is_empty() && matches!(node.tag.as_str(), "input" | "button" | "option") {
             node.attributes.get("value").cloned().unwrap_or_default()
         } else if node.text.is_empty() && is_inline(style) {
@@ -1916,8 +2013,35 @@ fn layout_node(
         } else {
             node.text.clone()
         };
+    // Collapsible whitespace between block children does not create an
+    // anonymous line box. Preserve pre/pre-wrap/break-spaces and non-breaking
+    // spaces; this is not a change to authored text or DOM textContent.
+    if !is_inline(style)
+        && style_value(style, "white-space-collapse", "collapse") == "collapse"
+        && matches!(
+            style_value(style, "white-space", "normal"),
+            "normal" | "nowrap"
+        )
+        && intrinsic_text
+            .chars()
+            .all(|c| matches!(c, ' ' | '\t' | '\r' | '\n' | '\u{c}'))
+    {
+        intrinsic_text.clear();
+    }
     let mut content_width = specified_width.unwrap_or_else(|| {
-        if is_inline(style) {
+        if let Some((width, height)) = node.intrinsic_image_size {
+            if let Some(specified_height) = specified_height.filter(|_| height > 0) {
+                let content_height = if border_box_sizing {
+                    (specified_height - padding.top - padding.bottom - border.top - border.bottom)
+                        .max(0.0)
+                } else {
+                    specified_height.max(0.0)
+                };
+                content_height * f64::from(width) / f64::from(height)
+            } else {
+                f64::from(width)
+            }
+        } else if is_inline(style) {
             text_engine
                 .shape(
                     &intrinsic_text,
@@ -2060,16 +2184,20 @@ fn layout_node(
             children_height += child_height;
         }
     }
-    let specified_height = optional_length(
-        style_value(style, "height", "auto"),
-        input.viewport.height,
-        font_size,
-        input.viewport,
-    );
     let mut content_height = specified_height
-        .unwrap_or(intrinsic_text_height + children_height)
+        .unwrap_or_else(|| {
+            node.intrinsic_image_size.map_or(
+                intrinsic_text_height + children_height,
+                |(width, height)| {
+                    if specified_width.is_some() && width > 0 {
+                        content_width * f64::from(height) / f64::from(width)
+                    } else {
+                        f64::from(height)
+                    }
+                },
+            )
+        })
         .max(0.0);
-    let border_box_sizing = style_value(style, "box-sizing", "content-box") == "border-box";
     if border_box_sizing && specified_height.is_some() {
         content_height =
             (content_height - padding.top - padding.bottom - border.top - border.bottom).max(0.0);
@@ -2240,7 +2368,11 @@ fn descendant_text(node: &LayoutNode, by_id: &BTreeMap<u64, &LayoutNode>) -> Str
         }
         pending.extend(child.children.iter().rev().copied());
         if value.len() >= 4096 {
-            value.truncate(4096);
+            let mut end = 4096;
+            while !value.is_char_boundary(end) {
+                end -= 1;
+            }
+            value.truncate(end);
             break;
         }
     }
@@ -2667,8 +2799,22 @@ mod tests {
             tag: tag.into(),
             namespace: default_element_namespace(),
             attributes: BTreeMap::new(),
+            namespaced_attributes: Vec::new(),
+            checked: None,
+            validity: None,
+            indeterminate: false,
+            intrinsic_image_size: None,
             text: text.into(),
         }
+    }
+
+    #[test]
+    fn descendant_text_truncation_preserves_utf8() {
+        let mut root = node(1, None, "div", "");
+        root.children.push(2);
+        let child = node(2, Some(1), "span", &format!("{}😀tail", "a".repeat(4095)));
+        let nodes = BTreeMap::from([(1, &root), (2, &child)]);
+        assert_eq!(descendant_text(&root, &nodes), "a".repeat(4095));
     }
 
     #[test]
@@ -3158,6 +3304,37 @@ mod tests {
         for id in 1..=3 {
             assert_eq!(output.computed_styles[&id]["color"], "rgb(0, 0, 0)");
         }
+    }
+
+    #[test]
+    fn live_checked_state_does_not_rewrite_attribute_selectors() {
+        let mut checkbox = node(1, None, "input", "");
+        checkbox.attributes.insert("type".into(), "checkbox".into());
+        checkbox.attributes.insert("checked".into(), String::new());
+        checkbox.checked = Some(false);
+        let mut input = LayoutInput {
+            nodes: vec![checkbox],
+            stylesheets: vec!["input {color:black;outline-color:black} input[checked] {background-color:red} input:checked {color:blue} input:indeterminate {outline-color:green}".into()],
+            stylesheet_media: BTreeMap::new(), stylesheet_scope_roots: BTreeMap::new(),
+            custom_states: BTreeMap::new(), focused_node: None, focus_visible: false,
+            viewport: ViewportState::default(), scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light, reduced_motion: false, web_fonts: Vec::new(),
+        };
+        let mut engine = StyleEngine::default();
+        let output = engine.compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(output.computed_styles[&1]["color"], "rgb(0, 0, 0)");
+        assert_eq!(
+            output.computed_styles[&1]["background-color"],
+            "rgb(255, 0, 0)"
+        );
+        input.nodes[0].checked = Some(true);
+        input.nodes[0].indeterminate = true;
+        let output = engine.compute(&input, &LayoutLimits::default()).unwrap();
+        assert_eq!(output.computed_styles[&1]["color"], "rgb(0, 0, 255)");
+        assert_eq!(
+            output.computed_styles[&1]["outline-color"],
+            "rgb(0, 128, 0)"
+        );
     }
 
     #[test]
@@ -3758,6 +3935,58 @@ mod tests {
         );
         assert!(!output.resolved_values.contains_key(&5));
         assert!(!output.resolved_values.contains_key(&6));
+    }
+
+    #[test]
+    fn intrinsic_images_preserve_ratio_with_one_specified_dimension() {
+        let mut root = node(1, None, "div", "\n  \n");
+        root.children = vec![2];
+        let mut image = node(2, Some(1), "img", "");
+        image.intrinsic_image_size = Some((200, 100));
+        let mut input = LayoutInput {
+            nodes: vec![root, image],
+            stylesheets: vec![],
+            stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
+            custom_states: BTreeMap::new(),
+            focused_node: None,
+            focus_visible: false,
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        for (css, expected) in [
+            ("width:auto;height:auto", (200.0, 100.0)),
+            ("width:80px;height:auto", (80.0, 40.0)),
+            ("width:auto;height:30px", (60.0, 30.0)),
+            ("width:80px;height:30px", (80.0, 30.0)),
+            (
+                "width:auto;height:44px;padding:5px;border:2px solid;box-sizing:border-box",
+                (74.0, 44.0),
+            ),
+            (
+                "width:94px;height:auto;padding:5px;border:2px solid;box-sizing:border-box",
+                (94.0, 54.0),
+            ),
+        ] {
+            input.stylesheets = vec![format!("img {{{css}}}")];
+            let output = compute(&input, &LayoutLimits::default()).unwrap();
+            assert_eq!(output.offset_dimensions[&2], expected, "{css}");
+            assert_eq!(
+                output.geometry[&2].box_model.as_ref().unwrap().border_box.y,
+                0.0,
+                "collapsible block whitespace: {css}"
+            );
+        }
+        input.stylesheets = vec!["div {white-space:pre}".into()];
+        let output = compute(&input, &LayoutLimits::default()).unwrap();
+        assert!(output.geometry[&2].box_model.as_ref().unwrap().border_box.y > 0.0);
+        input.stylesheets.clear();
+        input.nodes[0].text = "\u{a0}".into();
+        let output = compute(&input, &LayoutLimits::default()).unwrap();
+        assert!(output.geometry[&2].box_model.as_ref().unwrap().border_box.y > 0.0);
     }
 
     #[test]

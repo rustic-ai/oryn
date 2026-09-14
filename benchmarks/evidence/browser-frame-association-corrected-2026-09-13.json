@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "59d36da3b2d803bc2ebd53d8204e39476f709b9368a798840ba8082802da2e69",
+  "parent_sha256": "1cb67214287c1cd8be7beadb22ff615c40e753255ecce30edaa3ac66c08aae43",
+  "worker_build_sha256": "7c49a0e4c81aec5af5a3c6facc779a31d9b64126aa35df07242477c6bc76be4e",
+  "worker_signed_sha256": "9be1d8cac04b014d0ff97c79ba5645759a6615c480d443eaa1b7deee21832b3c",
+  "code_directory_hash": "bee85fcd0451e62387d52cfe2d828e5baa410027",
+  "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+  "bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+  "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+  "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+  "protocol_version": 9,
+  "execution_mode": "sandboxed_worker",
+  "default_worker_lifecycle": "isolated_on_demand",
+  "related_window_sharing_activated": false,
+  "sandbox_denial_checks_passed": true,
+  "dom_tests": {"passed": 91, "failed": 0},
+  "layout_tests": {"passed": 73, "failed": 0},
+  "js_tests": {"passed": 254, "failed": 0, "ignored": 3},
+  "native_full_run_with_competing_work": {
+    "passed": 452, "failed": 1, "ignored": 6, "seconds": 674.24,
+    "failure": "runtime::tests::slow_paint_images_do_not_hold_the_page_actor: 250 ms observe deadline exceeded",
+    "cause_established": false
+  },
+  "unchanged_responsiveness_test_repeats": {"passed": 10, "failed": 0},
+  "native_full_serial_rerun": {
+    "status": "passed", "passed": 453, "failed": 0, "ignored": 6,
+    "seconds": 652.16,
+    "command": "target/debug/deps/oryn_native-3f1f84ec431c4250 --test-threads=1 --quiet",
+    "competing_builds_or_wpt": false,
+    "note": "No code or deadline changes between the failed run, individual repeats and this rerun. Passing does not establish the earlier failure's cause."
+  },
+  "format_and_diff_checks_passed": true,
+  "clippy_libraries_warnings_denied_passed": true,
+  "linux_compile": {
+    "passed": true, "seconds": 6.54,
+    "command": "cargo check --locked --release -p oryn-native --no-default-features",
+    "archive_sha256": "9f906b4ebcc8ce42ee7a33e0c471882fa996d518f97db93e25851fae9118bab2",
+    "scope": "Linux aarch64 compile only; no V8 or Linux runtime qualification; pool modes disabled."
+  },
+  "signed_wpt": {
+    "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "parent_mode": "persistent",
+    "worker_lifecycle": "isolated_prewarmed",
+    "jobs": 2,
+    "timeout_seconds": 45,
+    "formdata": {
+      "passed": 18, "total": 18, "environment_blocked": 0, "seconds": 12.0,
+      "path": "/private/tmp/oryn-frame-corrected-formdata-20260913.json",
+      "sha256": "666738990380f9000bfce8eef6fae98c13db2cd50950c97e51a38667025332a7"
+    },
+    "submission": {
+      "passed": 18, "total": 35, "environment_blocked": 0, "seconds": 48.6,
+      "path": "/private/tmp/oryn-frame-corrected-submission-20260913.json",
+      "sha256": "2d20c6ba54ccd990b2528bdfea9b17d7b30eb78d9ffe57da1fef3ed746da6a72"
+    },
+    "comparison": "No file-level status changes against the form-reflection snapshot. Not a subtest monotonicity claim or full baseline."
+  },
+  "range_insert_node": {
+    "status": "unresolved",
+    "last_retest_evidence": "browser-frame-association-initial-2026-09-13.json",
+    "note": "Crash reproduced on the initial frame-association source, not rerun on this corrected source."
+  },
+  "remaining": "Full document ownership/adoption, agent scheduling, protocol v10 routing, connected-window activation, worker coverage and official WPT integration remain."
+}

@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "required_execution_total": 10,
+  "tests": [
+    {
+      "path": "infrastructure/testdriver/actions/elementPosition.html",
+      "sha256": "8ba71aa36fa02a8d78a9cb2f4287a52b3e9b3eae834dce2f8270d283e39a921d",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "extended"
+    },
+    {
+      "path": "infrastructure/testdriver/actions/elementTiming.html",
+      "sha256": "a6ec40b931e3ae68c86de1afa372af766599c111d4569eb73bdb9cf0e78211c8",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "extended"
+    },
+    {
+      "path": "infrastructure/testdriver/actions/pause.html",
+      "sha256": "91c83235b5687095c7053df099efb30b90560d1602195f8abd4afe31200775c7",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "extended"
+    },
+    {
+      "path": "infrastructure/testdriver/actions/actionsWithKeyPressed.html",
+      "sha256": "dba93f1dc05314b7bbce963aa5aa51b3dc0052a969deb0a92be5d5f0e32e1ad7",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "extended"
+    },
+    {
+      "path": "infrastructure/testdriver/actions/mouseClickCount.html",
+      "sha256": "c6e4274bbc87de45c082cdd2b980d9ab0404a0a90fd908e4c978f01908e4cd99",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "extended"
+    },
+    {
+      "path": "infrastructure/testdriver/actions/iframe.html",
+      "sha256": "fa8e32999bb6c4f93028b3beb6148cab738c78c39b60c5e10427f6fc0d3272fe",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "extended"
+    },
+    {
+      "path": "infrastructure/testdriver/actions/crossOrigin.sub.html",
+      "sha256": "256c95a253ff0b754924ca97bb8c086fb9a2fffd55ea3343b3ca93bb4ee4f8b1",
+      "globals": [
+        "window"
+      ],
+      "variants": [
+        ""
+      ],
+      "workstream": "extended"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "uievents/constructors/event-getmodifierstate.html",
+      "root": "uievents",
+      "sha256": "3fad872ae59d095648b55a7346bf06b12034658e6700266ee8f789c83530feca",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "uievents/interface/click-event.htm",
+      "root": "uievents",
+      "sha256": "3a2c7c29c1f13a752bfa185d6c2c99849e782685cc806829b5100ed152d5bdbc",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "uievents/mouse/attributes.html",
+      "root": "uievents",
+      "sha256": "4210a0e733109d1dea8288a51a464c631a14a1ee075e5c8aeea92126840a7537",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ]
+}

@@ -1,0 +1,1275 @@
+{
+  "assertions": [
+    {
+      "classification": "generated-webidl",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "dom/nodes/attributes-namednodemap-cross-document.window.js|window|:67c85de98920454c89d519ec1826002b",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 111,
+        "teardown_ms": 25,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "b29e434e09cc48c99bbefb87982808a7"
+          }
+        ],
+        "id": "9d97d2c399e5405ea75b514c41ac8a38",
+        "ports": [
+          61557,
+          61559,
+          61562,
+          61564,
+          61566,
+          61568,
+          61570
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 251,
+          "teardown_ms": 931
+        },
+        "tls": {
+          "ca_sha256": "96122d870d3f16943e15feed01c6219aad90153cd5a619160817f2e56ae83aa9",
+          "certificate_sha256": "56bcba6fe9a9bed85c0a00b52d97832a1b01ac5e7671a10cd0f54d5c1a1e5a2a"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "dom/nodes/attributes-namednodemap-cross-document.window.js|window|",
+      "path": "dom/nodes/attributes-namednodemap-cross-document.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61557/dom/nodes/attributes-namednodemap-cross-document.window.html"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 248,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61557/dom/nodes/attributes-namednodemap-cross-document.window.html"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 10,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 248,
+          "response_sha256": "08a264a5bd17a342ebfd5a9d0b0261ca116175123c5d54a40045d361b988a56f",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61557/dom/nodes/attributes-namednodemap-cross-document.window.html",
+          "worker_pid": 46606
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61557/dom/nodes/attributes-namednodemap-cross-document.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61557/resources/testharness.js",
+          "worker_pid": 46606
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:61557/dom/nodes/attributes-namednodemap-cross-document.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 73,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61557/resources/testharnessreport.js",
+          "worker_pid": 46606
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61557/dom/nodes/attributes-namednodemap-cross-document.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1133,
+          "response_sha256": "71c9df1b9d14ece9b57e75f608f7e816abdd96d5aa9de3ab2d7698c7ec30e733",
+          "sequence": 3,
+          "started_ms": 78,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61557/dom/nodes/attributes-namednodemap-cross-document.window.js",
+          "worker_pid": 46606
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Moving an attribute between documents",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Replacing an attribute across documents",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 46606,
+          "rss_bytes": 34471936
+        }
+      ]
+    },
+    {
+      "classification": "generated-webidl",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "dom/nodes/attributes-namednodemap.html|window|:abf5ef5dc33c451ebe95b2228c1818fe",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 110,
+        "teardown_ms": 26,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "ad13645072b641ba8de68e7057569d81"
+          }
+        ],
+        "id": "d94de8df33494582849d27d9c42faeba",
+        "ports": [
+          61558,
+          61560,
+          61561,
+          61563,
+          61565,
+          61567,
+          61569
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 251,
+          "teardown_ms": 941
+        },
+        "tls": {
+          "ca_sha256": "96122d870d3f16943e15feed01c6219aad90153cd5a619160817f2e56ae83aa9",
+          "certificate_sha256": "56bcba6fe9a9bed85c0a00b52d97832a1b01ac5e7671a10cd0f54d5c1a1e5a2a"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "dom/nodes/attributes-namednodemap.html|window|",
+      "path": "dom/nodes/attributes-namednodemap.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61558/dom/nodes/attributes-namednodemap.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 3908,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61558/dom/nodes/attributes-namednodemap.html"
+          },
+          "page_id": "1",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 3908,
+          "response_sha256": "d67b4348a15e34d9818a00847bd5be86444afd374144b8b5f73e240be9414a37",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61558/dom/nodes/attributes-namednodemap.html",
+          "worker_pid": 46607
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61558/dom/nodes/attributes-namednodemap.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61558/resources/testharness.js",
+          "worker_pid": 46607
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61558/dom/nodes/attributes-namednodemap.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 74,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61558/resources/testharnessreport.js",
+          "worker_pid": 46607
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "an attribute set by setAttribute should be accessible as a field on the `attributes` field of an Element",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setNamedItem and removeNamedItem on `attributes` should add and remove fields from `attributes`",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setNamedItem and removeNamedItem on `attributes` should not interfere with existing method names",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "an attribute with a null namespace should be accessible as a field on the `attributes` field of an Element",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "an attribute with a set namespace should be accessible as a field on the `attributes` field of an Element",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setting an attribute should not overwrite the methods of an `NamedNodeMap` object",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setting an attribute should not overwrite the methods defined by prototype ancestors of an `NamedNodeMap` object",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setting an attribute should not overwrite the length property of an `NamedNodeMap` object",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 46607,
+          "rss_bytes": 34586624
+        }
+      ]
+    },
+    {
+      "classification": "generated-webidl",
+      "dependencies": [
+        "/dom/nodes/attributes.js",
+        "/dom/nodes/productions.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "dom/nodes/attributes.html|window|:1f5827bb90564c32bc3b939abd43c2b7",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 131,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "adf4514abe10409b92525eb8db6a12f0"
+          }
+        ],
+        "id": "6f3fce3c35e942b09f27b71e2e81f634",
+        "ports": [
+          61576,
+          61577,
+          61578,
+          61579,
+          61580,
+          61581,
+          61582
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 246,
+          "teardown_ms": 897
+        },
+        "tls": {
+          "ca_sha256": "96122d870d3f16943e15feed01c6219aad90153cd5a619160817f2e56ae83aa9",
+          "certificate_sha256": "56bcba6fe9a9bed85c0a00b52d97832a1b01ac5e7671a10cd0f54d5c1a1e5a2a"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "dom/nodes/attributes.html|window|",
+      "path": "dom/nodes/attributes.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61576/dom/nodes/attributes.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 35775,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61576/dom/nodes/attributes.html"
+          },
+          "page_id": "3",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 13,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 6,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 35775,
+          "response_sha256": "ea0e4e4a96887ac0c0790e5530a7e716229f78bf27fe1644f0fbb6ae80ac2edd",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61576/dom/nodes/attributes.html",
+          "worker_pid": 46615
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61576/dom/nodes/attributes.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61576/resources/testharness.js",
+          "worker_pid": 46615
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61576/dom/nodes/attributes.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61576/resources/testharnessreport.js",
+          "worker_pid": 46615
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61576/dom/nodes/attributes.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 930,
+          "response_sha256": "9a84bd003ff5e9ef28fc8df7183a4e59cc4227ff1281f90f3d8b7222e314bfdf",
+          "sequence": 3,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61576/dom/nodes/attributes.js",
+          "worker_pid": 46615
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61576/dom/nodes/attributes.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 172,
+          "response_sha256": "f500dd3b80c32680931b640c769597912feb2a8f733090967c1962ada4e686e5",
+          "sequence": 4,
+          "started_ms": 73,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61576/dom/nodes/productions.js",
+          "worker_pid": 46615
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "When qualifiedName does not match the Name production, an INVALID_CHARACTER_ERR exception is to be thrown. (toggleAttribute)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "toggleAttribute should lowercase its name argument (upper case attribute)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "toggleAttribute should lowercase its name argument (mixed case attribute)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "toggleAttribute should not throw even when qualifiedName starts with 'xmlns'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Basic functionality should be intact. (toggleAttribute)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "toggleAttribute should not change the order of previously set attributes.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "toggleAttribute should set the first attribute with the given name",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "toggleAttribute should set the attribute with the given qualified name",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Toggling element with inline style should make inline style disappear",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "When qualifiedName does not match the Name production, an INVALID_CHARACTER_ERR exception is to be thrown. (setAttribute)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttribute should lowercase its name argument (upper case attribute)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttribute should lowercase its name argument (mixed case attribute)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttribute should not throw even when qualifiedName starts with 'xmlns'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Basic functionality should be intact.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttribute should not change the order of previously set attributes.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttribute should set the first attribute with the given name",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttribute should set the attribute with the given qualified name",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "When qualifiedName does not match the Name production, an INVALID_CHARACTER_ERR exception is to be thrown. (setAttributeNS)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "When qualifiedName does not match the QName production, an INVALID_CHARACTER_ERR exception is to be thrown.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "null and the empty string should result in a null namespace.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "A namespace is required to use a prefix.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "The xml prefix should not be allowed for arbitrary namespaces",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "XML-namespaced attributes don't need an xml prefix",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "The xmlns prefix should not be allowed for arbitrary namespaces",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "The xmlns qualified name should not be allowed for arbitrary namespaces",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "xmlns should be allowed as local name",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "The XMLNS namespace should require xmlns as prefix or qualified name",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "xmlns should be allowed as prefix in the XMLNS namespace",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "xmlns should be allowed as qualified name in the XMLNS namespace",
+            "status": 0
+          },
+          {
+            "message": "assert_equals: prefix expected \"foo\" but got \"quux\"",
+            "name": "Setting the same attribute with another prefix should not change the prefix",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "setAttribute should not throw even if a load is not allowed",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Attributes should work in document fragments.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Attribute values should not be parsed.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Specified attributes should be accessible.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Entities in attributes should have been expanded while parsing.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Unset attributes return null",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "First set attribute is returned by getAttribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Style attributes are not normalized",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Only lowercase attributes are returned on HTML elements (upper case attribute)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Only lowercase attributes are returned on HTML elements (mixed case attribute)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "First set attribute is returned with mapped attribute set first",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "First set attribute is returned with mapped attribute set later",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Non-HTML element with upper-case attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Attribute with prefix in local name",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Attribute loses its owner when removed",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Basic functionality of getAttributeNode/getAttributeNodeNS",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Basic functionality of setAttributeNode",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNode should distinguish attributes with same local name and different namespaces",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNode doesn't have case-insensitivity even with an HTMLElement 1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNode doesn't have case-insensitivity even with an HTMLElement 2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNode doesn't have case-insensitivity even with an HTMLElement 3",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Basic functionality of setAttributeNodeNS",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "If attr\u2019s element is neither null nor element, throw an InUseAttributeError.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Replacing an attr by itself",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Basic functionality of removeAttributeNode",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNode on bound attribute should throw InUseAttributeError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNode, if it fires mutation events, should fire one with the new node when resetting an existing attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNode, if it fires mutation events, should fire one with the new node when resetting an existing attribute (outer shell)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNode called with an Attr that has the same name as an existing one should not change attribute order",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "getAttributeNames tests",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Own property correctness with basic attributes",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Own property correctness with non-namespaced attribute before same-name namespaced one",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Own property correctness with namespaced attribute before same-name non-namespaced one",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Own property correctness with two namespaced attributes with the same name-with-prefix",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Own property names should only include all-lowercase qualified names for an HTML element in an HTML document",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Own property names should include all qualified names for a non-HTML element in an HTML document",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Own property names should include all qualified names for an HTML element in a non-HTML document",
+            "status": 0
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 46615,
+          "rss_bytes": 39944192
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "deebca25bbc10eba046f2f90cb0f0fc9a73a10c922e558e89000f021b45e02de",
+    "size_bytes": 7175744
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/dom/nodes/attributes.js": {
+      "mime": "text/javascript",
+      "sha256": "9a84bd003ff5e9ef28fc8df7183a4e59cc4227ff1281f90f3d8b7222e314bfdf",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/dom/nodes/productions.js": {
+      "mime": "text/javascript",
+      "sha256": "f500dd3b80c32680931b640c769597912feb2a8f733090967c1962ada4e686e5",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/dom/nodes/attributes.js": {
+      "mime": "text/javascript",
+      "sha256": "9a84bd003ff5e9ef28fc8df7183a4e59cc4227ff1281f90f3d8b7222e314bfdf",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/dom/nodes/productions.js": {
+      "mime": "text/javascript",
+      "sha256": "f500dd3b80c32680931b640c769597912feb2a8f733090967c1962ada4e686e5",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 5.098,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "af145777e5ba209eaa64ec524bd4210f1f4111ac3de9224fb61a93420904c77f",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "55869b9631b4a7cb7dbe3dbb0bd954a7f08a857c2f7157637d0dfbef26650bb2",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "91b0b83b78a3808c5a2c002462809a780e8e86ec1989cbe3fafee4baa02724b9",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "842c157f53d8c7a8e22100d6f77ba656c1f271b13aa8e3b3277c065b26a0b828",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "5986cd1aa1d2eb582bfd8db326af6d20186670e7b3a0f1413d927eaffd06adcc",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "a2d767d17ec2fbd5afd132b0c52c7c9e4c5b3f773b6107c3a14baa05f634f73e",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "ec357ee12fd4e5dd27136bc82928dbc03c2cae9e57e368e995d5b88f539d1fbd",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "c48e65d45fb22b3a56a489030c40d9283ddb601f4085279a515b0c4833f0ed9f",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "af145777e5ba209eaa64ec524bd4210f1f4111ac3de9224fb61a93420904c77f",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "55869b9631b4a7cb7dbe3dbb0bd954a7f08a857c2f7157637d0dfbef26650bb2",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "91b0b83b78a3808c5a2c002462809a780e8e86ec1989cbe3fafee4baa02724b9",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "842c157f53d8c7a8e22100d6f77ba656c1f271b13aa8e3b3277c065b26a0b828",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "5986cd1aa1d2eb582bfd8db326af6d20186670e7b3a0f1413d927eaffd06adcc",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "a2d767d17ec2fbd5afd132b0c52c7c9e4c5b3f773b6107c3a14baa05f634f73e",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "ec357ee12fd4e5dd27136bc82928dbc03c2cae9e57e368e995d5b88f539d1fbd",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "c48e65d45fb22b3a56a489030c40d9283ddb601f4085279a515b0c4833f0ed9f",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": null,
+  "jobs": 2,
+  "outcome": {
+    "attempted": 3,
+    "environment_blocked": 0,
+    "required_finished": 3,
+    "required_passed": 2,
+    "required_total": 3,
+    "status": "failed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "efbf88aeb1fbde089a73d5d6b995e45bf5b864aa7f584b188cd3b8d9ea74f2f5",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "cba165bf9e45adc12e5148f8c8d7f910585f4323cef6c48702c1066f39cf2a52",
+    "worker_binary_sha256": "4acb52bb31eff78939455773523e631abad1a44b858b18c025ae81fa6c08fbed",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "1c99e6006419b444e4a96a8b115c96ce4ba02f50",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 9,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": "dom/nodes/attributes",
+    "global": null,
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 45,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "42cc4ae02ecc96a99c4c652201b0b61a5cd5b8c0",
+    "dirty": true,
+    "patch_sha256": "50f0e333ec74f5716f81c3237e6bc4209f5d8c90961d5a8423e41eeb26a86ece",
+    "untracked_file_count": 173,
+    "untracked_sha256": "f350b6ba677c28ac5ffddfd6752c7fd06797de80a4aab348a625029ab417ada9"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

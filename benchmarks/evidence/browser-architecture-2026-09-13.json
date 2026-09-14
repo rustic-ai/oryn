@@ -1,0 +1,454 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-13",
+  "evidence_type": "dirty-source-development-diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "84f640d1de2b7f4639eb182dd3c0f63e1cf633e886aa77ebc9ade9ffc4c3fcdb",
+  "source_tree_matches_signed_manifest": true,
+  "parent_sha256": "e6338aece4b4cc148f5b06c60d1ab8751aa8bfcf96e9c676a2e977daa48cdf1b",
+  "worker_unsigned_build_sha256": "9ed75b42149aa83db8d830228c07eb0a04297f0d20ad76727860f24aa9828131",
+  "runtime_metadata": {
+    "contract_version": 4,
+    "native_v8": true,
+    "v8_version": "15.0.245.2-rusty",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "execution_mode": "sandboxed_worker",
+    "worker_lifecycle": "isolated_on_demand",
+    "sandboxed": true,
+    "worker_protocol_version": 9,
+    "worker_binary_sha256": "1ba020894c492ded03e5036a3e14a3bb750a35ea6d6533d370bbf4220ff2c448",
+    "worker_code_directory_hash": "ebf2ad8c5eed11a54ed1372c618aedb3f55258dc",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_team_id": "5HVA9VFF8K",
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "sandbox_state": "app_sandbox",
+    "limits": {
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912,
+      "ipc_frame_bytes": 25165824,
+      "command_wall_ms": 10000,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "max_layout_nodes": 100000,
+      "max_font_bytes": 8388608,
+      "max_page_font_bytes": 33554432,
+      "max_viewport_css_px": 16384,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entry_bytes": 8388608
+    },
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "box_engine_version": "taffy-0.14",
+    "inline_engine_version": "parley-0.11.1",
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "runtime_profile": "core_full",
+    "binding_abi_version": 3,
+    "transport_mode": "async_streaming_parent_broker",
+    "streaming_parser": true,
+    "semantic_graph_version": 2,
+    "webidl_manifest_sha256": "cba165bf9e45adc12e5148f8c8d7f910585f4323cef6c48702c1066f39cf2a52",
+    "v8_heap_sandbox": true,
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "implemented": [
+    "Canonical shared ordered attribute records",
+    "Live branded NamedNodeMap with ownership and tracing",
+    "Null-namespace HTML consumers and namespace-aware node equality",
+    "Mutation local names; stable prefix on value updates; Attr-node replacement distinct",
+    "Attr child-tree rejection before mutation",
+    "Rooted bounded submission queue with document-generation rejection",
+    "Private native host requestSubmit entry",
+    "Extracted native FormData entry lists, submitter validation and guarded FormDataEvent"
+  ],
+  "local_tests": {
+    "dom": {
+      "passed": 86
+    },
+    "js": {
+      "passed": 246,
+      "ignored": 3
+    },
+    "layout": {
+      "passed": 74
+    },
+    "native_executable": {
+      "passed": 163,
+      "ignored": 6
+    },
+    "whole_native_before_final_prefix_and_tree_edge_fixes": {
+      "passed": 440,
+      "ignored": 6,
+      "seconds": 665.08
+    },
+    "formatting": "passed",
+    "clippy_libraries_warnings_denied": "passed",
+    "generated_webidl": "passed",
+    "native_no_default_features_check": "passed"
+  },
+  "signed_checks": {
+    "signature_designated_requirement": true,
+    "exact_entitlements": true,
+    "filesystem_denied": true,
+    "direct_network_denied": true,
+    "listener_denied": true,
+    "secret_environment_absent": true,
+    "parent_handshake": true,
+    "broker_smoke": true,
+    "dom_mutation_smoke": true,
+    "attribute_probe": {
+      "passed": 8,
+      "total": 8
+    },
+    "formdata_smoke": {
+      "submitter": true,
+      "callback": true,
+      "guarded": true,
+      "trusted": true,
+      "emptyFile": true
+    }
+  },
+  "upstream": {
+    "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "selected_files": 12,
+    "subtests": 139,
+    "all_selected_passed": true,
+    "environment_blocked": 0,
+    "parent_mode": "persistent",
+    "worker_lifecycle": "isolated_prewarmed",
+    "selection_limitations": "Selected HTML/window slices using the existing runner, not a full inventory baseline or qualification of unexecuted XHTML/other variants.",
+    "slices": [
+      {
+        "report": "browser-architecture-2026-09-13/final-attributes.json",
+        "selection": {
+          "exclude": [],
+          "filter": "dom/nodes/attributes",
+          "global": null,
+          "harness_profile": "upstream",
+          "max_tests": null,
+          "parent_mode": "persistent",
+          "script_wall_ms": null,
+          "shard_count": 1,
+          "shard_index": 0,
+          "timeout_seconds": 45,
+          "timeout_source_sha256": null,
+          "variant_filter": null,
+          "variant_override": null
+        },
+        "elapsed_seconds": 4.322,
+        "outcome": {
+          "attempted": 3,
+          "environment_blocked": 0,
+          "required_finished": 3,
+          "required_passed": 3,
+          "required_total": 3,
+          "status": "passed"
+        },
+        "tests": [
+          {
+            "path": "dom/nodes/attributes-namednodemap-cross-document.window.js",
+            "status": "passed",
+            "subtests": 2,
+            "failed_subtests": []
+          },
+          {
+            "path": "dom/nodes/attributes-namednodemap.html",
+            "status": "passed",
+            "subtests": 8,
+            "failed_subtests": []
+          },
+          {
+            "path": "dom/nodes/attributes.html",
+            "status": "passed",
+            "subtests": 67,
+            "failed_subtests": []
+          }
+        ]
+      },
+      {
+        "report": "browser-architecture-2026-09-13/final-Element-setAttribute.json",
+        "selection": {
+          "exclude": [],
+          "filter": "dom/nodes/Element-setAttribute",
+          "global": null,
+          "harness_profile": "upstream",
+          "max_tests": null,
+          "parent_mode": "persistent",
+          "script_wall_ms": null,
+          "shard_count": 1,
+          "shard_index": 0,
+          "timeout_seconds": 45,
+          "timeout_source_sha256": null,
+          "variant_filter": null,
+          "variant_override": null
+        },
+        "elapsed_seconds": 2.472,
+        "outcome": {
+          "attempted": 2,
+          "environment_blocked": 0,
+          "required_finished": 2,
+          "required_passed": 2,
+          "required_total": 2,
+          "status": "passed"
+        },
+        "tests": [
+          {
+            "path": "dom/nodes/Element-setAttribute-crbug-1138487.html",
+            "status": "passed",
+            "subtests": 1,
+            "failed_subtests": []
+          },
+          {
+            "path": "dom/nodes/Element-setAttribute.html",
+            "status": "passed",
+            "subtests": 2,
+            "failed_subtests": []
+          }
+        ]
+      },
+      {
+        "report": "browser-architecture-2026-09-13/final-Element-removeAttribute.json",
+        "selection": {
+          "exclude": [],
+          "filter": "dom/nodes/Element-removeAttribute",
+          "global": null,
+          "harness_profile": "upstream",
+          "max_tests": null,
+          "parent_mode": "persistent",
+          "script_wall_ms": null,
+          "shard_count": 1,
+          "shard_index": 0,
+          "timeout_seconds": 45,
+          "timeout_source_sha256": null,
+          "variant_filter": null,
+          "variant_override": null
+        },
+        "elapsed_seconds": 3.098,
+        "outcome": {
+          "attempted": 2,
+          "environment_blocked": 0,
+          "required_finished": 2,
+          "required_passed": 2,
+          "required_total": 2,
+          "status": "passed"
+        },
+        "tests": [
+          {
+            "path": "dom/nodes/Element-removeAttribute.html",
+            "status": "passed",
+            "subtests": 2,
+            "failed_subtests": []
+          },
+          {
+            "path": "dom/nodes/Element-removeAttributeNS.html",
+            "status": "passed",
+            "subtests": 1,
+            "failed_subtests": []
+          }
+        ]
+      },
+      {
+        "report": "browser-architecture-2026-09-13/final-Element-hasAttribute.json",
+        "selection": {
+          "exclude": [],
+          "filter": "dom/nodes/Element-hasAttribute",
+          "global": null,
+          "harness_profile": "upstream",
+          "max_tests": null,
+          "parent_mode": "persistent",
+          "script_wall_ms": null,
+          "shard_count": 1,
+          "shard_index": 0,
+          "timeout_seconds": 45,
+          "timeout_source_sha256": null,
+          "variant_filter": null,
+          "variant_override": null
+        },
+        "elapsed_seconds": 3.514,
+        "outcome": {
+          "attempted": 2,
+          "environment_blocked": 0,
+          "required_finished": 2,
+          "required_passed": 2,
+          "required_total": 2,
+          "status": "passed"
+        },
+        "tests": [
+          {
+            "path": "dom/nodes/Element-hasAttribute.html",
+            "status": "passed",
+            "subtests": 2,
+            "failed_subtests": []
+          },
+          {
+            "path": "dom/nodes/Element-hasAttributes.html",
+            "status": "passed",
+            "subtests": 2,
+            "failed_subtests": []
+          }
+        ]
+      },
+      {
+        "report": "browser-architecture-2026-09-13/final-MutationObserver-attributes.json",
+        "selection": {
+          "exclude": [],
+          "filter": "dom/nodes/MutationObserver-attributes",
+          "global": null,
+          "harness_profile": "upstream",
+          "max_tests": null,
+          "parent_mode": "persistent",
+          "script_wall_ms": null,
+          "shard_count": 1,
+          "shard_index": 0,
+          "timeout_seconds": 45,
+          "timeout_source_sha256": null,
+          "variant_filter": null,
+          "variant_override": null
+        },
+        "elapsed_seconds": 3.994,
+        "outcome": {
+          "attempted": 1,
+          "environment_blocked": 0,
+          "required_finished": 1,
+          "required_passed": 1,
+          "required_total": 1,
+          "status": "passed"
+        },
+        "tests": [
+          {
+            "path": "dom/nodes/MutationObserver-attributes.html",
+            "status": "passed",
+            "subtests": 42,
+            "failed_subtests": []
+          }
+        ]
+      },
+      {
+        "report": "browser-architecture-2026-09-13/final-Attr-prefix.json",
+        "selection": {
+          "exclude": [],
+          "filter": "dom/nodes/Attr-prefix",
+          "global": null,
+          "harness_profile": "upstream",
+          "max_tests": null,
+          "parent_mode": "persistent",
+          "script_wall_ms": null,
+          "shard_count": 1,
+          "shard_index": 0,
+          "timeout_seconds": 45,
+          "timeout_source_sha256": null,
+          "variant_filter": null,
+          "variant_override": null
+        },
+        "elapsed_seconds": 3.002,
+        "outcome": {
+          "attempted": 1,
+          "environment_blocked": 0,
+          "required_finished": 1,
+          "required_passed": 1,
+          "required_total": 1,
+          "status": "passed"
+        },
+        "tests": [
+          {
+            "path": "dom/nodes/Attr-prefix.html",
+            "status": "passed",
+            "subtests": 6,
+            "failed_subtests": []
+          }
+        ]
+      },
+      {
+        "report": "browser-architecture-2026-09-13/final-attributes-are-nodes.html.json",
+        "selection": {
+          "exclude": [],
+          "filter": "dom/attributes-are-nodes.html",
+          "global": null,
+          "harness_profile": "upstream",
+          "max_tests": null,
+          "parent_mode": "persistent",
+          "script_wall_ms": null,
+          "shard_count": 1,
+          "shard_index": 0,
+          "timeout_seconds": 45,
+          "timeout_source_sha256": null,
+          "variant_filter": null,
+          "variant_override": null
+        },
+        "elapsed_seconds": 3.675,
+        "outcome": {
+          "attempted": 1,
+          "environment_blocked": 0,
+          "required_finished": 1,
+          "required_passed": 1,
+          "required_total": 1,
+          "status": "passed"
+        },
+        "tests": [
+          {
+            "path": "dom/attributes-are-nodes.html",
+            "status": "passed",
+            "subtests": 4,
+            "failed_subtests": []
+          }
+        ]
+      }
+    ]
+  },
+  "historical_failures": [
+    "browser-architecture-2026-09-13/initial-prefix-failure.json",
+    "browser-architecture-2026-09-13/initial-tree-edge-failure.json"
+  ],
+  "remaining": [
+    "R3: native selected-file storage instead of the legacy attribute transport",
+    "R3: navigation entry-list integration, GET/POST bodies, supersession, dirname/image coordinates/custom elements",
+    "R1/R4/R5: document-scoped ownership and agent runtime extraction",
+    "R6/R7: reviewed environment routing and approved connected-window placement",
+    "R8/R9: independent dedicated/shared/service worker agents",
+    "W0-W2: general automation transport and upstream product integration",
+    "C0/Q0: remaining platform obligations, known Range crash, clean-source signed full qualification"
+  ],
+  "hash_validated_v8_profile": {
+    "schema_version": 1,
+    "rusty_v8_archive": "/Users/rohit/Work/oryn2/oryn/target/v8-window-structural-artifacts/librusty_v8-core-full-e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4.a",
+    "rusty_v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "src_binding_path": "/Users/rohit/Work/oryn2/oryn/target/v8-window-structural-artifacts/src_binding-core-full-2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28.rs",
+    "src_binding_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "startup_snapshot": "/Users/rohit/Work/oryn2/oryn/target/v8-window-structural-artifacts/oryn-startup-core-full-abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7.blob",
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "icu_data": "/Users/rohit/Work/oryn2/oryn/target/rusty-v8-src-150.4.0/third_party/icu/common/icudtl.dat",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612"
+  }
+}

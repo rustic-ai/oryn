@@ -1,4 +1,5 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+mod wpt_session;
 #[cfg(feature = "embedded")]
 use oryn_e::backend::EmbeddedBackend;
 #[cfg(feature = "compat-core")]
@@ -53,6 +54,9 @@ enum Mode {
 
 #[derive(clap::Args)]
 struct NativeArgs {
+    /// Persistent diagnostic WPT JSONL transport, with a fresh context per test.
+    #[arg(long, conflicts_with_all = ["html", "url", "evaluate", "runtime_info", "in_process_probe", "file", "script_wall_ms", "sdk_repl", "trace_out", "checkpoint_out", "restore_checkpoint", "replay_trace", "failure_artifact_out", "replay_failure", "branch_strategy", "record_network", "deterministic_time_ms", "random_seed", "screenshot_out", "pdf_out", "render_scale", "secret_fd", "uploads"])]
+    wpt_session: bool,
     /// Print machine-readable native runtime build information and exit
     #[arg(long)]
     runtime_info: bool,
@@ -128,6 +132,60 @@ struct NativeArgs {
     /// Import a host file into the parent upload store as LABEL=PATH.
     #[arg(long = "upload", value_name = "LABEL=PATH")]
     uploads: Vec<String>,
+    /// Worker process lifecycle; pooled modes are explicit macOS opt-ins
+    #[arg(long, value_enum, default_value_t = WorkerModeArg::IsolatedOnDemand)]
+    worker_mode: WorkerModeArg,
+    /// Required process capacity for prewarmed and recycled modes (1-16)
+    #[arg(long)]
+    worker_pool_size: Option<usize>,
+    /// Required lease limit for recycled workers (1-1024)
+    #[arg(long)]
+    worker_max_leases: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
+enum WorkerModeArg {
+    #[default]
+    IsolatedOnDemand,
+    IsolatedPrewarmed,
+    Recycled,
+}
+
+fn worker_lifecycle(
+    mode: WorkerModeArg,
+    pool_size: Option<usize>,
+    max_leases: Option<usize>,
+) -> Result<oryn_native::WorkerLifecycle, Box<dyn std::error::Error>> {
+    use oryn_native::WorkerLifecycle;
+    let lifecycle = match (mode, pool_size, max_leases) {
+        (WorkerModeArg::IsolatedOnDemand, None, None) => WorkerLifecycle::IsolatedOnDemand,
+        (WorkerModeArg::IsolatedPrewarmed, Some(capacity), None) => {
+            WorkerLifecycle::IsolatedPrewarmed { capacity }
+        }
+        (WorkerModeArg::Recycled, Some(capacity), Some(max_leases)) => WorkerLifecycle::Recycled {
+            capacity,
+            max_leases,
+        },
+        (WorkerModeArg::IsolatedOnDemand, _, _) => {
+            return Err(
+                "--worker-pool-size and --worker-max-leases require a pooled worker mode".into(),
+            );
+        }
+        (WorkerModeArg::IsolatedPrewarmed, None, _) => {
+            return Err("--worker-mode isolated-prewarmed requires --worker-pool-size".into());
+        }
+        (WorkerModeArg::IsolatedPrewarmed, _, Some(_)) => {
+            return Err("--worker-max-leases is valid only with --worker-mode recycled".into());
+        }
+        (WorkerModeArg::Recycled, None, _) => {
+            return Err("--worker-mode recycled requires --worker-pool-size".into());
+        }
+        (WorkerModeArg::Recycled, _, None) => {
+            return Err("--worker-mode recycled requires --worker-max-leases".into());
+        }
+    };
+    lifecycle.validate()?;
+    Ok(lifecycle)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -166,6 +224,7 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
     #[allow(irrefutable_let_patterns)]
     if let Some(Mode::Native(native)) = &args.mode {
         let NativeArgs {
+            wpt_session,
             runtime_info,
             in_process_probe,
             html,
@@ -189,7 +248,15 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
             render_scale,
             secret_fd,
             uploads,
+            worker_mode,
+            worker_pool_size,
+            worker_max_leases,
         } = native.as_ref();
+        let worker_lifecycle =
+            worker_lifecycle(*worker_mode, *worker_pool_size, *worker_max_leases)?;
+        if *wpt_session {
+            return wpt_session::run(worker_lifecycle).await;
+        }
         if *runtime_info {
             let runtime_info = if *in_process_probe {
                 if !cfg!(feature = "in-process-probe") {
@@ -205,7 +272,13 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     ContextOptions::default()
                 };
-                oryn_native::production_runtime_build_info_with_options(options)?
+                oryn_native::production_runtime_build_info_with_config(
+                    oryn_native::BrowserConfig {
+                        worker_lifecycle,
+                        ..oryn_native::BrowserConfig::default()
+                    },
+                    options,
+                )?
             };
             println!("{}", serde_json::to_string(&runtime_info)?);
             return Ok(());
@@ -238,6 +311,7 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
                 secret_fd: *secret_fd,
                 uploads: uploads.clone(),
                 script_wall_ms: *script_wall_ms,
+                worker_lifecycle,
             },
         )
         .await;
@@ -338,15 +412,17 @@ async fn run_native(
             oryn_native::PolicyRule::Allow,
         );
     }
-    let browser = if let Some(milliseconds) = session_options.script_wall_ms {
-        let mut config = oryn_native::BrowserConfig::default();
+    let mut config = oryn_native::BrowserConfig {
+        worker_lifecycle: session_options.worker_lifecycle,
+        ..oryn_native::BrowserConfig::default()
+    };
+    if let Some(milliseconds) = session_options.script_wall_ms {
         let timeout = std::time::Duration::from_millis(milliseconds.max(1));
         config.command_timeout = timeout;
         config.navigation_timeout = timeout;
-        Browser::with_config(config)
-    } else {
-        Browser::new()
-    };
+    }
+    let browser = Browser::try_with_config(config)?;
+    browser.prepare_workers()?;
     if let Some(artifact_path) = &session_options.replay_failure {
         let artifact: oryn_native::FailureArtifact =
             serde_json::from_slice(&std::fs::read(artifact_path)?)?;
@@ -552,6 +628,7 @@ struct NativeSessionOptions {
     secret_fd: Option<i32>,
     uploads: Vec<String>,
     script_wall_ms: Option<u64>,
+    worker_lifecycle: oryn_native::WorkerLifecycle,
 }
 
 #[cfg(feature = "render")]

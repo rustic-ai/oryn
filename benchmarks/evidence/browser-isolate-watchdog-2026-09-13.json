@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "cfcbb43d3861d7a43964ed9b19dbd4dafe94d6059b89e2b85e2e9903f180c4b1",
+  "native_test_binary_sha256": "7c048e108a3424fec4edb006767a748bf38bc3be50330aad2ab8ad05abd48e6e",
+  "changes": [
+    "One reusable watchdog thread per isolate, instead of one per JavaScript execution",
+    "Serialized deadline admission, expiry and cancellation with bounded non-reused registrations",
+    "Earliest nested deadline preserved; stale expiry cannot terminate a later script",
+    "Watchdog thread joined before isolate destruction",
+    "Slow-image test releases blocked I/O on failure; 250 ms assertion unchanged"
+  ],
+  "local_tests": {
+    "host": {"passed": 36, "failed": 0},
+    "strict_library_clippy": "passed",
+    "format_and_diff_check": "passed",
+    "image_responsiveness_repeats": {
+      "passed": 10, "failed": 0,
+      "seconds": [0.11,0.08,0.08,0.07,0.08,0.09,0.08,0.08,0.08,0.08],
+      "qualification": "Focused controls do not waive the preceding full-suite failure"
+    }
+  },
+  "full_native": {
+    "passed": 473, "failed": 0, "ignored": 6, "seconds": 141.85,
+    "execution": "serial test threads; loopback permissions; no competing builds or WPT",
+    "image_responsiveness": "passed at unchanged 250 ms deadline",
+    "historical_note": "Prior source's full-suite failure remains in browser-parent-drain-barrier-2026-09-13.json"
+  },
+  "signed_build": {
+    "passed": true, "sandbox_probes_passed": true, "protocol_version": 9,
+    "parent_sha256": "6bf929a144170ef8ca41fd4cee21c703746674bb0d847e491c44ef7ddab3c546",
+    "unsigned_worker_sha256": "5559bbb9a48cc4408b1939ac21885494ca570e6d6163dafeca7d7b516068d9c2",
+    "signed_worker_sha256": "674bfb9b43ac02d5ab112b52a11a857894d7d53bd610d8714409427eee1879e5",
+    "code_directory_hash": "8b5e601454109ab1e39f1febd7231c60703a4cff",
+    "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "v8_bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "wpt": {
+    "timers": {
+      "files_passed": 9, "files_total": 13,
+      "reported_subtests_passed": 13, "reported_subtests_total": 15,
+      "environment_blocked": 0, "elapsed_seconds": 39.307, "jobs": 1,
+      "result_path": "/private/tmp/oryn-watchdog-timers-20260913.json",
+      "sha256": "9f13ef9d703d3c8d2550459ed971497d80a05958c39fe853a673cb689630dbe1",
+      "timing_failure": "timer-nesting-not-inherited-in-microtask.html measured 9.2 ms against less than 4 ms; unresolved, not an environment block"
+    },
+    "templates": {
+      "files_passed": 8, "files_total": 67,
+      "reported_subtests_passed": 445, "reported_subtests_total": 1167,
+      "environment_blocked": 0, "elapsed_seconds": 46.638, "jobs": 2,
+      "result_path": "/private/tmp/oryn-watchdog-templates-20260913.json",
+      "sha256": "a9109246439e6ed8129f5037180b25a2d43603c700bcf8a312c85e9ad75c4a27"
+    },
+    "adoption": {
+      "files_passed": 3, "files_total": 3,
+      "reported_subtests_passed": 13, "reported_subtests_total": 13,
+      "environment_blocked": 0, "elapsed_seconds": 5.446, "jobs": 2,
+      "result_path": "/private/tmp/oryn-watchdog-adoption-20260913.json",
+      "sha256": "f365f2bed08b44f6d08c22888f6cc3086cd7ada6f08a08d0bad9f4daf892d885"
+    },
+    "denominator_note": "Reported subtests omit missing results in harness failures; whole-file totals are authoritative."
+  },
+  "throughput_evidence": "browser-watchdog-throughput-2026-09-13.json",
+  "remaining": [
+    "parent-issued per-environment IPC credentials and protocol-v10 process-session routing",
+    "native custom-element adoption reactions",
+    "synchronous initial iframe environments and connected-window placement",
+    "deadline-aware timer scheduling and remaining template features",
+    "300 actions/sec performance target and full clean-source release qualification"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "d48fef837d13dc1bd9a67e339e123f6d229113ffb41c4edc5386e1952deaa397",
+  "native_test_binary_sha256": "0b583b11d855179146bcbf0a180a36cec307b56b53ddaf6b866af62f864a274a",
+  "local_tests": {
+    "native_host": {"passed": 32, "failed": 0, "seconds": 0.53},
+    "native_executable": {"passed": 173, "failed": 0, "ignored": 6, "seconds": 5.40},
+    "strict_library_clippy": "passed",
+    "format_and_diff_check": "passed",
+    "full_native_on_this_source": "not run; prior full run remains separately hashed"
+  },
+  "changes": [
+    "Timer callbacks receive the timer-owning global as this, including strict functions from other realms",
+    "Exceptions dispatch ErrorEvent in the callback creation realm, not the timer-owning or thrown-object realm",
+    "Ordinary uncancelled callback errors do not terminate peer tasks; watchdog termination remains fatal"
+  ],
+  "signed_build": {
+    "passed": true, "sandbox_probes_passed": true, "protocol_version": 9,
+    "parent_sha256": "2a857603b53b5d741feafe874aa815734dff078dbad20eb49c7b128af49739da",
+    "unsigned_worker_sha256": "ee75f84c6dfcdcafec6c74991ca9a57d30122974dd4f325bbdf6267dbbe753bb",
+    "signed_worker_sha256": "45362cff99b6255f3f98b4a8bf9646e1ce3359cad84545691c2a434d4ff409ff",
+    "code_directory_hash": "3b12a9848684491cd152debf926e3ab7ded76726",
+    "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "v8_bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "wpt": {
+    "timers": {
+      "files_passed": 10, "files_total": 13,
+      "reported_subtests_passed": 14, "reported_subtests_total": 15,
+      "environment_blocked": 0, "elapsed_seconds": 20.521,
+      "result_path": "/private/tmp/oryn-timer-errors-timers-20260913.json",
+      "sha256": "419df3810abcfa5c207ac1d8c121dac28940e1309bbde0ad026b74a2d34316ad"
+    },
+    "templates": {
+      "files_passed": 8, "files_total": 67,
+      "reported_subtests_passed": 445, "reported_subtests_total": 1167,
+      "environment_blocked": 0, "elapsed_seconds": 47.659,
+      "result_path": "/private/tmp/oryn-timer-errors-templates-20260913.json",
+      "sha256": "e10fa2714ce529d37b40c87f56077107eba79a0df7994f02e50c2a0a8ddc62d4"
+    },
+    "adoption": {
+      "files_passed": 3, "files_total": 3,
+      "reported_subtests_passed": 13, "reported_subtests_total": 13,
+      "environment_blocked": 0, "elapsed_seconds": 4.487,
+      "result_path": "/private/tmp/oryn-timer-errors-adoption-20260913.json",
+      "sha256": "27d57ce97dfc306e505e72ed17309c0d3452fa8e52f905fd5b95687112b301ad"
+    },
+    "denominator_note": "Reported subtests omit missing results in harness failures; whole-file totals are authoritative."
+  }
+}

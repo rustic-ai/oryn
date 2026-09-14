@@ -520,7 +520,7 @@ impl<B: NetworkBroker> NetworkBroker for CookieBroker<B> {
         let (request, url) = self.prepare(request)?;
         let request_id = request.request_id;
         let mut operation = self.inner.start_operation(request.clone())?;
-        let demand = operation.demand.clone();
+        let demand = operation.demand.take();
         let store = self.store.clone();
         let (sender, events) = tokio::sync::mpsc::channel(8);
         operation_runtime().spawn(async move {
@@ -554,6 +554,9 @@ impl<B: NetworkBroker> NetworkBroker for CookieBroker<B> {
 
 pub struct SharedNetworkBroker {
     inner: Option<Arc<Box<dyn NetworkBroker>>>,
+    audit: crate::resource_audit::ResourceAudit,
+    audit_page_id: Option<u64>,
+    audit_worker_pid: Option<u32>,
 }
 
 /// Context-owned browser memory cache. Policy remains outside this adapter so
@@ -1028,7 +1031,26 @@ impl SharedNetworkBroker {
     pub fn new(broker: impl NetworkBroker + 'static) -> Self {
         Self {
             inner: Some(Arc::new(Box::new(broker))),
+            audit: Default::default(),
+            audit_page_id: None,
+            audit_worker_pid: None,
         }
+    }
+    pub fn resource_audit(&self) -> crate::resource_audit::ResourceAudit {
+        self.audit.clone()
+    }
+    pub fn for_page(mut self, page_id: u64) -> Self {
+        self.audit_page_id = Some(page_id);
+        self
+    }
+    pub fn for_worker(mut self, pid: u32) -> Self {
+        self.audit_worker_pid = Some(pid);
+        self
+    }
+    fn observe(&self, request: &NetworkRequest) -> Option<crate::resource_audit::Observation> {
+        let mut observation = self.audit.begin(request, self.audit_page_id)?;
+        observation.bind_worker(self.audit_worker_pid);
+        Some(observation)
     }
 }
 
@@ -1036,6 +1058,9 @@ impl Clone for SharedNetworkBroker {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            audit: self.audit.clone(),
+            audit_page_id: self.audit_page_id,
+            audit_worker_pid: self.audit_worker_pid,
         }
     }
 }
@@ -1052,27 +1077,93 @@ impl Drop for SharedNetworkBroker {
 
 impl NetworkBroker for SharedNetworkBroker {
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
-        self.inner
+        let mut observation = self.observe(&request);
+        let result = self
+            .inner
             .as_ref()
             .expect("broker handle is live")
-            .send(request)
+            .send(request);
+        if let Some(observation) = &mut observation {
+            match &result {
+                Ok(response) => {
+                    observation.headers(response.status, &response.headers);
+                    observation.chunk(&response.body);
+                    observation.finish("complete");
+                }
+                Err(_) => observation.finish("failed"),
+            }
+        }
+        result
     }
 
     fn start_stream(&self, request: NetworkRequest) -> Result<NetworkStreamResponse, NetworkError> {
-        self.inner
+        let observation = self.observe(&request);
+        let result = self
+            .inner
             .as_ref()
             .expect("broker handle is live")
-            .start_stream(request)
+            .start_stream(request);
+        match (result, observation) {
+            (Ok(mut response), Some(mut observation)) => {
+                observation.headers(response.status, &response.headers);
+                response.body = Box::new(crate::resource_audit::AuditedRead {
+                    inner: response.body,
+                    observation,
+                });
+                Ok(response)
+            }
+            (Err(error), Some(mut observation)) => {
+                observation.finish("failed");
+                Err(error)
+            }
+            (result, None) => result,
+        }
     }
 
     fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
-        self.inner
+        let observation = self.observe(&request);
+        let result = self
+            .inner
             .as_ref()
             .expect("broker handle is live")
-            .start_operation(request)
+            .start_operation(request);
+        let Some(mut observation) = observation else {
+            return result;
+        };
+        let mut operation = match result {
+            Ok(operation) => operation,
+            Err(error) => {
+                observation.finish("failed");
+                return Err(error);
+            }
+        };
+        let request_id = operation.request_id;
+        let demand = operation.demand.take();
+        let (sender, events) = tokio::sync::mpsc::channel(8);
+        std::thread::spawn(move || {
+            while let Some(event) = operation.events.blocking_recv() {
+                match &event {
+                    NetworkEvent::Headers {
+                        status, headers, ..
+                    } => observation.headers(*status, headers),
+                    NetworkEvent::Chunk { bytes, .. } => observation.chunk(bytes),
+                    NetworkEvent::Complete { .. } => observation.finish("complete"),
+                    NetworkEvent::Failed { .. } => observation.finish("failed"),
+                }
+                if sender.blocking_send(event).is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(NetworkOperation {
+            request_id,
+            events,
+            demand,
+        })
     }
 
     fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.audit.cancel(request_id, self.audit_page_id);
         self.inner
             .as_ref()
             .expect("broker handle is live")
@@ -1142,7 +1233,7 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
         let cache = self.cache.clone();
         let max_entry_bytes = self.max_entry_bytes;
         let mut operation = self.inner.start_operation(request)?;
-        let demand = operation.demand.clone();
+        let demand = operation.demand.take();
         let (sender, events) = tokio::sync::mpsc::channel(8);
         operation_runtime().spawn(async move {
             let mut candidate: Option<CacheEntry> = None;
@@ -1279,7 +1370,7 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
         let max_entry_bytes = self.store.max_entry_bytes;
         let store = self.store.clone();
         let mut operation = self.inner.start_operation(request)?;
-        let demand = operation.demand.clone();
+        let demand = operation.demand.take();
         let (sender, events) = tokio::sync::mpsc::channel(8);
         operation_runtime().spawn(async move {
             let mut candidate: Option<CacheEntry> = None;
@@ -1434,7 +1525,15 @@ pub(crate) fn resolve_and_authorize(
         let port = url.port_or_known_default().ok_or_else(|| {
             NetworkError::InvalidUrl("URL has no explicit or scheme-default port".into())
         })?;
-        if let Ok(address) = host.parse::<IpAddr>() {
+        // Resolve the reserved localhost namespace locally, without depending
+        // on OS wildcard DNS. Keep the URL/Host intact: separate localhost
+        // names remain separate origins despite sharing a loopback address.
+        let local_name = host.trim_end_matches('.').to_ascii_lowercase();
+        if local_name == "localhost" || local_name.ends_with(".localhost") {
+            let address = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+            policy.check_ip(address)?;
+            vetted.push(SocketAddr::new(address, port));
+        } else if let Ok(address) = host.parse::<IpAddr>() {
             policy.check_ip(address)?;
             vetted.push(SocketAddr::new(address, port));
         } else {
@@ -2578,6 +2677,31 @@ mod tests {
             broker.send(request("http://localhost:3000/")),
             Err(NetworkError::Unavailable)
         ));
+    }
+
+    #[test]
+    fn localhost_subdomains_are_pinned_without_relaxing_policy() {
+        for host in [
+            "localhost",
+            "www1.localhost",
+            "www2.alt.localhost",
+            "LOCALHOST.",
+        ] {
+            let url = Url::parse(&format!("http://{host}:8123/path")).unwrap();
+            assert!(matches!(
+                resolve_and_authorize(&NetworkPolicy::default(), &url),
+                Err(NetworkError::Policy(PolicyDenied::Loopback))
+            ));
+            let policy = NetworkPolicy {
+                allow_loopback: true,
+                ..NetworkPolicy::default()
+            };
+            assert_eq!(
+                resolve_and_authorize(&policy, &url).unwrap(),
+                vec![SocketAddr::from(([127, 0, 0, 1], 8123))]
+            );
+            assert_eq!(url.host_str().unwrap(), host.to_ascii_lowercase());
+        }
     }
 
     #[test]

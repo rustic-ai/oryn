@@ -25,7 +25,7 @@ fn names(
                     .arena()
                     .get(node)?
                     .attributes
-                    .get("style")
+                    .get_null("style")
                     .map_or("", String::as_str),
             )
             .into_keys()

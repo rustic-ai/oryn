@@ -13,8 +13,13 @@ use std::{os::fd::FromRawFd, os::unix::net::UnixStream};
 /// Enter the untrusted page-worker role before any application runtime or
 /// background thread is created.
 pub fn run() -> std::io::Result<()> {
+    let trusted_binary_sha256 = std::env::var("ORYN_TRUSTED_WORKER_SHA256").ok();
     clear_environment();
-    crate::worker::precompute_binary_sha256()?;
+    if let Some(binary_sha256) = trusted_binary_sha256 {
+        crate::worker::initialize_binary_sha256(binary_sha256)?;
+    } else {
+        crate::worker::precompute_binary_sha256()?;
+    }
     #[cfg(target_os = "linux")]
     crate::linux_sandbox::install()?;
     tokio::runtime::Builder::new_current_thread()

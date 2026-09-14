@@ -31,18 +31,12 @@ impl TargetName {
             return;
         }
         self.revision = revision;
-        let unqualified = dom.arena().existing_attribute_node(*frame, "name").is_none_or(|attribute| {
-            dom.arena().get(attribute).is_ok_and(|record| matches!(&record.kind, NodeKind::Attribute { namespace, .. } if namespace.is_none()))
-        });
-        self.value = if unqualified {
-            dom.attribute(*frame, "name")
-                .ok()
-                .flatten()
-                .unwrap_or("")
-                .to_owned()
-        } else {
-            String::new()
-        };
+        self.value = dom
+            .attribute_in_null_namespace(*frame, "name")
+            .ok()
+            .flatten()
+            .unwrap_or("")
+            .to_owned();
     }
     pub(super) fn get(&mut self) -> String {
         self.refresh();
@@ -52,6 +46,16 @@ impl TargetName {
         self.refresh();
         self.value = value;
     }
+}
+
+pub(super) fn children(
+    state: &V8BindingState,
+) -> Result<Vec<v8::Global<v8::Object>>, V8BindingError> {
+    Ok(traversal_nodes(&state.dom.borrow(), state.document_root())?
+        .into_iter()
+        .skip(1)
+        .filter_map(|node| state.frame_window(node))
+        .collect())
 }
 
 fn resolve<'s>(
@@ -225,26 +229,29 @@ pub(super) fn install(
         .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
         .ok_or(V8BindingError::Allocation("Window prototype"))?;
     // Global-interface attributes are own properties of the global object.
-    let name_key = v8::String::new(scope, "name").unwrap();
-    let attribute = window_prototype
-        .get_own_property_descriptor(scope, name_key.into())
-        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
-        .ok_or(V8BindingError::Allocation("Window name descriptor"))?;
-    let get_key = v8::String::new(scope, "get").unwrap();
-    let set_key = v8::String::new(scope, "set").unwrap();
-    let name_getter = attribute
-        .get(scope, get_key.into())
-        .ok_or(V8BindingError::Allocation("Window name getter"))?;
-    let name_setter = attribute
-        .get(scope, set_key.into())
-        .ok_or(V8BindingError::Allocation("Window name setter"))?;
-    let mut name_descriptor = v8::PropertyDescriptor::new_from_get_set(name_getter, name_setter);
-    name_descriptor.set_enumerable(true);
-    name_descriptor.set_configurable(true);
-    if global.define_property(scope, name_key.into(), &name_descriptor) != Some(true)
-        || window_prototype.delete(scope, name_key.into()) != Some(true)
-    {
-        return Err(V8BindingError::Allocation("Window global name attribute"));
+    for attribute_name in ["name", "length"] {
+        let name_key = v8::String::new(scope, attribute_name).unwrap();
+        let attribute = window_prototype
+            .get_own_property_descriptor(scope, name_key.into())
+            .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+            .ok_or(V8BindingError::Allocation("Window name descriptor"))?;
+        let get_key = v8::String::new(scope, "get").unwrap();
+        let set_key = v8::String::new(scope, "set").unwrap();
+        let name_getter = attribute
+            .get(scope, get_key.into())
+            .ok_or(V8BindingError::Allocation("Window name getter"))?;
+        let name_setter = attribute
+            .get(scope, set_key.into())
+            .ok_or(V8BindingError::Allocation("Window name setter"))?;
+        let mut name_descriptor =
+            v8::PropertyDescriptor::new_from_get_set(name_getter, name_setter);
+        name_descriptor.set_enumerable(true);
+        name_descriptor.set_configurable(true);
+        if global.define_property(scope, name_key.into(), &name_descriptor) != Some(true)
+            || window_prototype.delete(scope, name_key.into()) != Some(true)
+        {
+            return Err(V8BindingError::Allocation("Window global name attribute"));
+        }
     }
     let event_prototype = window_prototype
         .get_prototype(scope)
@@ -316,6 +323,6 @@ mod tests {
         dom.borrow_mut()
             .set_attribute_ns(frame, Some("urn:test".into()), "name", "foreign")
             .unwrap();
-        assert_eq!(target.get(), "");
+        assert_eq!(target.get(), "plain");
     }
 }

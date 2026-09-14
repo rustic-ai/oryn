@@ -1,7 +1,124 @@
 # Oryn2 implementation status
 
 > **Current priority: complete conformance. Not a release candidate.**
-> Latest full measurement: **3,144/4,022 (78.2%)**, **878 remaining**.
+> Historical selected-inventory measurement: **3,144/4,022 (78.2%)**, **878 remaining**. Not a current full-WPT baseline.
+
+## September 13 native ownership, lifecycle and broker-drain follow-up
+
+Native document/adoption ownership now includes inert template documents,
+host-including cycle rejection and GC retention without permanent template roots.
+The document driver owns AgentRuntime; native environment retirement cancels
+timers, fetch resolutions and platform endpoints while retaining valid detached
+DOM wrappers. Close acknowledges actor destruction. Reset unbinds the broker
+before teardown; the parent admission barrier rejects new work, cancels owned
+operations and requires bounded drain before reuse. Failed drain retires the
+worker/router permanently. Timer conversion, cancellation and callback-realm
+error reporting have also been repaired.
+
+The subsequent [isolate-watchdog snapshot](../../benchmarks/evidence/browser-isolate-watchdog-2026-09-13.json),
+source `cfcbb43d3861d7a43964ed9b19dbd4dafe94d6059b89e2b85e2e9903f180c4b1`,
+passes **473 native tests, zero failed, six ignored (141.85 s)**. Its ten focused
+image-responsiveness controls pass without changing the 250 ms deadline. It uses
+one reusable watchdog thread per isolate, with serialized expiry/cancellation,
+bounded non-reused registrations, nested-deadline enforcement and joined shutdown.
+The slow-image fixture now releases blocked I/O on assertion failure. Its signed
+bundle and sandbox probes pass. Signed WPT: adoption **3/3 files (13/13 subtests)**,
+templates **8/67**, timers **9/13**, with zero environment-blocked files. The timer
+family still fails the sub-4ms scheduling assertion (9.2ms measured), alongside
+three iframe/window cases. The actor's fixed polling quantum requires further
+deadline-aware scheduling work; this timing result is not waived.
+
+Three alternating signed throughput samples using the same parent executable
+improve the median from **194.7 to 245.4 actions/sec (+26%)**. Recycled state
+erasure passes in all samples. This remains below the **300 actions/sec** target
+and is diagnostic evidence, not clean-source performance acceptance.
+
+Preceding signed source: `354c50f9c5bc09f691eda09ed12bad7a0bbad554b48a568619bf5dd26b25972a`.
+The [hashed diagnostic](../../benchmarks/evidence/browser-parent-drain-barrier-2026-09-13.json)
+records passing signature/sandbox probes and a three-lease recycled state-erasure
+smoke. Thirteen worker-client tests pass in both default and V8 configurations;
+strict library Clippy passes. The full native run finished **468 passed, one
+failed, six ignored (596.82 s)**. The unchanged 250 ms image-responsiveness test
+`slow_paint_images_do_not_hold_the_page_actor` failed; this is not waived or
+classified as an environment block. Full native qualification has not passed.
+
+Signed WPT: adoption **3/3 files (13/13 subtests)**; templates **8/67 files**;
+timers **9/13 with concurrent family runs, 10/13 in a serial repeat**. The timing
+failure remains recorded, not converted to a pass or an environment block. The
+previous template hierarchy RSS breach now passes. These family diagnostics are
+not a full-WPT baseline or clean-source release qualification.
+
+**Architecture is still incomplete:** parent-issued per-environment IPC
+credentials, protocol-v10 process-session routing, native custom-element adoption
+reactions, synchronous initial iframe environments and connected-window placement
+remain open. Agent-local environment IDs and the drain barrier do not replace
+wire authentication. Connected-window placement remains inactive; protocol is still v9. The earlier
+Range.insertNode crash remains unresolved/deferred. Historical sections below
+describe their own snapshots, not this source.
+
+## September 13 preceding document-boundary and write follow-up (local validation)
+
+That [local diagnostic](../../benchmarks/evidence/browser-document-writes-local-2026-09-13.json)
+passes **455 native tests, 0 failed, 6 ignored (589.47 s)**, **96 DOM tests**,
+**255 V8-binding tests (3 ignored)** and **73 layout tests**. Strict library
+Clippy, formatting and diff checks pass. The full native run used local-server
+permissions and ran without competing builds or WPT. Earlier restricted and
+interrupted attempts are preserved in the preceding local diagnostic.
+
+This follow-up removes arena-wide ID lookup, rejects native embedding cycles and
+Document child edges before mutation, preserves live Range endpoints on rejected
+insertions, and retargets focus through explicit frame hosts. It also repairs
+document.open/write/close replacing the primary document when invoked on a frame
+document: replacement and buffered sessions now target the receiver. Interleaved
+frame writes preserve parent/sibling identities and execute in the correct frame
+realm. Aggregate write limits remain unchanged; inert-document scripts do not
+execute in the caller's realm.
+
+**No fresh signed, WPT or Linux qualification was run for this follow-up.** The
+signed results below belong to their older source. Full incremental dynamic-markup
+semantics, native ownerDocument/adoptNode, AgentRuntime, routing and subsequent
+R/W packages remain incomplete. The Range.insertNode crash is still unresolved.
+
+## September 13 preceding signed architecture checkpoint
+
+The corrected frame-association cutover separates hosted iframe documents from
+DOM child edges. Native layout, retention and semantic action validation follow
+explicit embedding associations; detached-frame actions are rejected. This is a
+partial R4 implementation, not completion of document ownership or agent routing.
+
+The [corrected diagnostic evidence](../../benchmarks/evidence/browser-frame-association-corrected-2026-09-13.json)
+records **453 native tests passed, 0 failed, 6 ignored (652.16 s)** in a serial
+run without competing builds or WPT. An earlier run failed the unchanged 250 ms
+image-responsiveness deadline; that failure remains recorded alongside ten passing
+individual repeats. Its cause is not established. DOM: **91 passed**; layout:
+**73 passed**; V8 bindings: **254 passed, 3 ignored**. Library Clippy with warnings
+denied, formatting, signed sandbox denial probes, and Linux aarch64 no-default-feature
+release compilation passed. Linux runtime/V8 behavior was not qualified.
+
+Signed targeted WPT results remain **FormData 18/18** and **submission 18/35**,
+with no file-level status changes from the previous form-reflection snapshot and
+no environmental blocks. These are selected executions, not full-family or full
+WPT results. The Range.insertNode stack-overflow crash remains unresolved; its
+latest reproduction belongs to the separately preserved initial cutover snapshot.
+
+This is dirty-source diagnostic evidence, not a release qualification. Native
+document ownership/adoption, agent lifecycle/scheduling, protocol-v10 routing,
+connected-window activation and broader worker/WPT integration remain unfinished.
+Related-window sharing is not activated; isolated execution remains the default.
+
+## Historical conformance measurements
+
+**September 10 scope update:** this is a historical selected-inventory result.
+The [full WPT capability roadmap](WPT-CAPABILITY-ROADMAP-2026-09-10.md) supersedes
+the old 4,022-test completion gate with Core, Necessary, Extended and
+Platform-dependent tiers. The source catalog maps 271 capability roots; official
+full-manifest enumeration and tier baseline runs remain pending.
+
+An additive agent-browser inventory now maps the published Obscura Core/Relevant
+and Kitesurf feature footprints onto the same pinned WPT revision. It contains
+12,708 files and 16,842 execution variants while preserving the 4,022-execution
+ledger unchanged. This is inventory coverage, not a measured pass result; see
+[the footprint review](AGENT-BROWSER-WPT-FOOTPRINT-2026-09-10.md).
 
 The complete signed run at `011d470` gains **ten whole executions** over `82fe3b4`:
 eight CSS fixtures and two history fixtures. There are **zero whole-execution
@@ -62,9 +179,9 @@ DOM-mutation smoke test pass.
 
 Follow the [impact roadmap](CONFORMANCE-IMPACT-ROADMAP-2026-09-09.md). Live
 NodeIterator mutation retargeting, initial iframe documents, Stylo stylesheet
-ownership and Range performance remain open. Full conformance still requires
-**4,022/4,022 twice on one frozen signed candidate**, with all qualification gates
-and regression observations resolved.
+ownership and Range performance remain open. Qualification now follows the full
+capability roadmap's declared tiers and environments, with exact coverage and
+regression observations resolved.
 
 | Root | Passed / required |
 |---|---:|

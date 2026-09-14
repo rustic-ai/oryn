@@ -1,0 +1,377 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "required_execution_total": 28,
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-checkValidity.html",
+      "root": "html",
+      "sha256": "811ff87e0471c3167b8d3a92ac2af595290a13d2624cdd76ed84322e548b089d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-reportValidity.html",
+      "root": "html",
+      "sha256": "e37b9f865471875a43d4b1e3a03fa44b2b076451585f6a68ce802787c2d4181f",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validate.html",
+      "root": "html",
+      "sha256": "37ff5d6bed29deb55ab111c98aff59f7f297cfa96be6b1ffd66a2b31b82df44f",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-badInput.html",
+      "root": "html",
+      "sha256": "785b4618b39de8afb5d2e1a37434e718c07067ac6291d688e8d7fe38e5422fff",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-customError.html",
+      "root": "html",
+      "sha256": "6d7e09eaa7d718111c499d93cf9f471f6982183e661b4fad968cc1ece6b483b5",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-patternMismatch.html",
+      "root": "html",
+      "sha256": "3dbd7d9e41dc812015798ba82357b78c97d33dbd49b2a14c7db5a949af8d046d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-rangeOverflow-weekmonth.html",
+      "root": "html",
+      "sha256": "186021abbec41dfc7758301aafe2dec5bafaba8cf9a6e19a9219155457ee73b3",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-rangeOverflow.html",
+      "root": "html",
+      "sha256": "4550991712b1d07c3420df6547dcfd93a3222edf6271cd8784f78a44198055d9",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-rangeUnderflow-weekmonth.html",
+      "root": "html",
+      "sha256": "15d7e3ca06a8a5414691d7e2e04d105b8afcf923c07fc0de3514646169079806",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-rangeUnderflow.html",
+      "root": "html",
+      "sha256": "c1c67ef9a6238abaa5642b785a98a5cd8bf3a04dc13e6051155484c76ce024fa",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-stepMismatch.html",
+      "root": "html",
+      "sha256": "56714c2ebfda439464a797f90d8f2f2779acee017e979bbc9d2a5574f721686a",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-textarea-defaultValue.html",
+      "root": "html",
+      "sha256": "426d5b51b1336b04d7c1acdc449d3b243600ad8781e0c94c6a905a89c7bcada1",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-tooLong.html",
+      "root": "html",
+      "sha256": "15f103cc8be85daa029c0b749ab58f74a842af0435bfe0dd7ae0fcc6fc0fde9f",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-tooShort.html",
+      "root": "html",
+      "sha256": "25f93a158688d1e425fc2e1f50f3ec5fa5d00c79fab595e64c8de313f44daee1",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-typeMismatch.html",
+      "root": "html",
+      "sha256": "cd912171756102f1209bab5ce5b378a06fe2d2794498f64e491a742b975715d1",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-valid-weekmonth.html",
+      "root": "html",
+      "sha256": "8b8af6b09be8da30e10197d318783a0b342784713c289d78b23c6ae5dc9c8935",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-valid.html",
+      "root": "html",
+      "sha256": "4ca7a47e5726cb36aa3e2d4afdef71c25bc550403ae75e2cc374e97bbe4bbceb",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-valueMissing-weekmonth.html",
+      "root": "html",
+      "sha256": "a37590db254cbeda7b2d807463d31c064782fb47db2d5d4b08d38f35cc2203ea",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-validity-valueMissing.html",
+      "root": "html",
+      "sha256": "da39f4d45cec8d56c6bd3668dc8c17332d9eb043f72e299470db2e2997455032",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-willValidate-datalist.html",
+      "root": "html",
+      "sha256": "631f935f0f42fe7e375bd32d56ddfe5a0e3466ebab718f22b8228c3679b731ee",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/form-validation-willValidate.html",
+      "root": "html",
+      "sha256": "261b962a1dccfd96d040955e47b4056569a3de03ad22df44f0a6cc7d7e621f15",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/infinite_backtracking.tentative.html",
+      "root": "html",
+      "sha256": "f5c7c12b5135000767b662ed7d3688a7146d648e81642b07fe878612948640e8",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/input-maxlength-emoji.html",
+      "root": "html",
+      "sha256": "75d7d041e2bdb72e6a0a622985c29d0f65358c072632ece7f708f46a1fbe52f8",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/input-number-validity-dynamic-value-no-change.html",
+      "root": "html",
+      "sha256": "4c282c991ed70643eee0798f5a6715ba2bb4b74fdbddc2b9b94842a2bdc6ba23",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/input-pattern-dynamic-value.html",
+      "root": "html",
+      "sha256": "b15001c1564173005f784f450e6cc8f53071038dd40740523d9b6775edc1eecf",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/inputwillvalidate.html",
+      "root": "html",
+      "sha256": "825525a069241ebe99403ff890026e595cf86f947c1a900672791701ef0828de",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/radio-group-valueMissing.html",
+      "root": "html",
+      "sha256": "bf77dc051f09ec942f648bf3aa3b2c5c06f4bbcf6dd82519e634eb2ccae54165",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/constraints/radio-valueMissing.html",
+      "root": "html",
+      "sha256": "f312e9c32aef2b210cb7ef7d1da28773f03724884dac1aa0180354ef7bc150ae",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ],
+  "selection": {
+    "rule": "Every mapped Core testharness execution under html/semantics/forms/constraints/ in inventory-v3. No outcome filtering.",
+    "official_manifest_sha256": "566f2c77524c69cc249c5fe18507ad4c11866d9077b201681b19807c4ee28101",
+    "policy_sha256": "a655bd38bbd3cc90e49344f7ceae1db1a3bfb09c8b84419b336ebf72f81eb84f"
+  },
+  "selection_rationale": "Native constraint-validation diagnostic baseline, including all mapped Core constraints tests. Unsupported/manual entries remain unfinished in the full Core ledger; this cohort does not replace that ledger."
+}

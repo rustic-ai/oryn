@@ -53,6 +53,10 @@ pub enum ContextServiceRequest {
         page_id: PageId,
         request: HttpStreamRequest,
     },
+    ImageStreamStart {
+        page_id: PageId,
+        request: HttpStreamRequest,
+    },
     HttpStreamRead {
         page_id: PageId,
         stream_id: u64,
@@ -72,6 +76,10 @@ pub enum ContextServiceRequest {
     OpenPage {
         opener_page_id: PageId,
         url: Option<String>,
+        #[serde(default)]
+        post: Option<oryn_js::navigation::PostResource>,
+        #[serde(default)]
+        referrer_policy: Option<String>,
     },
     ActivatePage {
         source_page_id: PageId,
@@ -175,6 +183,8 @@ pub enum ContextServiceRequest {
         initiator_url: Option<String>,
         #[serde(default)]
         referrer_policy: Option<String>,
+        #[serde(default)]
+        post: Option<oryn_js::navigation::PostResource>,
     },
     AuthorizeInlineScript {
         page_id: PageId,
@@ -438,7 +448,7 @@ impl IpcContextClient {
     }
 }
 
-trait ContextTransport: Send + Sync {
+pub(crate) trait ContextTransport: Send + Sync {
     fn request(
         &self,
         request: ContextServiceRequest,
@@ -594,6 +604,7 @@ pub struct ParentContextService {
     source_page_id: PageId,
     next_socket_id: AtomicU64,
     sockets: Mutex<BTreeMap<u64, WebSocket<MaybeTlsStream<TcpStream>>>>,
+    socket_audits: Mutex<BTreeMap<u64, crate::resource_audit::WebSocketObservation>>,
     network: Option<SharedNetworkBroker>,
     next_http_stream_id: AtomicU64,
     http_streams: Mutex<BTreeMap<u64, Arc<HttpStreamEntry>>>,
@@ -601,6 +612,43 @@ pub struct ParentContextService {
     authorized_storage_origins: Mutex<BTreeSet<String>>,
     shutting_down: AtomicBool,
     trusted_in_process_runtime: bool,
+}
+
+fn fixture_websocket_connector(
+    url: &Url,
+    all_addresses_loopback: bool,
+    ca_path: Option<&std::ffi::OsStr>,
+) -> Result<Option<tungstenite::Connector>, RuntimeError> {
+    use rustls::pki_types::pem::PemObject;
+    let host = url.host_str().unwrap_or_default();
+    if url.scheme() != "wss"
+        || !all_addresses_loopback
+        || !(host == "localhost" || host.ends_with(".localhost") || host == "127.0.0.1")
+    {
+        return Ok(None);
+    }
+    let Some(path) = ca_path else { return Ok(None) };
+    let mut roots = rustls::RootCertStore::empty();
+    let certificates = rustls::pki_types::CertificateDer::pem_file_iter(path)
+        .map_err(|error| RuntimeError::Network(format!("read WPT WebSocket CA: {error}")))?;
+    for certificate in certificates {
+        roots
+            .add(certificate.map_err(|error| {
+                RuntimeError::Network(format!("parse WPT WebSocket CA: {error}"))
+            })?)
+            .map_err(|error| RuntimeError::Network(format!("invalid WPT WebSocket CA: {error}")))?;
+    }
+    if roots.is_empty() {
+        return Err(RuntimeError::Network("empty WPT WebSocket CA".into()));
+    }
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|error| RuntimeError::Network(error.to_string()))?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    Ok(Some(tungstenite::Connector::Rustls(Arc::new(config))))
 }
 
 struct HttpStreamState {
@@ -664,6 +712,7 @@ impl ParentContextService {
             source_page_id,
             next_socket_id: AtomicU64::new(1),
             sockets: Mutex::new(BTreeMap::new()),
+            socket_audits: Mutex::new(BTreeMap::new()),
             network,
             next_http_stream_id: AtomicU64::new(1),
             http_streams: Mutex::new(BTreeMap::new()),
@@ -674,8 +723,14 @@ impl ParentContextService {
         }
     }
 
-    fn cancel_all_network_operations(&self) {
+    pub(crate) fn cancel_all_network_operations(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        if let Ok(mut sockets) = self.sockets.lock() {
+            sockets.clear();
+        }
+        if let Ok(mut audits) = self.socket_audits.lock() {
+            audits.clear();
+        }
         let request_ids = self
             .http_streams
             .lock()
@@ -718,7 +773,15 @@ impl ParentContextService {
                 })
             }
             ContextServiceRequest::HttpStreamStart { page_id, request } => {
-                self.start_http_stream(page_id, request)
+                self.start_http_stream(page_id, request, crate::csp::CspDestination::Connect)
+            }
+            ContextServiceRequest::ImageStreamStart { page_id, request } => {
+                if request.method != "GET" || !request.body_base64.is_empty() {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "image stream requires a bodyless GET".into(),
+                    ));
+                }
+                self.start_http_stream(page_id, request, crate::csp::CspDestination::Image)
             }
             ContextServiceRequest::HttpStreamRead {
                 page_id,
@@ -752,6 +815,8 @@ impl ParentContextService {
             ContextServiceRequest::OpenPage {
                 opener_page_id,
                 url,
+                post,
+                referrer_policy,
             } => {
                 if opener_page_id != self.source_page_id {
                     return Err(RuntimeError::ContextService(
@@ -795,6 +860,32 @@ impl ParentContextService {
                 if let Some(url) = &url {
                     self.context.validate_page_url(self.source_page_id, url)?;
                 }
+                if let Some(resource) = &post {
+                    if url
+                        .as_ref()
+                        .and_then(|url| self.context.resolve_page_url(opener_page_id, url).ok())
+                        .is_none_or(|url| !resource.valid_for(&url))
+                    {
+                        return Err(RuntimeError::ContextService(
+                            "invalid popup POST resource".into(),
+                        ));
+                    }
+                    match self.handle(ContextServiceRequest::AuthorizeFormSubmission {
+                        page_id: opener_page_id,
+                        url: url.clone().unwrap(),
+                        method: "POST".into(),
+                    })? {
+                        ContextServiceResponse::FormSubmissionAuthorized => {}
+                        response @ ContextServiceResponse::PageDenied { .. } => {
+                            return Ok(response);
+                        }
+                        _ => {
+                            return Err(RuntimeError::ContextService(
+                                "invalid form authorization response".into(),
+                            ));
+                        }
+                    }
+                }
                 // Clone sessionStorage before the popup's first document can
                 // execute, matching the browser's initial-copy semantics.
                 let initial_url = url;
@@ -829,7 +920,12 @@ impl ParentContextService {
                     }
                 }
                 if let Some(url) = initial_url {
-                    self.context.queue_script_navigation(page.page_id(), url)?;
+                    self.context.queue_resource_navigation(
+                        page.page_id(),
+                        url,
+                        post,
+                        referrer_policy,
+                    )?;
                 }
                 Ok(ContextServiceResponse::PageOpened {
                     page_id: page.page_id(),
@@ -1204,12 +1300,14 @@ impl ParentContextService {
                 destination,
                 initiator_url,
                 referrer_policy,
+                post,
             } => self.load_page_resource(
                 page_id,
                 &url,
                 &destination,
                 initiator_url.as_deref(),
                 referrer_policy.as_deref(),
+                post,
             ),
             ContextServiceRequest::AuthorizeInlineScript {
                 page_id,
@@ -1253,6 +1351,7 @@ impl ParentContextService {
         &self,
         page_id: PageId,
         request: HttpStreamRequest,
+        destination: crate::csp::CspDestination,
     ) -> Result<ContextServiceResponse, RuntimeError> {
         self.validate_socket_owner(page_id)?;
         if self
@@ -1273,9 +1372,13 @@ impl ParentContextService {
                 resource: "HTTP request body".into(),
             });
         }
-        let network = self.network.clone().ok_or_else(|| {
-            RuntimeError::ContextService("HTTP streaming broker is unavailable".into())
-        })?;
+        let network = self
+            .network
+            .clone()
+            .ok_or_else(|| {
+                RuntimeError::ContextService("HTTP streaming broker is unavailable".into())
+            })?
+            .for_page(page_id.0);
         let page_url = self.context.page_url(page_id)?;
         let source_url = request.initiator_url.as_deref().unwrap_or(&page_url);
         let page_base =
@@ -1307,7 +1410,7 @@ impl ParentContextService {
             let csp = self.context.authorize_csp(
                 page_id,
                 &crate::csp::CspRequest {
-                    destination: crate::csp::CspDestination::Connect,
+                    destination,
                     url: target.to_string(),
                     nonce: None,
                     inline_source: None,
@@ -1320,9 +1423,9 @@ impl ParentContextService {
                     .handle_csp_violations(page_id, csp.violations.clone())?;
             }
             if !csp.allowed {
-                return Err(RuntimeError::ContextService(
-                    "request blocked by Content-Security-Policy connect-src".into(),
-                ));
+                return Err(RuntimeError::ContextService(format!(
+                    "request blocked by Content-Security-Policy {destination:?}"
+                )));
             }
             enforce_mixed_content(source.as_str(), &target)?;
             let cross_origin = target.origin().ascii_serialization() != source_origin;
@@ -1397,7 +1500,11 @@ impl ParentContextService {
                         } else {
                             crate::cookies::CookieCredentials::Omit
                         },
-                        kind: crate::cookies::CookieRequestKind::Fetch,
+                        kind: if destination == crate::csp::CspDestination::Image {
+                            crate::cookies::CookieRequestKind::Image
+                        } else {
+                            crate::cookies::CookieRequestKind::Fetch
+                        },
                         initiator_url: Some(source_origin.clone()),
                         top_level_url: Some(self.context.page_url(page_id)?),
                         ..Default::default()
@@ -2027,8 +2134,37 @@ impl ParentContextService {
         destination: &str,
         initiator_url: Option<&str>,
         referrer_policy: Option<&str>,
+        mut post: Option<oryn_js::navigation::PostResource>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
         self.validate_socket_owner(page_id)?;
+        let form_navigation = post.is_some();
+        if let Some(resource) = &post {
+            if destination != "frame"
+                || self
+                    .context
+                    .resolve_page_url(page_id, requested_url)
+                    .map_or(true, |url| !resource.valid_for(&url))
+            {
+                return Err(RuntimeError::ContextService(
+                    "invalid frame POST resource".into(),
+                ));
+            }
+            match self.handle(ContextServiceRequest::AuthorizeFormSubmission {
+                page_id,
+                url: requested_url.into(),
+                method: "POST".into(),
+            })? {
+                ContextServiceResponse::FormSubmissionAuthorized => {}
+                ContextServiceResponse::PageDenied { reason } => {
+                    return Err(RuntimeError::ContextService(reason));
+                }
+                _ => {
+                    return Err(RuntimeError::ContextService(
+                        "invalid form authorization response".into(),
+                    ));
+                }
+            }
+        }
         let (csp_destination, cookie_kind, accept, text_kind) = match destination {
             "stylesheet" => (
                 crate::csp::CspDestination::Style,
@@ -2080,6 +2216,31 @@ impl ParentContextService {
             if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &url)? {
                 url = upgraded;
             }
+            if post
+                .as_ref()
+                .is_some_and(|resource| !resource.valid_for(&url))
+            {
+                return Err(RuntimeError::ContextService(
+                    "invalid redirected frame POST resource".into(),
+                ));
+            }
+            if form_navigation && redirect > 0 {
+                match self.handle(ContextServiceRequest::AuthorizeFormSubmission {
+                    page_id,
+                    url: url.to_string(),
+                    method: if post.is_some() { "POST" } else { "GET" }.into(),
+                })? {
+                    ContextServiceResponse::FormSubmissionAuthorized => {}
+                    ContextServiceResponse::PageDenied { reason } => {
+                        return Err(RuntimeError::ContextService(reason));
+                    }
+                    _ => {
+                        return Err(RuntimeError::ContextService(
+                            "invalid redirected form authorization response".into(),
+                        ));
+                    }
+                }
+            }
             let decision = self.context.authorize_csp(
                 page_id,
                 &crate::csp::CspRequest {
@@ -2124,6 +2285,9 @@ impl ParentContextService {
                 });
             }
             let mut request_headers = vec![("accept".into(), accept.into())];
+            if let Some(resource) = &post {
+                request_headers.push(("content-type".into(), resource.content_type.clone()));
+            }
             if let Some(referrer) = policy.header(&source, &url) {
                 request_headers.push(("referer".into(), referrer));
             }
@@ -2131,10 +2295,12 @@ impl ParentContextService {
                 &network,
                 NetworkRequest {
                     request_id: self.next_http_stream_id.fetch_add(1, Ordering::Relaxed),
-                    method: "GET".into(),
+                    method: if post.is_some() { "POST" } else { "GET" }.into(),
                     url: url.to_string(),
                     headers: request_headers,
-                    body: Vec::new(),
+                    body: post
+                        .as_ref()
+                        .map_or_else(Vec::new, |resource| resource.bytes.clone()),
                     credentials: true,
                     security: crate::cookies::CookieRequestContext {
                         kind: cookie_kind,
@@ -2149,7 +2315,8 @@ impl ParentContextService {
                 &self.shutting_down,
             )
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
-            if (300..400).contains(&response.status) {
+            if matches!(response.status, 301 | 302 | 303 | 307 | 308) {
+                oryn_js::navigation::PostResource::redirect(&mut post, response.status);
                 if redirect == 10 {
                     return Err(RuntimeError::Network(format!(
                         "{destination} redirect limit exceeded"
@@ -2234,6 +2401,12 @@ impl ParentContextService {
         protocols: &[String],
     ) -> Result<ContextServiceResponse, RuntimeError> {
         self.validate_socket_owner(page_id)?;
+        let socket_id = self.next_socket_id.fetch_add(1, Ordering::Relaxed);
+        let mut observation = self.network.as_ref().and_then(|network| {
+            network
+                .resource_audit()
+                .begin_websocket(page_id.0, socket_id, url)
+        });
         let mut url = Url::parse(url).map_err(|error| RuntimeError::Network(error.to_string()))?;
         if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &url)? {
             url = upgraded;
@@ -2266,6 +2439,11 @@ impl ParentContextService {
         enforce_mixed_content(&self.context.page_url(page_id)?, &url)?;
         let addresses = crate::network::resolve_and_authorize(self.context.network_policy(), &url)
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let connector = fixture_websocket_connector(
+            &url,
+            !addresses.is_empty() && addresses.iter().all(|address| address.ip().is_loopback()),
+            std::env::var_os("ORYN_WPT_CA_CERT").as_deref(),
+        )?;
         let timeout = self.context.request_timeout();
         let mut stream = None;
         let mut last_error = None;
@@ -2286,7 +2464,7 @@ impl ParentContextService {
             )
         })?;
         stream
-            .set_read_timeout(Some(Duration::from_millis(10)))
+            .set_read_timeout(Some(timeout))
             .and_then(|_| stream.set_write_timeout(Some(timeout)))
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
         let mut request = url
@@ -2321,7 +2499,21 @@ impl ParentContextService {
                 })?,
             );
         }
-        let (socket, response) = tungstenite::client_tls_with_config(request, stream, None, None)
+        let (mut socket, response) =
+            tungstenite::client_tls_with_config(request, stream, None, connector)
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
+        // Polling is short and non-blocking at the broker boundary; TLS setup
+        // gets the existing request deadline, not the subsequent 10 ms poll slice.
+        let tcp = match socket.get_mut() {
+            MaybeTlsStream::Plain(stream) => stream,
+            MaybeTlsStream::Rustls(stream) => &mut stream.sock,
+            _ => {
+                return Err(RuntimeError::Network(
+                    "unsupported WebSocket TLS stream".into(),
+                ));
+            }
+        };
+        tcp.set_read_timeout(Some(Duration::from_millis(10)))
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
         let protocol = response
             .headers()
@@ -2329,11 +2521,21 @@ impl ParentContextService {
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default()
             .to_string();
-        let socket_id = self.next_socket_id.fetch_add(1, Ordering::Relaxed);
-        self.sockets
+        let mut sockets = self
+            .sockets
             .lock()
-            .map_err(|_| RuntimeError::ContextService("WebSocket lock poisoned".into()))?
-            .insert(socket_id, socket);
+            .map_err(|_| RuntimeError::ContextService("WebSocket lock poisoned".into()))?;
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err(RuntimeError::Closed);
+        }
+        if let Some(mut audit) = observation.take() {
+            audit.opened(response.status().as_u16());
+            self.socket_audits
+                .lock()
+                .map_err(|_| RuntimeError::ContextService("WebSocket audit lock poisoned".into()))?
+                .insert(socket_id, audit);
+        }
+        sockets.insert(socket_id, socket);
         Ok(ContextServiceResponse::WebSocketOpened {
             socket_id,
             protocol,
@@ -2366,9 +2568,26 @@ impl ParentContextService {
                 reason: reason.into(),
             })),
         };
-        socket
-            .send(message)
-            .map_err(|error| RuntimeError::Network(error.to_string()))?;
+        let bytes = if message.is_text() || message.is_binary() {
+            message.len()
+        } else {
+            0
+        };
+        let result = socket.send(message);
+        // A failed send can leave a readable socket. Keep its observation so
+        // subsequent received payloads cannot silently escape the audit.
+        if result.is_err()
+            && let Ok(mut audits) = self.socket_audits.lock()
+            && let Some(audit) = audits.get_mut(&socket_id)
+        {
+            audit.finish("failed");
+        }
+        result.map_err(|error| RuntimeError::Network(error.to_string()))?;
+        if let Ok(mut audits) = self.socket_audits.lock()
+            && let Some(audit) = audits.get_mut(&socket_id)
+        {
+            audit.bytes(bytes, 0);
+        }
         Ok(ContextServiceResponse::WebSocketSent)
     }
 
@@ -2389,16 +2608,35 @@ impl ParentContextService {
         let mut frames = Vec::new();
         while frames.len() < max_frames.min(32) {
             match socket.read() {
-                Ok(Message::Text(value)) => frames.push(WebSocketFrame::Text {
-                    value: value.to_string(),
-                }),
-                Ok(Message::Binary(value)) => frames.push(WebSocketFrame::Binary {
-                    base64: base64::Engine::encode(
-                        &base64::engine::general_purpose::STANDARD,
-                        value,
-                    ),
-                }),
+                Ok(Message::Text(value)) => {
+                    if let Ok(mut audits) = self.socket_audits.lock()
+                        && let Some(audit) = audits.get_mut(&socket_id)
+                    {
+                        audit.bytes(0, value.len());
+                    }
+                    frames.push(WebSocketFrame::Text {
+                        value: value.to_string(),
+                    })
+                }
+                Ok(Message::Binary(value)) => {
+                    if let Ok(mut audits) = self.socket_audits.lock()
+                        && let Some(audit) = audits.get_mut(&socket_id)
+                    {
+                        audit.bytes(0, value.len());
+                    }
+                    frames.push(WebSocketFrame::Binary {
+                        base64: base64::Engine::encode(
+                            &base64::engine::general_purpose::STANDARD,
+                            value,
+                        ),
+                    })
+                }
                 Ok(Message::Close(frame)) => {
+                    if let Ok(mut audits) = self.socket_audits.lock()
+                        && let Some(audit) = audits.get_mut(&socket_id)
+                    {
+                        audit.finish("closed");
+                    }
                     frames.push(WebSocketFrame::Close {
                         code: frame.as_ref().map(|frame| u16::from(frame.code)),
                         reason: frame
@@ -2472,6 +2710,15 @@ impl ParentContextService {
             code: code.map(CloseCode::from).unwrap_or(CloseCode::Normal),
             reason: reason.into(),
         }));
+        if let Ok(mut audits) = self.socket_audits.lock()
+            && let Some(mut audit) = audits.remove(&socket_id)
+        {
+            audit.finish(if close.is_ok() {
+                "close_requested"
+            } else {
+                "failed"
+            });
+        }
         if let Err(error) = close
             && !matches!(
                 error,
@@ -2557,12 +2804,21 @@ pub fn serve_context_service(
     stream: UnixStream,
     service: ParentContextService,
 ) -> Result<(), RuntimeError> {
+    let service = Arc::new(service);
+    let result = serve_context_transport(stream, service.clone());
+    service.cancel_all_network_operations();
+    result
+}
+
+pub(crate) fn serve_context_transport(
+    stream: UnixStream,
+    service: Arc<dyn ContextTransport>,
+) -> Result<(), RuntimeError> {
     let reader_stream = stream
         .try_clone()
         .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
     let mut reader = BufReader::new(reader_stream);
     let writer = Arc::new(Mutex::new(stream));
-    let service = Arc::new(service);
     let mut last_message_id = 0_u64;
     loop {
         let mut line = Vec::new();
@@ -2591,7 +2847,7 @@ pub fn serve_context_service(
         let writer = writer.clone();
         std::thread::spawn(move || -> Result<(), RuntimeError> {
             let (response, error) = if let Some(request) = request {
-                match service.handle(request) {
+                match service.request(request) {
                     Ok(response) => (Some(response), None),
                     Err(error) => (None, Some(error.to_string())),
                 }
@@ -2617,7 +2873,6 @@ pub fn serve_context_service(
                 .map_err(|error| RuntimeError::ContextService(error.to_string()))
         });
     }
-    service.cancel_all_network_operations();
     Ok(())
 }
 
@@ -2781,6 +3036,37 @@ fn enforce_cors_response(
         Err(RuntimeError::ContextService(
             "cross-origin response denied by CORS".into(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod fixture_tls_tests {
+    #[test]
+    fn fixture_ca_is_never_selected_for_non_loopback_websockets() {
+        let missing = std::ffi::OsStr::new("/nonexistent-wpt-ca.pem");
+        for (address, loopback) in [
+            ("wss://public.example/", true),
+            ("wss://localhost/", false),
+            ("ws://localhost/", true),
+        ] {
+            assert!(
+                super::fixture_websocket_connector(
+                    &url::Url::parse(address).unwrap(),
+                    loopback,
+                    Some(missing)
+                )
+                .unwrap()
+                .is_none()
+            );
+        }
+        assert!(
+            super::fixture_websocket_connector(
+                &url::Url::parse("wss://localhost/").unwrap(),
+                true,
+                Some(missing)
+            )
+            .is_err()
+        );
     }
 }
 
@@ -3409,6 +3695,53 @@ mod tests {
             context.security_audit()[0].decision,
             crate::PolicyDecision::Denied
         );
+    }
+
+    #[test]
+    fn image_stream_uses_image_csp_and_rejects_non_get_payloads() {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        context
+            .commit_page_url(page.page_id(), "https://images.test/".into())
+            .unwrap();
+        context
+            .install_document_security(
+                page.page_id(),
+                "https://images.test/".into(),
+                &[(
+                    "content-security-policy".into(),
+                    "img-src 'none'; connect-src *".into(),
+                )],
+            )
+            .unwrap();
+        let service = ParentContextService::new(context, page.page_id());
+        let request = HttpStreamRequest {
+            request_id: 1,
+            method: "GET".into(),
+            url: "https://images.test/image.svg".into(),
+            headers: vec![],
+            body_base64: String::new(),
+            credentials: false,
+            credentials_mode: Some("omit".into()),
+            initiator_url: None,
+            referrer_policy: None,
+        };
+        let denied = service.handle(ContextServiceRequest::ImageStreamStart {
+            page_id: page.page_id(),
+            request: request.clone(),
+        });
+        assert!(
+            matches!(denied, Err(RuntimeError::ContextService(message)) if message.contains("Content-Security-Policy Image"))
+        );
+        let mut request = request;
+        request.method = "POST".into();
+        assert!(matches!(
+            service.handle(ContextServiceRequest::ImageStreamStart {
+                page_id: page.page_id(),
+                request
+            }),
+            Err(RuntimeError::ProtocolViolation(_))
+        ));
     }
 
     #[test]

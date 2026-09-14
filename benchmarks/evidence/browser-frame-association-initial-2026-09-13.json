@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "a68cd4d0a9e0492ab59db79aad98eeae6f27777910423cf8e139c2bc107c4a2c",
+  "parent_sha256": "1cd9a4e2dbc9a991ca52b997e56845dc476d8aa28a1c350e50e2270172213350",
+  "worker_build_sha256": "363bf2adae19fc1f2b83ae09e47c123e5b68d7185bf2524b2850bb0b2e630e6a",
+  "worker_signed_sha256": "d19e4ec3cb7902d72a09fb6146cf2be48eb1768969acea6656086a09893f89f4",
+  "code_directory_hash": "e8a79311b2191d0624a0eab24111245581abdfe1",
+  "protocol_version": 9,
+  "sandbox_denial_checks_passed": true,
+  "native_tests": {
+    "passed": 452, "failed": 1, "ignored": 6, "seconds": 659.03,
+    "failure": "runtime::tests::same_origin_iframe_is_semantic_and_cross_origin_is_diagnostic: StaleSemanticRef"
+  },
+  "dom_tests": {"passed": 91, "failed": 0},
+  "js_tests": {"passed": 254, "failed": 0, "ignored": 3},
+  "linux_compile": {
+    "passed": true, "seconds": 6.23,
+    "command": "cargo check --locked --release -p oryn-native --no-default-features",
+    "archive_sha256": "128af5eef1770b82ef28a6d1ae26eb8cfc9fe12df2ba060ed9183293dfec2c33",
+    "scope": "Compile only; no V8 or Linux runtime qualification; pool modes disabled."
+  },
+  "range_insert_node": {
+    "path": "/private/tmp/oryn-frame-initial-range-20260913.json",
+    "sha256": "9fa8a2c8c4caa67aa44acd75c282a44e925e88afe0a145a67b62ccb13618726b",
+    "status": "worker_crash", "completion_valid": false,
+    "run_ms": 200, "environment_blocked": 0,
+    "diagnostic": "stack overflow; worker response stream closed; parent shutdown acknowledged with exit code 0"
+  },
+  "note": "Initial frame-association cutover failed its full native gate. Predates the embedding-aware semantic-action validation repair. The Range.insertNode crash remains unresolved. No conformance or release completion claim."
+}

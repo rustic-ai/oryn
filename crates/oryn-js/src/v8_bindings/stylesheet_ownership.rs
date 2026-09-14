@@ -124,7 +124,7 @@ pub(super) fn for_node(
         dom.retain_native(sheet)?;
         sheet
     };
-    state.node_documents.borrow_mut().insert(sheet, document);
+    state.dom.borrow_mut().set_node_document(sheet, document)?;
     *state.stylesheet_ownership.dom.borrow_mut() = Some(Rc::downgrade(&state.dom));
     state.stylesheet_ownership.records.borrow_mut().insert(
         sheet,

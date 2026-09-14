@@ -1,0 +1,156 @@
+{
+  "required_execution_total": 11,
+  "schema_version": 1,
+  "selection": {
+    "official_manifest_sha256": "566f2c77524c69cc249c5fe18507ad4c11866d9077b201681b19807c4ee28101",
+    "policy_sha256": "a655bd38bbd3cc90e49344f7ceae1db1a3bfb09c8b84419b336ebf72f81eb84f",
+    "rule": "All mapped Core testharness executions under html/semantics/forms/the-option-element/"
+  },
+  "selection_rationale": "All 11 mapped Core testharness files in the-option-element from the fixed 125-execution select/options inventory; no outcome filtering. Focused diagnostic, not a replacement for the broad or full Core ledger.",
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-element-constructor.html",
+      "root": "html",
+      "sha256": "a1dc2f907407405dc9d67effd5f96a0985513d8ab1c9641c30db5b9304d497d1",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-form.html",
+      "root": "html",
+      "sha256": "2795343edf5b397475d213d6d84fdfad97e6a6fde3ceee6b9a9fda39f797f37d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-index.html",
+      "root": "html",
+      "sha256": "be8d6cdfb337e4ba50448c1858c42e1d89873efc811ca6369671e324cddb2281",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-label.html",
+      "root": "html",
+      "sha256": "26b3e1c8e5f47ca530576d40c7c96842da41849efa4615b42d31ac4ec57ddfb8",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-selected.html",
+      "root": "html",
+      "sha256": "40ace430fedb0ab7acba5528dcf07a17fbe5e4d091931dfa204cddbd080597e0",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-text-backslash.html",
+      "root": "html",
+      "sha256": "bec7c4a49dedaca8b294099a9f89cbf1b14e4c3e64128f10bff4c5fd1e4f5183",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-text-label.html",
+      "root": "html",
+      "sha256": "de1f3fc2b97e6c1de8efb28bb3a9bec974ca2d87bea1058ab3f6d2ae3aa012bd",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-text-recurse.html",
+      "root": "html",
+      "sha256": "5b2a7069d8588296aad2d90a0bb256a277507de3b1a7b17428b6b2cb48f9dfc9",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-text-setter.html",
+      "root": "html",
+      "sha256": "0d38a4d3e7d0eb58a14517e57e068233c8af2bae0ad9f61e70be50749bdd324e",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-text-spaces.html",
+      "root": "html",
+      "sha256": "5e4f2d29046cd3091cf348253e4954a36da74c15445ce8aa5149cfce02768695",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-option-element/option-value.html",
+      "root": "html",
+      "sha256": "9b7e9d7d7ec03152f90ad1b4d2106c0a5ab54cb64c6ff116bb870faabdbbebec",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ],
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

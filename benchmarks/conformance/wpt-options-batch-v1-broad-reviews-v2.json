@@ -1,0 +1,1375 @@
+{
+  "html/semantics/forms/the-option-element/option-element-constructor.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Factory defaults, argument values/booleans, selected/default state and dirtiness, prototype identity.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 11,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-element-constructor.html": "a1dc2f907407405dc9d67effd5f96a0985513d8ab1c9641c30db5b9304d497d1",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "a1dc2f907407405dc9d67effd5f96a0985513d8ab1c9641c30db5b9304d497d1",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59589/html/semantics/forms/the-option-element/option-element-constructor.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59589/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59589/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-option-element/option-form.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Detached null and select form ownership after insertion.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-form.html": "2795343edf5b397475d213d6d84fdfad97e6a6fde3ceee6b9a9fda39f797f37d",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "2795343edf5b397475d213d6d84fdfad97e6a6fde3ceee6b9a9fda39f797f37d",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59767/html/semantics/forms/the-option-element/option-form.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59767/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59767/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-option-element/option-index.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Indices inside selects, datalists, uncontained and detached options.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 4,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-index.html": "be8d6cdfb337e4ba50448c1858c42e1d89873efc811ca6369671e324cddb2281",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "be8d6cdfb337e4ba50448c1858c42e1d89873efc811ca6369671e324cddb2281",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59777/html/semantics/forms/the-option-element/option-index.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59777/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59777/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-option-element/option-label.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Twelve helper-generated cases: empty/single/two text children, absent/empty/present/namespaced label.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 12,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-label-value.js": "6e3d7ef406b0951d6e1c58988542e05c8a19d320d1f2e1dbb73263ff8864150e",
+      "html/semantics/forms/the-option-element/option-label.html": "26b3e1c8e5f47ca530576d40c7c96842da41849efa4615b42d31ac4ec57ddfb8",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/html/semantics/forms/the-option-element/option-label-value.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "26b3e1c8e5f47ca530576d40c7c96842da41849efa4615b42d31ac4ec57ddfb8",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59883/html/semantics/forms/the-option-element/option-label.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59883/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59883/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript",
+        "query_sha256": null,
+        "response_sha256": "6e3d7ef406b0951d6e1c58988542e05c8a19d320d1f2e1dbb73263ff8864150e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59883/html/semantics/forms/the-option-element/option-label-value.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-option-element/option-selected.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Default attribute changes and dirty selectedness in both boolean states.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-selected.html": "40ace430fedb0ab7acba5528dcf07a17fbe5e4d091931dfa204cddbd080597e0",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "40ace430fedb0ab7acba5528dcf07a17fbe5e4d091931dfa204cddbd080597e0",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59893/html/semantics/forms/the-option-element/option-selected.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59893/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:59893/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-option-element/option-text-backslash.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. EUC-JP fixture retains the backslash in text and textContent.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-text-backslash.html": "bec7c4a49dedaca8b294099a9f89cbf1b14e4c3e64128f10bff4c5fd1e4f5183",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "bec7c4a49dedaca8b294099a9f89cbf1b14e4c3e64128f10bff4c5fd1e4f5183",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60007/html/semantics/forms/the-option-element/option-text-backslash.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60007/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60007/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-option-element/option-text-label.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Text independent of empty and nonempty label attribute.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 2,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-text-label.html": "de1f3fc2b97e6c1de8efb28bb3a9bec974ca2d87bea1058ab3f6d2ae3aa012bd",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "de1f3fc2b97e6c1de8efb28bb3a9bec974ca2d87bea1058ab3f6d2ae3aa012bd",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60018/html/semantics/forms/the-option-element/option-text-label.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60018/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60018/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-option-element/option-text-recurse.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Descendant recursion, HTML/SVG script exclusion, other namespaces, script ancestors, comments and processing instructions.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 11,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-text-recurse.html": "5b2a7069d8588296aad2d90a0bb256a277507de3b1a7b17428b6b2cb48f9dfc9",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "5b2a7069d8588296aad2d90a0bb256a277507de3b1a7b17428b6b2cb48f9dfc9",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60154/html/semantics/forms/the-option-element/option-text-recurse.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60154/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60154/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-option-element/option-text-setter.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Replacement text-node identity, detached old node and empty child removal.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-text-setter.html": "0d38a4d3e7d0eb58a14517e57e068233c8af2bae0ad9f61e70be50749bdd324e",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "0d38a4d3e7d0eb58a14517e57e068233c8af2bae0ad9f61e70be50749bdd324e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60166/html/semantics/forms/the-option-element/option-text-setter.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60166/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60166/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-option-element/option-text-spaces.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Forty-five ASCII whitespace combinations, four NBSP checks and enclosing synchronous test.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 50,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-text-spaces.html": "5e4f2d29046cd3091cf348253e4954a36da74c15445ce8aa5149cfce02768695",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "5e4f2d29046cd3091cf348253e4954a36da74c15445ce8aa5149cfce02768695",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60268/html/semantics/forms/the-option-element/option-text-spaces.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60268/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60268/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-option-element/option-value.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Twelve helper-generated cases: empty/single/two text children, absent/empty/present/namespaced value.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 12,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-option-element/option-label-value.js": "6e3d7ef406b0951d6e1c58988542e05c8a19d320d1f2e1dbb73263ff8864150e",
+      "html/semantics/forms/the-option-element/option-value.html": "9b7e9d7d7ec03152f90ad1b4d2106c0a5ab54cb64c6ff116bb870faabdbbebec",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/html/semantics/forms/the-option-element/option-label-value.js",
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "9b7e9d7d7ec03152f90ad1b4d2106c0a5ab54cb64c6ff116bb870faabdbbebec",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60280/html/semantics/forms/the-option-element/option-value.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60280/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60280/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript",
+        "query_sha256": null,
+        "response_sha256": "6e3d7ef406b0951d6e1c58988542e05c8a19d320d1f2e1dbb73263ff8864150e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60280/html/semantics/forms/the-option-element/option-label-value.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/common-HTMLOptionsCollection-add.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Three synchronous cases: same-node no-op and option/optgroup insertion via null, node and numeric references.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/common-HTMLOptionsCollection-add.html": "6f21a741f158dca03b57dc9ca754dd50fb7146739c496c3e2f19864567aa45e9",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "6f21a741f158dca03b57dc9ca754dd50fb7146739c496c3e2f19864567aa45e9",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60383/html/semantics/forms/the-select-element/common-HTMLOptionsCollection-add.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60383/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60383/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/common-HTMLOptionsCollection-namedItem.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Six synchronous cases: names, IDs, missing lookup and first match in duplicate/mixed names.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 6,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/common-HTMLOptionsCollection-namedItem.html": "f5822d6dd151aa0dd83b30a014e88b7c9a10bf3216163f021864d64f8f3c5c26",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "f5822d6dd151aa0dd83b30a014e88b7c9a10bf3216163f021864d64f8f3c5c26",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60446/html/semantics/forms/the-select-element/common-HTMLOptionsCollection-namedItem.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60446/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60446/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/common-HTMLOptionsCollection.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Eight synchronous cases: length reflection, growth, no-op, trimming, nullable indexed removal, padding/replacement and namespace-prefix independence.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 8,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/common-HTMLOptionsCollection.html": "836efb8c1fcb93c367ccc3bceb707ff2d94f88563dcd8fded53d5514368dbb34",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "836efb8c1fcb93c367ccc3bceb707ff2d94f88563dcd8fded53d5514368dbb34",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60507/html/semantics/forms/the-select-element/common-HTMLOptionsCollection.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60507/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:60507/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/customizable-select/option-form-ancestor-select.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Two synchronous cases: wrapped options inherit internal/external select form owners; invalid datalist/hr/nested optgroup ancestry yields null.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 2,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/customizable-select/option-form-ancestor-select.html": "4280f4a26946a820ba0863b9a779da47fb04c980849f3d686011cb70c9f39204",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "4280f4a26946a820ba0863b9a779da47fb04c980849f3d686011cb70c9f39204",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:61808/html/semantics/forms/the-select-element/customizable-select/option-form-ancestor-select.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:61808/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:61808/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/customizable-select/option-list-wrapped-optgroup.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Two synchronous cases distinguish wrapped optgroup membership from excluded nested optgroups.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 2,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/customizable-select/option-list-wrapped-optgroup.html": "3741fb0e03e184fc819c50e839775071597a3b2ab4874904faa2dfdce9ef0887",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "3741fb0e03e184fc819c50e839775071597a3b2ab4874904faa2dfdce9ef0887",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:61922/html/semantics/forms/the-select-element/customizable-select/option-list-wrapped-optgroup.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:61922/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:61922/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/customizable-select/option-list.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Synchronous native option-list exclusions across nested select, option, hr, datalist and optgroup barriers.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/customizable-select/option-list.html": "c73fd2901e7f7bbe040307ef3a69e8f3670775b3e09b5f36d93d742fb81c8cbc",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "c73fd2901e7f7bbe040307ef3a69e8f3670775b3e09b5f36d93d742fb81c8cbc",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:61932/html/semantics/forms/the-select-element/customizable-select/option-list.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:61932/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:61932/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/customizable-select/select-options-id.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Three synchronous wrapper membership, value, removal, reparenting and reparse cases, including multiple selection.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/customizable-select/select-options-id.html": "f9bd59d61f10e9d1f63b511b1a19f0f8d1080d7e8e0d9791f161f2bd20e721ea",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "f9bd59d61f10e9d1f63b511b1a19f0f8d1080d7e8e0d9791f161f2bd20e721ea",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:63869/html/semantics/forms/the-select-element/customizable-select/select-options-id.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:63869/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:63869/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/inserted-or-removed.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Five synchronous cases: parser/DOM/optgroup/fragment and innerHTML selectedness ordering, then selected insertion before each of three positions.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 5,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/inserted-or-removed.html": "dd9b56322caee7b5b429e3b7f7748b394dbb8a40f51fbd4b6b8b08c8cd8a192a",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "dd9b56322caee7b5b429e3b7f7748b394dbb8a40f51fbd4b6b8b08c8cd8a192a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65143/html/semantics/forms/the-select-element/inserted-or-removed.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65143/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65143/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/option-selectedness-script-mutation.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Five cases checking selected content attribute addition/removal and IDL current selectedness with live selection collection.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 5,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/option-selectedness-script-mutation.html": "0622b1502368f41fb79a35fc0e21d64225592815c034ee1e74e7075754231848",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "0622b1502368f41fb79a35fc0e21d64225592815c034ee1e74e7075754231848",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65159/html/semantics/forms/the-select-element/option-selectedness-script-mutation.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65159/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65159/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/select-add-optgroup.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Numeric insertion preserves the target option optgroup parent.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 1,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/select-add-optgroup.html": "69465deecdba029b490e2e62a713842381c4458447f76b211d65227105b8c1da",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "69465deecdba029b490e2e62a713842381c4458447f76b211d65227105b8c1da",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65203/html/semantics/forms/the-select-element/select-add-optgroup.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65203/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65203/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/select-ask-for-reset.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Three synchronous cases: selected option removal and insertion, direct selectedness changes, disabled fallback and size-two no-fallback behavior.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/select-ask-for-reset.html": "603e16105321fee4ad38b8560c49c8cf371c99666d770c34d3806f70ceb1187a",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "603e16105321fee4ad38b8560c49c8cf371c99666d770c34d3806f70ceb1187a",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65264/html/semantics/forms/the-select-element/select-ask-for-reset.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65264/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65264/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/select-multiple.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Three synchronous cases for markup/script multiple selection and reducing selection after removing multiple.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 3,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/select-multiple.html": "ecc4fbbc874d4d6e63ac9938a28b058785984d395dedd38e9f0681ad1f1b14a6",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "ecc4fbbc874d4d6e63ac9938a28b058785984d395dedd38e9f0681ad1f1b14a6",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65473/html/semantics/forms/the-select-element/select-multiple.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65473/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65473/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/select-named-getter.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Four synchronous cases prove no select named property getter while namedItem resolves names and IDs.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 4,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/select-named-getter.html": "3464f8e7033152f22068695ce0687f2a85c4e68e21ef1220b04cbdae6d17ff93",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "3464f8e7033152f22068695ce0687f2a85c4e68e21ef1220b04cbdae6d17ff93",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65498/html/semantics/forms/the-select-element/select-named-getter.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65498/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:65498/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/select-remove.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Four synchronous cases: select/options indexed removal bounds and no-argument select/Element removal.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 4,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/select-remove.html": "0629763acb491dc77fd443bce9046cfc64490b80393652af12b5112c74e4849b",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "0629763acb491dc77fd443bce9046cfc64490b80393652af12b5112c74e4849b",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49254/html/semantics/forms/the-select-element/select-remove.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49254/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49254/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/select-selectedOptions-nesting.window.js|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Eleven synchronous invalid nesting/list exclusion cases, including multiple selection and wrapped optgroups. Generated upstream WindowHandler wrapper reviewed and independently reconstructed.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 11,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/select-selectedOptions-nesting.window.js": "46c2b68b2b9ef91f73620ba4f7bcbf24098d2db60304b8ba0b807b8f66b875da",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae",
+      "tools/serve/serve.py": "6bf2effb8659f6138ded31a39b3f2f39dc0a6f5357a2ada6adcbc36ff6fee430"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "4f7de62d7a0aad2320fd29126a0fa3a1477d38b747faa844a908df294f23fe50",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49323/html/semantics/forms/the-select-element/select-selectedOptions-nesting.window.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49323/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49323/resources/testharnessreport.js"
+      },
+      "3": {
+        "mime": "text/javascript",
+        "query_sha256": null,
+        "response_sha256": "46c2b68b2b9ef91f73620ba4f7bcbf24098d2db60304b8ba0b807b8f66b875da",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49323/html/semantics/forms/the-select-element/select-selectedOptions-nesting.window.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/select-selectedOptions.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Eight cases covering default/single/multiple selectedness, collection branding/named access and SameObject before and after state changes.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 8,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/select-selectedOptions.html": "e413758973fba53ba2274204929cfe4c52250c3629360b722c2565cedfc26586",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "e413758973fba53ba2274204929cfe4c52250c3629360b722c2565cedfc26586",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49387/html/semantics/forms/the-select-element/select-selectedOptions.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49387/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49387/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  },
+  "html/semantics/forms/the-select-element/selected-index.html|window|": {
+    "automation_audit": "Full pinned test source reviewed; synchronous assertions, zero native automation. Thirteen synchronous cases compare select and collection selectedIndex, defaults, disabled and display-none options, setters, cleanup, reset and explicit empty selection.",
+    "evidence_sha256": "61bac6fb149bd107e80c3a1e5e50f31e002cb2bda1595867e6fb07aa997f53d3",
+    "expected_native_automation_calls": 0,
+    "expected_resource_errors": {},
+    "expected_subtests": 13,
+    "expected_websocket_errors": {},
+    "fixture_audit": "Static document and listed scripts only. Actual response bytes independently hashed; helper source reviewed. No exception-swallowing automation or TLS-sensitive requirement. Current reference, completion and resource gates remain mandatory; signed dirty-tree diagnostic only.",
+    "source_files": {
+      "html/semantics/forms/the-select-element/selected-index.html": "0d0e270f8637ce5c50797af9a50bf97b322cb3920df5ec78e9c5d2cad7809fdb",
+      "resources/testharness.js": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "resources/testharnessreport.js": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    "tls_validation_independent": true,
+    "unobserved_dependencies": {},
+    "verified_automation_operations": [],
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "verified_resources": {
+      "0": {
+        "mime": "text/html",
+        "query_sha256": null,
+        "response_sha256": "0d0e270f8637ce5c50797af9a50bf97b322cb3920df5ec78e9c5d2cad7809fdb",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49641/html/semantics/forms/the-select-element/selected-index.html"
+      },
+      "1": {
+        "mime": "text/javascript; charset=utf-8",
+        "query_sha256": null,
+        "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49641/resources/testharness.js"
+      },
+      "2": {
+        "mime": "application/javascript",
+        "query_sha256": null,
+        "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+        "status": 200,
+        "terminal": "complete",
+        "url": "http://localhost:49641/resources/testharnessreport.js"
+      }
+    },
+    "verified_websockets": []
+  }
+}

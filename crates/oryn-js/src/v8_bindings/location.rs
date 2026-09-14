@@ -161,6 +161,8 @@ fn navigate(state: &V8BindingState, url: Url, replace: bool, reload: bool) {
             url: url.to_string(),
             replace,
             reload,
+            post: None,
+            referrer_policy: None,
         });
     *state.location_url.borrow_mut() = url;
 }

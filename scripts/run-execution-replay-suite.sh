@@ -28,7 +28,7 @@ test -x "$worker"
 export ORYN_PAGE_WORKER="$worker"
 
 runtime="$($parent native --runtime-info --allow-loopback)"
-jq -e '.native_v8 == true and .execution_mode == "sandboxed_worker" and .sandbox_state == "app_sandbox" and .worker_protocol_version == 8' \
+jq -e '.native_v8 == true and .execution_mode == "sandboxed_worker" and .sandbox_state == "app_sandbox" and .worker_protocol_version == 9' \
   <<<"$runtime" >/dev/null
 jq . <<<"$runtime" >"$output_dir/runtime.json"
 

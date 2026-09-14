@@ -14,9 +14,14 @@ fi
 git -C "$checkout" fetch --depth=1 origin "$revision"
 git -C "$checkout" sparse-checkout init --cone
 git -C "$checkout" sparse-checkout set \
-  accname wai-aria WebIDL dom nodes interfaces html encoding fetch streams xhr websockets \
-  selection-api traversal editing css/css-cascade css/cssom css/selectors referrer-policy \
-  IndexedDB intl wasm resources tools common storage docs
+  accname wai-aria html-aam webidl dom domparsing domxpath nodes interfaces html url urlpattern \
+  encoding encoding-detection fetch xhr cors webstorage custom-elements shadow-dom mimesniff \
+  streams FileAPI workers wasm WebCryptoAPI console referrer-policy content-security-policy \
+  subresource-integrity secure-contexts cookies storage IndexedDB websockets eventsource \
+  import-maps navigation-api page-visibility requestidlecallback scheduler permissions-policy \
+  svg uievents pointerevents input-events intersection-observer resize-observer clipboard-apis \
+  selection selection-api traversal editing css/css-cascade css/cssom css/selectors \
+  intl js ecmascript resources tools common docs
 git -C "$checkout" checkout --detach "$revision"
 test "$(git -C "$checkout" rev-parse HEAD)" = "$revision"
 printf '%s\n' "$checkout"

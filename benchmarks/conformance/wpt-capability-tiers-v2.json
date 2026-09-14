@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "default_tier": "extended",
+  "tiers": {
+    "core": "Ordinary applications: document, navigation, interaction, networking, session state and security dependencies.",
+    "necessary": "Modern application compatibility, rendering and asynchronous services.",
+    "extended": "Specialized capabilities; unmatched paths explicitly require review."
+  },
+  "rules": [
+    {"tier": "core", "prefixes": ["dom", "domparsing", "domxpath", "html", "xml", "url", "encoding", "encoding-detection", "mimesniff", "fetch", "xhr", "cors", "cookies", "webstorage", "custom-elements", "shadow-dom", "import-maps", "webidl", "webmessaging", "selection", "focus", "inert", "uievents", "input-events", "accname", "wai-aria", "html-aam", "content-security-policy", "referrer-policy", "secure-contexts", "mixed-content", "upgrade-insecure-requests", "x-frame-options", "css/cssom", "css/css-cascade", "css/selectors", "html/semantics/embedded-content/the-iframe-element", "FileAPI", "streams", "websockets", "subresource-integrity", "permissions-policy", "trusted-types"]},
+    {"tier": "necessary", "prefixes": ["css", "cssom", "html/rendering", "html/canvas", "html/semantics/embedded-content", "editing", "contenteditable", "pointerevents", "touch-events", "clipboard-apis", "intersection-observer", "resize-observer", "IndexedDB", "workers", "service-workers", "worklets", "wasm", "WebCryptoAPI", "eventsource", "urlpattern", "navigation-api", "page-lifecycle", "page-visibility", "scheduler", "requestidlecallback", "storage", "storage-access-api", "cookiestore", "web-locks", "svg", "web-animations", "console", "beacon", "compression", "preload", "loading", "hr-time", "performance-timeline", "resource-timing", "navigation-timing", "user-timing", "webauthn", "payment-request"]},
+    {"tier": "extended", "prefixes": ["accelerometer", "ambient-light", "bluetooth", "generic-sensor", "gyroscope", "magnetometer", "geolocation", "geolocation-sensor", "orientation-sensor", "gamepad", "serial", "webusb", "webhid", "web-nfc", "webmidi", "webxr", "screen-capture", "mediacapture-streams", "digital-credentials", "contacts"]}
+  ],
+  "environment_rules": [
+    {"requirement": "device_or_emulator", "prefixes": ["accelerometer", "ambient-light", "bluetooth", "generic-sensor", "gyroscope", "magnetometer", "geolocation", "geolocation-sensor", "orientation-sensor", "gamepad", "serial", "webusb", "webhid", "web-nfc", "webmidi", "webxr", "screen-capture", "mediacapture-streams", "webauthn", "contacts"]},
+    {"requirement": "external_service_or_emulator", "prefixes": ["payment-request", "digital-credentials"]}
+  ],
+  "infrastructure_roots": [".github", ".well-known", "common", "docs", "fonts", "images", "infrastructure", "interfaces", "resources", "third_party", "tools"],
+  "qualification": "Priority is independent of runner support and environment prerequisites. Requirements are conservative family-level hints, not proof that every test needs hardware. Unmatched Extended entries still require review. Never change tiers based on pass status."
+}

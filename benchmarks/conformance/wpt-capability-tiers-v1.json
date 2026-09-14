@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "scope": "Full upstream WPT tree; execution inventories must come from the official WPT manifest, including test types, globals and variants.",
+  "default_tier": "extended",
+  "tiers": {
+    "core": "P0: ordinary document loading, application startup, navigation, forms, DOM, network, session state and accessible agent actions.",
+    "necessary": "P1: modern application compatibility, rendering/layout, asynchronous services and advanced interaction.",
+    "extended": "P2: specialized capabilities or areas awaiting explicit classification; retained in the coverage map.",
+    "platform_dependent": "Device, OS, external-service or specialized environment requirements; assess execution prerequisites separately."
+  },
+  "rules": [
+    {"tier": "core", "prefixes": ["dom", "domparsing", "domxpath", "html", "xml", "url", "encoding", "encoding-detection", "mimesniff", "fetch", "xhr", "cors", "cookies", "webstorage", "custom-elements", "shadow-dom", "import-maps", "webidl", "webmessaging", "selection", "focus", "inert", "uievents", "input-events", "accname", "wai-aria", "html-aam", "content-security-policy", "referrer-policy", "secure-contexts", "mixed-content", "upgrade-insecure-requests", "x-frame-options", "css/cssom", "css/css-cascade", "css/selectors"]},
+    {"tier": "necessary", "prefixes": ["css", "cssom", "html/rendering", "html/canvas", "html/semantics/embedded-content", "editing", "contenteditable", "pointerevents", "touch-events", "clipboard-apis", "intersection-observer", "resize-observer", "IndexedDB", "FileAPI", "streams", "workers", "service-workers", "worklets", "wasm", "WebCryptoAPI", "websockets", "eventsource", "urlpattern", "navigation-api", "page-lifecycle", "page-visibility", "scheduler", "requestidlecallback", "storage", "storage-access-api", "cookiestore", "web-locks", "subresource-integrity", "permissions-policy", "trusted-types", "svg", "web-animations", "console", "beacon", "compression", "preload", "loading", "hr-time", "performance-timeline", "resource-timing", "navigation-timing", "user-timing"]},
+    {"tier": "platform_dependent", "prefixes": ["accelerometer", "ambient-light", "bluetooth", "generic-sensor", "gyroscope", "magnetometer", "geolocation", "geolocation-sensor", "orientation-sensor", "gamepad", "serial", "webusb", "webhid", "web-nfc", "webmidi", "webxr", "screen-capture", "mediacapture-streams", "webauthn", "payment-request", "digital-credentials", "contacts"]}
+  ],
+  "infrastructure_roots": [".github", ".well-known", "common", "docs", "fonts", "images", "infrastructure", "interfaces", "resources", "third_party", "tools"],
+  "reporting": {
+    "units": ["source_files", "execution_variants", "observed_subtests", "passing_subtests", "whole_execution_passes"],
+    "outcomes": ["pass", "assertion_failure", "harness_failure", "runtime_failure", "timeout", "crash", "unsupported", "not_run", "environment_blocked"],
+    "rules": [
+      "Choose tiers by capability and user impact, never by current pass status.",
+      "Longest matching path prefix wins; unmatched areas are explicitly marked for triage.",
+      "Manual, visual and hardware requirements are execution dimensions, not reasons to remove tests.",
+      "Keep runtime, reftest, screenshot, print and manual results distinct.",
+      "Publish per-tier and cumulative coverage; not-run and unsupported tests remain visible.",
+      "The historical 4022 executions are regression evidence, not a scope or completion gate."
+    ]
+  }
+}

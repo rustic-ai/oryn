@@ -2275,6 +2275,7 @@ name = "oryn-dom"
 version = "0.1.0"
 dependencies = [
  "html5ever",
+ "icu_properties",
  "markup5ever",
  "serde",
  "thiserror 2.0.17",
@@ -2360,6 +2361,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cc",
+ "getrandom 0.3.4",
  "image",
  "markup5ever",
  "oryn-dom",
@@ -2410,6 +2412,7 @@ dependencies = [
  "brotli",
  "bytes",
  "cookie 0.18.1",
+ "core-foundation 0.10.1",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -2427,6 +2430,8 @@ dependencies = [
  "psl",
  "redb",
  "regex",
+ "rustls",
+ "security-framework 3.7.0",
  "serde",
  "serde_json",
  "sha1",

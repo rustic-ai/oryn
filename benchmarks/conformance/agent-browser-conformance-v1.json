@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "locked": true,
+  "suite": "agent-browser-conformance-v1",
+  "extends": "runtime-api-style-semantics-v2",
+  "upstream": {
+    "project": "web-platform-tests/wpt",
+    "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+  },
+  "selection": {
+    "policy": "all_automated_testharness_files_and_declared_variants_in_selected_directories",
+    "required_suffixes": [".any.js", ".window.js", ".html", ".htm"],
+    "html_requires": "testharness.js",
+    "html_variants": "every meta[name=variant] content value, or the empty variant when absent",
+    "excluded_filename_markers": ["-ref.", "-manual.", ".manual."],
+    "excluded_path_segments": ["manual"],
+    "excluded_path_prefixes": [
+      "html/canvas",
+      "html/rendering",
+      "html/semantics/embedded-content/media-elements",
+      "svg/animations",
+      "svg/painting",
+      "svg/render"
+    ],
+    "excluded_globals": ["jsshell"],
+    "allowed_globals": [
+      "window",
+      "dedicatedworker",
+      "dedicatedworker-module",
+      "sharedworker",
+      "sharedworker-module",
+      "serviceworker",
+      "serviceworker-module"
+    ],
+    "unsupported_is_failure": true,
+    "timeout_is_failure": true,
+    "crash_is_failure": true
+  },
+  "published_comparison_profiles": {
+    "obscura_core": {
+      "source": "https://raw.githubusercontent.com/h4ckf0r0day/obscura-benchmark/main/crates/triage/src/tiers.list",
+      "reported_unit": "subtest",
+      "include_prefixes": [
+        "dom", "domparsing", "domxpath", "html", "url", "urlpattern", "encoding",
+        "encoding-detection", "fetch", "xhr", "cors", "webstorage", "custom-elements",
+        "shadow-dom", "mimesniff"
+      ],
+      "exclude_prefixes": [
+        "html/rendering", "html/canvas", "html/editing", "html/interaction",
+        "html/semantics/embedded-content", "html/semantics/popovers/popover-layout"
+      ]
+    },
+    "obscura_core_relevant": {
+      "source": "https://raw.githubusercontent.com/h4ckf0r0day/obscura-benchmark/main/crates/triage/src/tiers.list",
+      "reported_unit": "subtest",
+      "include_prefixes": [
+        "dom", "domparsing", "domxpath", "html", "url", "urlpattern", "encoding",
+        "encoding-detection", "fetch", "xhr", "cors", "webstorage", "custom-elements",
+        "shadow-dom", "mimesniff", "svg", "webidl", "streams", "FileAPI", "uievents",
+        "workers", "wasm", "WebCryptoAPI", "console", "referrer-policy",
+        "content-security-policy", "subresource-integrity", "secure-contexts", "cookies",
+        "storage", "IndexedDB", "websockets", "eventsource", "import-maps", "js",
+        "ecmascript", "wai-aria", "accname", "html-aam", "navigation-api",
+        "page-visibility", "requestidlecallback", "scheduler", "permissions-policy"
+      ],
+      "exclude_prefixes": [
+        "html/rendering", "html/canvas", "html/editing", "html/interaction",
+        "html/semantics/embedded-content", "html/semantics/popovers/popover-layout",
+        "svg/painting", "svg/animations", "svg/render", "uievents/mouse"
+      ]
+    },
+    "kitesurf_published": {
+      "source": "https://developers.cloudflare.com/browser-run/kitesurf/",
+      "reported_unit": "subtest",
+      "include_prefixes": ["dom", "html", "selection", "svg", "encoding", "cors", "xhr", "url"],
+      "exclude_prefixes": []
+    },
+    "oryn_agent_critical": {
+      "source": "benchmarks/conformance/agent-browser-conformance-v1.json",
+      "reported_unit": "whole_execution",
+      "include_prefixes": [""],
+      "exclude_prefixes": []
+    }
+  },
+  "roots": [
+    {"path": "dom", "workstream": "browser_core"},
+    {"path": "domparsing", "workstream": "browser_core"},
+    {"path": "domxpath", "workstream": "browser_core"},
+    {"path": "html", "workstream": "browser_core"},
+    {"path": "url", "workstream": "browser_core"},
+    {"path": "urlpattern", "workstream": "browser_core"},
+    {"path": "encoding", "workstream": "browser_core"},
+    {"path": "encoding-detection", "workstream": "browser_core"},
+    {"path": "fetch", "workstream": "browser_core"},
+    {"path": "xhr", "workstream": "browser_core"},
+    {"path": "cors", "workstream": "browser_core"},
+    {"path": "webstorage", "workstream": "browser_core"},
+    {"path": "custom-elements", "workstream": "browser_core"},
+    {"path": "shadow-dom", "workstream": "browser_core"},
+    {"path": "mimesniff", "workstream": "browser_core"},
+
+    {"path": "webidl", "workstream": "platform_relevant"},
+    {"path": "streams", "workstream": "platform_relevant"},
+    {"path": "FileAPI", "workstream": "platform_relevant"},
+    {"path": "workers", "workstream": "platform_relevant"},
+    {"path": "wasm", "workstream": "platform_relevant"},
+    {"path": "WebCryptoAPI", "workstream": "platform_relevant"},
+    {"path": "console", "workstream": "platform_relevant"},
+    {"path": "referrer-policy", "workstream": "platform_relevant"},
+    {"path": "content-security-policy", "workstream": "platform_relevant"},
+    {"path": "subresource-integrity", "workstream": "platform_relevant"},
+    {"path": "secure-contexts", "workstream": "platform_relevant"},
+    {"path": "cookies", "workstream": "platform_relevant"},
+    {"path": "storage", "workstream": "platform_relevant"},
+    {"path": "IndexedDB", "workstream": "platform_relevant"},
+    {"path": "websockets", "workstream": "platform_relevant"},
+    {"path": "eventsource", "workstream": "platform_relevant"},
+    {"path": "import-maps", "workstream": "platform_relevant"},
+    {"path": "navigation-api", "workstream": "platform_relevant"},
+    {"path": "page-visibility", "workstream": "platform_relevant"},
+    {"path": "requestidlecallback", "workstream": "platform_relevant"},
+    {"path": "scheduler", "workstream": "platform_relevant"},
+    {"path": "permissions-policy", "workstream": "platform_relevant"},
+    {"path": "js", "workstream": "platform_relevant"},
+    {"path": "ecmascript", "workstream": "platform_relevant"},
+
+    {"path": "accname", "workstream": "semantic_accessibility"},
+    {"path": "wai-aria", "workstream": "semantic_accessibility"},
+    {"path": "html-aam", "workstream": "semantic_accessibility"},
+
+    {"path": "css/css-cascade", "workstream": "agent_interaction"},
+    {"path": "css/cssom", "workstream": "agent_interaction"},
+    {"path": "css/selectors", "workstream": "agent_interaction"},
+    {"path": "selection", "workstream": "agent_interaction"},
+    {"path": "editing", "workstream": "agent_interaction"},
+    {"path": "uievents", "workstream": "agent_interaction"},
+    {"path": "pointerevents", "workstream": "agent_interaction"},
+    {"path": "input-events", "workstream": "agent_interaction"},
+    {"path": "intersection-observer", "workstream": "agent_interaction"},
+    {"path": "resize-observer", "workstream": "agent_interaction"},
+    {"path": "clipboard-apis", "workstream": "agent_interaction"},
+
+    {"path": "svg", "workstream": "structured_visual"}
+  ]
+}

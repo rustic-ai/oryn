@@ -19,12 +19,25 @@ fn names(state: &V8BindingState, id: u64) -> Result<Vec<(String, usize)>, V8Bind
     let mut names = Vec::new();
     for (index, node) in nodes.into_iter().enumerate() {
         let record = dom.arena().get(node)?;
+        if let NodeKind::Attribute {
+            data,
+            owner: Some(owner),
+        } = &record.kind
+        {
+            let name = &data.name;
+            if normalized_attribute_name(state, *owner, name.clone())? == *name
+                && seen.insert(name.clone())
+            {
+                names.push((name.clone(), index));
+            }
+            continue;
+        }
         let html = matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml");
         for attribute in ["id", "name"] {
             if attribute == "name" && !html {
                 continue;
             }
-            if let Some(name) = record.attributes.get(attribute)
+            if let Some(name) = record.attributes.get_null(attribute)
                 && !name.is_empty()
                 && (!all || all_named_match(&dom, node, name))
                 && seen.insert(name.clone())
@@ -62,7 +75,7 @@ fn resolve(
     let Ok(name) = v8::Local::<v8::String>::try_from(key) else {
         return Ok(None);
     };
-    let name = name.to_rust_string_lossy(scope);
+    let name = rust_string_preserving_utf16(scope, name)?;
     if name.is_empty()
         || supported_index(&name)
         || (check_visibility && !visible(scope, object, key))
@@ -86,7 +99,7 @@ pub(super) fn item<'s>(
     let Some(name) = value.to_string(scope) else {
         return Ok(v8::undefined(scope).into());
     };
-    let name = name.to_rust_string_lossy(scope);
+    let name = rust_string_preserving_utf16(scope, name)?;
     let index = names(state, id)?
         .into_iter()
         .find_map(|(candidate, index)| (candidate == name).then_some(index));
@@ -104,6 +117,18 @@ fn value_at<'s>(
     index: usize,
     key: v8::Local<v8::Name>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    let form = {
+        let lists = state.node_lists.lists.borrow();
+        lists.get(&id).and_then(|list| match list.contents {
+            Contents::Form(form) => Some(form),
+            _ => None,
+        })
+    };
+    if let Some(form) = form {
+        let key = v8::Local::<v8::String>::try_from(key).map_err(|_| invalid_receiver())?;
+        let name = rust_string_preserving_utf16(scope, key)?;
+        return form_named_value(scope, state, form, name).map(Some);
+    }
     let document = {
         let lists = state.node_lists.lists.borrow();
         lists.get(&id).and_then(|list| match list.contents {
@@ -112,7 +137,8 @@ fn value_at<'s>(
         })
     };
     if let Some(document) = document {
-        let name = key.to_rust_string_lossy(scope);
+        let key = v8::Local::<v8::String>::try_from(key).map_err(|_| invalid_receiver())?;
+        let name = rust_string_preserving_utf16(scope, key)?;
         let global = state
             .global_object
             .to_local(scope)
@@ -220,8 +246,12 @@ fn enumerator(
                 if supported_index(&name) {
                     continue;
                 }
-                let Some(key) = v8::String::new(scope, &name) else {
-                    continue;
+                let key = match v8_string(scope, &name) {
+                    Ok(key) => v8::Local::<v8::String>::try_from(key).unwrap(),
+                    Err(error) => {
+                        throw_binding_error(scope, &error);
+                        return;
+                    }
                 };
                 if visible(scope, args.holder(), key.into()) {
                     values.push(key.into());

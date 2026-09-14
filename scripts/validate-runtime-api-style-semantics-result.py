@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+from wpt_evidence import completion_errors, resource_integrity_errors
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,7 @@ def expected_assertions(inventory: dict[str, object]) -> set[str]:
     return expected
 
 
-def validate_passed_assertion(assertion: dict[str, object], context: str) -> None:
+def validate_passed_assertion(assertion: dict[str, object], context: str, strict: bool = False) -> None:
     if assertion.get("status") != "passed":
         return
     result = assertion.get("result")
@@ -49,6 +50,28 @@ def validate_passed_assertion(assertion: dict[str, object], context: str) -> Non
         assertion.get("result_transport") != "isolated_dom_probe",
         f"{context}: diagnostic probe cannot establish conformance",
     )
+    if strict:
+        execution = assertion.get('execution', {})
+        shutdown = execution.get('parent_shutdown', {})
+        require(not completion_errors(result) and result.get('completion_count') == 1,
+                f'{context}: invalid structured completion')
+        require(execution.get('completion_valid') is True and not execution.get('error')
+                and not execution.get('cleanup_errors') and not execution.get('replacement_error')
+                and shutdown.get('returncode') == 0 and shutdown.get('shutdown_acknowledged') is True
+                and not shutdown.get('error'), f'{context}: execution integrity unverified')
+        require(assertion.get('resource_evidence_complete') is True and not resource_integrity_errors(assertion),
+                f'{context}: resource evidence unverified')
+        require(assertion.get('qualification') == 'qualified',
+                f'{context}: a hash-bound qualification audit is required')
+
+
+def subtest_counts(assertion: dict[str, object]) -> tuple[int, int]:
+    result = assertion.get("result")
+    tests = result.get("tests") if isinstance(result, dict) else None
+    if not isinstance(tests, list):
+        return 0, 0
+    statuses = [test.get("status") for test in tests if isinstance(test, dict)]
+    return sum(status == 0 for status in statuses), len(statuses)
 
 
 def main() -> int:
@@ -67,7 +90,7 @@ def main() -> int:
     release_fingerprint: tuple[object, ...] | None = None
     for path in args.shards:
         shard = json.loads(path.read_text(encoding="utf-8"))
-        require(shard.get("schema_version") == 2, f"{path}: schema_version must be 2")
+        require(shard.get("schema_version") == 3, f"{path}: current release evidence requires schema 3; older schemas are historical")
         require(
             shard.get("execution_mode") == "sandboxed_worker",
             f"{path}: release evidence must use the sandboxed worker",
@@ -120,7 +143,7 @@ def main() -> int:
             require(identifier in expected, f"{path}: unexpected assertion {identifier}")
             require(identifier not in assertions, f"{path}: duplicate assertion {identifier}")
             require(assertion.get("status") in {"passed", "failed"}, f"{path}: invalid status for {identifier}")
-            validate_passed_assertion(assertion, f"{path}: {identifier}")
+            validate_passed_assertion(assertion, f"{path}: {identifier}", strict=True)
             assertions[identifier] = assertion
     require(shard_count is not None, "no shards supplied")
     require(shard_indices == set(range(shard_count)), "shard set is incomplete")
@@ -128,10 +151,28 @@ def main() -> int:
     require(not missing, f"missing {len(missing)} required assertions; first={next(iter(sorted(missing)), '')}")
     failed = sorted(identifier for identifier, assertion in assertions.items() if assertion["status"] != "passed")
     by_workstream: dict[str, dict[str, int]] = {}
+    subtests = {"passed": 0, "observed": 0, "executions_without_observed_subtests": 0}
     for assertion in assertions.values():
-        bucket = by_workstream.setdefault(str(assertion["classification"]), {"required": 0, "passed": 0})
+        bucket = by_workstream.setdefault(
+            str(assertion["classification"]),
+            {
+                "required": 0,
+                "passed": 0,
+                "subtests_passed": 0,
+                "subtests_observed": 0,
+                "executions_without_observed_subtests": 0,
+            },
+        )
         bucket["required"] += 1
         bucket["passed"] += int(assertion["status"] == "passed")
+        passed_subtests, observed_subtests = subtest_counts(assertion)
+        bucket["subtests_passed"] += passed_subtests
+        bucket["subtests_observed"] += observed_subtests
+        bucket["executions_without_observed_subtests"] += int(observed_subtests == 0)
+        subtests["passed"] += passed_subtests
+        subtests["observed"] += observed_subtests
+        subtests["executions_without_observed_subtests"] += int(observed_subtests == 0)
+    subtests["failed"] = subtests["observed"] - subtests["passed"]
     result = {
         "schema_version": 1,
         "inventory_sha256": inventory_sha,
@@ -140,13 +181,22 @@ def main() -> int:
         "required_passed": len(expected) - len(failed),
         "required_failed": len(failed),
         "by_workstream": dict(sorted(by_workstream.items())),
+        "subtests": subtests,
         "outcome": {"status": "passed" if not failed else "failed"},
         "failures": failed,
     }
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps({key: result[key] for key in ["required_total", "required_passed", "required_failed", "outcome"]}, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                key: result[key]
+                for key in ["required_total", "required_passed", "required_failed", "subtests", "outcome"]
+            },
+            sort_keys=True,
+        )
+    )
     return 0 if not failed else 1
 
 

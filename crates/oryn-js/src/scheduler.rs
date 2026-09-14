@@ -81,9 +81,8 @@ impl CheckpointReport {
 pub struct PageScheduler<T> {
     now_ms: u64,
     next_sequence: u64,
-    tasks: VecDeque<Task<T>>,
+    tasks: VecDeque<(Option<u64>, Task<T>)>,
     timers: BinaryHeap<Reverse<Timer<T>>>,
-    cancelled_timers: BTreeSet<u64>,
     pending_network: BTreeSet<u64>,
     network_quiet_since_ms: Option<u64>,
     network_idle_window: Duration,
@@ -96,7 +95,6 @@ impl<T> Default for PageScheduler<T> {
             next_sequence: 1,
             tasks: VecDeque::new(),
             timers: BinaryHeap::new(),
-            cancelled_timers: BTreeSet::new(),
             pending_network: BTreeSet::new(),
             network_quiet_since_ms: Some(0),
             network_idle_window: Duration::from_millis(500),
@@ -127,7 +125,7 @@ impl<T> PageScheduler<T> {
     }
 
     pub fn queue(&mut self, task: Task<T>) {
-        self.tasks.push_back(task);
+        self.tasks.push_back((None, task));
     }
 
     pub fn set_timeout(&mut self, delay: Duration, task: Task<T>) -> u64 {
@@ -168,7 +166,11 @@ impl<T> PageScheduler<T> {
     }
 
     pub fn cancel_timer(&mut self, id: u64) {
-        self.cancelled_timers.insert(id);
+        // Cancellation removes both future and already-queued occurrences.
+        // Keeping tombstones until a distant deadline retained cancelled
+        // timers and reported spurious wakeups (and leaked unknown IDs).
+        self.timers.retain(|timer| timer.0.sequence != id);
+        self.tasks.retain(|(timer_id, _)| *timer_id != Some(id));
     }
 
     pub fn begin_network(&mut self, operation_id: u64) -> bool {
@@ -195,10 +197,8 @@ impl<T> PageScheduler<T> {
             .is_some_and(|timer| timer.0.due_ms <= self.now_ms)
         {
             let Reverse(mut timer) = self.timers.pop().expect("peeked timer");
-            if self.cancelled_timers.remove(&timer.sequence) {
-                continue;
-            }
-            self.tasks.push_back(timer.task.clone());
+            self.tasks
+                .push_back((Some(timer.sequence), timer.task.clone()));
             if let Some(interval_ms) = timer.interval_ms {
                 timer.due_ms = timer.due_ms.saturating_add(interval_ms.max(1));
                 self.timers.push(Reverse(timer));
@@ -210,7 +210,7 @@ impl<T> PageScheduler<T> {
     where
         F: FnMut(Task<T>),
     {
-        let Some(task) = self.tasks.pop_front() else {
+        let Some((_, task)) = self.tasks.pop_front() else {
             return CheckpointReport::IDLE;
         };
         run_task(task);
@@ -233,8 +233,9 @@ impl<T> PageScheduler<T> {
     }
 
     pub fn cancel_document(&mut self, realm: RealmId, document_generation: u64) {
-        self.tasks
-            .retain(|task| task.realm != realm || task.document_generation != document_generation);
+        self.tasks.retain(|(_, task)| {
+            task.realm != realm || task.document_generation != document_generation
+        });
         self.timers = std::mem::take(&mut self.timers)
             .into_iter()
             .filter(|timer| {
@@ -272,6 +273,28 @@ mod tests {
             .ran_task
         {}
         assert_eq!(values, ["first", "second", "late"]);
+    }
+
+    #[test]
+    fn cancellation_removes_future_and_queued_occurrences_without_affecting_peer_tasks() {
+        let mut scheduler = PageScheduler::default();
+        let interval = scheduler.set_interval(Duration::from_millis(1), task("cancelled"));
+        scheduler.advance_to(5);
+        scheduler.queue(task("ordinary"));
+        scheduler.cancel_timer(interval);
+        scheduler.cancel_timer(u64::MAX);
+        let mut values = Vec::new();
+        while scheduler
+            .run_checkpoint(|task| values.push(task.payload))
+            .ran_task
+        {}
+        assert_eq!(values, ["ordinary"]);
+        assert_eq!(scheduler.next_timer_delay_ms(), None);
+        let future = scheduler.set_timeout(Duration::from_secs(1000), task("future"));
+        scheduler.cancel_timer(future);
+        assert_eq!(scheduler.next_timer_delay_ms(), None);
+        scheduler.advance_to(1_000_000);
+        assert!(!scheduler.has_ready_task());
     }
 
     #[test]

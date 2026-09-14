@@ -51,6 +51,10 @@ def normalize_global(value: str) -> str:
     return "dedicatedworker" if value == "worker" else value
 
 
+def is_excluded_path(path: Path, prefixes: list[Path]) -> bool:
+    return any(path == prefix or prefix in path.parents for prefix in prefixes)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkout", type=Path, required=True)
@@ -72,6 +76,8 @@ def main() -> int:
     roots = manifest["roots"]
     excluded = manifest["selection"]["excluded_filename_markers"]
     excluded_segments = set(manifest["selection"]["excluded_path_segments"])
+    excluded_prefixes = [Path(value) for value in manifest["selection"].get("excluded_path_prefixes", [])]
+    excluded_globals = set(manifest["selection"].get("excluded_globals", []))
     for entry in roots:
         directory = checkout / entry["path"]
         if not directory.is_dir():
@@ -84,6 +90,8 @@ def main() -> int:
             ):
                 continue
             relative = source.relative_to(checkout)
+            if is_excluded_path(relative, excluded_prefixes):
+                continue
             kind: str | None = None
             globals_: list[str] = []
             variants: list[str] = []
@@ -102,6 +110,9 @@ def main() -> int:
                 )
                 if not globals_:
                     globals_ = ["window"] if source.name.endswith(".window.js") else ["window", "dedicatedworker"]
+                globals_ = [value for value in globals_ if value not in excluded_globals]
+                if not globals_:
+                    continue
                 variants = META_VARIANT.findall(text) or [""]
             elif source.suffix in {".html", ".htm"}:
                 text = source.read_text(encoding="utf-8", errors="replace")

@@ -190,7 +190,7 @@ impl ServoStylesheetLoader for StylesheetLoader {
         supports: Option<ImportSupportsCondition>,
         layer: ImportLayer,
     ) -> ServoArc<Locked<ImportRule>> {
-        if !supports.as_ref().is_none_or(|s| s.enabled) {
+        if url.url().is_none() || !supports.as_ref().is_none_or(|s| s.enabled) {
             return ServoArc::new(lock.wrap(ImportRule {
                 url,
                 stylesheet: ImportSheet::new_refused(),

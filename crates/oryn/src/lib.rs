@@ -31,7 +31,8 @@ pub use oryn_native::{
     ConsequentialAction, ContentKind, ContextOptions, IntentResult, LifecycleState, NativeAction,
     NavigationResult, PageHandle, PersistentProfile, PolicyDecision, PolicyRequest, PolicyRule,
     RuntimeBuildInfo, RuntimeError, RuntimeProfile, ScrollRequest, SecretHandle, StorageLimits,
-    WaitPredicate, production_runtime_build_info, production_runtime_build_info_with_options,
+    WaitPredicate, WorkerLifecycle, production_runtime_build_info,
+    production_runtime_build_info_with_config, production_runtime_build_info_with_options,
 };
 
 /// The versioned OIL adapter used by compatibility callers.

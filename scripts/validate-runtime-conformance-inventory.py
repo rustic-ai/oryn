@@ -41,6 +41,12 @@ def main() -> int:
     global_counts: dict[str, int] = {}
     required_executions = 0
     allowed_workstreams = {entry["workstream"] for entry in manifest["roots"]}
+    allowed_globals = set(
+        manifest["selection"].get(
+            "allowed_globals",
+            ["window", "dedicatedworker", "sharedworker", "serviceworker"],
+        )
+    )
     for test in tests:
         path = test.get("path")
         require(isinstance(path, str) and path and path not in paths, f"duplicate or invalid path: {path}")
@@ -53,7 +59,7 @@ def main() -> int:
         counts[test["workstream"]] = counts.get(test["workstream"], 0) + 1
         for global_name in test["globals"]:
             require(
-                global_name in {"window", "dedicatedworker", "sharedworker", "serviceworker"},
+                global_name in allowed_globals,
                 f"invalid global {global_name!r} for {path}",
             )
             variants = len(test["variants"])

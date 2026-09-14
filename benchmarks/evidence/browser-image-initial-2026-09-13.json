@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "cfca669e9ce404a070fc71e7b102e14f5f9ab4bccffb4871359114feea67b76c",
+  "parent_sha256": "6e6e1fd719c5833dd4c2704b6b9b3d6a66dcdd702a029522691acb228cf4af9b",
+  "worker_build_sha256": "bb727621470a35f240743249ce36e60f2b3869f296df5c6705c0f737319368dd",
+  "worker_signed_sha256": "8a76e9f282b62287c12d8e86288a500a5ea675582ce4d79bdffdefb03cdb9f31",
+  "code_directory_hash": "0f1f6e0b6c2d38715a0b916fe8ef2ebb63fef39b",
+  "sandbox_denial_checks_passed": true,
+  "native_tests": {"passed":450,"failed":1,"ignored":6,"seconds":761.65},
+  "native_failure": "runtime::tests::slow_paint_images_do_not_hold_the_page_actor: generated platform operation wall time",
+  "runs": [{
+    "path": "/private/tmp/oryn-image-formdata-20260913.json",
+    "sha256": "1973ec50ec419aea4fd25ccf47cfa8e99898b98b4d855b8c6754eeff6cced510",
+    "selected":18,"passed":17,"environment_blocked":0,
+    "scope":"selected window executions, not all upstream variants",
+    "remaining_failure":"constructor-submitter-coordinate.html: expected y=46, got 0"
+  }],
+  "note":"Initial image implementation fails its slow-resource regression and remains unqualified. Later repairs must retain this failed outcome, not overwrite it."
+}

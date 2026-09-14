@@ -1,6 +1,7 @@
 [Exposed=Window]
 interface Window : EventTarget {
   attribute DOMString name;
+  readonly attribute unsigned long length;
   [LegacyUnforgeable, PutForwards=href] readonly attribute Location location;
 };
 
@@ -199,6 +200,26 @@ dictionary CustomEventInit : EventInit {
   any detail = null;
 };
 
+[Exposed=Window]
+interface SubmitEvent : Event {
+  constructor(DOMString type, optional SubmitEventInit eventInitDict);
+  readonly attribute HTMLElement? submitter;
+};
+
+dictionary SubmitEventInit : EventInit {
+  HTMLElement? submitter = null;
+};
+
+[Exposed=Window]
+interface FormDataEvent : Event {
+  constructor(DOMString type, FormDataEventInit eventInitDict);
+  readonly attribute FormData formData;
+};
+
+dictionary FormDataEventInit : EventInit {
+  required FormData formData;
+};
+
 // UI Events: https://www.w3.org/TR/uievents/#interface-focusevent
 [Exposed=Window]
 interface UIEvent : Event {
@@ -223,15 +244,95 @@ dictionary FocusEventInit : UIEventInit {
   EventTarget? relatedTarget = null;
 };
 
-dictionary MouseEventInit {
-  boolean bubbles = false;
-  boolean cancelable = false;
-  any view;
+dictionary EventModifierInit : UIEventInit {
+  boolean ctrlKey = false;
+  boolean shiftKey = false;
+  boolean altKey = false;
+  boolean metaKey = false;
+  boolean modifierAltGraph = false;
+  boolean modifierCapsLock = false;
+};
+
+dictionary MouseEventInit : EventModifierInit {
+  long screenX = 0;
+  long screenY = 0;
+  long clientX = 0;
+  long clientY = 0;
+  short button = 0;
+  unsigned short buttons = 0;
+  EventTarget? relatedTarget = null;
 };
 
 [Exposed=Window]
-interface MouseEvent : Event {
+interface MouseEvent : UIEvent {
   constructor(DOMString type, optional MouseEventInit eventInitDict);
+  readonly attribute long screenX;
+  readonly attribute long screenY;
+  readonly attribute long clientX;
+  readonly attribute long clientY;
+  readonly attribute boolean ctrlKey;
+  readonly attribute boolean shiftKey;
+  readonly attribute boolean altKey;
+  readonly attribute boolean metaKey;
+  readonly attribute short button;
+  readonly attribute unsigned short buttons;
+  readonly attribute EventTarget? relatedTarget;
+  boolean getModifierState(DOMString keyArg);
+};
+
+dictionary PointerEventInit : MouseEventInit {
+  long pointerId = 0;
+  double width = 1;
+  double height = 1;
+  float pressure = 0;
+  float tangentialPressure = 0;
+  long tiltX = 0;
+  long tiltY = 0;
+  long twist = 0;
+  DOMString pointerType = "";
+  boolean isPrimary = false;
+};
+
+[Exposed=Window]
+interface PointerEvent : MouseEvent {
+  constructor(DOMString type, optional PointerEventInit eventInitDict);
+  readonly attribute long pointerId;
+  readonly attribute double width;
+  readonly attribute double height;
+  readonly attribute float pressure;
+  readonly attribute float tangentialPressure;
+  readonly attribute long tiltX;
+  readonly attribute long tiltY;
+  readonly attribute long twist;
+  readonly attribute DOMString pointerType;
+  readonly attribute boolean isPrimary;
+};
+
+dictionary KeyboardEventInit : EventModifierInit {
+  DOMString key = "";
+  DOMString code = "";
+  unsigned long location = 0;
+  boolean repeat = false;
+  boolean isComposing = false;
+  unsigned long charCode = 0;
+  unsigned long keyCode = 0;
+};
+
+[Exposed=Window]
+interface KeyboardEvent : UIEvent {
+  constructor(DOMString type, optional KeyboardEventInit eventInitDict);
+  readonly attribute DOMString key;
+  readonly attribute DOMString code;
+  readonly attribute unsigned long location;
+  readonly attribute boolean ctrlKey;
+  readonly attribute boolean shiftKey;
+  readonly attribute boolean altKey;
+  readonly attribute boolean metaKey;
+  readonly attribute boolean repeat;
+  readonly attribute boolean isComposing;
+  readonly attribute unsigned long charCode;
+  readonly attribute unsigned long keyCode;
+  boolean getModifierState(DOMString keyArg);
 };
 
 dictionary WheelEventInit : MouseEventInit {
@@ -244,6 +345,10 @@ dictionary WheelEventInit : MouseEventInit {
 [Exposed=Window]
 interface WheelEvent : MouseEvent {
   constructor(DOMString type, optional WheelEventInit eventInitDict);
+  readonly attribute double deltaX;
+  readonly attribute double deltaY;
+  readonly attribute double deltaZ;
+  readonly attribute unsigned long deltaMode;
 };
 
 dictionary TouchEventInit : EventInit {};
@@ -370,10 +475,29 @@ interface HTMLCollection {
 };
 
 [Exposed=Window]
+interface HTMLOptionsCollection : HTMLCollection {
+  [CEReactions] setter undefined (unsigned long index, HTMLOptionElement? option);
+  [CEReactions] attribute unsigned long length;
+  [CEReactions] undefined add((HTMLOptionElement or HTMLOptGroupElement) element, optional (HTMLElement or long)? before = null);
+  [CEReactions] undefined remove(long index);
+  attribute long selectedIndex;
+};
+
+[Exposed=Window]
 interface NodeList {
   getter Node? item(unsigned long index);
   readonly attribute unsigned long length;
   iterable<Node>;
+};
+
+[Exposed=Window, LegacyUnenumerableNamedProperties]
+interface HTMLFormControlsCollection : HTMLCollection {
+  getter (RadioNodeList or Element)? namedItem(DOMString name);
+};
+
+[Exposed=Window]
+interface RadioNodeList : NodeList {
+  attribute DOMString value;
 };
 
 [Exposed=Window]
@@ -441,7 +565,7 @@ interface Element : Node {
   readonly attribute DOMString localName;
   readonly attribute DOMString? namespaceURI;
   readonly attribute DOMString? prefix;
-  readonly attribute sequence<any> attributes;
+  [SameObject] readonly attribute NamedNodeMap attributes;
   [SameObject] readonly attribute HTMLCollection children;
   readonly attribute unsigned long childElementCount;
   readonly attribute Element? firstElementChild;
@@ -459,6 +583,9 @@ interface Element : Node {
   DOMString? getAttributeNS(DOMString? namespace, DOMString localName);
   Attr? getAttributeNode(DOMString name);
   Attr? getAttributeNodeNS(DOMString? namespace, DOMString localName);
+  Attr? setAttributeNode(Attr attr);
+  Attr? setAttributeNodeNS(Attr attr);
+  Attr removeAttributeNode(Attr attr);
   sequence<DOMString> getAttributeNames();
   undefined setAttribute(DOMString name, DOMString value);
   undefined setAttributeNS(DOMString? namespace, DOMString qualifiedName, DOMString value);
@@ -500,6 +627,18 @@ interface Attr : Node {
   readonly attribute Element? ownerElement;
 };
 
+[Exposed=Window, LegacyUnenumerableNamedProperties]
+interface NamedNodeMap {
+  readonly attribute unsigned long length;
+  getter Attr? item(unsigned long index);
+  getter Attr? getNamedItem(DOMString qualifiedName);
+  Attr? getNamedItemNS(DOMString? namespace, DOMString localName);
+  Attr? setNamedItem(Attr attr);
+  Attr? setNamedItemNS(Attr attr);
+  Attr removeNamedItem(DOMString qualifiedName);
+  Attr removeNamedItemNS(DOMString? namespace, DOMString localName);
+};
+
 [Exposed=Window]
 interface DocumentType : Node {
   readonly attribute DOMString name;
@@ -509,6 +648,7 @@ interface DocumentType : Node {
 
 [Exposed=Window]
 interface SVGElement : Element {
+  [CEReactions] attribute long tabIndex;
   [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
 };
 
@@ -530,6 +670,12 @@ interface HTMLHeadElement : HTMLElement {};
 
 [Exposed=Window]
 interface HTMLTitleElement : HTMLElement {};
+
+[Exposed=Window]
+interface HTMLBaseElement : HTMLElement {
+  [CEReactions] attribute USVString href;
+  [CEReactions] attribute DOMString target;
+};
 
 [Exposed=Window]
 interface HTMLBodyElement : HTMLElement {
@@ -606,12 +752,14 @@ interface DOMTokenList {
 
 [Exposed=Window]
 interface HTMLElement : Element {
+  [CEReactions] attribute long tabIndex;
   readonly attribute long offsetWidth;
   readonly attribute long offsetHeight;
   attribute DOMString title;
   attribute DOMString lang;
   attribute DOMString dir;
   attribute boolean hidden;
+  attribute boolean inert;
   attribute DOMString innerText;
   [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
   readonly attribute any dataset;
@@ -619,6 +767,7 @@ interface HTMLElement : Element {
   attribute EventListener? oninput;
   attribute EventListener? onchange;
   attribute EventListener? onsubmit;
+  attribute EventListener? onformdata;
   attribute EventListener? onfocus;
   attribute EventListener? onblur;
   attribute EventListener? onkeydown;
@@ -631,6 +780,11 @@ interface HTMLElement : Element {
   undefined focus();
   undefined blur();
   ElementInternals attachInternals();
+};
+
+[Exposed=Window]
+interface HTMLSlotElement : HTMLElement {
+  attribute DOMString name;
 };
 
 [Exposed=Window]
@@ -679,12 +833,21 @@ enum SelectionMode { "select", "start", "end", "preserve" };
 
 [Exposed=Window]
 interface HTMLInputElement : HTMLElement {
+  attribute FileList? files;
+  readonly attribute NodeList? labels;
+  readonly attribute HTMLFormElement? form;
+  [CEReactions] attribute USVString formAction;
+  [CEReactions] attribute DOMString formEnctype;
+  [CEReactions] attribute DOMString formMethod;
+  [CEReactions] attribute boolean formNoValidate;
+  [CEReactions] attribute DOMString formTarget;
   attribute DOMString value;
   attribute DOMString defaultValue;
   attribute DOMString type;
   attribute DOMString name;
   attribute boolean checked;
   attribute boolean defaultChecked;
+  attribute boolean indeterminate;
   attribute boolean disabled;
   attribute boolean readOnly;
   attribute boolean required;
@@ -700,6 +863,8 @@ interface HTMLInputElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLTextAreaElement : HTMLElement {
+  readonly attribute NodeList labels;
+  readonly attribute HTMLFormElement? form;
   attribute DOMString value;
   attribute DOMString defaultValue;
   attribute DOMString name;
@@ -718,7 +883,24 @@ interface HTMLTextAreaElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLSelectElement : HTMLElement {
-  readonly attribute sequence<HTMLOptionElement> options;
+  readonly attribute boolean willValidate;
+  readonly attribute ValidityState validity;
+  readonly attribute DOMString validationMessage;
+  boolean checkValidity();
+  undefined setCustomValidity(DOMString error);
+  [CEReactions] attribute unsigned long length;
+  getter HTMLOptionElement? item(unsigned long index);
+  [CEReactions] setter undefined (unsigned long index, HTMLOptionElement? option);
+  HTMLOptionElement? namedItem(DOMString name);
+  [CEReactions] undefined remove();
+  [CEReactions] undefined remove(long index);
+  [CEReactions] attribute unsigned long size;
+  readonly attribute DOMString type;
+  [SameObject] readonly attribute HTMLCollection selectedOptions;
+  [CEReactions] undefined add((HTMLOptionElement or HTMLOptGroupElement) element, optional (HTMLElement or long)? before = null);
+  readonly attribute NodeList labels;
+  readonly attribute HTMLFormElement? form;
+  [SameObject] readonly attribute HTMLOptionsCollection options;
   attribute DOMString value;
   attribute long selectedIndex;
   attribute DOMString name;
@@ -728,7 +910,32 @@ interface HTMLSelectElement : HTMLElement {
 };
 
 [Exposed=Window]
+interface HTMLOptGroupElement : HTMLElement {
+  attribute boolean disabled;
+  attribute DOMString label;
+};
+
+[Exposed=Window]
+interface ValidityState {
+  readonly attribute boolean valueMissing;
+  readonly attribute boolean typeMismatch;
+  readonly attribute boolean patternMismatch;
+  readonly attribute boolean tooLong;
+  readonly attribute boolean tooShort;
+  readonly attribute boolean rangeUnderflow;
+  readonly attribute boolean rangeOverflow;
+  readonly attribute boolean stepMismatch;
+  readonly attribute boolean badInput;
+  readonly attribute boolean customError;
+  readonly attribute boolean valid;
+};
+
+[Exposed=Window]
 interface HTMLOptionElement : HTMLElement {
+  readonly attribute HTMLFormElement? form;
+  readonly attribute long index;
+  attribute DOMString text;
+  attribute DOMString label;
   attribute DOMString value;
   attribute boolean selected;
   attribute boolean defaultSelected;
@@ -737,6 +944,13 @@ interface HTMLOptionElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLButtonElement : HTMLElement {
+  readonly attribute NodeList labels;
+  readonly attribute HTMLFormElement? form;
+  [CEReactions] attribute USVString formAction;
+  [CEReactions] attribute DOMString formEnctype;
+  [CEReactions] attribute DOMString formMethod;
+  [CEReactions] attribute boolean formNoValidate;
+  [CEReactions] attribute DOMString formTarget;
   attribute DOMString value;
   attribute DOMString type;
   attribute DOMString name;
@@ -744,9 +958,51 @@ interface HTMLButtonElement : HTMLElement {
 };
 
 [Exposed=Window]
+interface HTMLLabelElement : HTMLElement {
+  [CEReactions] attribute DOMString htmlFor;
+  readonly attribute HTMLElement? control;
+  readonly attribute HTMLFormElement? form;
+};
+
+[Exposed=Window]
+interface HTMLMeterElement : HTMLElement {
+  readonly attribute NodeList labels;
+};
+
+[Exposed=Window]
+interface HTMLProgressElement : HTMLElement {
+  readonly attribute NodeList labels;
+};
+
+[Exposed=Window]
+interface HTMLOutputElement : HTMLElement {
+  readonly attribute NodeList labels;
+  readonly attribute HTMLFormElement? form;
+};
+
+[Exposed=Window]
+interface HTMLFieldSetElement : HTMLElement {
+  [SameObject] readonly attribute HTMLCollection elements;
+  readonly attribute HTMLFormElement? form;
+  readonly attribute DOMString type;
+  [CEReactions] attribute boolean disabled;
+  [CEReactions] attribute DOMString name;
+};
+
+[Exposed=Window]
 interface HTMLFormElement : HTMLElement {
-  attribute DOMString action;
-  attribute DOMString method;
+  [SameObject] readonly attribute HTMLFormControlsCollection elements;
+  readonly attribute unsigned long length;
+  [CEReactions] attribute DOMString acceptCharset;
+  [CEReactions] attribute USVString action;
+  [CEReactions] attribute DOMString autocomplete;
+  [CEReactions] attribute DOMString enctype;
+  [CEReactions] attribute DOMString encoding;
+  [CEReactions] attribute DOMString method;
+  [CEReactions] attribute DOMString name;
+  [CEReactions] attribute boolean noValidate;
+  [CEReactions] attribute DOMString target;
+  [CEReactions] attribute DOMString rel;
   boolean checkValidity();
   boolean reportValidity();
   undefined requestSubmit(optional HTMLElement? submitter = null);
@@ -854,6 +1110,7 @@ interface Document : Node {
   readonly attribute sequence<CSSStyleSheet> styleSheets;
   attribute DOMString designMode;
   Node importNode(Node node, optional boolean deep = false);
+  Node adoptNode(Node node);
   Attr createAttribute(DOMString localName);
   Attr createAttributeNS(DOMString? namespace, DOMString qualifiedName);
   Element createElement(DOMString localName);
@@ -1448,6 +1705,12 @@ interface Blob {
 };
 
 [Exposed=(Window,Worker)]
+interface FileList {
+  readonly attribute unsigned long length;
+  getter File? item(unsigned long index);
+};
+
+[Exposed=(Window,Worker)]
 interface File : Blob {
   constructor(sequence<any> fileBits, DOMString fileName, optional any options = null);
   readonly attribute DOMString name;
@@ -1473,7 +1736,7 @@ interface FileReader : EventTarget {
 
 [Exposed=(Window,Worker)]
 interface FormData {
-  constructor(optional any form = null);
+  constructor(optional HTMLFormElement form, optional HTMLElement? submitter = null);
   undefined append(DOMString name, any value, optional DOMString filename);
   undefined delete(DOMString name);
   any get(DOMString name);

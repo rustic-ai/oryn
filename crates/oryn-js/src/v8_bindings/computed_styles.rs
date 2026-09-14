@@ -66,7 +66,7 @@ fn styles(
         .arena()
         .get(node)?
         .attributes
-        .get("style")
+        .get_null("style")
     {
         for (name, value) in inline_style_entries(inline) {
             // Custom values come from Stylo, including substitution and

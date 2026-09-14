@@ -31,7 +31,7 @@ pub(super) fn create<'s>(
         let supported = match element_local_name(&dom, owner) {
             Some("textarea") => true,
             Some("input") => matches!(
-                dom.attribute(owner, "type")?
+                dom.attribute_in_null_namespace(owner, "type")?
                     .unwrap_or("text")
                     .to_ascii_lowercase()
                     .as_str(),

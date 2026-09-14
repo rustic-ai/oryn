@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "dom/ranges/Range-stringifier.html",
+      "root": "dom",
+      "sha256": "a951fdf9827b6e12fc4f241fd56454f572ca6ea3c95fb359eb5b8c8a3889464e",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "script",
+      "path": "url/historical.any.js",
+      "root": "url",
+      "sha256": "26ab7394f148921eafa0d952fe707d08af29a1203b5a579884c571b5e70491be",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "dedicatedworker"
+      ],
+      "kind": "script",
+      "path": "url/historical.any.js",
+      "root": "url",
+      "sha256": "26ab7394f148921eafa0d952fe707d08af29a1203b5a579884c571b5e70491be",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "script",
+      "path": "websockets/Send-0byte-data.any.js",
+      "root": "websockets",
+      "sha256": "5c2dd387c75a73d08736aed827de4a466c30444880080554b47fa70450b3513c",
+      "variants": [
+        "?default"
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "script",
+      "path": "websockets/Send-0byte-data.any.js",
+      "root": "websockets",
+      "sha256": "5c2dd387c75a73d08736aed827de4a466c30444880080554b47fa70450b3513c",
+      "variants": [
+        "?wss"
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "infrastructure/testdriver/click.html",
+      "root": "infrastructure",
+      "sha256": "3bd8854935d689dd43a29820589ba4ead19042b324d3fa9bee7cdd83a5ae46a2",
+      "variants": [
+        ""
+      ],
+      "workstream": "extended"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "infrastructure/testdriver/send_keys.html",
+      "root": "infrastructure",
+      "sha256": "373b31de32a1541aeb7ce2a534b84945488268eef3452a4846a88b4ec8518799",
+      "variants": [
+        ""
+      ],
+      "workstream": "extended"
+    }
+  ],
+  "required_execution_total": 7
+}

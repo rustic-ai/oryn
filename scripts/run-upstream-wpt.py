@@ -20,9 +20,15 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from wpt_evidence import diagnostics as evidence_diagnostics, script_dependencies, template_failure, completion_errors, confirmed_dependency_failure
+from wpt_session import WptSession
+from wpt_fixture import DirectFixture
+from wpt_tls import fixture_certificate
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "benchmarks/conformance/runtime-completion-v1.json"
@@ -299,23 +305,13 @@ def strip_nested_helper_harness(path: str, content_type: str, body: bytes) -> by
 
 
 def rewrite_wpt_location(value: str, request_is_tls: bool) -> str:
-    """Map wptserve's private-proxy authority back to public loopback origins."""
-    parsed = urllib.parse.urlparse(value)
-    host = parsed.hostname or ""
-    if host.startswith("www1.") and host.removeprefix("www1.") in {
-        "localhost",
-        "127.0.0.1",
-    }:
-        host = "127.0.0.1"
-    scheme = "https" if request_is_tls and parsed.scheme == "http" else parsed.scheme
-    if host == (parsed.hostname or "") and scheme == parsed.scheme:
-        return value
-    authority = host
-    if parsed.port is not None:
-        authority += f":{parsed.port}"
-    return urllib.parse.urlunparse(
-        (scheme, authority, parsed.path, parsed.params, parsed.query, parsed.fragment)
-    )
+    """Preserve upstream redirects, including intentional TLS downgrades.
+
+    The private upstream now receives the original Host and matching TLS
+    transport. Rewriting here changes the origin/referrer behavior under test.
+    Keep the argument for callers that previously selected transport here.
+    """
+    return value
 
 
 def outcome(assertions: list[dict[str, object]], expected_total: int, complete: bool) -> dict[str, object]:
@@ -332,6 +328,8 @@ def outcome(assertions: list[dict[str, object]], expected_total: int, complete: 
         "required_total": expected_total,
         "required_finished": finished,
         "required_passed": passed,
+        "attempted": sum(item["status"] in {"passed", "failed"} for item in assertions),
+        "environment_blocked": sum(item["status"] == "environment_blocked" for item in assertions),
     }
 
 
@@ -361,15 +359,49 @@ class ConformanceHTTPServer(http.server.ThreadingHTTPServer):
     # default five-connection accept queue creates fixture-server failures under
     # that load; match the bounded broker concurrency without changing timeouts.
     request_queue_size = 256
+    # Join request handlers before interpreter finalization. Daemon handlers
+    # can still be reporting disconnected clients when stderr is torn down.
+    daemon_threads = False
+    block_on_close = True
+
+    def get_request(self):
+        connection, address = super().get_request()
+        connection.settimeout(30)
+        return connection, address
+
+
+def close_fixture_servers(listeners, listener_threads, official):
+    """Stop only after page retirement; release upstream readers before joining them."""
+    for listener in listeners:
+        listener.shutdown()
+    for listener_thread in listener_threads:
+        listener_thread.join()
+    # A timed-out page can leave a proxy reading an intentionally endless WPT
+    # response. Socket inactivity timeouts do not bound a trickling response.
+    # No browser requests remain at this point. Stop upstream before joining
+    # proxy handlers, otherwise server_close can wait forever for upstream EOF.
+    official.terminate()
+    try:
+        official.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        official.kill()
+        official.wait(timeout=5)
+    for listener in listeners:
+        listener.server_close()
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    harness_profile = 'legacy'
+    session_client = None
+    chromium = None
+    node = None
+    fixture_error_lock = threading.Lock()
+    fixture_errors = {}
     root: Path
     official_wpt_port: int | None = None
+    official_wpt_https_port: int | None = None
     public_http_port: int | None = None
     public_https_port: int | None = None
-    dispatcher_condition = threading.Condition()
-    dispatcher_queues: dict[str, collections.deque[bytes]] = {}
 
     def translate_path(self, path: str) -> str:
         relative = urllib.parse.unquote(urllib.parse.urlparse(path).path).lstrip("/")
@@ -404,23 +436,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("content-length", str(length))
 
     def do_POST(self) -> None:  # noqa: N802
+        if self.harness_profile == 'upstream':
+            self._proxy_to_wptserve()
+            return
         """Implement the deterministic subset of wptserve used by mapped tests."""
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/common/dispatcher/dispatcher.py":
-            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
-            uuid = query.get("uuid", [""])[0]
-            if not uuid:
-                self.send_error(400, "dispatcher uuid is required")
-                return
-            length = int(self.headers.get("content-length", "0"))
-            if length > 16 * 1024 * 1024:
-                self.send_error(413)
-                return
-            body = self.rfile.read(length)
-            with self.dispatcher_condition:
-                self.dispatcher_queues.setdefault(uuid, collections.deque()).append(body)
-                self.dispatcher_condition.notify_all()
-            self._send_bytes(b"done", "text/plain; charset=utf-8")
+            self._proxy_to_wptserve()
             return
         if parsed.path != "/xhr/resources/content.py":
             self._proxy_to_wptserve()
@@ -445,6 +467,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
+        if self.harness_profile == 'upstream' and parsed.path == '/resources/testharnessreport.js':
+            body = (ROOT / 'scripts/wpt-report.js').read_bytes()
+            self.send_response(200)
+            self.send_header('content-type', 'text/javascript; charset=utf-8')
+            self.send_header('content-length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         rewritten = wpt_server_path(parsed.path)
         if rewritten != parsed.path:
             self.path = urllib.parse.urlunparse(
@@ -460,7 +490,7 @@ window.__oryn_testdriver_log = [];
 const __oryn_testdriver_public_click = window.test_driver.click.bind(window.test_driver);
 window.test_driver.click = function(element) { __oryn_testdriver_log.push({operation:'public_click_start',target:element && (element.id || element.tagName)}); try { const result=__oryn_testdriver_public_click(element); Promise.resolve(result).then(()=>__oryn_testdriver_log.push({operation:'public_click_resolved'}),error=>__oryn_testdriver_log.push({operation:'public_click_rejected',error:String(error)})); return result; } catch(error) { __oryn_testdriver_log.push({operation:'public_click_threw',error:String(error)}); throw error; } };
 window.test_driver_internal.click = element => { __oryn_testdriver_log.push({operation:'click',target:element && (element.id || element.tagName)}); return __oryn_testdriver_click(element); };
-window.test_driver_internal.send_keys = (element, keys) => { __oryn_testdriver_log.push({operation:'send_keys',target:element && (element.id || element.tagName),keys:String(keys)}); return __oryn_testdriver_send_keys(element, keys); };
+window.test_driver_internal.send_keys = (element, keys) => { __oryn_testdriver_log.push({operation:'send_keys',target:element && (element.id || element.tagName)}); return __oryn_testdriver_send_keys(element, keys); };
 window.test_driver_internal.action_sequence = actions => { __oryn_testdriver_log.push({operation:'actions',count:Array.isArray(actions)?actions.length:0}); return __oryn_testdriver_actions(actions, document.activeElement); };
 window.test_driver_internal.get_computed_label = element => Promise.resolve(__oryn_computed_accessibility(element).name);
 window.test_driver_internal.get_computed_role = element => Promise.resolve(__oryn_computed_accessibility(element).role);
@@ -499,93 +529,13 @@ window.test_driver_internal.get_accessibility_properties_for_accessibility_node 
 """
             self._send_bytes(body, "application/javascript; charset=utf-8")
             return
-        if parsed.path == "/common/dispatcher/dispatcher.py":
-            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
-            uuid = query.get("uuid", [""])[0]
-            if not uuid:
-                self.send_error(400, "dispatcher uuid is required")
-                return
-            if "show-headers" in query:
-                payload = json.dumps(
-                    {
-                        key.lower(): value
-                        for key, value in self.headers.items()
-                    },
-                    sort_keys=True,
-                ).encode()
-                with self.dispatcher_condition:
-                    self.dispatcher_queues.setdefault(uuid, collections.deque()).append(payload)
-                    self.dispatcher_condition.notify_all()
-                cache = "max-age=31536000" if "cacheable" in query else "no-store"
-                self.send_response(200)
-                self.send_header("content-type", "text/plain; charset=utf-8")
-                self.send_header("cache-control", cache)
-                self.send_header("content-length", "0")
-                self.end_headers()
-                return
-            with self.dispatcher_condition:
-                queue = self.dispatcher_queues.setdefault(uuid, collections.deque())
-                payload = queue.popleft() if queue else b"not ready"
-            self._send_bytes(payload, "text/plain; charset=utf-8")
-            return
-        if parsed.path.endswith(
+        if parsed.path == "/common/dispatcher/dispatcher.py" or parsed.path.endswith(
             "/html/browsers/browsing-the-web/remote-context-helper/resources/executor-window.py"
         ):
-            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
-            uuid = query.get("uuid", [""])[0]
-            if not uuid:
-                self.send_error(400, "executor uuid is required")
-                return
-            scripts = "\n".join(
-                f'<script src="{html_module.escape(script, quote=True)}"></script>'
-                for script in query.get("script", [])
-            )
-            request_headers = "\n".join(
-                "window.__requestHeaders.append("
-                + json.dumps(name.lower())
-                + ", "
-                + json.dumps(value)
-                + ");"
-                for name, value in self.headers.items()
-            )
-            start_on = query.get("startOn", [None])[0]
-            base_url = "http://" + self.headers.get("host", "localhost") + self.path
-            body = f"""<!doctype html>
-<base href="{html_module.escape(base_url, quote=True)}">
-<script src="/common/dispatcher/dispatcher.js"></script>
-<script src="./executor-common.js"></script>
-<script src="./executor-window.js"></script>
-{scripts}
-<body><script>
-window.__requestHeaders = new Headers();
-{request_headers}
-requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
-</script>""".encode()
-            status = int(query.get("status", ["200"])[0])
-            self._send_bytes(body, "text/html; charset=utf-8", status=status)
+            self._proxy_to_wptserve()
             return
         if parsed.path.endswith(".sub.js"):
-            source = Path(self.translate_path(self.path))
-            if not source.is_file():
-                self.send_error(404)
-                return
-            request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
-            body = source.read_text(encoding="utf-8", errors="replace")
-            body = substitute_wpt_tokens(
-                body,
-                request_host,
-                self.public_http_port or self.server.server_address[1],
-                self.root,
-                source,
-                self.public_https_port,
-            )
-            encoded = body.encode()
-            self.send_response(200)
-            self._send_static_headers(
-                source, "application/javascript; charset=utf-8", len(encoded)
-            )
-            self.end_headers()
-            self.wfile.write(encoded)
+            self._proxy_to_wptserve()
             return
         if parsed.path == "/__oryn_any_runner.html":
             source = urllib.parse.parse_qs(parsed.query).get("source", [""])[0]
@@ -696,45 +646,13 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
             self.send_header("content-length", str(len(body))); self.end_headers(); self.wfile.write(body)
             return
         path = Path(self.translate_path(self.path))
-        if path.name.endswith(".sub.js") and path.is_file():
-            request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
-            body = substitute_wpt_tokens(
-                path.read_text(encoding="utf-8", errors="replace"), request_host,
-                self.public_http_port or self.server.server_address[1], self.root, path,
-                self.public_https_port,
-            ).encode()
-            self.send_response(200)
-            self._send_static_headers(
-                path, "text/javascript; charset=utf-8", len(body)
-            )
-            self.end_headers()
-            self.wfile.write(body)
+        if parsed.path.endswith((".any.html", ".window.html", ".any.worker.html")):
+            self._proxy_to_wptserve(instrument_html_path=path)
             return
         if path.suffix in {".html", ".htm"} and path.is_file():
-            # Plain HTML can request the upstream substitution pipeline too.
-            # Delegate it so request headers and the full WPT template grammar
-            # are interpreted by the pinned server before instrumentation.
-            if urllib.parse.parse_qs(parsed.query).get("pipe") == ["sub"]:
-                self._proxy_to_wptserve(instrument_html_path=path)
-                return
-            body = path.read_text(encoding="utf-8", errors="replace")
-            if path.name.endswith((".sub.html", ".sub.htm")):
-                request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
-                body = substitute_wpt_tokens(
-                    body,
-                    request_host,
-                    self.public_http_port or self.server.server_address[1],
-                    self.root,
-                    path,
-                    self.public_https_port,
-                    parsed.query,
-                    self.headers,
-                )
-            body = instrument_html(body, path.relative_to(self.root).as_posix())
-            encoded = body.encode()
-            self.send_response(200)
-            self._send_static_headers(path, "text/html; charset=utf-8", len(encoded))
-            self.end_headers(); self.wfile.write(encoded)
+            # Upstream owns MIME, charset, sidecars and response pipelines.
+            # Instrument its bytes without decoding legacy text as UTF-8.
+            self._proxy_to_wptserve(instrument_html_path=path)
             return
         self._proxy_to_wptserve()
 
@@ -777,12 +695,21 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
         # Preserve the browser-visible authority for wptserve substitutions and
         # handler logic; only the TCP destination is private.
         headers["Host"] = self.headers.get("Host", f"localhost:{self.server.server_address[1]}")
-        connection = http.client.HTTPConnection("127.0.0.1", self.official_wpt_port, timeout=30)
+        if isinstance(self.connection, ssl.SSLSocket) and self.official_wpt_https_port:
+            connection = http.client.HTTPSConnection("127.0.0.1", self.official_wpt_https_port,
+                context=ssl._create_unverified_context(), timeout=30)
+        else:
+            connection = http.client.HTTPConnection("127.0.0.1", self.official_wpt_port, timeout=30)
         response_started = False
         try:
             connection.request(self.command, self.path, body=body, headers=headers)
             response = connection.getresponse()
             response_body = response.read()
+            if template_failure(response.status, response_body):
+                with self.fixture_error_lock:
+                    self.fixture_errors[self.path] = {"path": self.path,
+                        "status": response.status, "sha256": sha256_bytes(response_body),
+                        "diagnosis": "confirmed_upstream_template_failure"}
             content_type = response.getheader("content-type", "").lower()
             if os.environ.get("ORYN_WPT_DEBUG_REQUESTS"):
                 sys.stderr.write(
@@ -792,7 +719,7 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 if "/common/security-features/subresource/xhr.py" in self.path:
                     sys.stderr.write(f"WPT_RESPONSE_BODY {response_body[:240]!r}\n")
                     sys.stderr.write(f"WPT_RESPONSE_HEADERS {response.getheaders()!r}\n")
-            if urllib.parse.urlparse(self.path).path == "/common/security-features/scope/document.py":
+            if self.harness_profile == 'legacy' and urllib.parse.urlparse(self.path).path == "/common/security-features/scope/document.py":
                 # This endpoint is a nested request helper, not an independent
                 # test. testharness itself posts an infrastructure `type:
                 # complete` record to the parent when the helper is slower
@@ -804,26 +731,11 @@ requestExecutor({json.dumps(uuid)}, {json.dumps(start_on)});
                 response_body = strip_nested_helper_harness(
                     self.path, content_type, response_body
                 )
-            if instrument_html_path is None and b"{{" in response_body and any(
-                value in content_type
-                for value in ("text/", "javascript", "json", "xml", "css", "html")
-            ):
-                request_host = self.headers.get("host", "127.0.0.1").split(":", 1)[0]
-                source_path = self.root / urllib.parse.unquote(
-                    self.path.split("?", 1)[0]
-                ).lstrip("/")
-                response_body = substitute_wpt_tokens(
-                    response_body.decode("utf-8"),
-                    request_host,
-                    self.public_http_port or self.server.server_address[1],
-                    self.root,
-                    source_path,
-                    self.public_https_port,
-                    urllib.parse.urlparse(self.path).query,
-                    self.headers,
-                ).encode("utf-8")
+            # Upstream owns substitution and pipes. Literal template-like text
+            # in an ordinary response must not trigger a second transformation.
             if (
-                instrument_html_path is not None
+                self.harness_profile == 'legacy'
+                and instrument_html_path is not None
                 and "text/html" in content_type
                 and not response.getheader("content-encoding")
             ):
@@ -951,6 +863,108 @@ def inventoried_tests(checkout: Path, inventory_path: Path) -> list[tuple[Path, 
     return tests
 
 
+def fatal_session_failure(row):
+    execution = row.get('execution') or {}
+    return (bool(row.get('fixture_error'))
+            or bool(row.get('fixture', {}).get('error'))
+            or 'pool capacity' in str(execution.get('error') or '').lower()
+            or bool(execution.get('replacement_error'))
+            or 'worker_retirement_timeout' in execution.get('cleanup_errors', []))
+
+
+def run_session_case(binary, checkout, test, identifier, classification,
+                     global_name, variant, url, timeout, fixture=None):
+    """Keep assertion outcomes separate from transport and teardown integrity."""
+    shared = Handler.session_client
+    session = shared
+    shutdown = None
+    row = {'id': identifier, 'path': test.as_posix(), 'classification': classification,
+           'global': global_name, 'variant': variant, 'status': 'failed',
+           'execution': {'transport': 'persistent_session' if shared else 'cold_session',
+                         'auxiliary_worker_lifecycle': 'isolated_on_demand',
+                         'completion_valid': False},
+           'resource_evidence_complete': False}
+    try:
+        uploads = [f'{asset}={asset}' for asset in fs_path_assets(checkout, checkout / test)]
+        if session is None:
+            session = WptSession(binary, prewarmed=False)
+        message = session.run(identifier, url, timeout, uploads=uploads)
+        result = message.get('completion')
+        errors = completion_errors(result)
+        if isinstance(result, dict) and (type(result.get('completion_count')) is not int
+                                       or result['completion_count'] != 1):
+            errors.append('invalid_completion_count')
+        row['execution'].update({key: message.get(key) for key in
+            ('id', 'page_id', 'queue_ms', 'run_ms', 'teardown_ms', 'error',
+             'cleanup_errors', 'replacement_error')})
+        row['execution'].update(completion_valid=not errors, validation_errors=errors)
+        row['resources'] = message.get('resources', [])
+        row['resource_audit'] = {key: value for key, value in (message.get('resource_audit') or {}).items() if key != 'records'}
+        row['policy_events'] = message.get('policy_events', [])
+        row['worker_memory'] = message.get('worker_memory', [])
+        row['resource_error'] = message.get('resource_error')
+        row['resource_evidence_complete'] = message.get('resource_evidence_complete') is True
+        if errors:
+            row['raw_completion'] = result
+            row['failure_domain'] = 'harness'
+        else:
+            row['result'] = result
+            if not result['complete']:
+                row['failure_domain'] = 'incomplete'
+            elif result['harness'] != 0:
+                row['failure_domain'] = 'harness'
+            elif not result['tests']:
+                row['failure_domain'] = 'no_assertions'
+            elif any(item['status'] != 0 for item in result['tests']):
+                row['failure_domain'] = 'assertion'
+            else:
+                row.update(status='passed', failure_domain=None)
+        if message.get('error') or message.get('cleanup_errors') or message.get('replacement_error'):
+            row.update(status='failed', failure_domain='timeout' if message.get('error') == 'outer_execution_timeout' else 'runtime')
+            row['diagnostics'] = [str(value) for value in
+                [message.get('error'), message.get('replacement_error'), *message.get('cleanup_errors', [])] if value]
+    except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as error:
+        row.update(status='failed', failure_domain='harness' if isinstance(error, ValueError) else 'runtime',
+                   diagnostics=[str(error)])
+        row['execution']['error'] = str(error)
+    finally:
+        if session is not None and shared is None:
+            shutdown = session.close()
+    if shutdown is not None:
+        row['execution']['parent_shutdown'] = shutdown
+        if shutdown['returncode'] != 0 or shutdown['error'] or not shutdown['shutdown_acknowledged']:
+            row.update(status='failed', failure_domain='runtime')
+    if Handler.chromium:
+        reference_started = time.monotonic()
+        try:
+            if fixture is None:
+                raise RuntimeError('reference requires isolated direct fixture')
+            fixture.close()
+            fixture.start('chromium')
+            reference = subprocess.run([str(Handler.node), str(ROOT / 'scripts/wpt-chromium-canary.mjs'),
+                str(Handler.chromium), url, str(int(timeout * 1000))],
+                capture_output=True, text=True, timeout=timeout + 345)
+            if reference.returncode:
+                raise RuntimeError(reference.stderr[-4000:])
+            data = json.loads(reference.stdout)
+            data['validation_errors'] = completion_errors(data.get('completion'))
+            if (data.get('completion') or {}).get('completion_count') != 1:
+                data['validation_errors'].append('invalid_completion_count')
+            data['valid'] = not data['validation_errors']
+            expected = data.get('completion') or {}
+            actual = row.get('result') or {}
+            expected_tests = {t.get('name'): t.get('status') for t in expected.get('tests', [])} if data['valid'] else {}
+            actual_tests = {t.get('name'): t.get('status') for t in actual.get('tests', [])}
+            data['same_subtests'] = expected_tests.keys() == actual_tests.keys()
+            data['same_statuses'] = expected_tests == actual_tests
+            row['chromium_reference'] = data
+        except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as error:
+            row['chromium_reference'] = {'error': str(error)}
+        finally:
+            row['reference_ms'] = round((time.monotonic() - reference_started) * 1000)
+    return row
+
+
 def run_case(
     binary: Path,
     checkout: Path,
@@ -1004,17 +1018,49 @@ def run_case(
         }
     # Preserve each upstream variant as one execution. Splitting assertion
     # ranges skips command callbacks whose side effects later assertions need.
-    if global_name in {"dedicatedworker", "sharedworker", "serviceworker"}:
+    if global_name == "dedicatedworker" and test.name.endswith(".any.js"):
+        served_path = test.as_posix()[:-len(".any.js")] + ".any.worker.html"
+        url = f"http://localhost:{port}/{urllib.parse.quote(served_path)}{variant}"
+    elif global_name in {"dedicatedworker", "sharedworker", "serviceworker"}:
         query = urllib.parse.urlencode(
             {"source": test.as_posix(), "variant": variant, "global": global_name}
         )
         url = f"http://localhost:{port}/__oryn_worker_runner.html?{query}"
     elif test.name.endswith((".any.js", ".window.js")):
-        query = urllib.parse.urlencode({"source": test.as_posix()})
-        variant_suffix = ("&" + variant[1:]) if variant.startswith("?") else variant
-        url = f"http://localhost:{port}/__oryn_any_runner.html?{query}{variant_suffix}"
+        served_path = test.as_posix()[:-len(".js")] + ".html"
+        url = f"http://localhost:{port}/{urllib.parse.quote(served_path)}{variant}"
     else:
         url = f"http://localhost:{port}/{urllib.parse.quote(test.as_posix())}{variant}"
+    if ".https." in test.name and Handler.public_https_port:
+        url = url.replace(f"http://localhost:{port}/", f"https://localhost:{Handler.public_https_port}/", 1)
+    if Handler.harness_profile == 'upstream':
+        if global_name != 'window' and not (global_name == 'dedicatedworker' and test.name.endswith('.any.js')):
+            return {'id': identifier, 'path': test.as_posix(), 'classification': classification,
+                    'global': global_name, 'variant': variant, 'status': 'failed',
+                    'failure_domain': 'harness', 'runner_limitation': 'upstream_wrapper_unavailable',
+                    'diagnostics': ['No faithful upstream wrapper is installed for this execution.']}
+        fixture = DirectFixture(checkout)
+        row = {'id': identifier, 'path': test.as_posix(), 'classification': classification,
+               'global': global_name, 'variant': variant, 'status': 'failed',
+               'failure_domain': 'harness'}
+        try:
+            fixture.start('oryn')
+            parsed = urllib.parse.urlsplit(url)
+            direct_port = fixture.ports[1] if parsed.scheme == 'https' else fixture.ports[0]
+            direct_url = urllib.parse.urlunsplit(parsed._replace(netloc=f'localhost:{direct_port}'))
+            row = run_session_case(binary, checkout, test, identifier, classification,
+                                   global_name, variant, direct_url, process_timeout, fixture)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            row.update(status='failed', failure_domain='harness', fixture_error=str(error))
+        finally:
+            try:
+                fixture.close()
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                row.update(status='failed', failure_domain='harness', fixture_error=str(error))
+            row['fixture'] = fixture.evidence()
+            if fixture.failure:
+                row.update(status='failed', failure_domain='harness', fixture_error=fixture.failure)
+        return row
     with tempfile.NamedTemporaryFile("w", suffix=".oil", delete=False) as oil:
         oil_path = Path(oil.name)
         oil.write('wait exists "#oryn-wpt-result"\n')
@@ -1055,6 +1101,7 @@ def run_case(
         )
         marker = "__ORYN_WPT_DONE__"
         payload = ""
+        payload_count = 0
         for line in completed.stdout.splitlines():
             try:
                 record = json.loads(line)
@@ -1062,8 +1109,10 @@ def run_case(
                 record = None
             value = record.get("value") if isinstance(record, dict) else None
             if isinstance(value, str) and marker in value:
+                payload_count += value.count(marker)
                 payload = value.rsplit(marker, 1)[-1].strip()
         if not payload and marker in completed.stdout:
+            payload_count = completed.stdout.count(marker)
             payload = completed.stdout.rsplit(marker, 1)[-1].strip()
         try:
             result = json.loads(payload)
@@ -1097,6 +1146,9 @@ def run_case(
                     "failure_domain": "runtime" if completed.returncode else "incomplete",
                     "result": recovered,
                     "result_transport": "isolated_dom_probe",
+                    "execution": {"returncode": completed.returncode, "completion_valid": False,
+                                  "validation_errors": ["missing_primary_completion"],
+                                  "probe_returncode": probe.returncode},
                     "diagnostics": [bounded_diagnostic(
                         completed.stderr + "\n" + completed.stdout + "\n" + trace
                         + "\nDOM_PROBE:\n" + probe.stdout + "\n" + probe.stderr
@@ -1113,9 +1165,26 @@ def run_case(
                 + "\n"
                 + probe.stderr
             )
-            return {"id":identifier,"path":test.as_posix(),"classification":classification,"global":global_name,"variant":variant,"status":"failed","failure_domain":"runtime" if completed.returncode else "incomplete","diagnostics":[detail or "missing WPT completion payload"]}
+            return {"id":identifier,"path":test.as_posix(),"classification":classification,"global":global_name,"variant":variant,"status":"failed","failure_domain":"runtime" if completed.returncode else "incomplete","diagnostics":[detail or "missing WPT completion payload"],
+                    "execution": {"returncode": completed.returncode, "completion_valid": False,
+                                  "validation_errors": ["missing_primary_completion"],
+                                  "probe_returncode": probe.returncode}}
+        validation_errors = completion_errors(result)
+        if payload_count != 1:
+            validation_errors.append('duplicate_completion_payload')
+        raw_result = result
+        if validation_errors:
+            result = {"complete": False, "harness": 1, "tests": [],
+                      "harnessMessage": 'Invalid completion payload: ' + ', '.join(validation_errors)}
+        execution = {"returncode": completed.returncode,
+                     "signal": -completed.returncode if completed.returncode < 0 else None,
+                     "completion_valid": not validation_errors,
+                     "validation_errors": validation_errors,
+                     "stderr": bounded_diagnostic(completed.stderr)}
         failed = (
-            not result.get("complete", False)
+            completed.returncode != 0
+            or bool(validation_errors)
+            or not result.get("complete", False)
             or result.get("harness") not in (0, None)
             or not result.get("tests")
             or any(item.get("status") != 0 for item in result.get("tests", []))
@@ -1123,7 +1192,11 @@ def run_case(
         failure_domain = None
         diagnostics = []
         if failed:
-            if not result.get("complete", False):
+            if completed.returncode != 0:
+                failure_domain = "runtime"
+            elif validation_errors:
+                failure_domain = "harness"
+            elif not result.get("complete", False):
                 failure_domain = "incomplete"
             elif result.get("harness") not in (0, None):
                 failure_domain = "harness"
@@ -1147,7 +1220,18 @@ def run_case(
             "status": "failed" if failed else "passed",
             "failure_domain": failure_domain,
             "result": result,
+            "execution": execution,
         }
+        if validation_errors:
+            record['raw_completion'] = raw_result
+        if completed.stderr.strip() and not failed:
+            diagnostics.append(bounded_diagnostic(completed.stderr))
+        # Preserve actual outcomes; annotate explicit adapter gaps separately
+        # instead of treating them as proof of a missing browser capability.
+        messages = [str(result.get("harnessMessage", ""))] + [
+            str(item.get("message", "")) for item in result.get("tests", [])]
+        if any("not implemented by testdriver-vendor.js" in message for message in messages):
+            record["runner_limitation"] = "testdriver_operation_not_implemented"
         if diagnostics:
             record["diagnostics"] = diagnostics
         return record
@@ -1172,6 +1256,8 @@ def run_case(
             "variant": variant,
             "status": "failed",
             "failure_domain": "timeout",
+            "execution": {"completion_valid": False, "error": "outer_process_timeout",
+                          "timeout_seconds": process_timeout, "returncode": None},
             "diagnostics": diagnostics,
         }
     finally:
@@ -1179,11 +1265,47 @@ def run_case(
         trace_path.unlink(missing_ok=True)
 
 
+def verify_wpt_helpers(http_port: int, https_port: int) -> list[dict[str, object]]:
+    """Fail before running fixtures if shared script templates return errors."""
+    resources = (
+        "/common/security-features/resources/common.sub.js",
+        "/common/get-host-info.sub.js",
+        "/service-workers/service-worker/resources/test-helpers.sub.js",
+        "/fetch/metadata/resources/helper.sub.js",
+        "/cookies/resources/cookie-helper.sub.js",
+        "/websockets/constants.sub.js",
+        "/secure-contexts/server-locations.sub.js",
+        "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+    )
+    evidence = []
+    for secure, port in ((False, http_port), (True, https_port)):
+        for path in resources:
+            connection = (http.client.HTTPSConnection("127.0.0.1", port,
+                context=ssl._create_unverified_context(), timeout=10) if secure else
+                http.client.HTTPConnection("127.0.0.1", port, timeout=10))
+            try:
+                connection.request("GET", path)
+                response = connection.getresponse()
+                body = response.read()
+                mime = response.getheader("content-type", "")
+                if response.status != 200 or "javascript" not in mime or re.search(rb"\{\{(?:ports|hosts|domains|location)\[", body):
+                    raise RuntimeError(f"WPT helper preflight failed: {path}: HTTP {response.status}, {mime}: {body[:200]!r}")
+                evidence.append({"path": path, "scheme": "https" if secure else "http",
+                                 "status": response.status, "sha256": hashlib.sha256(body).hexdigest()})
+            finally:
+                connection.close()
+    return evidence
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkout", type=Path, required=True)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument('--harness-profile', choices=['upstream', 'legacy'], default='upstream')
+    parser.add_argument('--parent-mode', choices=['persistent', 'cold'], default='persistent')
+    parser.add_argument('--chromium', type=Path, help='opt-in isolated Chromium differential canaries')
+    parser.add_argument('--node', type=Path, help='Node executable for Chromium CDP canaries')
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument(
         "--script-wall-ms",
@@ -1237,8 +1359,18 @@ def main() -> int:
         help="explicit local diagnostic only; release evidence must use the worker boundary",
     )
     args = parser.parse_args()
+    if args.output.exists() and not args.resume:
+        parser.error('choose a new output path or explicitly resume matching evidence')
+    if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
+        parser.error('invalid shard index/count')
+    if args.chromium and (not args.node or args.harness_profile != 'upstream'):
+        parser.error('--chromium requires --node and the upstream harness profile')
+    Handler.chromium = args.chromium
+    Handler.node = args.node
     if args.jobs < 1 or args.jobs > 32:
         raise SystemExit("jobs must be between 1 and 32")
+    if args.harness_profile == 'upstream' and args.parent_mode == 'persistent' and args.jobs > 8:
+        parser.error('persistent WPT sessions have eight slots; --jobs must not exceed 8')
     revision_manifest = EXPANDED_MANIFEST if args.inventory else MANIFEST
     revision = json.loads(revision_manifest.read_text())["upstream"]["revision"]
     actual = subprocess.check_output(["git", "-C", args.checkout, "rev-parse", "HEAD"], text=True).strip()
@@ -1246,6 +1378,11 @@ def main() -> int:
         raise SystemExit(f"WPT revision mismatch: expected {revision}, found {actual}")
     binary = args.binary.resolve()
     runtime_command = [str(binary), "native", "--runtime-info"]
+    Handler.harness_profile = args.harness_profile
+    if args.harness_profile == 'upstream' and (args.in_process_probe or args.script_wall_ms):
+        parser.error('upstream profile requires the signed worker and standard limits')
+    if args.harness_profile == 'upstream' and args.parent_mode == 'persistent':
+        runtime_command += ['--worker-mode', 'isolated-prewarmed', '--worker-pool-size', '8']
     if args.in_process_probe:
         runtime_command.append("--in-process-probe")
     runtime_probe = subprocess.run(
@@ -1282,6 +1419,8 @@ def main() -> int:
     Handler.root = args.checkout.resolve()
     server = ConformanceHTTPServer(("127.0.0.1", 0), Handler)
     secure_server = ConformanceHTTPServer(("127.0.0.1", 0), Handler)
+    second_server = ConformanceHTTPServer(("127.0.0.1", 0), Handler)
+    second_secure_server = ConformanceHTTPServer(("127.0.0.1", 0), Handler)
     Handler.public_http_port = server.server_port
     Handler.public_https_port = secure_server.server_port
     certificate_root = args.checkout / "tools/certs"
@@ -1291,8 +1430,9 @@ def main() -> int:
         certificate_root / "web-platform.test.key",
     )
     secure_server.socket = tls_context.wrap_socket(secure_server.socket, server_side=True)
-    os.environ["ORYN_WPT_CA_CERT"] = str(certificate_root / "cacert.pem")
-    os.environ["ORYN_WPT_ALLOW_INVALID_CERTS"] = "1"
+    second_secure_server.socket = tls_context.wrap_socket(second_secure_server.socket, server_side=True)
+    os.environ["ORYN_WPT_CA_CERT"] = fixture_certificate(args.checkout)['ca'] if args.harness_profile == 'upstream' else str(certificate_root / "cacert.pem")
+    os.environ["ORYN_WPT_ALLOW_INVALID_CERTS"] = "0" if args.harness_profile == 'upstream' else "1"
     helper = ROOT / "scripts/wptserve-helper.py"
     venv_python = args.checkout / "_venv3/bin/python"
     helper_python = venv_python if venv_python.is_file() else Path(sys.executable)
@@ -1307,6 +1447,8 @@ def main() -> int:
             str(server.server_port),
             "--public-https-port",
             str(secure_server.server_port),
+            "--public-port-2", str(second_server.server_port),
+            "--public-https-port-2", str(second_secure_server.server_port),
         ],
         cwd=ROOT,
         text=True,
@@ -1322,6 +1464,7 @@ def main() -> int:
     startup_line = official.stdout.readline() if official.stdout else ""
     try:
         Handler.official_wpt_port = int(json.loads(startup_line)["port"])
+        Handler.official_wpt_https_port = int(json.loads(startup_line)["https_port"])
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         official.terminate()
         official.wait(timeout=5)
@@ -1332,9 +1475,27 @@ def main() -> int:
             + " "
             + helper_errors.read().strip()
         ) from error
+    try:
+        helper_preflight = verify_wpt_helpers(Handler.official_wpt_port, Handler.official_wpt_https_port)
+        h2_probe = subprocess.run([str(helper_python), str(ROOT / "scripts/wpt-h2-probe.py"),
+            "--port", str(json.loads(startup_line)["h2_port"])],
+            capture_output=True, text=True, timeout=20, check=True)
+        h2_qualification = json.loads(h2_probe.stdout)
+    except Exception:
+        official.terminate()
+        official.wait(timeout=5)
+        for listener in (server, secure_server, second_server, second_secure_server):
+            listener.server_close()
+        helper_errors.close()
+        raise
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     secure_thread = threading.Thread(target=secure_server.serve_forever, daemon=True)
     secure_thread.start()
+    secondary_threads = []
+    for extra_server in (second_server, second_secure_server):
+        extra_thread = threading.Thread(target=extra_server.serve_forever, daemon=True)
+        extra_thread.start()
+        secondary_threads.append(extra_thread)
     if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
         raise SystemExit("invalid shard index/count")
     tests = inventoried_tests(args.checkout, args.inventory or EXPANDED_INVENTORY) if args.inventory else applicable_tests(args.checkout)
@@ -1365,6 +1526,7 @@ def main() -> int:
             str(item["id"])
             for item in timeout_source.get("assertions", [])
             if item.get("failure_domain") == "timeout"
+            or any("timeout" in tag or "wall_limit" in tag for tag in evidence_diagnostics(item))
         }
         tests = [
             item
@@ -1384,6 +1546,8 @@ def main() -> int:
         "size_bytes": binary.stat().st_size,
     }
     selection = {
+        'harness_profile': args.harness_profile,
+        'parent_mode': args.parent_mode,
         "filter": args.filter,
         "variant_filter": args.variant_filter,
         "variant_override": args.variant_override,
@@ -1400,8 +1564,22 @@ def main() -> int:
         "upstream_revision": revision,
         "inventory_sha256": inventory_sha256,
         "harness": {
-            "server": "pinned_wptserve_proxy_v1",
+            "server": "direct_wptserve_v1" if args.harness_profile == 'upstream' else "legacy_proxy_diagnostic",
+            "fixture_sha256": sha256_bytes((ROOT / 'scripts/wpt_fixture.py').read_bytes()),
+            "tls_fixture_sha256": sha256_bytes((ROOT / 'scripts/wpt_tls.py').read_bytes()),
+            "oryn_automation_sha256": sha256_bytes((ROOT / 'scripts/wpt-testdriver-oryn.js').read_bytes()),
+            "chromium_automation_sha256": sha256_bytes((ROOT / 'scripts/wpt-testdriver-chromium.js').read_bytes()),
+            "chromium_driver_sha256": sha256_bytes((ROOT / 'scripts/wpt-chromium-driver.mjs').read_bytes()),
+            "capability_manifest_sha256": sha256_bytes((ROOT / 'benchmarks/conformance/wpt-harness-capabilities-v4.json').read_bytes()),
             "helper_sha256": sha256_bytes(helper.read_bytes()),
+            "runner_sha256": sha256_bytes(Path(__file__).read_bytes()),
+            "evidence_classifier_sha256": sha256_bytes((ROOT / "scripts/wpt_evidence.py").read_bytes()),
+            "h2_probe_sha256": sha256_bytes((ROOT / "scripts/wpt-h2-probe.py").read_bytes()),
+            'report_adapter_sha256': sha256_bytes((ROOT / 'scripts/wpt-report.js').read_bytes()),
+            'chromium_canary_sha256': sha256_bytes((ROOT / 'scripts/wpt-chromium-canary.mjs').read_bytes()),
+            'chromium_focus_lease_sha256': sha256_bytes((ROOT / 'scripts/wpt-reference-lock.py').read_bytes()),
+            'chromium_binary_sha256': sha256_bytes(args.chromium.read_bytes()) if args.chromium else None,
+            'session_client_sha256': sha256_bytes((ROOT / 'scripts/wpt_session.py').read_bytes()),
         },
         "execution_mode": "in_process_probe" if args.in_process_probe else "sandboxed_worker",
         "binary": binary_fingerprint,
@@ -1426,13 +1604,20 @@ def main() -> int:
         completed_by_id = {
             str(item["id"]): item
             for item in prior.get("assertions", [])
-            if item.get("id") in expected_ids and item.get("status") in {"passed", "failed"}
+            if item.get("id") in expected_ids and item.get("status") in {"passed", "failed", "environment_blocked"}
         }
+        for row in completed_by_id.values():
+            execution = row.get('execution', {})
+            if execution.get('transport') == 'persistent_session' and not execution.get('parent_shutdown'):
+                row.update(status='failed', failure_domain='incomplete')
+                execution['error'] = 'prior_parent_shutdown_unverified'
+
+    run_started = time.monotonic()
 
     def publish(complete: bool) -> dict[str, Any]:
         assertions = [completed_by_id[key] for key in sorted(completed_by_id)]
         result: dict[str, Any] = {
-            "schema_version": 2 if args.inventory else 1,
+            "schema_version": 4,
             "upstream_revision": revision,
             "inventory_sha256": inventory_sha256,
             "harness": fingerprint_input["harness"],
@@ -1440,6 +1625,10 @@ def main() -> int:
             "run_fingerprint": run_fingerprint,
             "binary": binary_fingerprint,
             "runtime_metadata": runtime_metadata,
+            "helper_preflight": helper_preflight,
+            "h2_qualification": h2_qualification,
+            "dependency_preflight": dependency_checks,
+            "dependency_discovery": "literal script references only; dynamic URLs may be absent",
             "source": {
                 "commit": source_commit,
                 "dirty": source_tree_dirty,
@@ -1450,6 +1639,11 @@ def main() -> int:
             "selection": selection,
             "shard": {"index": args.shard_index, "count": args.shard_count},
             "jobs": args.jobs,
+            "elapsed_seconds": round(time.monotonic() - run_started, 3),
+            "harness_profile": args.harness_profile,
+            "parent_mode": args.parent_mode,
+            "parent_progress": Handler.session_client.progress() if Handler.session_client else None,
+            "qualification": "diagnostic; runtime resource completeness and differential gates required",
             "assertions": assertions,
             "outcome": outcome(assertions, len(tests), complete),
         }
@@ -1461,38 +1655,129 @@ def main() -> int:
         for item in tests
         if f"{item[0].as_posix()}|{item[2]}|{item[3]}" not in completed_by_id
     ]
+    dependency_evidence = {}
+    dependency_checks = {}
+    preflight_progress = time.monotonic()
+    for test, classification, global_name, variant in pending:
+        deps = dependency_evidence.get(test.as_posix())
+        if deps is None:
+            deps = script_dependencies(args.checkout.resolve(), test.as_posix())
+        if test.as_posix().endswith(('.any.js', '.window.js')):
+            deps = sorted(set(deps) | {'/resources/testharness.js', '/resources/testharnessreport.js'})
+        dependency_evidence[test.as_posix()] = deps
+        if time.monotonic() - preflight_progress >= 30:
+            print(json.dumps({'event': 'dependency_preflight', 'sources': len(dependency_evidence),
+                'resources_checked': len(dependency_checks), 'elapsed_seconds': round(time.monotonic() - run_started, 1)}), flush=True)
+            preflight_progress = time.monotonic()
+        reason = None
+        if any("/fetch/local-network-access/resources/support.sub.js" in dep for dep in deps):
+            reason = "distinct_local_public_ip_spaces_unavailable"
+        else:
+            for dep in deps:
+                for secure, port in ((False, server.server_port), (True, secure_server.server_port)):
+                    key = ("https:" if secure else "http:") + dep
+                    if key not in dependency_checks:
+                        parsed_dep = urllib.parse.urlsplit(dep)
+                        if parsed_dep.query or not parsed_dep.path.endswith(('.js', '.mjs')):
+                            # Do not execute stateful handlers or query pipelines
+                            # before the test: their actual responses are audited
+                            # by the parent broker during that execution.
+                            dependency_checks[key] = {'deferred_to_runtime': True,
+                                'reason': 'handler_or_query_may_have_side_effects'}
+                            continue
+                        conn = (http.client.HTTPSConnection("127.0.0.1", port, timeout=10,
+                            context=ssl._create_unverified_context()) if secure else
+                            http.client.HTTPConnection("127.0.0.1", port, timeout=10))
+                        try:
+                            conn.request("GET", dep)
+                            response = conn.getresponse()
+                            body = response.read()
+                            # Only a recognizable upstream template exception is
+                            # confirmed infrastructure failure. Intentional bad
+                            # syntax, HTTP errors and literal tokens stay raw.
+                            broken = template_failure(response.status, body)
+                            dependency_checks[key] = {"status": response.status,
+                                "mime": response.getheader("content-type"),
+                                "sha256": sha256_bytes(body), "template_failure": broken,
+                                "unresolved_template": bool(re.search(rb"\{\{(?:ports|hosts|domains|location)\[", body))}
+                        except (OSError, http.client.HTTPException) as error:
+                            dependency_checks[key] = {"status": None, "template_failure": False,
+                                "preflight_error": str(error), "qualification": "unclassified; may be intentional fixture behavior"}
+                        finally:
+                            conn.close()
+                    if confirmed_dependency_failure(dependency_checks[key]):
+                        reason = "confirmed_upstream_template_failure"
+        if reason:
+            identifier = f"{test.as_posix()}|{global_name}|{variant}"
+            completed_by_id[identifier] = {"id": identifier, "path": test.as_posix(),
+                "classification": classification, "global": global_name, "variant": variant,
+                "status": "environment_blocked", "reason": reason,
+                "dependencies": deps}
+    pending = [item for item in pending if f"{item[0].as_posix()}|{item[2]}|{item[3]}" not in completed_by_id]
     publish(complete=False)
     try:
+        if args.harness_profile == 'upstream' and args.parent_mode == 'persistent':
+            Handler.session_client = WptSession(binary)
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
-            futures = {
-                executor.submit(
-                    run_case,
-                    binary,
-                    args.checkout.resolve(),
-                    server.server_port,
-                    test,
-                    classification,
-                    global_name,
-                    variant,
-                    args.timeout,
-                    args.in_process_probe,
-                    args.script_wall_ms,
-                ): f"{test.as_posix()}|{global_name}|{variant}"
-                for test, classification, global_name, variant in pending
-            }
-            for future in concurrent.futures.as_completed(futures):
-                assertion = future.result()
-                completed_by_id[str(assertion["id"])] = assertion
-                publish(complete=False)
+            pending_tests = iter(pending)
+            remaining = set()
+            halted = False
+            def fill_slots():
+                while not halted and len(remaining) < args.jobs:
+                    item = next(pending_tests, None)
+                    if item is None:
+                        break
+                    test, classification, global_name, variant = item
+                    remaining.add(executor.submit(
+                        run_case, binary, args.checkout.resolve(), server.server_port,
+                        test, classification, global_name, variant, args.timeout,
+                        args.in_process_probe, args.script_wall_ms))
+            fill_slots()
+            last_publish = time.monotonic()
+            while remaining:
+                done, remaining = concurrent.futures.wait(remaining, timeout=1,
+                    return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in done:
+                    assertion = future.result()
+                    assertion['dependencies'] = dependency_evidence.get(assertion['path'], [])
+                    assertion["diagnostic_tags"] = evidence_diagnostics(assertion)
+                    diagnostic_text = "\n".join(assertion.get("diagnostics", []))
+                    with Handler.fixture_error_lock:
+                        observed_errors = [dict(value) for key, value in Handler.fixture_errors.items()
+                            if key + ": JavaScript execution failed" in diagnostic_text]
+                    if observed_errors:
+                        assertion["fixture_error_evidence"] = observed_errors
+                        assertion["diagnostic_tags"].append("confirmed_upstream_template_failure")
+                    completed_by_id[str(assertion["id"])] = assertion
+                    if fatal_session_failure(assertion) or (Handler.session_client and Handler.session_client.failure):
+                        halted = True
+                        print(json.dumps({'event': 'cohort_halted', 'id': assertion['id'],
+                            'reason': 'persistent parent or worker pool integrity failure'}), flush=True)
+                fill_slots()
+                if not remaining or time.monotonic() - last_publish >= 30:
+                    publish(complete=False)
+                    print(json.dumps({'event': 'progress', 'completed': len(completed_by_id),
+                        'selected': len(tests), 'elapsed_seconds': round(time.monotonic() - run_started, 1)}), flush=True)
+                    last_publish = time.monotonic()
     finally:
-        server.shutdown(); thread.join()
-        secure_server.shutdown(); secure_thread.join()
-        official.terminate()
-        try:
-            official.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            official.kill()
-            official.wait(timeout=5)
+        if Handler.session_client is not None:
+            shutdown = Handler.session_client.close()
+            for row in completed_by_id.values():
+                if row.get('execution', {}).get('transport') != 'persistent_session':
+                    continue
+                # Never attach this process's successful shutdown to an older
+                # attempt recovered from an interrupted checkpoint.
+                if row['execution'].get('error') == 'prior_parent_shutdown_unverified' or row['execution'].get('parent_shutdown'):
+                    continue
+                row['execution']['parent_shutdown'] = shutdown
+                if shutdown['returncode'] != 0 or shutdown['error'] or not shutdown['shutdown_acknowledged']:
+                    row['status'] = 'failed'
+                    row['failure_domain'] = 'runtime'
+                row['diagnostic_tags'] = evidence_diagnostics(row)
+            Handler.session_client = None
+        listeners = (server, secure_server, second_server, second_secure_server)
+        listener_threads = (thread, secure_thread, *secondary_threads)
+        close_fixture_servers(listeners, listener_threads, official)
         helper_errors.close()
     result = publish(complete=True)
     print(json.dumps(result["outcome"], sort_keys=True))

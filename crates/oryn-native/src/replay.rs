@@ -270,7 +270,7 @@ impl NetworkBroker for ControlledNetworkBroker {
                 let recorded = request.clone();
                 let controller = self.controller.clone();
                 let mut operation = self.inner.start_operation(request)?;
-                let demand = operation.demand.clone();
+                let demand = operation.demand.take();
                 let (sender, events) = tokio::sync::mpsc::channel(8);
                 std::thread::spawn(move || {
                     let mut status = None;

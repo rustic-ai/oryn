@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "required_execution_total": 4,
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "dom/ranges/Range-stringifier.html",
+      "root": "dom",
+      "sha256": "a951fdf9827b6e12fc4f241fd56454f572ca6ea3c95fb359eb5b8c8a3889464e",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "selection/extend-00.html",
+      "root": "selection",
+      "sha256": "cc05de71eda96c31908bd61d28e1e6a5586aa7d43dbdd2598e8d291dff3dd0bb",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "selection/extend-20.html",
+      "root": "selection",
+      "sha256": "53708c1c4ad1f1eec0a9d797cf1ddfbf4585cb4a2a6e0e319026eaae681b8b40",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "selection/extend-40.html",
+      "root": "selection",
+      "sha256": "a9efbb97df7e751c918931031761d600bf92c59f70da912f12259d7692ffdf44",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ]
+}

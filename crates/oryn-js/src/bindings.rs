@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use oryn_dom::{DomError, DomRuntime, NodeId, NodeKind};
+use oryn_dom::{ArenaId, DomError, DomRuntime, NodeId, NodeKind, NodeRef};
 use serde::{Deserialize, Serialize};
 
 use crate::realm::RealmId;
@@ -27,6 +27,7 @@ pub enum InterfaceBrand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WrapperMetadata {
     pub id: WrapperId,
+    pub arena: ArenaId,
     pub node: NodeId,
     pub realm: RealmId,
     pub document_generation: u64,
@@ -35,6 +36,8 @@ pub struct WrapperMetadata {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum BindingError {
+    #[error("wrapper identity space exhausted")]
+    IdentityExhausted,
     #[error("unknown or collected JavaScript wrapper {0:?}")]
     UnknownWrapper(WrapperId),
     #[error("wrapper belongs to realm {actual:?}, not {expected:?}")]
@@ -53,7 +56,7 @@ pub enum BindingError {
 #[derive(Debug, Default)]
 pub struct WrapperRegistry {
     next_id: u64,
-    by_identity: BTreeMap<(RealmId, NodeId), WrapperId>,
+    by_identity: BTreeMap<(ArenaId, RealmId, NodeId), WrapperId>,
     wrappers: BTreeMap<WrapperId, WrapperMetadata>,
     pending_release: VecDeque<WrapperId>,
 }
@@ -68,7 +71,7 @@ impl WrapperRegistry {
         brand: InterfaceBrand,
     ) -> Result<WrapperId, BindingError> {
         validate_node_brand(dom, node, brand)?;
-        let identity = (realm, node);
+        let identity = (dom.arena().id(), realm, node);
         if let Some(wrapper) = self.by_identity.get(&identity) {
             let wrapper = *wrapper;
             let metadata = self
@@ -87,14 +90,19 @@ impl WrapperRegistry {
             self.cancel_weak_release(wrapper);
             return Ok(wrapper);
         }
+        let next_id = self
+            .next_id
+            .checked_add(1)
+            .ok_or(BindingError::IdentityExhausted)?;
         dom.retain_wrapper(node)?;
         let id = WrapperId(self.next_id);
-        self.next_id = self.next_id.saturating_add(1);
+        self.next_id = next_id;
         self.by_identity.insert(identity, id);
         self.wrappers.insert(
             id,
             WrapperMetadata {
                 id,
+                arena: dom.arena().id(),
                 node,
                 realm,
                 document_generation,
@@ -134,7 +142,10 @@ impl WrapperRegistry {
                 actual: metadata.brand,
             });
         }
-        dom.arena().get(metadata.node)?;
+        dom.arena().resolve(NodeRef {
+            arena: metadata.arena,
+            node: metadata.node,
+        })?;
         Ok(metadata.node)
     }
 
@@ -158,20 +169,31 @@ impl WrapperRegistry {
 
     pub fn process_weak_releases(&mut self, dom: &mut DomRuntime) -> Result<usize, BindingError> {
         let mut released = 0;
-        while let Some(id) = self.pending_release.pop_front() {
-            let Some(metadata) = self.wrappers.remove(&id) else {
+        let mut pending = std::mem::take(&mut self.pending_release);
+        while let Some(id) = pending.pop_front() {
+            let Some(metadata) = self.wrappers.get(&id).copied() else {
                 continue;
             };
-            self.by_identity.remove(&(metadata.realm, metadata.node));
-            dom.release_wrapper(metadata.node)?;
+            if metadata.arena != dom.arena().id() {
+                self.pending_release.push_back(id);
+                continue;
+            }
+            if let Err(error) = dom.release_wrapper(metadata.node) {
+                self.pending_release.push_back(id);
+                self.pending_release.extend(pending);
+                return Err(error.into());
+            }
+            self.wrappers.remove(&id);
+            self.by_identity
+                .remove(&(metadata.arena, metadata.realm, metadata.node));
             released += 1;
         }
         Ok(released)
     }
 
     #[cfg(feature = "v8-host")]
-    pub(crate) fn lookup(&self, realm: RealmId, node: NodeId) -> Option<WrapperId> {
-        self.by_identity.get(&(realm, node)).copied()
+    pub(crate) fn lookup(&self, arena: ArenaId, realm: RealmId, node: NodeId) -> Option<WrapperId> {
+        self.by_identity.get(&(arena, realm, node)).copied()
     }
 
     pub fn metadata(&self, wrapper: WrapperId) -> Option<WrapperMetadata> {
@@ -238,6 +260,66 @@ mod tests {
     use markup5ever::{QualName, local_name, ns};
 
     use super::*;
+
+    #[test]
+    fn matching_local_node_ids_in_different_arenas_do_not_resolve() {
+        let mut first = DomRuntime::new();
+        let mut second = DomRuntime::new();
+        let first_node = first.create_text("first");
+        let second_node = second.create_text("second");
+        assert_eq!(first_node, second_node, "local slots intentionally collide");
+        let mut wrappers = WrapperRegistry::default();
+        let wrapper = wrappers
+            .get_or_create(&mut first, RealmId(0), 1, first_node, InterfaceBrand::Node)
+            .unwrap();
+        assert!(
+            wrappers
+                .resolve(&second, wrapper, RealmId(0), 1, InterfaceBrand::Node)
+                .is_err(),
+            "a wrapper must never resolve against an unrelated arena"
+        );
+        let other_wrapper = wrappers
+            .get_or_create(
+                &mut second,
+                RealmId(0),
+                1,
+                second_node,
+                InterfaceBrand::Node,
+            )
+            .unwrap();
+        assert_ne!(wrapper, other_wrapper);
+        wrappers.enqueue_weak_release(wrapper);
+        assert_eq!(wrappers.process_weak_releases(&mut second).unwrap(), 0);
+        assert!(wrappers.metadata(wrapper).is_some());
+        assert_eq!(wrappers.process_weak_releases(&mut first).unwrap(), 1);
+        assert!(
+            wrappers
+                .resolve(&second, other_wrapper, RealmId(0), 1, InterfaceBrand::Node)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn exhausted_wrapper_ids_do_not_overwrite_or_acquire_a_root() {
+        let mut dom = DomRuntime::new();
+        let node = dom.create_text("unrooted");
+        let mut wrappers = WrapperRegistry {
+            next_id: u64::MAX,
+            ..Default::default()
+        };
+        assert_eq!(
+            wrappers.get_or_create(&mut dom, RealmId(0), 1, node, InterfaceBrand::Node),
+            Err(BindingError::IdentityExhausted)
+        );
+        assert!(wrappers.wrappers.is_empty());
+        dom.remove(node).unwrap();
+        let mutations = dom.drain_mutations();
+        dom.release_mutation_roots(&mutations).unwrap();
+        assert!(
+            dom.arena().get(node).is_err(),
+            "failed allocation must not retain a wrapper root"
+        );
+    }
 
     #[test]
     fn wrappers_preserve_identity_and_validate_realm_generation_and_brand() {

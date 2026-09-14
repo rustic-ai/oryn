@@ -1,0 +1,79 @@
+{
+  "source_tree_sha256": "eab4d4185b13e8e236a9b12b9836509b01c20ccde779479ea7e554002c899c47",
+  "native_test_binary_sha256": "864f9e08fc4b92a7c5e3eb2ec67f7fb572be2ed771317461a58f150734a9b12d",
+  "parent_sha256": "8cf2e75234561095176b18045cd637e6152d1755509add6acdc1f5503c43f576",
+  "unsigned_worker_sha256": "3848fa927cbf25b4032969902244e8d0865216b294c28f9e7b76fc738839a7a2",
+  "signed_worker_sha256": "b403bfea5a23058245f8c910129505ea9f77dcbaf89a2e6b8c94ab5ba9f5d2c9",
+  "worker_cdhash": "0db4cbc8065748ad017fe9b9edfd830299f2077e",
+  "full_native": {
+    "passed": 462,
+    "failed": 0,
+    "ignored": 6,
+    "seconds": 622.39
+  },
+  "signed_build": {
+    "passed": true,
+    "parent_compile": "1m29s",
+    "worker_compile": "2m16s",
+    "sandbox_probes_passed": true
+  },
+  "schema_version": 1,
+  "kind": "dirty_source_signed_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "protocol_version": 9,
+  "local_tests": {
+    "dom": {
+      "passed": 99,
+      "failed": 0
+    },
+    "js": {
+      "passed": 258,
+      "failed": 0,
+      "ignored": 3
+    },
+    "clippy": "strict library check passed before final no-op timer adjustment; final fmt/diff passed"
+  },
+  "wpt": {
+    "adoption": {
+      "files_passed": 3,
+      "files_total": 3,
+      "subtests_passed": 13,
+      "subtests_total": 13,
+      "environment_blocked": 0,
+      "result_path": "/private/tmp/oryn-agent-retirement-adoption-20260913.json",
+      "sha256": "1866fe95b7c78da0e7e8f2c18ffc363aca15324b050b474ede1bc2aad4187b2d"
+    },
+    "templates": {
+      "files_passed": 7,
+      "files_total": 67,
+      "subtests_passed": 442,
+      "subtests_total": 1164,
+      "environment_blocked": 0,
+      "elapsed_seconds": 48.677,
+      "result_path": "/private/tmp/oryn-agent-retirement-templates-20260913.json",
+      "sha256": "f468a857b6621e0feb551266ac3c38e4055c1a56af783858637c598d52ccced4"
+    },
+    "timers": {
+      "files_passed": 6,
+      "files_total": 13,
+      "subtests_passed": 10,
+      "subtests_total": 13,
+      "environment_blocked": 0,
+      "elapsed_seconds": 29.241,
+      "result_path": "/private/tmp/oryn-agent-retirement-timers-20260913.json",
+      "sha256": "282f71207166b24a4a306a9e2a2a4fe2bc3700cd966d1973e226080bc9cfd763"
+    },
+    "parent_mode": "persistent",
+    "worker_lifecycle": "isolated_prewarmed",
+    "jobs_per_family": 2,
+    "concurrent_family_runs": true
+  },
+  "failures": [
+    "Template host-including cycle checks missing: template-content-hierarcy.html exceeded worker RSS; must fix before claiming safe ownership closure.",
+    "Synchronous initial iframe contentWindow is null; blocks common WPT iframe helpers.",
+    "Timer conversion/sequencing and cross-realm error reporting remain incomplete.",
+    "Newer template-for/streaming HTML, reflection and XML serialization gaps remain visible."
+  ],
+  "remaining": "Protocol-v10 process/environment routing and custom-element native adoption reactions remain unimplemented. No Linux rerun or clean-tree qualification. Range crash not rerun."
+}

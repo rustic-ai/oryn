@@ -285,8 +285,25 @@ impl StreamingParser {
     }
 }
 
+struct ParserRoots {
+    dom: SharedDomRuntime,
+    nodes: RefCell<Vec<NodeId>>,
+}
+
+impl Drop for ParserRoots {
+    fn drop(&mut self) {
+        let mut dom = self.dom.borrow_mut();
+        for node in self.nodes.get_mut().drain(..) {
+            // Every parser-created element owns one native lease until the
+            // tokenizer and tree builder have finished using their handles.
+            let _ = dom.release_native(node);
+        }
+    }
+}
+
 pub(crate) struct OrynTreeSink {
     dom: SharedDomRuntime,
+    parser_roots: ParserRoots,
     document: NodeId,
     errors: RefCell<Vec<String>>,
     quirks_mode: Cell<QuirksMode>,
@@ -312,6 +329,10 @@ impl OrynTreeSink {
             .expect("parser document")
             .document_metadata = Some(Box::new(crate::DocumentMetadata::html()));
         Self {
+            parser_roots: ParserRoots {
+                dom: dom.clone(),
+                nodes: RefCell::new(Vec::new()),
+            },
             dom,
             document,
             errors: RefCell::new(Vec::new()),
@@ -470,6 +491,8 @@ impl TreeSink for OrynTreeSink {
         let is_template = flags.template;
         let mut dom = self.dom.borrow_mut();
         let element = dom.create(NodeKind::Element { name });
+        dom.retain_native(element).expect("new parser element");
+        self.parser_roots.nodes.borrow_mut().push(element);
         for attribute in attrs {
             let qualified = attribute.name.prefix.as_ref().map_or_else(
                 || attribute.name.local.to_string(),
@@ -491,10 +514,10 @@ impl TreeSink for OrynTreeSink {
                 "link"
                     if node
                         .attributes
-                        .get("rel")
+                        .get_null("rel")
                         .is_some_and(|value| value.eq_ignore_ascii_case("stylesheet")) =>
                 {
-                    if let Some(href) = node.attributes.get("href") {
+                    if let Some(href) = node.attributes.get_null("href") {
                         self.events
                             .borrow_mut()
                             .push(ParserEvent::StylesheetDiscovered {
@@ -504,7 +527,7 @@ impl TreeSink for OrynTreeSink {
                     }
                 }
                 "iframe" => {
-                    if let Some(source) = node.attributes.get("src") {
+                    if let Some(source) = node.attributes.get_null("src") {
                         self.events.borrow_mut().push(ParserEvent::FrameDiscovered {
                             node: element,
                             source: source.clone(),
@@ -512,10 +535,10 @@ impl TreeSink for OrynTreeSink {
                     }
                 }
                 "meta" => {
-                    let content = node.attributes.get("content").cloned();
+                    let content = node.attributes.get_null("content").cloned();
                     if node
                         .attributes
-                        .get("http-equiv")
+                        .get_null("http-equiv")
                         .is_some_and(|value| value.eq_ignore_ascii_case("content-security-policy"))
                         && let Some(content) = content.clone()
                     {
@@ -525,7 +548,7 @@ impl TreeSink for OrynTreeSink {
                     }
                     if node
                         .attributes
-                        .get("name")
+                        .get_null("name")
                         .is_some_and(|value| value.eq_ignore_ascii_case("referrer"))
                         && let Some(content) = content
                     {
@@ -571,7 +594,7 @@ impl TreeSink for OrynTreeSink {
         }
         let script_type = node_record
             .attributes
-            .get("type")
+            .get_null("type")
             .map(String::as_str)
             .unwrap_or("");
         let scheduling = if script_type == "module" {
@@ -581,9 +604,9 @@ impl TreeSink for OrynTreeSink {
             "" | "text/javascript" | "application/javascript" | "text/babel"
         ) {
             ScriptScheduling::Data
-        } else if node_record.attributes.contains_key("async") {
+        } else if node_record.attributes.contains_null("async") {
             ScriptScheduling::Async
-        } else if node_record.attributes.contains_key("defer") {
+        } else if node_record.attributes.contains_null("defer") {
             ScriptScheduling::Defer
         } else {
             ScriptScheduling::Blocking
@@ -707,13 +730,19 @@ impl TreeSink for OrynTreeSink {
         self.flush_text();
         let mut dom = self.dom.borrow_mut();
         for attribute in attrs {
-            let name = attribute.name.local.to_string();
+            let local = attribute.name.local.to_string();
+            let namespace = (!attribute.name.ns.is_empty()).then(|| attribute.name.ns.to_string());
+            let name = attribute
+                .name
+                .prefix
+                .as_ref()
+                .map_or_else(|| local.clone(), |prefix| format!("{prefix}:{local}"));
             if dom
-                .attribute(*target, &name)
+                .attribute_ns(*target, namespace.as_deref(), &local)
                 .expect("element is live")
                 .is_none()
             {
-                dom.set_attribute(*target, name, attribute.value.to_string())
+                dom.set_attribute_ns(*target, namespace, name, attribute.value.to_string())
                     .expect("element is live");
             }
         }
@@ -754,15 +783,15 @@ mod tests {
         let svg = dom.find_by_id("svg").unwrap();
         let href = dom.attribute_node(svg, "xlink:href").unwrap().unwrap();
         assert!(matches!(&dom.arena().get(href).unwrap().kind,
-            NodeKind::Attribute { namespace: Some(namespace), prefix: Some(prefix), local_name, .. }
-                if namespace == "http://www.w3.org/1999/xlink" && prefix == "xlink" && local_name == "href"));
+            NodeKind::Attribute { data, .. }
+                if data.namespace.as_deref() == Some("http://www.w3.org/1999/xlink") && data.prefix.as_deref() == Some("xlink") && data.local_name == "href"));
         let (snapshot, _) = dom.snapshot();
         let mut other = DomRuntime::new();
         let imported = other.import_subtree(&snapshot, svg).unwrap();
         let lang = other.attribute_node(imported, "xml:lang").unwrap().unwrap();
         assert!(matches!(&other.arena().get(lang).unwrap().kind,
-            NodeKind::Attribute { namespace: Some(namespace), prefix: Some(prefix), local_name, value, .. }
-                if namespace == "http://www.w3.org/XML/1998/namespace" && prefix == "xml" && local_name == "lang" && value == "en"));
+            NodeKind::Attribute { data, .. }
+                if data.namespace.as_deref() == Some("http://www.w3.org/XML/1998/namespace") && data.prefix.as_deref() == Some("xml") && data.local_name == "lang" && data.value == "en"));
     }
 
     #[test]
@@ -895,7 +924,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(paragraphs.len(), 2);
         assert_eq!(
-            paragraphs[0].1.attributes.get("a").map(String::as_str),
+            paragraphs[0].1.attributes.get_null("a").map(String::as_str),
             Some("b")
         );
         assert!(parsed.dom.iter().any(|(_, node)| {
@@ -949,6 +978,27 @@ mod tests {
     }
 
     #[test]
+    fn parser_handles_survive_script_removal_until_parser_finishes() {
+        let dom = std::rc::Rc::new(RefCell::new(DomRuntime::new()));
+        let mut parser = StreamingParser::with_runtime(dom.clone());
+        parser.push("<!doctype html><body><div id='open'>");
+        let element = dom.borrow().find_by_id("open").unwrap();
+        {
+            let mut runtime = dom.borrow_mut();
+            runtime.remove(element).unwrap();
+            let mutations = runtime.drain_mutations();
+            runtime.release_mutation_roots(&mutations).unwrap();
+            assert!(runtime.arena().get(element).is_ok());
+        }
+        parser.push("<span>still parsing</span></div><p>connected</p>");
+        let _ = parser.finish();
+        let mut runtime = dom.borrow_mut();
+        let mutations = runtime.drain_mutations();
+        runtime.release_mutation_roots(&mutations).unwrap();
+        assert!(runtime.arena().get(element).is_err());
+    }
+
+    #[test]
     fn parser_pause_preserves_prior_resource_and_deferred_script_events() {
         let source = "<link rel=stylesheet href=app.css><script defer src=app.js></script><script>block()</script><p>after</p>";
         let mut parser = StreamingParser::new();
@@ -993,7 +1043,7 @@ mod tests {
                 .get(before)
                 .unwrap()
                 .attributes
-                .get("data-script"),
+                .get_null("data-script"),
             Some(&"ran".to_owned())
         );
         assert!(dom.borrow().find_by_id("after").is_some());

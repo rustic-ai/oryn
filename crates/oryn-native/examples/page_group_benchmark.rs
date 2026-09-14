@@ -211,7 +211,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .and_then(|value| value.parse().ok())
         .unwrap_or(8_usize)
-        .clamp(1, 16);
+        .clamp(1, 20);
     let http_listener = TcpListener::bind("127.0.0.1:0")?;
     let http_port = http_listener.local_addr()?.port();
     let websocket_listener = TcpListener::bind("127.0.0.1:0")?;

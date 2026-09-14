@@ -6,6 +6,7 @@ license = "MIT OR Apache-2.0"
 description = "Rust-owned live DOM and mutation journal for Oryn"
 
 [dependencies]
+icu_properties = "=2.1.2"
 markup5ever = "0.39"
 html5ever = "0.39"
 serde = { version = "1", features = ["derive"] }

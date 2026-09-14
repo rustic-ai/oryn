@@ -13,6 +13,40 @@ info_plist="$repo_root/sandbox/oryn-page-worker-Info.plist"
 identity="${ORYN_CODESIGN_IDENTITY:-}"
 expected_bundle_id="${ORYN_EXPECTED_BUNDLE_ID:-ai.rustic.oryn.page-worker}"
 expected_team_id="${ORYN_APPLE_TEAM_ID:-5HVA9VFF8K}"
+v8_profile_manifest="${ORYN_V8_PROFILE_MANIFEST:-}"
+
+if [[ -n "$v8_profile_manifest" ]]; then
+  if ! jq -e '
+    .schema_version == 1 and
+    (["rusty_v8_archive", "rusty_v8_archive_sha256", "src_binding_path",
+      "src_binding_sha256", "startup_snapshot", "startup_snapshot_sha256",
+      "icu_data", "icu_data_sha256"] - keys | length == 0)
+  ' "$v8_profile_manifest" >/dev/null; then
+    echo "ORYN_V8_PROFILE_MANIFEST is invalid or incomplete" >&2
+    exit 2
+  fi
+  verify_profile_artifact() {
+    local path_field="$1"
+    local hash_field="$2"
+    local artifact_path expected_hash actual_hash
+    artifact_path="$(jq -r --arg field "$path_field" '.[$field]' "$v8_profile_manifest")"
+    expected_hash="$(jq -r --arg field "$hash_field" '.[$field]' "$v8_profile_manifest")"
+    if [[ ! -f "$artifact_path" ]]; then
+      echo "V8 profile artifact does not exist: $artifact_path" >&2
+      exit 2
+    fi
+    actual_hash="$(shasum -a 256 "$artifact_path" | awk '{print $1}')"
+    if [[ "$actual_hash" != "$expected_hash" ]]; then
+      echo "V8 profile artifact hash mismatch: $artifact_path" >&2
+      exit 2
+    fi
+    printf '%s' "$artifact_path"
+  }
+  export RUSTY_V8_ARCHIVE="$(verify_profile_artifact rusty_v8_archive rusty_v8_archive_sha256)"
+  export RUSTY_V8_SRC_BINDING_PATH="$(verify_profile_artifact src_binding_path src_binding_sha256)"
+  export ORYN_STARTUP_SNAPSHOT="$(verify_profile_artifact startup_snapshot startup_snapshot_sha256)"
+  export ORYN_ICU_DATA_FINGERPRINT_PATH="$(verify_profile_artifact icu_data icu_data_sha256)"
+fi
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "App Sandbox worker signing is only available on macOS" >&2
@@ -38,7 +72,10 @@ cargo build --locked --release -p oryn-native --features v8-host,v8-sandbox,core
 mkdir -p "$app/Contents/MacOS" "$resources"
 cp "$worker" "$app_worker"
 cp "$info_plist" "$app/Contents/Info.plist"
-runtime="$($app_worker --runtime-info)"
+# The bundle is temporarily invalid after replacing a previously signed
+# executable. Read build metadata from the linker-signed build output; never
+# launch the replaced bundle until codesign has sealed it again below.
+runtime="$("$worker" --runtime-info)"
 worker_build_sha256="$(shasum -a 256 "$app_worker" | awk '{print $1}')"
 worker_build_bytes="$(wc -c < "$app_worker" | tr -d '[:space:]')"
 source_tree_sha256="$($repo_root/scripts/source-tree-hash.sh)"
@@ -74,7 +111,7 @@ jq -n \
     bundle_id: $bundle_id,
     team_id: $team_id,
     signing_cert_sha1: $signing_cert_sha1,
-    protocol_version: 8,
+    protocol_version: 9,
     v8_version: $v8_version,
     worker_build_sha256: $worker_build_sha256,
     worker_build_bytes: $worker_build_bytes,
@@ -194,7 +231,7 @@ if ! jq -e '
   .execution_mode == "sandboxed_worker" and
   .sandboxed == true and
   .sandbox_state == "app_sandbox" and
-  .worker_protocol_version == 8 and
+  .worker_protocol_version == 9 and
   .worker_bundle_id == "ai.rustic.oryn.page-worker" and
   .worker_team_id == "5HVA9VFF8K"
 ' <<<"$runtime_report" >/dev/null; then

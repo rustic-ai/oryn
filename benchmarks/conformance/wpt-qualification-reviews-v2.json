@@ -1,0 +1,132 @@
+{
+  "FileAPI/FileReader/progress_event_bubbles_cancelable.html|window|": {
+    "evidence_sha256": "ed226a4ab3afeb68819335ebe16cd4e6a65d93fc74cc0cf74fc6e0c6726a704e",
+    "source_files": {
+      "FileAPI/FileReader/progress_event_bubbles_cancelable.html": "52f52764bb2301d093e4fd781d95548316d2873fa86ba2ad3bf93c97d7add0c3"
+    },
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "expected_subtests": 1,
+    "fixture_audit": "Reviewed complete pinned HTML source. Only executable external dependencies are the two recorded preflight-verified harness scripts. The inline test constructs an in-memory Blob and FileReader; no dynamic scripts, frames, remote resources, origin topology, or server state. Author/help links are documentation, not runtime dependencies.",
+    "automation_audit": "No test_driver calls or privileged automation. One async_test completes via FileReader.onloadend; the recorded complete=true, harness=0 and exactly one terminal subtest match the source. Qualification is limited to this test's assertions, not all FileReader event ordering or delivery behavior."
+  },
+  "dom/abort/AbortSignal.any.js|dedicatedworker|": {
+    "evidence_sha256": "b279ed8950c3b84a0b53646b5ebccee7384f489d936fe9df8b4a3238c748f955",
+    "source_files": {
+      "dom/abort/AbortSignal.any.js": "64be009f125bb0111362b70540f752ae5a1b176746f9941380f48d1e66630c81"
+    },
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "expected_subtests": 2,
+    "fixture_audit": "Creates already-aborted signals in memory. No external resources, dynamic imports, frames or topology requirements; only generated wrapper and standard harness scripts.",
+    "automation_audit": "No privileged automation. One synchronous test plus one async test whose 2000 ms harness timer proves no abort event is fired; both complete with the two expected names."
+  },
+  "dom/abort/AbortSignal.any.js|window|": {
+    "evidence_sha256": "b279ed8950c3b84a0b53646b5ebccee7384f489d936fe9df8b4a3238c748f955",
+    "source_files": {
+      "dom/abort/AbortSignal.any.js": "64be009f125bb0111362b70540f752ae5a1b176746f9941380f48d1e66630c81"
+    },
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "expected_subtests": 2,
+    "fixture_audit": "Creates already-aborted signals in memory. No external resources, dynamic imports, frames or topology requirements; only generated wrapper and standard harness scripts.",
+    "automation_audit": "No privileged automation. One synchronous test plus one async test whose 2000 ms harness timer proves no abort event is fired; both complete with the two expected names."
+  },
+  "dom/nodes/Document-createCDATASection.html|window|": {
+    "evidence_sha256": "b279ed8950c3b84a0b53646b5ebccee7384f489d936fe9df8b4a3238c748f955",
+    "source_files": {
+      "dom/nodes/Document-createCDATASection.html": "41adebac1679cfddbe6564e5c76519e82e0f6c747e8354e82871e0c741c7ab6f"
+    },
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "expected_subtests": 1,
+    "fixture_audit": "HTML document with only the two standard harness scripts; help link is nonexecuting documentation. No dynamic resources or origin requirements.",
+    "automation_audit": "No automation. single_test assertion checks NotSupportedError from createCDATASection on this HTML document; exactly one terminal failure reports did not throw. This is an API-behavior failure, not fixture loading."
+  },
+  "fetch/api/request/forbidden-method.any.js|dedicatedworker|": {
+    "evidence_sha256": "b279ed8950c3b84a0b53646b5ebccee7384f489d936fe9df8b4a3238c748f955",
+    "source_files": {
+      "fetch/api/request/forbidden-method.any.js": "d531582e04abd1857c9de1e8b2b745f5899c7e855c1ac0dc6d2bf8c93d439044"
+    },
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "expected_subtests": 6,
+    "fixture_audit": "Constructs Request objects only; never calls fetch or sends traffic. Relative './' resolves against the ordinary generated wrapper URL. No extra scripts, fixtures or origin requirements.",
+    "automation_audit": "No automation. Six synchronous tests cover CONNECT/TRACE/TRACK in upper and lower case. All six finish and fail because Request construction does not throw TypeError."
+  },
+  "fetch/api/request/forbidden-method.any.js|window|": {
+    "evidence_sha256": "b279ed8950c3b84a0b53646b5ebccee7384f489d936fe9df8b4a3238c748f955",
+    "source_files": {
+      "fetch/api/request/forbidden-method.any.js": "d531582e04abd1857c9de1e8b2b745f5899c7e855c1ac0dc6d2bf8c93d439044"
+    },
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "expected_subtests": 6,
+    "fixture_audit": "Constructs Request objects only; never calls fetch or sends traffic. Relative './' resolves against the ordinary generated wrapper URL. No extra scripts, fixtures or origin requirements.",
+    "automation_audit": "No automation. Six synchronous tests cover CONNECT/TRACE/TRACK in upper and lower case. All six finish and fail because Request construction does not throw TypeError."
+  },
+  "xhr/abort-with-error.any.js|dedicatedworker|": {
+    "evidence_sha256": "b279ed8950c3b84a0b53646b5ebccee7384f489d936fe9df8b4a3238c748f955",
+    "source_files": {
+      "xhr/abort-with-error.any.js": "fe319fcfd28ffe3c64f165d110bc1d784987089f952239d59386b820ecd05943"
+    },
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "expected_subtests": 1,
+    "fixture_audit": "XHR opens an intentionally unsupported invalid-protocol URL then sends and aborts; no reachable server or network fixture is needed. Standard generated wrapper and harness are the only executable dependencies.",
+    "automation_audit": "No automation. One async_test completes through onabort. Recorded terminal pass matches that callback; this does not qualify general network-error or abort ordering behavior."
+  },
+  "xhr/abort-with-error.any.js|window|": {
+    "evidence_sha256": "b279ed8950c3b84a0b53646b5ebccee7384f489d936fe9df8b4a3238c748f955",
+    "source_files": {
+      "xhr/abort-with-error.any.js": "fe319fcfd28ffe3c64f165d110bc1d784987089f952239d59386b820ecd05943"
+    },
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "expected_subtests": 1,
+    "fixture_audit": "XHR opens an intentionally unsupported invalid-protocol URL then sends and aborts; no reachable server or network fixture is needed. Standard generated wrapper and harness are the only executable dependencies.",
+    "automation_audit": "No automation. One async_test completes through onabort. Recorded terminal pass matches that callback; this does not qualify general network-error or abort ordering behavior."
+  },
+  "xhr/formdata/constructor.any.js|dedicatedworker|": {
+    "evidence_sha256": "b279ed8950c3b84a0b53646b5ebccee7384f489d936fe9df8b4a3238c748f955",
+    "source_files": {
+      "xhr/formdata/constructor.any.js": "a49b4e2e5f194f35e5a3fb626ad0665b45d6a02d09fbb5185b2ba9d0e6f6c391"
+    },
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "expected_subtests": 1,
+    "fixture_audit": "Only in-memory FormData construction, without DOM forms, network, external helpers or origin dependencies.",
+    "automation_audit": "No automation. One synchronous test expects TypeError for null then string. The first null assertion fails and prevents the string assertion from executing; evidence proves only the null rejection gap."
+  },
+  "xhr/formdata/constructor.any.js|window|": {
+    "evidence_sha256": "b279ed8950c3b84a0b53646b5ebccee7384f489d936fe9df8b4a3238c748f955",
+    "source_files": {
+      "xhr/formdata/constructor.any.js": "a49b4e2e5f194f35e5a3fb626ad0665b45d6a02d09fbb5185b2ba9d0e6f6c391"
+    },
+    "verified_dependencies": [
+      "/resources/testharness.js",
+      "/resources/testharnessreport.js"
+    ],
+    "expected_subtests": 1,
+    "fixture_audit": "Only in-memory FormData construction, without DOM forms, network, external helpers or origin dependencies.",
+    "automation_audit": "No automation. One synchronous test expects TypeError for null then string. The first null assertion fails and prevents the string assertion from executing; evidence proves only the null rejection gap."
+  }
+}

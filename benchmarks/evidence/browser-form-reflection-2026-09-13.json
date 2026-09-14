@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "kind": "dirty_source_diagnostic",
+  "architecture_complete": false,
+  "release_qualified": false,
+  "source_tree_sha256": "75beb02d1175547d7b203f4163dccf73de43689c252f73706fc0ee64dc9969bc",
+  "parent_sha256": "30cbf3c58718b80e7628f77c30fd4622fd479c1c72fd6d922812a83b2c7af476",
+  "worker_build_sha256": "f7cfd78d70256aecd1919d2f78909cd9e278ec1fdc8cf1c13c50f6f8348c0df3",
+  "worker_signed_sha256": "97e04b16567fef850d0cb5a3660cf75751d08e9b4e80ca5279020170cd87fd90",
+  "code_directory_hash": "8d7ca57a30671303149f41f94fdb3395e3ed5ef5",
+  "protocol_version": 9,
+  "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+  "bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+  "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+  "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+  "sandbox_denial_checks_passed": true,
+  "native_tests": {
+    "passed": 451,
+    "failed": 0,
+    "ignored": 6,
+    "seconds": 642.38
+  },
+  "js_tests": {
+    "passed": 254,
+    "failed": 0,
+    "ignored": 3
+  },
+  "runner_unit_tests": {
+    "passed": 39,
+    "failed": 0,
+    "skipped": 3
+  },
+  "format_check_passed": true,
+  "generated_webidl_check_passed": true,
+  "library_clippy_warnings_denied_passed": true,
+  "linux_compile": {
+    "target": "aarch64-unknown-linux-gnu",
+    "command": "cargo check --locked --release -p oryn-native --no-default-features",
+    "passed": true,
+    "seconds": 5.57,
+    "archive_sha256": "5d8dae14cce2c8ccf025e6de7c78ccef5b1cd23e4279d08369f8383749d4685b",
+    "scope": "Compile only; no V8 or Linux runtime qualification; pool modes disabled."
+  },
+  "runs": [
+    {
+      "path": "/private/tmp/oryn-reflection-formdata-20260913.json",
+      "sha256": "378c97957a74e8dca63c2582547d59d345369562b495fce91e1fa7a10f70bb64",
+      "selected": 18,
+      "passed": 18,
+      "environment_blocked": 0,
+      "seconds": 11.5
+    },
+    {
+      "path": "/private/tmp/oryn-reflection-submission-20260913.json",
+      "sha256": "05fdba6a23477e252d538e3167db9b1d56395214e8d4b9144fdabb79d85989ee",
+      "selected": 35,
+      "passed": 18,
+      "environment_blocked": 0,
+      "seconds": 48.4
+    }
+  ],
+  "file_level_comparison": {
+    "previous": "browser-image-corrected-2026-09-13.json",
+    "submission_passed_before": 11,
+    "submission_passed_after": 18,
+    "pass_to_failure": 0,
+    "fail_to_pass": [
+      "form-data-set-empty-file.window.js",
+      "form-double-submit-3.html",
+      "form-double-submit-input-type-change.html",
+      "form-double-submit-to-different-origin-frame.html",
+      "form-double-submit.html",
+      "form-submit-action.html",
+      "jsurl-navigation-then-form-submit.html"
+    ]
+  },
+  "note": "Selected window/default executions, not all upstream variants or a full baseline. Form and submitter reflection, checked string conversion, HTMLBaseElement binding, base target fallback/sanitization, and post-handler activation type repair. Full architecture, R3 family completion and clean-source qualification remain open. No subtest-level monotonicity claim."
+}

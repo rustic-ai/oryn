@@ -1,0 +1,2468 @@
+{
+  "initial_inventory_by_tier": {
+    "core": {
+      "executions": 11485,
+      "files": 9266
+    },
+    "extended": {
+      "executions": 37,
+      "files": 28
+    },
+    "necessary": {
+      "executions": 5320,
+      "files": 3414
+    },
+    "platform_dependent": {
+      "executions": 0,
+      "files": 0
+    }
+  },
+  "initial_inventory_sha256": "40fc2b33a3011b0190ac7a52cdd60bc66319a62f55a8b6ebcff7ebf662529fe8",
+  "policy_sha256": "716c40e54aa61f1f29c1485dca35ef94228845aea736baffaf74ac9f3cc4afef",
+  "qualification": "Complete Git source-tree map, not a complete runnable WPT manifest or measured result. Initial inventory is a subset; source counts include support and reference files.",
+  "roots": {
+    "FileAPI": {
+      "initial_inventory_executions": 102,
+      "initial_inventory_files": 66,
+      "source_files_by_tier": {
+        "necessary": 115
+      },
+      "tracked_source_files": 115,
+      "unclassified_source_files": 0
+    },
+    "IndexedDB": {
+      "initial_inventory_executions": 456,
+      "initial_inventory_files": 228,
+      "source_files_by_tier": {
+        "necessary": 246
+      },
+      "tracked_source_files": 246,
+      "unclassified_source_files": 0
+    },
+    "WebCryptoAPI": {
+      "initial_inventory_executions": 315,
+      "initial_inventory_files": 126,
+      "source_files_by_tier": {
+        "necessary": 202
+      },
+      "tracked_source_files": 202,
+      "unclassified_source_files": 0
+    },
+    "accelerometer": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 19
+      },
+      "tracked_source_files": 19,
+      "unclassified_source_files": 0
+    },
+    "accessibility": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 59
+      },
+      "tracked_source_files": 59,
+      "unclassified_source_files": 59
+    },
+    "accname": {
+      "initial_inventory_executions": 19,
+      "initial_inventory_files": 19,
+      "source_files_by_tier": {
+        "core": 183
+      },
+      "tracked_source_files": 183,
+      "unclassified_source_files": 0
+    },
+    "acid": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 32
+      },
+      "tracked_source_files": 32,
+      "unclassified_source_files": 32
+    },
+    "ai": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 174
+      },
+      "tracked_source_files": 174,
+      "unclassified_source_files": 174
+    },
+    "ambient-light": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 16
+      },
+      "tracked_source_files": 16,
+      "unclassified_source_files": 0
+    },
+    "animation-worklet": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 50
+      },
+      "tracked_source_files": 50,
+      "unclassified_source_files": 50
+    },
+    "annotation-model": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 290
+      },
+      "tracked_source_files": 290,
+      "unclassified_source_files": 290
+    },
+    "annotation-protocol": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 58
+      },
+      "tracked_source_files": 58,
+      "unclassified_source_files": 58
+    },
+    "annotation-vocab": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 10
+      },
+      "tracked_source_files": 10,
+      "unclassified_source_files": 10
+    },
+    "apng": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "appmanifest": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 261
+      },
+      "tracked_source_files": 261,
+      "unclassified_source_files": 261
+    },
+    "audio-output": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 12
+      },
+      "tracked_source_files": 12,
+      "unclassified_source_files": 12
+    },
+    "audio-session": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 3
+    },
+    "autoplay-policy-detection": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "avif": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 7
+      },
+      "tracked_source_files": 7,
+      "unclassified_source_files": 7
+    },
+    "background-fetch": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 20
+      },
+      "tracked_source_files": 20,
+      "unclassified_source_files": 20
+    },
+    "background-sync": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "badging": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 9
+      },
+      "tracked_source_files": 9,
+      "unclassified_source_files": 9
+    },
+    "battery-status": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 30
+      },
+      "tracked_source_files": 30,
+      "unclassified_source_files": 30
+    },
+    "beacon": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 24
+      },
+      "tracked_source_files": 24,
+      "unclassified_source_files": 0
+    },
+    "bluetooth": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 187
+      },
+      "tracked_source_files": 187,
+      "unclassified_source_files": 0
+    },
+    "captured-mouse-events": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 6
+      },
+      "tracked_source_files": 6,
+      "unclassified_source_files": 6
+    },
+    "clear-site-data": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 28
+      },
+      "tracked_source_files": 28,
+      "unclassified_source_files": 28
+    },
+    "client-hints": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 276
+      },
+      "tracked_source_files": 276,
+      "unclassified_source_files": 276
+    },
+    "clipboard-apis": {
+      "initial_inventory_executions": 60,
+      "initial_inventory_files": 57,
+      "source_files_by_tier": {
+        "necessary": 78
+      },
+      "tracked_source_files": 78,
+      "unclassified_source_files": 0
+    },
+    "close-watcher": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 55
+      },
+      "tracked_source_files": 55,
+      "unclassified_source_files": 55
+    },
+    "compat": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 56
+      },
+      "tracked_source_files": 56,
+      "unclassified_source_files": 56
+    },
+    "compression": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 29
+      },
+      "tracked_source_files": 29,
+      "unclassified_source_files": 0
+    },
+    "compute-pressure": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 37
+      },
+      "tracked_source_files": 37,
+      "unclassified_source_files": 37
+    },
+    "conformance-checkers": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4429
+      },
+      "tracked_source_files": 4429,
+      "unclassified_source_files": 4429
+    },
+    "connection-allowlist": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 210
+      },
+      "tracked_source_files": 210,
+      "unclassified_source_files": 210
+    },
+    "console": {
+      "initial_inventory_executions": 19,
+      "initial_inventory_files": 12,
+      "source_files_by_tier": {
+        "necessary": 16
+      },
+      "tracked_source_files": 16,
+      "unclassified_source_files": 0
+    },
+    "contacts": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 5
+      },
+      "tracked_source_files": 5,
+      "unclassified_source_files": 0
+    },
+    "container-timing": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 31
+      },
+      "tracked_source_files": 31,
+      "unclassified_source_files": 31
+    },
+    "content-dpr": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 15
+      },
+      "tracked_source_files": 15,
+      "unclassified_source_files": 15
+    },
+    "content-index": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 6
+      },
+      "tracked_source_files": 6,
+      "unclassified_source_files": 6
+    },
+    "content-security-policy": {
+      "initial_inventory_executions": 882,
+      "initial_inventory_files": 869,
+      "source_files_by_tier": {
+        "core": 1365
+      },
+      "tracked_source_files": 1365,
+      "unclassified_source_files": 0
+    },
+    "contenteditable": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 7
+      },
+      "tracked_source_files": 7,
+      "unclassified_source_files": 0
+    },
+    "cookies": {
+      "initial_inventory_executions": 100,
+      "initial_inventory_files": 100,
+      "source_files_by_tier": {
+        "core": 171
+      },
+      "tracked_source_files": 171,
+      "unclassified_source_files": 0
+    },
+    "cookiestore": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 65
+      },
+      "tracked_source_files": 65,
+      "unclassified_source_files": 0
+    },
+    "core-aam": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 290
+      },
+      "tracked_source_files": 290,
+      "unclassified_source_files": 290
+    },
+    "cors": {
+      "initial_inventory_executions": 27,
+      "initial_inventory_files": 26,
+      "source_files_by_tier": {
+        "core": 45
+      },
+      "tracked_source_files": 45,
+      "unclassified_source_files": 0
+    },
+    "cpu-performance": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 2
+    },
+    "credential-management": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 21
+      },
+      "tracked_source_files": 21,
+      "unclassified_source_files": 21
+    },
+    "css": {
+      "initial_inventory_executions": 564,
+      "initial_inventory_files": 550,
+      "source_files_by_tier": {
+        "core": 1444,
+        "necessary": 53763
+      },
+      "tracked_source_files": 55207,
+      "unclassified_source_files": 0
+    },
+    "cssom": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 0
+    },
+    "custom-elements": {
+      "initial_inventory_executions": 179,
+      "initial_inventory_files": 179,
+      "source_files_by_tier": {
+        "core": 213
+      },
+      "tracked_source_files": 213,
+      "unclassified_source_files": 0
+    },
+    "delegated-ink": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 6
+      },
+      "tracked_source_files": 6,
+      "unclassified_source_files": 6
+    },
+    "density-size-correction": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 44
+      },
+      "tracked_source_files": 44,
+      "unclassified_source_files": 44
+    },
+    "deprecation-reporting": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 3
+    },
+    "device-bound-session-credentials": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 50
+      },
+      "tracked_source_files": 50,
+      "unclassified_source_files": 50
+    },
+    "device-memory": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "device-posture": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 8
+      },
+      "tracked_source_files": 8,
+      "unclassified_source_files": 8
+    },
+    "digital-credentials": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 48
+      },
+      "tracked_source_files": 48,
+      "unclassified_source_files": 0
+    },
+    "direct-sockets": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 8
+      },
+      "tracked_source_files": 8,
+      "unclassified_source_files": 8
+    },
+    "document-picture-in-picture": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 28
+      },
+      "tracked_source_files": 28,
+      "unclassified_source_files": 28
+    },
+    "document-policy": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 27
+      },
+      "tracked_source_files": 27,
+      "unclassified_source_files": 27
+    },
+    "dom": {
+      "initial_inventory_executions": 662,
+      "initial_inventory_files": 600,
+      "source_files_by_tier": {
+        "core": 819
+      },
+      "tracked_source_files": 819,
+      "unclassified_source_files": 0
+    },
+    "domparsing": {
+      "initial_inventory_executions": 62,
+      "initial_inventory_files": 62,
+      "source_files_by_tier": {
+        "core": 83
+      },
+      "tracked_source_files": 83,
+      "unclassified_source_files": 0
+    },
+    "domxpath": {
+      "initial_inventory_executions": 32,
+      "initial_inventory_files": 32,
+      "source_files_by_tier": {
+        "core": 41
+      },
+      "tracked_source_files": 41,
+      "unclassified_source_files": 0
+    },
+    "dpub-aam": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 43
+      },
+      "tracked_source_files": 43,
+      "unclassified_source_files": 43
+    },
+    "dpub-aria": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "ecmascript": {
+      "initial_inventory_executions": 2,
+      "initial_inventory_files": 2,
+      "source_files_by_tier": {
+        "extended": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 3
+    },
+    "editing": {
+      "initial_inventory_executions": 704,
+      "initial_inventory_files": 183,
+      "source_files_by_tier": {
+        "necessary": 391
+      },
+      "tracked_source_files": 391,
+      "unclassified_source_files": 0
+    },
+    "element-timing": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 69
+      },
+      "tracked_source_files": 69,
+      "unclassified_source_files": 69
+    },
+    "encoding": {
+      "initial_inventory_executions": 1308,
+      "initial_inventory_files": 151,
+      "source_files_by_tier": {
+        "core": 340
+      },
+      "tracked_source_files": 340,
+      "unclassified_source_files": 0
+    },
+    "encoding-detection": {
+      "initial_inventory_executions": 75,
+      "initial_inventory_files": 75,
+      "source_files_by_tier": {
+        "core": 108
+      },
+      "tracked_source_files": 108,
+      "unclassified_source_files": 0
+    },
+    "encrypted-media": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 173
+      },
+      "tracked_source_files": 173,
+      "unclassified_source_files": 173
+    },
+    "entries-api": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 30
+      },
+      "tracked_source_files": 30,
+      "unclassified_source_files": 30
+    },
+    "event-timing": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 77
+      },
+      "tracked_source_files": 77,
+      "unclassified_source_files": 77
+    },
+    "eventsource": {
+      "initial_inventory_executions": 96,
+      "initial_inventory_files": 62,
+      "source_files_by_tier": {
+        "necessary": 95
+      },
+      "tracked_source_files": 95,
+      "unclassified_source_files": 0
+    },
+    "eyedropper": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 7
+      },
+      "tracked_source_files": 7,
+      "unclassified_source_files": 7
+    },
+    "fedcm": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 191
+      },
+      "tracked_source_files": 191,
+      "unclassified_source_files": 191
+    },
+    "fenced-frame": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 306
+      },
+      "tracked_source_files": 306,
+      "unclassified_source_files": 306
+    },
+    "fetch": {
+      "initial_inventory_executions": 718,
+      "initial_inventory_files": 514,
+      "source_files_by_tier": {
+        "core": 1045
+      },
+      "tracked_source_files": 1045,
+      "unclassified_source_files": 0
+    },
+    "file-system-access": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 42
+      },
+      "tracked_source_files": 42,
+      "unclassified_source_files": 42
+    },
+    "focus": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "core": 115
+      },
+      "tracked_source_files": 115,
+      "unclassified_source_files": 0
+    },
+    "font-access": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 20
+      },
+      "tracked_source_files": 20,
+      "unclassified_source_files": 20
+    },
+    "forced-colors-mode": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 117
+      },
+      "tracked_source_files": 117,
+      "unclassified_source_files": 117
+    },
+    "fs": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 89
+      },
+      "tracked_source_files": 89,
+      "unclassified_source_files": 89
+    },
+    "fullscreen": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 110
+      },
+      "tracked_source_files": 110,
+      "unclassified_source_files": 110
+    },
+    "gamepad": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 16
+      },
+      "tracked_source_files": 16,
+      "unclassified_source_files": 0
+    },
+    "generic-sensor": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 10
+      },
+      "tracked_source_files": 10,
+      "unclassified_source_files": 0
+    },
+    "geolocation": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 28
+      },
+      "tracked_source_files": 28,
+      "unclassified_source_files": 0
+    },
+    "geolocation-sensor": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 0
+    },
+    "gif": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "gpc": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 9
+      },
+      "tracked_source_files": 9,
+      "unclassified_source_files": 9
+    },
+    "graphics-aam": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 7
+      },
+      "tracked_source_files": 7,
+      "unclassified_source_files": 7
+    },
+    "graphics-aria": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 2
+    },
+    "gyroscope": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 16
+      },
+      "tracked_source_files": 16,
+      "unclassified_source_files": 0
+    },
+    "hr-time": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 27
+      },
+      "tracked_source_files": 27,
+      "unclassified_source_files": 0
+    },
+    "hsts": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "html": {
+      "initial_inventory_executions": 4638,
+      "initial_inventory_files": 4061,
+      "source_files_by_tier": {
+        "core": 7758,
+        "necessary": 6622
+      },
+      "tracked_source_files": 14380,
+      "unclassified_source_files": 0
+    },
+    "html-aam": {
+      "initial_inventory_executions": 16,
+      "initial_inventory_files": 16,
+      "source_files_by_tier": {
+        "core": 18
+      },
+      "tracked_source_files": 18,
+      "unclassified_source_files": 0
+    },
+    "html-longdesc": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 32
+      },
+      "tracked_source_files": 32,
+      "unclassified_source_files": 32
+    },
+    "html-media-capture": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 18
+      },
+      "tracked_source_files": 18,
+      "unclassified_source_files": 18
+    },
+    "html-ruby-extensions": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 194
+      },
+      "tracked_source_files": 194,
+      "unclassified_source_files": 194
+    },
+    "https-upgrades": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 9
+      },
+      "tracked_source_files": 9,
+      "unclassified_source_files": 9
+    },
+    "idle-detection": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 20
+      },
+      "tracked_source_files": 20,
+      "unclassified_source_files": 20
+    },
+    "imagebitmap-renderingcontext": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 16
+      },
+      "tracked_source_files": 16,
+      "unclassified_source_files": 16
+    },
+    "import-maps": {
+      "initial_inventory_executions": 57,
+      "initial_inventory_files": 47,
+      "source_files_by_tier": {
+        "core": 93
+      },
+      "tracked_source_files": 93,
+      "unclassified_source_files": 0
+    },
+    "inert": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "core": 32
+      },
+      "tracked_source_files": 32,
+      "unclassified_source_files": 0
+    },
+    "input-device-capabilities": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 2
+    },
+    "input-events": {
+      "initial_inventory_executions": 33,
+      "initial_inventory_files": 26,
+      "source_files_by_tier": {
+        "core": 29
+      },
+      "tracked_source_files": 29,
+      "unclassified_source_files": 0
+    },
+    "installedapp": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 5
+      },
+      "tracked_source_files": 5,
+      "unclassified_source_files": 5
+    },
+    "intersection-observer": {
+      "initial_inventory_executions": 147,
+      "initial_inventory_files": 147,
+      "source_files_by_tier": {
+        "necessary": 174
+      },
+      "tracked_source_files": 174,
+      "unclassified_source_files": 0
+    },
+    "intervention-reporting": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 2
+    },
+    "is-input-pending": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 18
+      },
+      "tracked_source_files": 18,
+      "unclassified_source_files": 18
+    },
+    "jpegxl": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 184
+      },
+      "tracked_source_files": 184,
+      "unclassified_source_files": 184
+    },
+    "js": {
+      "initial_inventory_executions": 35,
+      "initial_inventory_files": 26,
+      "source_files_by_tier": {
+        "extended": 32
+      },
+      "tracked_source_files": 32,
+      "unclassified_source_files": 32
+    },
+    "js-self-profiling": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 42
+      },
+      "tracked_source_files": 42,
+      "unclassified_source_files": 42
+    },
+    "keyboard-lock": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 10
+      },
+      "tracked_source_files": 10,
+      "unclassified_source_files": 10
+    },
+    "keyboard-map": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 12
+      },
+      "tracked_source_files": 12,
+      "unclassified_source_files": 12
+    },
+    "largest-contentful-paint": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 82
+      },
+      "tracked_source_files": 82,
+      "unclassified_source_files": 82
+    },
+    "layout-instability": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 87
+      },
+      "tracked_source_files": 87,
+      "unclassified_source_files": 87
+    },
+    "loading": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 118
+      },
+      "tracked_source_files": 118,
+      "unclassified_source_files": 0
+    },
+    "long-animation-frame": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 61
+      },
+      "tracked_source_files": 61,
+      "unclassified_source_files": 61
+    },
+    "longtask-timing": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 29
+      },
+      "tracked_source_files": 29,
+      "unclassified_source_files": 29
+    },
+    "magnetometer": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 16
+      },
+      "tracked_source_files": 16,
+      "unclassified_source_files": 0
+    },
+    "managed": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "mathml": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 898
+      },
+      "tracked_source_files": 898,
+      "unclassified_source_files": 898
+    },
+    "measure-memory": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 51
+      },
+      "tracked_source_files": 51,
+      "unclassified_source_files": 51
+    },
+    "media": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 40
+      },
+      "tracked_source_files": 40,
+      "unclassified_source_files": 40
+    },
+    "media-capabilities": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 10
+      },
+      "tracked_source_files": 10,
+      "unclassified_source_files": 10
+    },
+    "media-playback-quality": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 3
+    },
+    "media-source": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 159
+      },
+      "tracked_source_files": 159,
+      "unclassified_source_files": 159
+    },
+    "mediacapture-extensions": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 6
+      },
+      "tracked_source_files": 6,
+      "unclassified_source_files": 6
+    },
+    "mediacapture-fromelement": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 14
+      },
+      "tracked_source_files": 14,
+      "unclassified_source_files": 14
+    },
+    "mediacapture-handle": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 1
+      },
+      "tracked_source_files": 1,
+      "unclassified_source_files": 1
+    },
+    "mediacapture-image": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 26
+      },
+      "tracked_source_files": 26,
+      "unclassified_source_files": 26
+    },
+    "mediacapture-insertable-streams": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 24
+      },
+      "tracked_source_files": 24,
+      "unclassified_source_files": 24
+    },
+    "mediacapture-record": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 26
+      },
+      "tracked_source_files": 26,
+      "unclassified_source_files": 26
+    },
+    "mediacapture-region": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 2
+    },
+    "mediacapture-streams": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 72
+      },
+      "tracked_source_files": 72,
+      "unclassified_source_files": 0
+    },
+    "mediasession": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 14
+      },
+      "tracked_source_files": 14,
+      "unclassified_source_files": 14
+    },
+    "merchant-validation": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 5
+      },
+      "tracked_source_files": 5,
+      "unclassified_source_files": 5
+    },
+    "mimesniff": {
+      "initial_inventory_executions": 7,
+      "initial_inventory_files": 6,
+      "source_files_by_tier": {
+        "core": 34
+      },
+      "tracked_source_files": 34,
+      "unclassified_source_files": 0
+    },
+    "mixed-content": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "core": 532
+      },
+      "tracked_source_files": 532,
+      "unclassified_source_files": 0
+    },
+    "mst-content-hint": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 5
+      },
+      "tracked_source_files": 5,
+      "unclassified_source_files": 5
+    },
+    "nav-tracking-mitigations": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 10
+      },
+      "tracked_source_files": 10,
+      "unclassified_source_files": 10
+    },
+    "navigation-api": {
+      "initial_inventory_executions": 485,
+      "initial_inventory_files": 455,
+      "source_files_by_tier": {
+        "necessary": 496
+      },
+      "tracked_source_files": 496,
+      "unclassified_source_files": 0
+    },
+    "navigation-timing": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 82
+      },
+      "tracked_source_files": 82,
+      "unclassified_source_files": 0
+    },
+    "netinfo": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "network-error-logging": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 29
+      },
+      "tracked_source_files": 29,
+      "unclassified_source_files": 29
+    },
+    "notifications": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 55
+      },
+      "tracked_source_files": 55,
+      "unclassified_source_files": 55
+    },
+    "old-tests": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 20
+      },
+      "tracked_source_files": 20,
+      "unclassified_source_files": 20
+    },
+    "orientation-event": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 40
+      },
+      "tracked_source_files": 40,
+      "unclassified_source_files": 40
+    },
+    "orientation-sensor": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 26
+      },
+      "tracked_source_files": 26,
+      "unclassified_source_files": 0
+    },
+    "page-lifecycle": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 16
+      },
+      "tracked_source_files": 16,
+      "unclassified_source_files": 0
+    },
+    "page-visibility": {
+      "initial_inventory_executions": 11,
+      "initial_inventory_files": 11,
+      "source_files_by_tier": {
+        "necessary": 23
+      },
+      "tracked_source_files": 23,
+      "unclassified_source_files": 0
+    },
+    "paint-timing": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 64
+      },
+      "tracked_source_files": 64,
+      "unclassified_source_files": 64
+    },
+    "payment-method-basic-card": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 7
+      },
+      "tracked_source_files": 7,
+      "unclassified_source_files": 7
+    },
+    "payment-method-id": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 3
+    },
+    "payment-method-manifest": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 18
+      },
+      "tracked_source_files": 18,
+      "unclassified_source_files": 18
+    },
+    "payment-request": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 76
+      },
+      "tracked_source_files": 76,
+      "unclassified_source_files": 0
+    },
+    "performance-timeline": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 70
+      },
+      "tracked_source_files": 70,
+      "unclassified_source_files": 0
+    },
+    "periodic-background-sync": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 5
+      },
+      "tracked_source_files": 5,
+      "unclassified_source_files": 5
+    },
+    "permissions": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 18
+      },
+      "tracked_source_files": 18,
+      "unclassified_source_files": 18
+    },
+    "permissions-policy": {
+      "initial_inventory_executions": 116,
+      "initial_inventory_files": 110,
+      "source_files_by_tier": {
+        "necessary": 248
+      },
+      "tracked_source_files": 248,
+      "unclassified_source_files": 0
+    },
+    "permissions-request": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 2
+    },
+    "permissions-revoke": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 2
+    },
+    "picture-in-picture": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 24
+      },
+      "tracked_source_files": 24,
+      "unclassified_source_files": 24
+    },
+    "png": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 113
+      },
+      "tracked_source_files": 113,
+      "unclassified_source_files": 113
+    },
+    "pointerevents": {
+      "initial_inventory_executions": 259,
+      "initial_inventory_files": 185,
+      "source_files_by_tier": {
+        "necessary": 214
+      },
+      "tracked_source_files": 214,
+      "unclassified_source_files": 0
+    },
+    "pointerlock": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 29
+      },
+      "tracked_source_files": 29,
+      "unclassified_source_files": 29
+    },
+    "preload": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 134
+      },
+      "tracked_source_files": 134,
+      "unclassified_source_files": 0
+    },
+    "presentation-api": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 61
+      },
+      "tracked_source_files": 61,
+      "unclassified_source_files": 61
+    },
+    "print": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 2
+    },
+    "private-click-measurement": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 2
+      },
+      "tracked_source_files": 2,
+      "unclassified_source_files": 2
+    },
+    "proximity": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 5
+      },
+      "tracked_source_files": 5,
+      "unclassified_source_files": 5
+    },
+    "push-api": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 22
+      },
+      "tracked_source_files": 22,
+      "unclassified_source_files": 22
+    },
+    "quirks": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 72
+      },
+      "tracked_source_files": 72,
+      "unclassified_source_files": 72
+    },
+    "referrer-policy": {
+      "initial_inventory_executions": 1391,
+      "initial_inventory_files": 1391,
+      "source_files_by_tier": {
+        "core": 1739
+      },
+      "tracked_source_files": 1739,
+      "unclassified_source_files": 0
+    },
+    "remote-playback": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 23
+      },
+      "tracked_source_files": 23,
+      "unclassified_source_files": 23
+    },
+    "reporting": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 60
+      },
+      "tracked_source_files": 60,
+      "unclassified_source_files": 60
+    },
+    "requestidlecallback": {
+      "initial_inventory_executions": 20,
+      "initial_inventory_files": 20,
+      "source_files_by_tier": {
+        "necessary": 25
+      },
+      "tracked_source_files": 25,
+      "unclassified_source_files": 0
+    },
+    "resize-observer": {
+      "initial_inventory_executions": 34,
+      "initial_inventory_files": 34,
+      "source_files_by_tier": {
+        "necessary": 49
+      },
+      "tracked_source_files": 49,
+      "unclassified_source_files": 0
+    },
+    "resource-timing": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 287
+      },
+      "tracked_source_files": 287,
+      "unclassified_source_files": 0
+    },
+    "sanitizer-api": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 38
+      },
+      "tracked_source_files": 38,
+      "unclassified_source_files": 38
+    },
+    "savedata": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 3
+    },
+    "scheduler": {
+      "initial_inventory_executions": 70,
+      "initial_inventory_files": 39,
+      "source_files_by_tier": {
+        "necessary": 43
+      },
+      "tracked_source_files": 43,
+      "unclassified_source_files": 0
+    },
+    "screen-capture": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 18
+      },
+      "tracked_source_files": 18,
+      "unclassified_source_files": 0
+    },
+    "screen-details": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 5
+      },
+      "tracked_source_files": 5,
+      "unclassified_source_files": 5
+    },
+    "screen-orientation": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 23
+      },
+      "tracked_source_files": 23,
+      "unclassified_source_files": 23
+    },
+    "screen-wake-lock": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 24
+      },
+      "tracked_source_files": 24,
+      "unclassified_source_files": 24
+    },
+    "scroll-animations": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 291
+      },
+      "tracked_source_files": 291,
+      "unclassified_source_files": 291
+    },
+    "scroll-performance-timing": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 1
+      },
+      "tracked_source_files": 1,
+      "unclassified_source_files": 1
+    },
+    "scroll-to-text-fragment": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 64
+      },
+      "tracked_source_files": 64,
+      "unclassified_source_files": 64
+    },
+    "secure-contexts": {
+      "initial_inventory_executions": 8,
+      "initial_inventory_files": 8,
+      "source_files_by_tier": {
+        "core": 21
+      },
+      "tracked_source_files": 21,
+      "unclassified_source_files": 0
+    },
+    "secure-payment-confirmation": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 28
+      },
+      "tracked_source_files": 28,
+      "unclassified_source_files": 28
+    },
+    "selection": {
+      "initial_inventory_executions": 132,
+      "initial_inventory_files": 122,
+      "source_files_by_tier": {
+        "core": 201
+      },
+      "tracked_source_files": 201,
+      "unclassified_source_files": 0
+    },
+    "serial": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 28
+      },
+      "tracked_source_files": 28,
+      "unclassified_source_files": 0
+    },
+    "server-timing": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 193
+      },
+      "tracked_source_files": 193,
+      "unclassified_source_files": 193
+    },
+    "service-workers": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 801
+      },
+      "tracked_source_files": 801,
+      "unclassified_source_files": 0
+    },
+    "shadow-dom": {
+      "initial_inventory_executions": 275,
+      "initial_inventory_files": 275,
+      "source_files_by_tier": {
+        "core": 392
+      },
+      "tracked_source_files": 392,
+      "unclassified_source_files": 0
+    },
+    "shape-detection": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 66
+      },
+      "tracked_source_files": 66,
+      "unclassified_source_files": 66
+    },
+    "signed-exchange": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 129
+      },
+      "tracked_source_files": 129,
+      "unclassified_source_files": 129
+    },
+    "soft-navigation-heuristics": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 103
+      },
+      "tracked_source_files": 103,
+      "unclassified_source_files": 103
+    },
+    "speculation-rules": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 412
+      },
+      "tracked_source_files": 412,
+      "unclassified_source_files": 412
+    },
+    "speech-api": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 27
+      },
+      "tracked_source_files": 27,
+      "unclassified_source_files": 27
+    },
+    "storage": {
+      "initial_inventory_executions": 43,
+      "initial_inventory_files": 26,
+      "source_files_by_tier": {
+        "necessary": 42
+      },
+      "tracked_source_files": 42,
+      "unclassified_source_files": 0
+    },
+    "storage-access-api": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 75
+      },
+      "tracked_source_files": 75,
+      "unclassified_source_files": 0
+    },
+    "streams": {
+      "initial_inventory_executions": 164,
+      "initial_inventory_files": 90,
+      "source_files_by_tier": {
+        "necessary": 122
+      },
+      "tracked_source_files": 122,
+      "unclassified_source_files": 0
+    },
+    "subapps": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 11
+      },
+      "tracked_source_files": 11,
+      "unclassified_source_files": 11
+    },
+    "subresource-integrity": {
+      "initial_inventory_executions": 36,
+      "initial_inventory_files": 23,
+      "source_files_by_tier": {
+        "necessary": 43
+      },
+      "tracked_source_files": 43,
+      "unclassified_source_files": 0
+    },
+    "svg": {
+      "initial_inventory_executions": 213,
+      "initial_inventory_files": 213,
+      "source_files_by_tier": {
+        "necessary": 2253
+      },
+      "tracked_source_files": 2253,
+      "unclassified_source_files": 0
+    },
+    "svg-aam": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 8
+      },
+      "tracked_source_files": 8,
+      "unclassified_source_files": 8
+    },
+    "timing-entrytypes-registry": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "top-level-storage-access-api": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 8
+      },
+      "tracked_source_files": 8,
+      "unclassified_source_files": 8
+    },
+    "touch-events": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 20
+      },
+      "tracked_source_files": 20,
+      "unclassified_source_files": 0
+    },
+    "trust-tokens": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 5
+      },
+      "tracked_source_files": 5,
+      "unclassified_source_files": 5
+    },
+    "trusted-types": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 338
+      },
+      "tracked_source_files": 338,
+      "unclassified_source_files": 0
+    },
+    "ua-client-hints": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "uievents": {
+      "initial_inventory_executions": 71,
+      "initial_inventory_files": 66,
+      "source_files_by_tier": {
+        "core": 147
+      },
+      "tracked_source_files": 147,
+      "unclassified_source_files": 0
+    },
+    "upgrade-insecure-requests": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "core": 253
+      },
+      "tracked_source_files": 253,
+      "unclassified_source_files": 0
+    },
+    "url": {
+      "initial_inventory_executions": 72,
+      "initial_inventory_files": 32,
+      "source_files_by_tier": {
+        "core": 49
+      },
+      "tracked_source_files": 49,
+      "unclassified_source_files": 0
+    },
+    "urlpattern": {
+      "initial_inventory_executions": 16,
+      "initial_inventory_files": 9,
+      "source_files_by_tier": {
+        "necessary": 17
+      },
+      "tracked_source_files": 17,
+      "unclassified_source_files": 0
+    },
+    "user-timing": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 43
+      },
+      "tracked_source_files": 43,
+      "unclassified_source_files": 0
+    },
+    "vibration": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 16
+      },
+      "tracked_source_files": 16,
+      "unclassified_source_files": 16
+    },
+    "video-rvfc": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 11
+      },
+      "tracked_source_files": 11,
+      "unclassified_source_files": 11
+    },
+    "viewport": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 3
+    },
+    "viewport-segments": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 6
+      },
+      "tracked_source_files": 6,
+      "unclassified_source_files": 6
+    },
+    "virtual-keyboard": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 9
+      },
+      "tracked_source_files": 9,
+      "unclassified_source_files": 9
+    },
+    "visual-viewport": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 33
+      },
+      "tracked_source_files": 33,
+      "unclassified_source_files": 33
+    },
+    "wai-aria": {
+      "initial_inventory_executions": 32,
+      "initial_inventory_files": 32,
+      "source_files_by_tier": {
+        "core": 273
+      },
+      "tracked_source_files": 273,
+      "unclassified_source_files": 0
+    },
+    "wasm": {
+      "initial_inventory_executions": 510,
+      "initial_inventory_files": 410,
+      "source_files_by_tier": {
+        "necessary": 836
+      },
+      "tracked_source_files": 836,
+      "unclassified_source_files": 0
+    },
+    "web-animations": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 237
+      },
+      "tracked_source_files": 237,
+      "unclassified_source_files": 0
+    },
+    "web-based-payment-handler": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 39
+      },
+      "tracked_source_files": 39,
+      "unclassified_source_files": 39
+    },
+    "web-bundle": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 116
+      },
+      "tracked_source_files": 116,
+      "unclassified_source_files": 116
+    },
+    "web-extensions": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 19
+      },
+      "tracked_source_files": 19,
+      "unclassified_source_files": 19
+    },
+    "web-install": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 6
+      },
+      "tracked_source_files": 6,
+      "unclassified_source_files": 6
+    },
+    "web-locks": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 48
+      },
+      "tracked_source_files": 48,
+      "unclassified_source_files": 0
+    },
+    "web-nfc": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 20
+      },
+      "tracked_source_files": 20,
+      "unclassified_source_files": 0
+    },
+    "web-otp": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 3
+    },
+    "web-share": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 36
+      },
+      "tracked_source_files": 36,
+      "unclassified_source_files": 36
+    },
+    "webaudio": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 424
+      },
+      "tracked_source_files": 424,
+      "unclassified_source_files": 424
+    },
+    "webauthn": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 60
+      },
+      "tracked_source_files": 60,
+      "unclassified_source_files": 0
+    },
+    "webcodecs": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 140
+      },
+      "tracked_source_files": 140,
+      "unclassified_source_files": 140
+    },
+    "webdriver": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 946
+      },
+      "tracked_source_files": 946,
+      "unclassified_source_files": 946
+    },
+    "webgl": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 12
+      },
+      "tracked_source_files": 12,
+      "unclassified_source_files": 12
+    },
+    "webgpu": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 4
+      },
+      "tracked_source_files": 4,
+      "unclassified_source_files": 4
+    },
+    "webhid": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 11
+      },
+      "tracked_source_files": 11,
+      "unclassified_source_files": 0
+    },
+    "webidl": {
+      "initial_inventory_executions": 58,
+      "initial_inventory_files": 45,
+      "source_files_by_tier": {
+        "core": 51
+      },
+      "tracked_source_files": 51,
+      "unclassified_source_files": 0
+    },
+    "webmcp": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 74
+      },
+      "tracked_source_files": 74,
+      "unclassified_source_files": 74
+    },
+    "webmessaging": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "core": 171
+      },
+      "tracked_source_files": 171,
+      "unclassified_source_files": 0
+    },
+    "webmidi": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 0
+    },
+    "webnn": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 196
+      },
+      "tracked_source_files": 196,
+      "unclassified_source_files": 196
+    },
+    "webrtc": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 260
+      },
+      "tracked_source_files": 260,
+      "unclassified_source_files": 260
+    },
+    "webrtc-encoded-transform": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 61
+      },
+      "tracked_source_files": 61,
+      "unclassified_source_files": 61
+    },
+    "webrtc-extensions": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 13
+      },
+      "tracked_source_files": 13,
+      "unclassified_source_files": 13
+    },
+    "webrtc-ice": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 3
+    },
+    "webrtc-identity": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 6
+      },
+      "tracked_source_files": 6,
+      "unclassified_source_files": 6
+    },
+    "webrtc-priority": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 3
+      },
+      "tracked_source_files": 3,
+      "unclassified_source_files": 3
+    },
+    "webrtc-stats": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 12
+      },
+      "tracked_source_files": 12,
+      "unclassified_source_files": 12
+    },
+    "webrtc-svc": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 7
+      },
+      "tracked_source_files": 7,
+      "unclassified_source_files": 7
+    },
+    "websockets": {
+      "initial_inventory_executions": 736,
+      "initial_inventory_files": 212,
+      "source_files_by_tier": {
+        "necessary": 268
+      },
+      "tracked_source_files": 268,
+      "unclassified_source_files": 0
+    },
+    "webstorage": {
+      "initial_inventory_executions": 54,
+      "initial_inventory_files": 54,
+      "source_files_by_tier": {
+        "core": 85
+      },
+      "tracked_source_files": 85,
+      "unclassified_source_files": 0
+    },
+    "webtransport": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 49
+      },
+      "tracked_source_files": 49,
+      "unclassified_source_files": 49
+    },
+    "webusb": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 52
+      },
+      "tracked_source_files": 52,
+      "unclassified_source_files": 0
+    },
+    "webvtt": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 821
+      },
+      "tracked_source_files": 821,
+      "unclassified_source_files": 821
+    },
+    "webxr": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "platform_dependent": 200
+      },
+      "tracked_source_files": 200,
+      "unclassified_source_files": 0
+    },
+    "window-management": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "extended": 9
+      },
+      "tracked_source_files": 9,
+      "unclassified_source_files": 9
+    },
+    "workers": {
+      "initial_inventory_executions": 293,
+      "initial_inventory_files": 281,
+      "source_files_by_tier": {
+        "necessary": 606
+      },
+      "tracked_source_files": 606,
+      "unclassified_source_files": 0
+    },
+    "worklets": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "necessary": 57
+      },
+      "tracked_source_files": 57,
+      "unclassified_source_files": 0
+    },
+    "x-frame-options": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "core": 12
+      },
+      "tracked_source_files": 12,
+      "unclassified_source_files": 0
+    },
+    "xhr": {
+      "initial_inventory_executions": 428,
+      "initial_inventory_files": 323,
+      "source_files_by_tier": {
+        "core": 444
+      },
+      "tracked_source_files": 444,
+      "unclassified_source_files": 0
+    },
+    "xml": {
+      "initial_inventory_executions": 0,
+      "initial_inventory_files": 0,
+      "source_files_by_tier": {
+        "core": 38
+      },
+      "tracked_source_files": 38,
+      "unclassified_source_files": 0
+    }
+  },
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

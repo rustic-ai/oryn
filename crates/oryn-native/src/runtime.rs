@@ -66,7 +66,6 @@ static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
 static NEXT_CSP_REPORT_REQUEST_ID: AtomicU64 = AtomicU64::new(1_u64 << 61);
 #[cfg(feature = "v8-host")]
 static NEXT_PAINT_IMAGE_REQUEST_ID: AtomicU64 = AtomicU64::new(1_u64 << 60);
-static NEXT_OPAQUE_ORIGIN_ID: AtomicU64 = AtomicU64::new(1);
 const NETWORK_IDLE_QUIET_PERIOD: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
@@ -191,39 +190,14 @@ impl Drop for NavigationBodyChunks {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum SecurityOrigin {
-    Tuple(String),
-    Opaque(u64),
-}
-
-impl SecurityOrigin {
-    fn from_url(url: &str) -> Self {
-        Url::parse(url)
-            .map(|url| Self::Tuple(url.origin().ascii_serialization()))
-            .unwrap_or_else(|_| Self::opaque())
-    }
-
-    fn opaque() -> Self {
-        Self::Opaque(NEXT_OPAQUE_ORIGIN_ID.fetch_add(1, Ordering::Relaxed))
-    }
-
-    fn serialize(&self) -> String {
-        match self {
-            Self::Tuple(value) => value.clone(),
-            Self::Opaque(_) => "null".into(),
-        }
-    }
-
-    fn is_opaque(&self) -> bool {
-        matches!(self, Self::Opaque(_))
-    }
-}
+use oryn_js::origin::Origin as SecurityOrigin;
 
 #[derive(Debug, Clone)]
 pub struct Browser {
     config: BrowserConfig,
     worker_process: bool,
+    #[cfg(unix)]
+    worker_pool: Arc<WorkerPool>,
 }
 
 #[derive(Clone)]
@@ -236,6 +210,10 @@ struct BrowserContextInner {
     config: BrowserConfig,
     broker: Option<SharedNetworkBroker>,
     worker_process: bool,
+    auxiliary_workers_on_demand: bool,
+    workers_retired: std::sync::atomic::AtomicBool,
+    #[cfg(unix)]
+    worker_pool: Arc<WorkerPool>,
     options: ContextOptions,
     group: ContextGroup,
     store: SharedContextStore,
@@ -301,6 +279,160 @@ struct WorkerPage {
     pending: AtomicUsize,
     context_wakeups: AtomicUsize,
     process_id: AtomicU32,
+    worker_pool: Arc<WorkerPool>,
+}
+
+#[cfg(unix)]
+struct WorkerPool {
+    lifecycle: WorkerLifecycle,
+    idle: Mutex<Vec<crate::worker_client::WorkerClient>>,
+    live: AtomicUsize,
+}
+
+#[cfg(unix)]
+impl std::fmt::Debug for WorkerPool {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("WorkerPool")
+            .field("lifecycle", &self.lifecycle)
+            .field("live", &self.live.load(Ordering::Acquire))
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(unix)]
+impl WorkerPool {
+    fn new(lifecycle: WorkerLifecycle) -> Self {
+        Self {
+            lifecycle,
+            idle: Mutex::new(Vec::new()),
+            live: AtomicUsize::new(0),
+        }
+    }
+
+    fn checkout(
+        &self,
+        config: &BrowserConfig,
+        context: &ContextOptions,
+        page_id: PageId,
+        opener_page_id: Option<PageId>,
+        context_owner: BrowserContext,
+    ) -> Result<crate::worker_client::WorkerClient, RuntimeError> {
+        let mut idle = self
+            .idle
+            .lock()
+            .map_err(|_| RuntimeError::WorkerCrashed("worker pool lock poisoned".into()))?;
+        if let Some(mut client) = idle.pop() {
+            drop(idle);
+            if let Err(error) =
+                client.rebind(config, context, page_id, opener_page_id, context_owner)
+            {
+                self.live.fetch_sub(1, Ordering::AcqRel);
+                return Err(error);
+            }
+            return Ok(client);
+        }
+        let capacity = match self.lifecycle {
+            WorkerLifecycle::IsolatedPrewarmed { capacity }
+            | WorkerLifecycle::Recycled { capacity, .. } => capacity,
+            WorkerLifecycle::IsolatedOnDemand => usize::MAX,
+        };
+        self.live
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |live| {
+                (live < capacity).then_some(live + 1)
+            })
+            .map_err(|_| RuntimeError::WorkerLimitExceeded {
+                resource: "worker pool capacity".into(),
+            })?;
+        // Keep the empty-idle check and reservation atomic with prepare().
+        // Otherwise prepare can fill the pool between them and checkout can
+        // report exhaustion while a prepared worker is actually available.
+        drop(idle);
+        match crate::worker_client::WorkerClient::spawn(
+            config,
+            context,
+            page_id,
+            opener_page_id,
+            context_owner,
+        ) {
+            Ok(client) => Ok(client),
+            Err(error) => {
+                self.live.fetch_sub(1, Ordering::AcqRel);
+                Err(error)
+            }
+        }
+    }
+
+    fn prepare(&self, config: &BrowserConfig) -> Result<(), RuntimeError> {
+        let capacity = match self.lifecycle {
+            WorkerLifecycle::IsolatedPrewarmed { capacity }
+            | WorkerLifecycle::Recycled { capacity, .. } => capacity,
+            WorkerLifecycle::IsolatedOnDemand => return Ok(()),
+        };
+        // Publish prepared workers atomically with respect to checkout. A
+        // reserved-but-not-yet-ready worker must not cause false exhaustion.
+        let mut idle = self
+            .idle
+            .lock()
+            .map_err(|_| RuntimeError::WorkerCrashed("worker pool lock poisoned".into()))?;
+        while self.live.load(Ordering::Acquire) < capacity {
+            if self
+                .live
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |live| {
+                    (live < capacity).then_some(live + 1)
+                })
+                .is_err()
+            {
+                break;
+            }
+            let owner = Browser::in_process_with_config(BrowserConfig {
+                worker_lifecycle: WorkerLifecycle::IsolatedOnDemand,
+                ..config.clone()
+            })
+            .new_context();
+            let mut worker = match crate::worker_client::WorkerClient::spawn(
+                config,
+                &ContextOptions::default(),
+                PageId::LEGACY,
+                None,
+                owner,
+            ) {
+                Ok(worker) => worker,
+                Err(error) => {
+                    self.live.fetch_sub(1, Ordering::AcqRel);
+                    return Err(error);
+                }
+            };
+            if let Err(error) = worker.reset() {
+                self.live.fetch_sub(1, Ordering::AcqRel);
+                return Err(error);
+            }
+            worker.mark_prepared();
+            idle.push(worker);
+        }
+        Ok(())
+    }
+
+    fn recycle(&self, client: crate::worker_client::WorkerClient) {
+        let max_leases = match self.lifecycle {
+            WorkerLifecycle::Recycled { max_leases, .. } => max_leases,
+            _ => 0,
+        };
+        if client.leases() >= max_leases {
+            self.live.fetch_sub(1, Ordering::AcqRel);
+            return;
+        }
+        if let Ok(mut idle) = self.idle.lock() {
+            idle.push(client);
+        } else {
+            self.live.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+
+    fn discard(&self, client: crate::worker_client::WorkerClient) {
+        drop(client);
+        self.live.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -632,6 +764,13 @@ impl WorkerPage {
             .client
             .lock()
             .map_err(|_| RuntimeError::WorkerCrashed("worker client lock poisoned".into()))?;
+        if self
+            .context
+            .upgrade()
+            .is_none_or(|context| context.workers_retired.load(Ordering::Acquire))
+        {
+            return Err(RuntimeError::Closed);
+        }
         if client.is_none() {
             let mut config = self.config.clone();
             config.document_generation_base =
@@ -641,13 +780,26 @@ impl WorkerPage {
                 .upgrade()
                 .map(|inner| BrowserContext { inner })
                 .ok_or(RuntimeError::Closed)?;
-            let spawned = crate::worker_client::WorkerClient::spawn(
-                &config,
-                &self.options,
-                self.page_id,
-                self.opener_page_id,
-                context_owner,
-            )?;
+            let spawned = if matches!(
+                config.worker_lifecycle,
+                WorkerLifecycle::IsolatedPrewarmed { .. } | WorkerLifecycle::Recycled { .. }
+            ) {
+                self.worker_pool.checkout(
+                    &config,
+                    &self.options,
+                    self.page_id,
+                    self.opener_page_id,
+                    context_owner,
+                )?
+            } else {
+                crate::worker_client::WorkerClient::spawn(
+                    &config,
+                    &self.options,
+                    self.page_id,
+                    self.opener_page_id,
+                    context_owner,
+                )?
+            };
             self.process_id
                 .store(spawned.process_id(), Ordering::Release);
             *client = Some(spawned);
@@ -656,6 +808,26 @@ impl WorkerPage {
                     .group
                     .worker_started(self.page_id, config.document_generation_base);
             }
+        }
+        // Retirement may race a launch whose PID was not yet available to
+        // interrupt_inflight. Do not send a page command after that launch.
+        if self
+            .context
+            .upgrade()
+            .is_none_or(|context| context.workers_retired.load(Ordering::Acquire))
+        {
+            if let Some(active) = client.take() {
+                if matches!(
+                    self.config.worker_lifecycle,
+                    WorkerLifecycle::IsolatedPrewarmed { .. } | WorkerLifecycle::Recycled { .. }
+                ) {
+                    self.worker_pool.discard(active);
+                } else {
+                    drop(active);
+                }
+            }
+            self.process_id.store(0, Ordering::Release);
+            return Err(RuntimeError::Closed);
         }
         let result = client
             .as_mut()
@@ -667,10 +839,68 @@ impl WorkerPage {
                 | RuntimeError::WorkerLimitExceeded { .. }
                 | RuntimeError::ProtocolViolation(_))
         ) {
-            *client = None;
+            let pooled = matches!(
+                self.config.worker_lifecycle,
+                WorkerLifecycle::IsolatedPrewarmed { .. } | WorkerLifecycle::Recycled { .. }
+            );
+            match (client.take(), pooled) {
+                (Some(failed), true) => self.worker_pool.discard(failed),
+                (Some(failed), false) => drop(failed),
+                (None, _) => {}
+            }
             self.process_id.store(0, Ordering::Release);
         }
         result
+    }
+
+    fn retire(&self) {
+        self.interrupt_inflight();
+        let mut client = self
+            .client
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(active) = client.take() {
+            if matches!(
+                self.config.worker_lifecycle,
+                WorkerLifecycle::IsolatedPrewarmed { .. } | WorkerLifecycle::Recycled { .. }
+            ) {
+                self.worker_pool.discard(active);
+            } else {
+                drop(active);
+            }
+        }
+        self.process_id.store(0, Ordering::Release);
+    }
+
+    fn close(&self) -> Result<crate::worker::WorkerResponse, RuntimeError> {
+        let mut client = self
+            .client
+            .lock()
+            .map_err(|_| RuntimeError::WorkerCrashed("worker client lock poisoned".into()))?;
+        let Some(mut active) = client.take() else {
+            return Ok(crate::worker::WorkerResponse::Closed);
+        };
+        self.process_id.store(0, Ordering::Release);
+        if matches!(
+            self.config.worker_lifecycle,
+            WorkerLifecycle::Recycled { .. }
+        ) {
+            if let Err(error) = active.reset() {
+                self.worker_pool.discard(active);
+                return Err(error);
+            }
+            self.worker_pool.recycle(active);
+            return Ok(crate::worker::WorkerResponse::Closed);
+        }
+        let response = active.request(crate::worker::WorkerRequest::Close);
+        if matches!(
+            self.config.worker_lifecycle,
+            WorkerLifecycle::IsolatedPrewarmed { .. }
+        ) {
+            self.worker_pool.discard(active);
+            self.worker_pool.prepare(&self.config)?;
+        }
+        response
     }
 }
 
@@ -678,6 +908,8 @@ impl WorkerPage {
 pub struct BrowserConfig {
     #[serde(default)]
     pub runtime_profile: RuntimeProfile,
+    #[serde(default)]
+    pub worker_lifecycle: WorkerLifecycle,
     pub worker_queue_capacity: usize,
     pub request_timeout: Duration,
     pub max_response_bytes: usize,
@@ -709,6 +941,7 @@ impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
             runtime_profile: RuntimeProfile::compiled(),
+            worker_lifecycle: WorkerLifecycle::default(),
             worker_queue_capacity: 32,
             request_timeout: Duration::from_secs(30),
             max_response_bytes: 16 * 1024 * 1024,
@@ -730,6 +963,96 @@ impl Default for BrowserConfig {
             max_resource_cache_bytes: 32 * 1024 * 1024,
             max_resource_cache_entry_bytes: 8 * 1024 * 1024,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum WorkerLifecycle {
+    #[default]
+    IsolatedOnDemand,
+    IsolatedPrewarmed {
+        capacity: usize,
+    },
+    Recycled {
+        capacity: usize,
+        max_leases: usize,
+    },
+}
+
+impl WorkerLifecycle {
+    pub fn validate(self) -> Result<(), RuntimeError> {
+        let capacity = match self {
+            Self::IsolatedOnDemand => return Ok(()),
+            Self::IsolatedPrewarmed { capacity } | Self::Recycled { capacity, .. } => capacity,
+        };
+        if !(1..=16).contains(&capacity) {
+            return Err(RuntimeError::ProtocolViolation(
+                "worker pool capacity must be between 1 and 16".into(),
+            ));
+        }
+        if let Self::Recycled { max_leases, .. } = self
+            && !(1..=1024).contains(&max_leases)
+        {
+            return Err(RuntimeError::ProtocolViolation(
+                "recycled worker max_leases must be between 1 and 1024".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::IsolatedOnDemand => "isolated_on_demand",
+            Self::IsolatedPrewarmed { .. } => "isolated_prewarmed",
+            Self::Recycled { .. } => "recycled",
+        }
+    }
+}
+
+#[cfg(test)]
+mod worker_lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn validates_pool_bounds() {
+        assert!(WorkerLifecycle::IsolatedOnDemand.validate().is_ok());
+        assert!(
+            WorkerLifecycle::IsolatedPrewarmed { capacity: 1 }
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            WorkerLifecycle::IsolatedPrewarmed { capacity: 16 }
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            WorkerLifecycle::IsolatedPrewarmed { capacity: 0 }
+                .validate()
+                .is_err()
+        );
+        assert!(
+            WorkerLifecycle::IsolatedPrewarmed { capacity: 17 }
+                .validate()
+                .is_err()
+        );
+        assert!(
+            WorkerLifecycle::Recycled {
+                capacity: 2,
+                max_leases: 1024,
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            WorkerLifecycle::Recycled {
+                capacity: 2,
+                max_leases: 0,
+            }
+            .validate()
+            .is_err()
+        );
     }
 }
 
@@ -923,6 +1246,12 @@ enum PageCommand {
         url: String,
         reply: oneshot::Sender<Result<NavigationResult, RuntimeError>>,
     },
+    GotoResource {
+        url: String,
+        post: Option<oryn_js::navigation::PostResource>,
+        referrer_policy: Option<String>,
+        reply: oneshot::Sender<Result<NavigationResult, RuntimeError>>,
+    },
     Back {
         reply: oneshot::Sender<Result<NavigationResult, RuntimeError>>,
     },
@@ -1033,7 +1362,9 @@ enum PageCommand {
         files: Vec<crate::upload::UploadFile>,
         reply: oneshot::Sender<Result<ActionResult, RuntimeError>>,
     },
-    Close,
+    Close {
+        reply: oneshot::Sender<()>,
+    },
 }
 
 impl Browser {
@@ -1042,18 +1373,59 @@ impl Browser {
     }
 
     pub fn with_config(config: BrowserConfig) -> Self {
+        #[cfg(unix)]
+        let worker_pool = Arc::new(WorkerPool::new(config.worker_lifecycle));
         Self {
             config,
             worker_process: uses_worker_process(),
+            #[cfg(unix)]
+            worker_pool,
         }
+    }
+
+    pub fn try_with_config(config: BrowserConfig) -> Result<Self, RuntimeError> {
+        config.worker_lifecycle.validate()?;
+        #[cfg(target_os = "linux")]
+        if !matches!(config.worker_lifecycle, WorkerLifecycle::IsolatedOnDemand) {
+            return Err(RuntimeError::SandboxUnavailable(
+                "worker pools are currently available only on macOS".into(),
+            ));
+        }
+        Ok(Self::with_config(config))
+    }
+
+    pub fn prepare_workers(&self) -> Result<(), RuntimeError> {
+        self.config.worker_lifecycle.validate()?;
+        if !self.worker_process
+            || matches!(
+                self.config.worker_lifecycle,
+                WorkerLifecycle::IsolatedOnDemand
+            )
+        {
+            return Ok(());
+        }
+        #[cfg(unix)]
+        {
+            crate::worker_client::prepare_worker_verification()?;
+            self.worker_pool.prepare(&self.config)?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        Err(RuntimeError::SandboxUnavailable(
+            "worker pools require a Unix worker process".into(),
+        ))
     }
 
     /// In-process construction is crate-private: only the page worker owns a
     /// production V8/DOM runtime.
     pub(crate) fn in_process_with_config(config: BrowserConfig) -> Self {
+        #[cfg(unix)]
+        let worker_pool = Arc::new(WorkerPool::new(WorkerLifecycle::IsolatedOnDemand));
         Self {
             config,
             worker_process: false,
+            #[cfg(unix)]
+            worker_pool,
         }
     }
 
@@ -1076,6 +1448,28 @@ impl Browser {
             None,
             crate::replay::NetworkReplayController::live(),
         )
+    }
+
+    /// Opt-in parent HTTP evidence; no response bodies or credential headers retained.
+    pub fn new_audited_context(&self, options: ContextOptions) -> BrowserContext {
+        let context = self.new_context_with_options(options);
+        if let Some(broker) = &context.inner.broker {
+            broker.resource_audit().enable(context.id());
+        }
+        context
+    }
+
+    /// Diagnostic fixture contexts reserve the configured pool for primary
+    /// pages. Popups remain isolated, but cannot starve other fixture slots.
+    pub fn new_audited_context_with_isolated_auxiliaries(
+        &self,
+        options: ContextOptions,
+    ) -> BrowserContext {
+        let mut context = self.new_audited_context(options);
+        Arc::get_mut(&mut context.inner)
+            .expect("new context has one owner")
+            .auxiliary_workers_on_demand = true;
+        context
     }
 
     pub fn new_recording_context(
@@ -1449,6 +1843,10 @@ impl Browser {
                 config: self.config.clone(),
                 broker,
                 worker_process: self.worker_process,
+                auxiliary_workers_on_demand: false,
+                workers_retired: std::sync::atomic::AtomicBool::new(false),
+                #[cfg(unix)]
+                worker_pool: self.worker_pool.clone(),
                 options,
                 group: ContextGroup::new(),
                 store,
@@ -1494,6 +1892,10 @@ impl Browser {
                 config: self.config.clone(),
                 broker: Some(broker),
                 worker_process: false,
+                auxiliary_workers_on_demand: false,
+                workers_retired: std::sync::atomic::AtomicBool::new(false),
+                #[cfg(unix)]
+                worker_pool: self.worker_pool.clone(),
                 options,
                 group: ContextGroup::new(),
                 store: SharedContextStore::memory(self.config.storage_limits),
@@ -1539,6 +1941,9 @@ impl Browser {
                 config: self.config.clone(),
                 broker: Some(broker),
                 worker_process: false,
+                auxiliary_workers_on_demand: false,
+                workers_retired: std::sync::atomic::AtomicBool::new(false),
+                worker_pool: self.worker_pool.clone(),
                 options,
                 group: ContextGroup::new(),
                 store: SharedContextStore::memory(self.config.storage_limits),
@@ -1606,6 +2011,42 @@ impl BrowserContext {
 
     pub fn replayed_network_exchanges(&self) -> usize {
         self.inner.network_replay.consumed()
+    }
+
+    pub fn resource_audit_snapshot(&self) -> Option<crate::resource_audit::ResourceSnapshot> {
+        self.inner
+            .broker
+            .as_ref()
+            .map(|broker| broker.resource_audit().snapshot())
+    }
+
+    /// Permanently retire every worker, including logically closed/crashed pages.
+    /// Unlike ordinary page close, diagnostic teardown must also drain workers
+    /// left behind by background navigation or a cancelled request future.
+    pub async fn retire_workers(&self) -> Result<(), RuntimeError> {
+        self.inner.workers_retired.store(true, Ordering::Release);
+        #[cfg(unix)]
+        {
+            let workers: Vec<_> = self
+                .inner
+                .group
+                .pages
+                .lock()
+                .expect("page group lock")
+                .values()
+                .filter_map(|record| record.handle.worker.clone())
+                .collect();
+            tokio::task::spawn_blocking(move || {
+                for worker in workers {
+                    worker.retire();
+                }
+            })
+            .await
+            .map_err(|error| {
+                RuntimeError::WorkerCrashed(format!("worker retirement failed: {error}"))
+            })?;
+        }
+        Ok(())
     }
 
     pub async fn trace_archive(
@@ -2936,6 +3377,17 @@ impl BrowserContext {
         page_id: PageId,
         url: String,
     ) -> Result<(), RuntimeError> {
+        self.queue_resource_navigation(page_id, url, None, None)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn queue_resource_navigation(
+        &self,
+        page_id: PageId,
+        url: String,
+        post: Option<oryn_js::navigation::PostResource>,
+        referrer_policy: Option<String>,
+    ) -> Result<(), RuntimeError> {
         let page = self
             .inner
             .group
@@ -2946,7 +3398,7 @@ impl BrowserContext {
                 .enable_all()
                 .build()
             {
-                let _ = runtime.block_on(page.goto(url));
+                let _ = runtime.block_on(page.goto_resource(url, post, referrer_policy));
             }
         });
         Ok(())
@@ -3048,6 +3500,10 @@ impl BrowserContext {
         }
         #[cfg(unix)]
         if self.inner.worker_process {
+            let mut worker_config = self.inner.config.clone();
+            if opener_page_id.is_some() && self.inner.auxiliary_workers_on_demand {
+                worker_config.worker_lifecycle = WorkerLifecycle::IsolatedOnDemand;
+            }
             let handle = PageHandle {
                 id: page_id.0,
                 opener_page_id,
@@ -3059,11 +3515,12 @@ impl BrowserContext {
                     opener_page_id,
                     context: Arc::downgrade(&self.inner),
                     client: std::sync::Mutex::new(None),
-                    config: self.inner.config.clone(),
+                    config: worker_config,
                     options: self.inner.options.clone(),
                     pending: AtomicUsize::new(0),
                     context_wakeups: AtomicUsize::new(0),
                     process_id: AtomicU32::new(0),
+                    worker_pool: self.inner.worker_pool.clone(),
                 })),
             };
             self.inner.group.register(
@@ -3173,6 +3630,19 @@ impl BrowserContext {
                     }
                     PageCommand::Goto { url, reply } => {
                         let _ = reply.send(state.navigate(url, HistoryUpdate::Push));
+                    }
+                    PageCommand::GotoResource {
+                        url,
+                        post,
+                        referrer_policy,
+                        reply,
+                    } => {
+                        let _ = reply.send(state.navigate_resource(
+                            url,
+                            HistoryUpdate::Push,
+                            post,
+                            referrer_policy,
+                        ));
                     }
                     PageCommand::Back { reply } => {
                         let _ = reply.send(state.traverse_history(-1));
@@ -3302,7 +3772,15 @@ impl BrowserContext {
                     } => {
                         let _ = reply.send(state.set_files(target, files));
                     }
-                    PageCommand::Close => break,
+                    PageCommand::Close { reply } => {
+                        // ResetReady must mean the isolate, retained history,
+                        // timers and page services are destroyed, not merely
+                        // that their destruction has been queued.
+                        drop(state);
+                        drop(receiver);
+                        let _ = reply.send(());
+                        return;
+                    }
                 }
             }
         });
@@ -3522,7 +4000,35 @@ impl PageHandle {
         url: impl Into<String>,
         confirmation: Option<ConfirmationToken>,
     ) -> Result<NavigationResult, RuntimeError> {
-        let url = url.into();
+        self.goto_resource_authorized(url.into(), confirmation, None, None)
+            .await
+    }
+
+    pub(crate) async fn goto_resource(
+        &self,
+        url: String,
+        post: Option<oryn_js::navigation::PostResource>,
+        referrer_policy: Option<String>,
+    ) -> Result<NavigationResult, RuntimeError> {
+        self.goto_resource_authorized(url, None, post, referrer_policy)
+            .await
+    }
+
+    async fn goto_resource_authorized(
+        &self,
+        url: String,
+        confirmation: Option<ConfirmationToken>,
+        post: Option<oryn_js::navigation::PostResource>,
+        referrer_policy: Option<String>,
+    ) -> Result<NavigationResult, RuntimeError> {
+        if post
+            .as_ref()
+            .is_some_and(|resource| Url::parse(&url).map_or(true, |url| !resource.valid_for(&url)))
+        {
+            return Err(RuntimeError::ProtocolViolation(
+                "invalid navigation POST resource".into(),
+            ));
+        }
         #[cfg(unix)]
         let mut granted_context = None;
         if let Some(context) = self.context.upgrade() {
@@ -3555,14 +4061,31 @@ impl PageHandle {
         let outcome = async {
             #[cfg(unix)]
             if let Some(response) = self
-                .worker_request(crate::worker::WorkerRequest::Goto { url: url.clone() })
+                .worker_request(if post.is_some() || referrer_policy.is_some() {
+                    crate::worker::WorkerRequest::GotoResource {
+                        url: url.clone(),
+                        post: post.clone(),
+                        referrer_policy: referrer_policy.clone(),
+                    }
+                } else {
+                    crate::worker::WorkerRequest::Goto { url: url.clone() }
+                })
                 .await
             {
                 return worker_navigation(response?);
             }
             let (reply, response) = oneshot::channel();
             self.local_sender()?
-                .send(PageCommand::Goto { url, reply })
+                .send(if post.is_some() || referrer_policy.is_some() {
+                    PageCommand::GotoResource {
+                        url,
+                        post,
+                        referrer_policy,
+                        reply,
+                    }
+                } else {
+                    PageCommand::Goto { url, reply }
+                })
                 .await
                 .map_err(|_| RuntimeError::Closed)?;
             response.await.map_err(|_| RuntimeError::Closed)?
@@ -3710,6 +4233,31 @@ impl PageHandle {
             .await
             .map_err(|_| RuntimeError::Closed)?;
         response.await.map_err(|_| RuntimeError::Closed)?
+    }
+
+    /// Execute a bounded OIL action batch inside one worker IPC lease.
+    pub async fn execute_oil_batch(
+        &self,
+        input: impl Into<String>,
+    ) -> Result<Vec<crate::oil::NativeOilOutput>, RuntimeError> {
+        let input = input.into();
+        #[cfg(unix)]
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::Oil {
+                input: input.clone(),
+            })
+            .await
+        {
+            return match response? {
+                crate::worker::WorkerResponse::Oil { outputs } => Ok(outputs),
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let mut session = crate::oil::NativeOilSession::new(self.retained_clone());
+        session
+            .execute(&input)
+            .await
+            .map_err(|error| RuntimeError::Script(error.to_string()))
     }
 
     pub async fn capabilities(&self) -> Result<Vec<CapabilityDiagnostic>, RuntimeError> {
@@ -4222,6 +4770,54 @@ impl PageHandle {
         self.execute_authorized(action, None).await
     }
 
+    /// Execute a bounded sequence of non-submit actions in one worker frame.
+    pub async fn execute_batch(
+        &self,
+        actions: Vec<NativeAction>,
+    ) -> Result<Vec<ActionResult>, RuntimeError> {
+        if actions
+            .iter()
+            .any(|action| action.action == SemanticAction::Submit)
+        {
+            return Err(RuntimeError::PolicyDenied {
+                action: ConsequentialAction::FormSubmission,
+            });
+        }
+        #[cfg(unix)]
+        if let Some(response) = self
+            .worker_request(crate::worker::WorkerRequest::ExecuteBatch {
+                actions: actions
+                    .iter()
+                    .map(|action| crate::worker::NativeActionRequest {
+                        target: action.target,
+                        action: action.action,
+                        value: action.value.clone(),
+                        force: false,
+                        sensitive: false,
+                    })
+                    .collect(),
+            })
+            .await
+        {
+            return match response? {
+                crate::worker::WorkerResponse::Actions { results } => {
+                    if let (Some(context), Some(last)) = (self.context.upgrade(), results.last()) {
+                        context
+                            .group
+                            .update_revision(self.page_id(), last.revision_after);
+                    }
+                    Ok(results)
+                }
+                response => Err(unexpected_worker_response(response)),
+            };
+        }
+        let mut results = Vec::with_capacity(actions.len());
+        for action in actions {
+            results.push(self.execute(action).await?);
+        }
+        Ok(results)
+    }
+
     fn audit_raw_inspection(
         &self,
         operation: &str,
@@ -4587,11 +5183,8 @@ impl PageHandle {
             return Ok(());
         }
         #[cfg(unix)]
-        if let Some(response) = self
-            .worker_request(crate::worker::WorkerRequest::Close)
-            .await
-        {
-            return match response? {
+        if let Some(worker) = &self.worker {
+            return match worker.close()? {
                 crate::worker::WorkerResponse::Closed => {
                     if let Some(context) = self.context.upgrade() {
                         context.group.close(self.page_id());
@@ -4608,10 +5201,12 @@ impl PageHandle {
                 response => Err(unexpected_worker_response(response)),
             };
         }
+        let (reply, completed) = oneshot::channel();
         self.local_sender()?
-            .send(PageCommand::Close)
+            .send(PageCommand::Close { reply })
             .await
             .map_err(|_| RuntimeError::Closed)?;
+        completed.await.map_err(|_| RuntimeError::Closed)?;
         if let Some(context) = self.context.upgrade() {
             context.group.close(self.page_id());
             #[cfg(unix)]
@@ -4772,7 +5367,7 @@ struct PageState {
     semantic_v6_deltas: BTreeMap<u64, oryn_common::v6::SemanticGraphChanges>,
     semantic_delta_bytes: usize,
     trace: TraceLog,
-    history: Vec<String>,
+    history: Vec<NavigationHistoryEntry>,
     history_index: Option<usize>,
     broker: Option<SharedNetworkBroker>,
     #[cfg(all(unix, feature = "v8-host"))]
@@ -4827,10 +5422,22 @@ enum HistoryUpdate {
     Reload,
 }
 
+#[derive(Clone)]
+struct NavigationHistoryEntry {
+    url: String,
+    post: Option<oryn_js::navigation::PostResource>,
+}
+
+impl From<String> for NavigationHistoryEntry {
+    fn from(url: String) -> Self {
+        Self { url, post: None }
+    }
+}
+
 #[cfg(feature = "v8-host")]
 fn take_script_navigation(
     executable: &crate::executable::RustExecutableDocument,
-) -> Option<(String, HistoryUpdate)> {
+) -> Option<(oryn_js::v8_bindings::LocationNavigation, HistoryUpdate)> {
     executable.take_location_navigation().map(|request| {
         let update = if request.reload {
             HistoryUpdate::Reload
@@ -4839,7 +5446,7 @@ fn take_script_navigation(
         } else {
             HistoryUpdate::Push
         };
-        (request.url, update)
+        (request, update)
     })
 }
 
@@ -5265,12 +5872,12 @@ impl PageState {
             if let Some(index) = self.history_index {
                 self.history.truncate(index + 1);
             }
-            self.history.push(self.url.clone());
+            self.history.push(self.url.clone().into());
             self.history_index = Some(self.history.len() - 1);
         } else if matches!(history_update, HistoryUpdate::Replace)
             && let Some(index) = self.history_index
         {
-            self.history[index] = self.url.clone();
+            self.history[index] = self.url.clone().into();
         }
         self.record_snapshot();
         self.trace.push(
@@ -5281,6 +5888,15 @@ impl PageState {
             },
         );
         for state in [LifecycleState::DomContentLoaded, LifecycleState::Load] {
+            #[cfg(feature = "v8-host")]
+            if state == LifecycleState::Load
+                && self
+                    .executable
+                    .as_ref()
+                    .is_some_and(|page| !page.document_load_complete())
+            {
+                continue;
+            }
             self.lifecycle.push(state);
             self.trace.push(
                 Revision(self.revision),
@@ -5297,8 +5913,75 @@ impl PageState {
         requested_url: String,
         history_update: HistoryUpdate,
     ) -> Result<NavigationResult, RuntimeError> {
+        self.navigate_resource(requested_url, history_update, None, None)
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn navigate_script(
+        &mut self,
+        mut request: oryn_js::v8_bindings::LocationNavigation,
+        history: HistoryUpdate,
+    ) -> Result<NavigationResult, RuntimeError> {
+        if request.reload && request.post.is_none() {
+            request.post = self
+                .history_index
+                .and_then(|index| self.history.get(index))
+                .and_then(|entry| entry.post.clone());
+        }
+        self.navigate_resource(request.url, history, request.post, request.referrer_policy)
+    }
+
+    fn navigate_resource(
+        &mut self,
+        requested_url: String,
+        history_update: HistoryUpdate,
+        mut post: Option<oryn_js::navigation::PostResource>,
+        referrer_policy: Option<String>,
+    ) -> Result<NavigationResult, RuntimeError> {
+        #[cfg(all(unix, feature = "v8-host"))]
+        if post.is_some()
+            && matches!(
+                history_update,
+                HistoryUpdate::Reload | HistoryUpdate::Preserve
+            )
+            && let Some(client) = &self.context_client
+        {
+            match client.request(
+                crate::context_service::ContextServiceRequest::AuthorizeFormSubmission {
+                    page_id: self.page_id,
+                    url: requested_url.clone(),
+                    method: "POST".into(),
+                },
+            )? {
+                crate::context_service::ContextServiceResponse::FormSubmissionAuthorized => {}
+                crate::context_service::ContextServiceResponse::PageDenied { .. } => {
+                    return Err(RuntimeError::PolicyDenied {
+                        action: ConsequentialAction::FormSubmission,
+                    });
+                }
+                _ => {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "invalid resubmission authorization response".into(),
+                    ));
+                }
+            }
+        }
+        let request_referrer_policy = referrer_policy
+            .as_deref()
+            .map(crate::referrer::ReferrerPolicy::parse_list)
+            .unwrap_or(self.referrer_policy);
         let mut current = Url::parse(&requested_url)
             .map_err(|error| RuntimeError::Network(format!("invalid URL: {error}")))?;
+        if post
+            .as_ref()
+            .is_some_and(|resource| !resource.valid_for(&current))
+        {
+            return Err(RuntimeError::ProtocolViolation(
+                "invalid navigation POST resource".into(),
+            ));
+        }
+        #[cfg(all(unix, feature = "v8-host"))]
+        let form_navigation = post.is_some();
         let navigation_site = crate::cookies::SchemefulSite::from_url(&current);
         let mut redirect_chain_cross_site = false;
         let mut redirects = 0_usize;
@@ -5309,7 +5992,8 @@ impl PageState {
                 url: requested_url.clone(),
             },
         );
-        if !matches!(history_update, HistoryUpdate::Reload)
+        if post.is_none()
+            && !matches!(history_update, HistoryUpdate::Reload)
             && self.document.is_some()
             && same_document_url(&self.url, current.as_str())
         {
@@ -5321,12 +6005,17 @@ impl PageState {
                 if let Some(index) = self.history_index {
                     self.history.truncate(index + 1);
                 }
-                self.history.push(self.url.clone());
+                let mut entry = self
+                    .history_index
+                    .and_then(|index| self.history.get(index).cloned())
+                    .unwrap_or_else(|| self.url.clone().into());
+                entry.url = self.url.clone();
+                self.history.push(entry);
                 self.history_index = Some(self.history.len() - 1);
             } else if matches!(history_update, HistoryUpdate::Replace)
                 && let Some(index) = self.history_index
             {
-                self.history[index] = self.url.clone();
+                self.history[index].url = self.url.clone();
             }
             #[cfg(feature = "v8-host")]
             if let Some(executable) = self.executable.as_mut() {
@@ -5401,7 +6090,7 @@ impl PageState {
                 Revision(self.revision),
                 None,
                 TraceEventKind::RequestStarted {
-                    method: "GET".into(),
+                    method: if post.is_some() { "POST" } else { "GET" }.into(),
                     url: current.to_string(),
                 },
             );
@@ -5413,17 +6102,22 @@ impl PageState {
                 "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8".into(),
             )];
             if let Ok(source) = Url::parse(&self.url)
-                && let Some(referrer) = self.referrer_policy.header(&source, &current)
+                && let Some(referrer) = request_referrer_policy.header(&source, &current)
             {
                 headers.push(("referer".into(), referrer));
+            }
+            if let Some(resource) = &post {
+                headers.push(("content-type".into(), resource.content_type.clone()));
             }
             let mut operation = broker
                 .start_operation(NetworkRequest {
                     request_id: self.revision + redirects as u64 + 1,
-                    method: "GET".into(),
+                    method: if post.is_some() { "POST" } else { "GET" }.into(),
                     url: current.to_string(),
                     headers,
-                    body: Vec::new(),
+                    body: post
+                        .as_ref()
+                        .map_or_else(Vec::new, |resource| resource.bytes.clone()),
                     credentials: true,
                     security: crate::cookies::CookieRequestContext {
                         redirect_chain_cross_site,
@@ -5490,7 +6184,8 @@ impl PageState {
                     ));
                 }
             };
-            if (300..400).contains(&response_status) {
+            if matches!(response_status, 301 | 302 | 303 | 307 | 308) {
+                oryn_js::navigation::PostResource::redirect(&mut post, response_status);
                 let _ = broker.cancel_operation(expected_request_id);
                 let location = response_headers
                     .iter()
@@ -5507,8 +6202,27 @@ impl PageState {
                 current = current
                     .join(location)
                     .map_err(|error| RuntimeError::Network(format!("invalid redirect: {error}")))?;
+                if post
+                    .as_ref()
+                    .is_some_and(|resource| !resource.valid_for(&current))
+                {
+                    return Err(RuntimeError::ProtocolViolation(
+                        "invalid redirected POST resource".into(),
+                    ));
+                }
                 #[cfg(all(unix, feature = "v8-host"))]
                 if let Some(client) = &self.context_client {
+                    if form_navigation {
+                        match client.request(crate::context_service::ContextServiceRequest::AuthorizeFormSubmission {
+                            page_id: self.page_id,
+                            url: current.to_string(),
+                            method: if post.is_some() { "POST" } else { "GET" }.into(),
+                        })? {
+                            crate::context_service::ContextServiceResponse::FormSubmissionAuthorized => {},
+                            crate::context_service::ContextServiceResponse::PageDenied { .. } => return Err(RuntimeError::PolicyDenied { action: ConsequentialAction::FormSubmission }),
+                            _ => return Err(RuntimeError::ProtocolViolation("invalid redirected form authorization response".into())),
+                        }
+                    }
                     match client.request(
                         crate::context_service::ContextServiceRequest::AuthorizeNavigation {
                             page_id: self.page_id,
@@ -5739,6 +6453,11 @@ impl PageState {
                 history_update,
                 &resources,
             )?;
+        }
+        if !matches!(history_update, HistoryUpdate::Preserve)
+            && let Some(index) = self.history_index
+        {
+            self.history[index].post = post;
         }
         Ok(NavigationResult {
             page_id: self.page_id,
@@ -6025,24 +6744,24 @@ impl PageState {
             match name.local.as_ref() {
                 "audio" | "video" | "source" | "track" => node
                     .attributes
-                    .get("src")
+                    .get_null("src")
                     .map(|url| (url.clone(), "media", "audio/*,video/*,text/vtt,*/*;q=0.1")),
                 "object" => node
                     .attributes
-                    .get("data")
+                    .get_null("data")
                     .map(|url| (url.clone(), "object", "*/*")),
                 "embed" => node
                     .attributes
-                    .get("src")
+                    .get_null("src")
                     .map(|url| (url.clone(), "object", "*/*")),
                 "link"
-                    if node.attributes.get("rel").is_some_and(|value| {
+                    if node.attributes.get_null("rel").is_some_and(|value| {
                         value
                             .split_ascii_whitespace()
                             .any(|token| token.eq_ignore_ascii_case("manifest"))
                     }) =>
                 {
-                    node.attributes.get("href").map(|url| {
+                    node.attributes.get_null("href").map(|url| {
                         (
                             url.clone(),
                             "manifest",
@@ -6088,13 +6807,13 @@ impl PageState {
             .filter_map(|(_, node)| match &node.kind {
                 crate::dom::NodeKind::Element { name }
                     if name.local.as_ref() == "link"
-                        && node.attributes.get("rel").is_some_and(|value| {
+                        && node.attributes.get_null("rel").is_some_and(|value| {
                             value
                                 .split_whitespace()
                                 .any(|token| token.eq_ignore_ascii_case("stylesheet"))
                         }) =>
                 {
-                    node.attributes.get("href").cloned()
+                    node.attributes.get_null("href").cloned()
                 }
                 _ => None,
             })
@@ -6354,12 +7073,12 @@ impl PageState {
                 crate::dom::NodeKind::Element { name }
                     if matches!(name.local.as_ref(), "script" | "iframe") =>
                 {
-                    node.attributes.get("src").cloned().map(|source| {
+                    node.attributes.get_null("src").cloned().map(|source| {
                         (
                             source,
                             name.local.as_ref() == "iframe",
                             name.local.as_ref() == "script"
-                                && node.attributes.get("type").map(String::as_str)
+                                && node.attributes.get_null("type").map(String::as_str)
                                     == Some("module"),
                         )
                     })
@@ -6371,9 +7090,9 @@ impl PageState {
             let crate::dom::NodeKind::Element { name } = &node.kind else {
                 continue;
             };
-            if name.local.as_ref() == "script" && !node.attributes.contains_key("src") {
+            if name.local.as_ref() == "script" && !node.attributes.contains_null("src") {
                 let source = parsed.dom.text_content(id).unwrap_or_default();
-                if node.attributes.get("type").map(String::as_str) == Some("importmap")
+                if node.attributes.get_null("type").map(String::as_str) == Some("importmap")
                     && let Ok(value) = serde_json::from_str::<serde_json::Value>(&source)
                     && let Some(imports) =
                         value.get("imports").and_then(serde_json::Value::as_object)
@@ -6391,7 +7110,7 @@ impl PageState {
                 );
             }
             if name.local.as_ref() == "link"
-                && node.attributes.get("rel").is_some_and(|value| {
+                && node.attributes.get_null("rel").is_some_and(|value| {
                     value.split_whitespace().any(|token| {
                         matches!(
                             token.to_ascii_lowercase().as_str(),
@@ -6401,11 +7120,15 @@ impl PageState {
                 })
                 && node
                     .attributes
-                    .get("as")
+                    .get_null("as")
                     .is_none_or(|value| value.eq_ignore_ascii_case("script"))
-                && let Some(href) = node.attributes.get("href")
+                && let Some(href) = node.attributes.get_null("href")
             {
-                let relation = node.attributes.get("rel").map(String::as_str).unwrap_or("");
+                let relation = node
+                    .attributes
+                    .get_null("rel")
+                    .map(String::as_str)
+                    .unwrap_or("");
                 let module = relation.split_whitespace().any(|token| {
                     matches!(
                         token.to_ascii_lowercase().as_str(),
@@ -6708,10 +7431,11 @@ impl PageState {
         }
         let requested = self.history[next as usize].clone();
         #[cfg(feature = "v8-host")]
-        if let Some(result) = self.restore_cached_document(next as usize, requested.clone())? {
+        if let Some(result) = self.restore_cached_document(next as usize, requested.url.clone())? {
             return Ok(result);
         }
-        let result = self.navigate(requested, HistoryUpdate::Preserve)?;
+        let result =
+            self.navigate_resource(requested.url, HistoryUpdate::Preserve, requested.post, None)?;
         self.history_index = Some(next as usize);
         Ok(result)
     }
@@ -6720,7 +7444,11 @@ impl PageState {
         if self.url.is_empty() {
             return Err(RuntimeError::HistoryBoundary);
         }
-        self.navigate(self.url.clone(), HistoryUpdate::Reload)
+        let post = self
+            .history_index
+            .and_then(|index| self.history.get(index))
+            .and_then(|entry| entry.post.clone());
+        self.navigate_resource(self.url.clone(), HistoryUpdate::Reload, post, None)
     }
 
     fn has_pending_page_work(&mut self) -> bool {
@@ -6898,7 +7626,7 @@ impl PageState {
             return Ok(());
         }
         if let Some((location, update)) = location {
-            self.navigate(location, update)?;
+            self.navigate_script(location, update)?;
             return Ok(());
         }
         let after = self.semantic_graph.semantic_revision();
@@ -7041,7 +7769,7 @@ impl PageState {
                 return Ok(value);
             }
             if let Some((location, update)) = location {
-                self.navigate(location, update)?;
+                self.navigate_script(location, update)?;
                 return Ok(value);
             }
             self.refresh_layout()?;
@@ -7099,6 +7827,11 @@ impl PageState {
             .executable
             .as_ref()
             .is_some_and(|executable| executable.focus_visible());
+        if let Some(executable) = self.executable.as_ref() {
+            executable
+                .populate_validation_states(&mut input)
+                .map_err(map_host_error)?;
+        }
         let limits = oryn_layout::LayoutLimits {
             max_nodes: self.config.max_layout_nodes,
             max_font_bytes: self.config.max_font_bytes,
@@ -7207,14 +7940,17 @@ impl PageState {
             .ok_or(RuntimeError::StaleSemanticRef)?;
         let mut ancestor = Some(node);
         while let Some(id) = ancestor {
-            let record = document
+            document
                 .dom
                 .get(id)
                 .map_err(|_| RuntimeError::StaleSemanticRef)?;
             if id == document.document {
                 return Ok(());
             }
-            ancestor = record.parent;
+            ancestor = document
+                .dom
+                .embedding_parent(id)
+                .map_err(|_| RuntimeError::StaleSemanticRef)?;
         }
         Err(RuntimeError::StaleSemanticRef)
     }
@@ -7389,7 +8125,7 @@ impl PageState {
             };
             if name.local.as_ref() == "img"
                 && geometry.in_viewport
-                && let Some(source) = node.attributes.get("src")
+                && let Some(source) = node.attributes.get_null("src")
             {
                 let resolved = Url::parse(source)
                     .or_else(|_| Url::parse(&self.url).and_then(|base| base.join(source)));
@@ -7938,7 +8674,7 @@ impl PageState {
                     .map(|(id, node)| {
                         serde_json::json!({
                             "text": document.dom.text_content(id).unwrap_or_default(),
-                            "href": node.attributes.get("href").cloned().unwrap_or_default()
+                            "href": node.attributes.get_null("href").cloned().unwrap_or_default()
                         })
                     })
                     .collect(),
@@ -7952,8 +8688,8 @@ impl PageState {
                     })
                     .map(|(_, node)| {
                         serde_json::json!({
-                            "src": node.attributes.get("src").cloned().unwrap_or_default(),
-                            "alt": node.attributes.get("alt").cloned().unwrap_or_default()
+                            "src": node.attributes.get_null("src").cloned().unwrap_or_default(),
+                            "alt": node.attributes.get_null("alt").cloned().unwrap_or_default()
                         })
                     })
                     .collect(),
@@ -8013,6 +8749,19 @@ impl PageState {
             self.url = url;
         }
         let (mutations, truncated) = executable.take_semantic_mutations();
+        if self.lifecycle.contains(&LifecycleState::DomContentLoaded)
+            && !self.lifecycle.contains(&LifecycleState::Load)
+            && executable.document_load_complete()
+        {
+            self.lifecycle.push(LifecycleState::Load);
+            self.trace.push(
+                Revision(self.revision),
+                None,
+                TraceEventKind::LifecycleChanged {
+                    state: LifecycleState::Load,
+                },
+            );
+        }
         let document = executable.document.clone();
         if truncated {
             self.semantic_graph
@@ -8264,20 +9013,14 @@ impl PageState {
         let _ = &files;
         #[cfg(feature = "v8-host")]
         if self.executable.is_some() {
-            let node = crate::semantic::unpack_node_ref(target.node);
-            self.executable
-                .as_mut()
-                .expect("checked above")
-                .set_files(node, &files)
-                .map_err(map_host_error)?;
-            self.sync_executable_semantics();
-            return self.execute_in_realm(
+            return self.execute_in_realm_with_files(
                 NativeAction {
                     target,
                     action: SemanticAction::Type,
                     value: files.first().map(|file| file.filename.clone()),
                 },
                 false,
+                Some(&files),
             );
         }
         Err(RuntimeError::EvaluationUnavailable)
@@ -8311,7 +9054,7 @@ impl PageState {
         let crate::dom::NodeKind::Element { name } = &node.kind else {
             return Err(RuntimeError::StaleSemanticRef);
         };
-        if node.attributes.contains_key("disabled") {
+        if node.attributes.contains_null("disabled") {
             return Err(RuntimeError::Disabled);
         }
         let local_name = name.local.as_ref();
@@ -8329,30 +9072,45 @@ impl PageState {
             SemanticAction::Click if matches!(local_name, "button" | "a" | "input" | "select") => {
                 let toggled = local_name == "input"
                     && matches!(
-                        node.attributes.get("type").map(String::as_str),
+                        node.attributes.get_null("type").map(String::as_str),
                         Some("checkbox" | "radio")
                     );
-                if toggled && node.attributes.remove("checked").is_none() {
-                    node.attributes.insert("checked".into(), String::new());
+                if toggled {
+                    node.checkedness = Some(
+                        node.attributes
+                            .get_null("type")
+                            .is_some_and(|kind| kind == "radio")
+                            || !node.checked(),
+                    );
+                    node.dirty_checkedness = true;
+                    node.indeterminate = false;
                 }
                 ("dispatched click activation", toggled)
             }
             SemanticAction::Check if local_name == "input" => {
-                node.attributes.insert("checked".into(), String::new());
+                node.checkedness = Some(true);
+                node.dirty_checkedness = true;
                 ("checked form control", true)
             }
             SemanticAction::Uncheck if local_name == "input" => {
-                node.attributes.remove("checked");
+                node.checkedness = Some(false);
+                node.dirty_checkedness = true;
                 ("unchecked form control", true)
             }
             SemanticAction::Select if local_name == "select" => {
-                node.attributes
-                    .insert("value".into(), action.value.unwrap_or_default());
+                node.value = Some(action.value.unwrap_or_default());
                 ("selected form control value", true)
             }
             SemanticAction::Focus => {
-                node.attributes
-                    .insert("data-oryn-focused".into(), String::new());
+                // This parser-only compatibility path edits a snapshot. Keep
+                // attribute mutation behind the native DOM authority as well.
+                let mut snapshot =
+                    crate::dom::DomRuntime::from_parsed(document.dom.clone(), document.document)
+                        .map_err(|_| RuntimeError::StaleSemanticRef)?;
+                snapshot
+                    .set_attribute(node_id, "data-oryn-focused", "")
+                    .map_err(|_| RuntimeError::StaleSemanticRef)?;
+                document.dom = snapshot.arena().clone();
                 ("focused element", true)
             }
             SemanticAction::Hover => ("dispatched pointer hover", false),
@@ -8509,6 +9267,17 @@ impl PageState {
         action: NativeAction,
         sensitive: bool,
     ) -> Result<ActionResult, RuntimeError> {
+        self.execute_in_realm_with_files(action, sensitive, None)
+    }
+
+    #[cfg(feature = "v8-host")]
+    fn execute_in_realm_with_files(
+        &mut self,
+        action: NativeAction,
+        sensitive: bool,
+        files: Option<&[crate::upload::UploadFile]>,
+    ) -> Result<ActionResult, RuntimeError> {
+        self.validate_target(action.target)?;
         let before = self.observation(ProjectionProfile::Compact);
         let node_id = crate::semantic::unpack_node_ref(action.target.node);
         let document = self
@@ -8519,23 +9288,7 @@ impl PageState {
             .dom
             .get(node_id)
             .map_err(|_| RuntimeError::StaleSemanticRef)?;
-        let mut connected = node_id == document.document;
-        let mut ancestor = node.parent;
-        while let Some(parent) = ancestor {
-            if parent == document.document {
-                connected = true;
-                break;
-            }
-            ancestor = document
-                .dom
-                .get(parent)
-                .map_err(|_| RuntimeError::StaleSemanticRef)?
-                .parent;
-        }
-        if !connected {
-            return Err(RuntimeError::StaleSemanticRef);
-        }
-        if node.attributes.contains_key("disabled") {
+        if node.attributes.contains_null("disabled") {
             return Err(RuntimeError::Disabled);
         }
         let (
@@ -8549,7 +9302,11 @@ impl PageState {
                 .executable
                 .as_mut()
                 .ok_or(RuntimeError::StaleSemanticRef)?;
-            if sensitive {
+            if let Some(files) = files {
+                executable
+                    .set_files(node_id, files)
+                    .map_err(map_host_error)?;
+            } else if sensitive {
                 executable
                     .apply_sensitive_action(node_id, action.action, action.value.as_deref())
                     .map_err(map_host_error)?;
@@ -8691,14 +9448,16 @@ impl PageState {
         }
         if let Some((location, update)) = pending_navigation {
             let previous_generation = self.document_generation;
-            let navigation = self.navigate(location.clone(), update)?;
+            let navigation = self.navigate_script(location.clone(), update)?;
             result.revision_after = navigation.revision;
             result.delta = if self.document_generation == previous_generation {
                 Some(self.delta_from(result.revision_before)?)
             } else {
                 None
             };
-            result.effects.push(Effect::Navigation { url: location });
+            result
+                .effects
+                .push(Effect::Navigation { url: location.url });
         } else if let Some(delta) = pending_history_traversal {
             let delta = isize::try_from(delta).map_err(|_| RuntimeError::HistoryBoundary)?;
             let navigation = self.traverse_history(delta)?;
@@ -8891,6 +9650,9 @@ fn layout_element_tree(
             parent
         };
         pending.extend(node.children.iter().rev().map(|child| (*child, parent)));
+        if let Some(document) = dom.hosted_document(id) {
+            pending.push((document, parent));
+        }
     }
     result
 }
@@ -8935,7 +9697,12 @@ pub(crate) fn layout_input(
                     _ => None,
                 })
                 .collect::<String>();
-            let mut attributes = node.attributes.clone();
+            let mut attributes: BTreeMap<String, String> = node
+                .attributes
+                .records()
+                .filter(|entry| entry.namespace.is_none())
+                .map(|entry| (entry.name.clone(), entry.value.clone()))
+                .collect();
             attributes.insert(
                 "data-oryn-effective-dir".into(),
                 oryn_layout::directionality::directionality(&document.dom, *id).into(),
@@ -8947,6 +9714,27 @@ pub(crate) fn layout_input(
                 tag: name.local.to_string(),
                 namespace: name.ns.to_string(),
                 attributes,
+                namespaced_attributes: node
+                    .attributes
+                    .records()
+                    .filter_map(|entry| {
+                        Some(oryn_layout::LayoutAttribute {
+                            namespace: entry.namespace.clone()?,
+                            local_name: entry.local_name.clone(),
+                            prefix: entry
+                                .name
+                                .split_once(':')
+                                .map(|(prefix, _)| prefix.to_owned()),
+                            value: entry.value.clone(),
+                        })
+                    })
+                    .collect(),
+                checked: (name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                    && name.local.as_ref() == "input")
+                    .then(|| node.checked()),
+                indeterminate: node.indeterminate,
+                intrinsic_image_size: node.image_dimensions,
+                validity: None,
                 text,
             })
         })
@@ -9133,7 +9921,7 @@ fn matches_css_subject(node: &crate::dom::Node, selector: &str) -> bool {
         } else {
             (attribute, None, false)
         };
-        let Some(actual) = node.attributes.get(key) else {
+        let Some(actual) = node.attributes.get_null(key) else {
             return false;
         };
         if expected.is_some_and(|expected| {
@@ -9159,7 +9947,11 @@ fn matches_css_subject(node: &crate::dom::Node, selector: &str) -> bool {
     }
     if let Some(id_start) = simple.find('#') {
         let id = simple[id_start + 1..].split('.').next().unwrap_or_default();
-        if node.attributes.get("id").is_none_or(|value| value != id) {
+        if node
+            .attributes
+            .get_null("id")
+            .is_none_or(|value| value != id)
+        {
             return false;
         }
     }
@@ -9197,7 +9989,7 @@ fn css_subject(selector: &str) -> &str {
 
 fn has_class(node: &crate::dom::Node, class: &str) -> bool {
     node.attributes
-        .get("class")
+        .get_null("class")
         .is_some_and(|classes| classes.split_whitespace().any(|item| item == class))
 }
 
@@ -9235,7 +10027,7 @@ fn serialize_dom_node(dom: &crate::dom::DomArena, id: crate::dom::NodeId) -> Str
             format!("<?{target} {data}?>")
         }
         crate::dom::NodeKind::Comment { data } => format!("<!--{data}-->"),
-        crate::dom::NodeKind::Attribute { value, .. } => escape_html(value),
+        crate::dom::NodeKind::Attribute { data, .. } => escape_html(&data.value),
         crate::dom::NodeKind::Element { name } => {
             let attributes = node
                 .attributes
@@ -9537,6 +10329,27 @@ fn document_title(document: &ParsedDocument) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test(flavor = "current_thread")]
+    async fn close_waits_for_actor_destruction_and_preserves_other_pages() {
+        let context = super::Browser::new().new_context();
+        let page = context.new_page();
+        let sibling = context.new_page();
+        let sender = page.local_sender().unwrap().clone();
+        page.load_html("https://example.test/", "<p>retire</p>")
+            .await
+            .unwrap();
+        page.close().await.unwrap();
+        assert!(
+            sender.is_closed(),
+            "close must not acknowledge before actor state and receiver are dropped"
+        );
+        sibling
+            .load_html("https://example.test/sibling", "<p>live</p>")
+            .await
+            .unwrap();
+        sibling.close().await.unwrap();
+    }
+
     use std::{
         io::{Read, Write},
         net::TcpListener,
@@ -9642,7 +10455,11 @@ mod tests {
             .unwrap()
             .dom
             .iter()
-            .find(|(_, node)| node.attributes.get("id").is_some_and(|id| id == "state"))
+            .find(|(_, node)| {
+                node.attributes
+                    .get_null("id")
+                    .is_some_and(|id| id == "state")
+            })
             .map(|(id, _)| id)
             .unwrap();
         assert_eq!(
@@ -10847,6 +11664,307 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn form_post_navigation_preserves_owned_body_and_redirect_semantics() {
+        struct Echo(Arc<Mutex<Vec<NetworkRequest>>>);
+        impl NetworkBroker for Echo {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                let url = Url::parse(&request.url).unwrap();
+                let status = url
+                    .path()
+                    .strip_prefix("/redirect/")
+                    .and_then(|s| s.parse::<u16>().ok())
+                    .unwrap_or(200);
+                let mut headers = vec![("content-type".into(), "text/html".into())];
+                if status != 200 {
+                    headers.push(("location".into(), "/echo".into()));
+                }
+                let response = NetworkResponse {
+                    request_id: request.request_id,
+                    status,
+                    headers,
+                    body: b"<!doctype html><p>accepted</p>".to_vec(),
+                };
+                self.0.lock().unwrap().push(request);
+                Ok(response)
+            }
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut options = ContextOptions::default();
+        options.action_policy.rules.insert(
+            ConsequentialAction::FormSubmission,
+            crate::security::PolicyRule::Allow,
+        );
+        let context = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context_with_broker(options, SharedNetworkBroker::new(Echo(requests.clone())));
+        for status in [200, 301, 302, 303, 307, 308] {
+            let page = context.new_page();
+            let path = if status == 200 {
+                "/echo".into()
+            } else {
+                format!("/redirect/{status}")
+            };
+            page.load_html(
+                "https://forms.test/start",
+                &format!(
+                    "<form id=f method=post action='{path}'><input name=x value=owned></form>"
+                ),
+            )
+            .await
+            .unwrap();
+            page.evaluate("f.requestSubmit();'submitted'")
+                .await
+                .unwrap();
+            let sent = std::mem::take(&mut *requests.lock().unwrap());
+            assert_eq!(sent.len(), if status == 200 { 1 } else { 2 }, "{status}");
+            assert_eq!(sent[0].method, "POST");
+            assert_eq!(sent[0].body, b"x=owned");
+            assert!(
+                sent[0]
+                    .headers
+                    .iter()
+                    .any(|(name, value)| name == "content-type"
+                        && value == "application/x-www-form-urlencoded")
+            );
+            if status != 200 {
+                let preserves = matches!(status, 307 | 308);
+                assert_eq!(sent[1].method, if preserves { "POST" } else { "GET" });
+                assert_eq!(
+                    sent[1].body.as_slice(),
+                    if preserves { &b"x=owned"[..] } else { &[] }
+                );
+                assert_eq!(
+                    sent[1]
+                        .headers
+                        .iter()
+                        .any(|(name, _)| name == "content-type"),
+                    preserves
+                );
+            }
+            if status == 200 {
+                page.refresh().await.unwrap();
+                let repeated = std::mem::take(&mut *requests.lock().unwrap());
+                assert_eq!(repeated.len(), 1);
+                assert_eq!(repeated[0].method, "POST");
+                assert_eq!(repeated[0].body, b"x=owned");
+            }
+            page.close().await.unwrap();
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn image_button_loads_intrinsic_svg_size_before_window_load() {
+        struct Svg;
+        impl NetworkBroker for Svg {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                assert_eq!(request.url, "https://images.test/map.svg");
+                Ok(NetworkResponse { request_id:request.request_id, status:200,
+                    headers:vec![("content-type".into(), "image/svg+xml".into())],
+                    body: br#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="100" height="100"/></svg>"#.to_vec() })
+            }
+        }
+        let context = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context_with_broker(ContextOptions::default(), SharedNetworkBroker::new(Svg));
+        let page = context.new_page();
+        page.load_html("https://images.test/start", r#"<!doctype html><meta charset=utf-8>
+
+        <form id=f>
+          <input id=i type=image src=/map.svg>
+        </form>
+
+        <script>
+            f.onsubmit=e=>{e.preventDefault();const data=new FormData(f,i);globalThis.coords=data.get('x')+','+data.get('y')};
+            window.addEventListener('load',()=>{const r=i.getBoundingClientRect();globalThis.sizes=r.width+'|'+r.height;i.dispatchEvent(new MouseEvent('click',{clientX:Math.round((r.left+r.right)/7),clientY:Math.round((r.top+r.bottom)/4)}))});
+        </script>"#).await.unwrap();
+        assert_eq!(
+            page.evaluate("sizes+'|'+coords").await.unwrap(),
+            "200|200|23,46"
+        );
+        let images = "<img src=/map.svg>".repeat(40);
+        page.load_html("https://images.test/many", &format!("{images}<script>window.addEventListener('load',()=>{{globalThis.loadedImages=Array.from(document.images).filter(image=>image.naturalWidth===200).length}})</script>")).await.unwrap();
+        assert_eq!(page.evaluate("loadedImages").await.unwrap(), "40");
+        page.close().await.unwrap();
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn form_post_frame_and_popup_targets_do_not_fall_back_to_get() {
+        struct Echo(Arc<Mutex<Vec<NetworkRequest>>>);
+        impl NetworkBroker for Echo {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                let result = NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), "text/html".into())],
+                    body: b"<!doctype html><p>accepted</p>".to_vec(),
+                };
+                self.0.lock().unwrap().push(request);
+                Ok(result)
+            }
+        }
+        for (target, encoding) in ["result", "_blank", "parser-frame", "base-target"]
+            .into_iter()
+            .flat_map(|target| {
+                [
+                    "application/x-www-form-urlencoded",
+                    "text/plain",
+                    "multipart/form-data",
+                ]
+                .map(|encoding| (target, encoding))
+            })
+        {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let mut options = ContextOptions::default();
+            options.action_policy.rules.insert(
+                ConsequentialAction::FormSubmission,
+                crate::security::PolicyRule::Allow,
+            );
+            options.action_policy.rules.insert(
+                ConsequentialAction::Popup,
+                crate::security::PolicyRule::Allow,
+            );
+            let context = Browser::in_process_with_config(BrowserConfig::default())
+                .new_context_with_broker(options, SharedNetworkBroker::new(Echo(requests.clone())));
+            let page = context.new_page();
+            if target == "parser-frame" {
+                page.load_html("https://forms.test/start", &format!("<form id=f action=/echo><input name=x value=owned></form><script>const frame=document.createElement('iframe');frame.name='result';document.body.appendChild(frame);f.method='post';f.target=frame.name;f.enctype='{encoding}';frame.onload=()=>{{globalThis.loaded=frame.contentDocument.body.textContent;f.remove()}};f.submit();</script>")).await.unwrap();
+                assert_eq!(
+                    page.evaluate("globalThis.loaded").await.unwrap(),
+                    "accepted",
+                    "initial blank load must not overtake the pending form navigation"
+                );
+            } else {
+                page.load_html("https://forms.test/start", "<iframe name=result></iframe><form id=f action=/echo><input name=x value=owned></form>").await.unwrap();
+                let set_target = if target == "base-target" {
+                    "const base=document.createElement('base');base.target='result';document.head.append(base);".to_string()
+                } else {
+                    format!("f.target='{target}';")
+                };
+                page.evaluate(&format!("f.method='post';{set_target}f.encoding='{encoding}';f.requestSubmit();'submitted'"))
+                    .await
+                    .unwrap();
+            }
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while requests.lock().unwrap().is_empty() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("target request must complete");
+            let sent = requests.lock().unwrap().clone();
+            assert_eq!(sent.len(), 1, "{target}");
+            assert_eq!(sent[0].method, "POST", "{target}");
+            let content_type = sent[0]
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.as_str())
+                .expect("POST content type");
+            match encoding {
+                "text/plain" => {
+                    assert_eq!(content_type, encoding);
+                    assert_eq!(sent[0].body, b"x=owned\r\n", "{target}");
+                }
+                "multipart/form-data" => {
+                    let boundary = content_type
+                        .strip_prefix("multipart/form-data; boundary=")
+                        .expect("native multipart boundary");
+                    assert_eq!(sent[0].body, format!("--{boundary}\r\nContent-Disposition: form-data; name=\"x\"\r\n\r\nowned\r\n--{boundary}--\r\n").as_bytes(), "{target}");
+                }
+                _ => {
+                    assert_eq!(content_type, encoding);
+                    assert_eq!(sent[0].body, b"x=owned", "{target}");
+                }
+            }
+            assert_eq!(
+                page.evaluate("location.pathname").await.unwrap(),
+                "/start",
+                "source page must not navigate"
+            );
+            for descriptor in context.pages() {
+                context.close_page(descriptor.page.page_id).await.unwrap();
+            }
+        }
+    }
+
+    #[cfg(all(unix, feature = "v8-host"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn form_post_redirect_rechecks_policy_before_forwarding_body() {
+        struct Redirect(Arc<Mutex<Vec<NetworkRequest>>>);
+        impl NetworkBroker for Redirect {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                let response = NetworkResponse {
+                    request_id: request.request_id,
+                    status: 307,
+                    headers: vec![("location".into(), "https://blocked.test/charge".into())],
+                    body: vec![],
+                };
+                self.0.lock().unwrap().push(request);
+                Ok(response)
+            }
+        }
+        for target in ["_self", "result"] {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let mut options = ContextOptions::default();
+            options
+                .action_policy
+                .rules
+                .insert(ConsequentialAction::FormSubmission, PolicyRule::Allow);
+            options.action_policy.rules.insert(
+                ConsequentialAction::CrossOriginNavigation,
+                PolicyRule::Allow,
+            );
+            options
+                .action_policy
+                .denied_origins
+                .insert("https://blocked.test".into());
+            let context = Browser::in_process_with_config(BrowserConfig::default())
+                .new_context_with_broker(
+                    options,
+                    SharedNetworkBroker::new(Redirect(requests.clone())),
+                );
+            let page = context.new_page();
+            page.load_html("https://forms.test/start", &format!("<iframe name=result></iframe><form id=f method=post action=/send target='{target}'><input name=secret value=owned></form>")).await.unwrap();
+            // Frame load errors can surface asynchronously as frame error events.
+            let _ = page.evaluate("f.requestSubmit();'submitted'").await;
+            let sent = requests.lock().unwrap().clone();
+            assert_eq!(
+                sent.len(),
+                1,
+                "{target}: denied destination must receive no request"
+            );
+            assert_eq!(sent[0].url, "https://forms.test/send");
+            assert_eq!(sent[0].body, b"secret=owned");
+            assert!(
+                context
+                    .security_audit()
+                    .iter()
+                    .any(
+                        |record| record.request.action == ConsequentialAction::FormSubmission
+                            && record.request.target_origin.as_deref()
+                                == Some("https://blocked.test")
+                            && record.decision == PolicyDecision::Denied
+                    ),
+                "{target}: parent form policy denial missing"
+            );
+            page.close().await.unwrap();
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn generated_blob_urls_share_bytes_across_fetch_xhr_and_workers() {
         let page = Browser::in_process_with_config(BrowserConfig::default())
             .new_context()
@@ -11669,6 +12787,18 @@ mod tests {
                 .expect("updated same-origin frame DOM is reflected"),
             "Clicked in child"
         );
+        page.evaluate("document.querySelector('iframe').remove();'removed'")
+            .await
+            .expect("detach same-origin frame");
+        let error = page
+            .execute(NativeAction {
+                target: frame_action,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .expect_err("detached hosted document must not retain action authority");
+        assert!(matches!(error, RuntimeError::StaleSemanticRef));
         server.join().expect("fixture server");
     }
 
@@ -11688,7 +12818,11 @@ mod tests {
             parsed
                 .dom
                 .iter()
-                .find(|(_, node)| node.attributes.get("id").is_some_and(|value| value == id))
+                .find(|(_, node)| {
+                    node.attributes
+                        .get_null("id")
+                        .is_some_and(|value| value == id)
+                })
                 .map(|(id, _)| id)
                 .unwrap()
         };
@@ -13881,6 +15015,14 @@ mod tests {
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn slow_paint_images_do_not_hold_the_page_actor() {
+        struct ReleaseImage(Arc<(std::sync::Mutex<(bool, bool)>, std::sync::Condvar)>);
+        impl Drop for ReleaseImage {
+            fn drop(&mut self) {
+                let (lock, wake) = &*self.0;
+                lock.lock().unwrap_or_else(|poison| poison.into_inner()).1 = true;
+                wake.notify_all();
+            }
+        }
         struct SlowImage {
             state: Arc<(std::sync::Mutex<(bool, bool)>, std::sync::Condvar)>,
         }
@@ -13911,6 +15053,9 @@ mod tests {
             std::sync::Mutex::new((false, false)),
             std::sync::Condvar::new(),
         ));
+        // A deadline assertion must not leave blocked fixture threads alive
+        // and contaminate later tests in the same native process.
+        let _release_image = ReleaseImage(state.clone());
         let context = Browser::new().new_context_with_broker(
             ContextOptions::default(),
             SharedNetworkBroker::new(SlowImage {
@@ -13920,10 +15065,17 @@ mod tests {
         let page = context.new_page();
         page.load_html(
             "https://paint.example.test/",
-            "<style>img{width:8px;height:8px}</style><img alt=slow src=/slow.png>",
+            "<style>img{width:8px;height:8px}</style><img alt=slow src=/slow.png><script>globalThis.loadEvents=[];document.addEventListener('DOMContentLoaded',()=>loadEvents.push('dom'));window.addEventListener('load',()=>loadEvents.push('load'))</script>",
         )
         .await
         .unwrap();
+        assert_eq!(page.evaluate("loadEvents.join(',')").await.unwrap(), "dom");
+        assert!(!page.trace().await.unwrap().iter().any(|event| matches!(
+            event.kind,
+            TraceEventKind::LifecycleChanged {
+                state: LifecycleState::Load
+            }
+        )));
         let paint_page = page.clone();
         let paint = tokio::spawn(async move { paint_page.paint_snapshot().await });
         tokio::task::spawn_blocking({
@@ -13949,6 +15101,22 @@ mod tests {
             wake.notify_all();
         }
         assert_eq!(paint.await.unwrap().unwrap().images.len(), 1);
+        for _ in 0..100 {
+            if page.evaluate("loadEvents.join(',')").await.unwrap() == "dom,load" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            page.evaluate("loadEvents.join(',')").await.unwrap(),
+            "dom,load"
+        );
+        assert!(page.trace().await.unwrap().iter().any(|event| matches!(
+            event.kind,
+            TraceEventKind::LifecycleChanged {
+                state: LifecycleState::Load
+            }
+        )));
     }
 
     #[cfg(feature = "v8-host")]
@@ -14021,7 +15189,7 @@ mod tests {
         let page = context.new_page();
         page.load_html(
             "https://upload.test/",
-            "<form id=form><input id=file type=file name=proof></form>",
+            "<form id=form><input id=file type=file name=proof></form><script>globalThis.uploadEvents=[];file.oninput=()=>uploadEvents.push('input');file.onchange=()=>uploadEvents.push('change')</script>",
         )
         .await
         .expect("load upload fixture");
@@ -14040,6 +15208,7 @@ mod tests {
                 .expect("inspect selected file"),
             "proof.txt:proof.txt"
         );
+        assert_eq!(page.evaluate("uploadEvents.join(',')+':'+(new FormData(form).get('proof')===file.files[0])+':'+file.hasAttribute('data-oryn-upload-files')").await.unwrap(), "input,change:true:false");
     }
 
     #[cfg(feature = "v8-host")]
