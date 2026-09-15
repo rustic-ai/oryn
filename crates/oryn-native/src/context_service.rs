@@ -366,6 +366,7 @@ pub enum ContextServiceResponse {
     PageResource {
         url: String,
         source: String,
+        encoding: String,
         destination: String,
         #[serde(default)]
         content_type: Option<String>,
@@ -2498,7 +2499,7 @@ impl ParentContextService {
                         resource: format!("decoded {destination} data URL"),
                     });
                 }
-                let (source, _) = oryn_net::decode_resource_text(
+                let (source, encoding) = oryn_net::decode_resource_text(
                     &body,
                     media_type.as_deref(),
                     page_resource_text_kind(text_kind, media_type.as_deref()),
@@ -2506,6 +2507,7 @@ impl ParentContextService {
                 return Ok(ContextServiceResponse::PageResource {
                     url: url.to_string(),
                     source,
+                    encoding: encoding.into(),
                     destination: destination.into(),
                     content_type: media_type,
                     document_referrer: String::new(),
@@ -2569,7 +2571,7 @@ impl ParentContextService {
                 .iter()
                 .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
                 .map(|(_, value)| value.as_str());
-            let (source, _) = oryn_net::decode_resource_text(
+            let (source, encoding) = oryn_net::decode_resource_text(
                 &response.body,
                 content_type,
                 page_resource_text_kind(text_kind, content_type),
@@ -2611,6 +2613,7 @@ impl ParentContextService {
             return Ok(ContextServiceResponse::PageResource {
                 url: url.to_string(),
                 source,
+                encoding: encoding.into(),
                 destination: destination.into(),
                 content_type: content_type.map(str::to_owned),
                 document_referrer,

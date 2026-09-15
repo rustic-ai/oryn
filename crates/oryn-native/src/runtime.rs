@@ -92,6 +92,7 @@ struct NavigationBodyChunks {
     operation: crate::network::NetworkOperation,
     broker: SharedNetworkBroker,
     decoder: oryn_net::IncrementalTextDecoder,
+    encoding: Arc<Mutex<Option<&'static str>>>,
     capture: Arc<Mutex<NavigationBodyCapture>>,
     deadline: Instant,
     finished: bool,
@@ -128,6 +129,8 @@ impl Iterator for NavigationBodyChunks {
                     if request_id == self.operation.request_id =>
                 {
                     let decoded = self.decoder.push(&bytes);
+                    *self.encoding.lock().expect("navigation encoding") =
+                        self.decoder.encoding_name();
                     let mut capture = self.capture.lock().expect("navigation capture");
                     capture.bytes = capture.bytes.saturating_add(bytes.len());
                     capture.source.push_str(&decoded);
@@ -141,6 +144,8 @@ impl Iterator for NavigationBodyChunks {
                 {
                     self.finished = true;
                     let tail = self.decoder.finish();
+                    *self.encoding.lock().expect("navigation encoding") =
+                        self.decoder.encoding_name();
                     let mut capture = self.capture.lock().expect("navigation capture");
                     capture.source.push_str(&tail);
                     capture.completed = true;
@@ -6367,6 +6372,7 @@ impl PageState {
                 oryn_net::TextResourceKind::Html
             };
             let capture = Arc::new(Mutex::new(NavigationBodyCapture::default()));
+            let encoding = Arc::new(Mutex::new(None));
             let source = NavigationBodyChunks {
                 operation,
                 broker: self
@@ -6375,6 +6381,7 @@ impl PageState {
                     .ok_or_else(|| RuntimeError::Network("network broker is unavailable".into()))?,
                 decoder: oryn_net::IncrementalTextDecoder::new(content_type.as_deref(), text_kind),
                 capture: capture.clone(),
+                encoding: encoding.clone(),
                 deadline: Instant::now() + self.config.navigation_timeout,
                 finished: false,
             };
@@ -6385,6 +6392,7 @@ impl PageState {
                 Some(crate::host::DocumentStream {
                     chunks: Box::new(source),
                     content_type: content_type.clone(),
+                    encoding,
                 }),
                 history_update,
                 &BTreeMap::new(),
@@ -12905,6 +12913,56 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn decoded_document_encoding_reaches_parser_scripts_and_frame_realms() {
+        struct EncodingFixture;
+        impl NetworkBroker for EncodingFixture {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                let (mime, body) = if request.url.ends_with("/bom") {
+                    let body = "\u{feff}\u{feff}<p>Text</p>"
+                        .encode_utf16()
+                        .flat_map(u16::to_le_bytes)
+                        .collect::<Vec<_>>();
+                    ("text/html", body)
+                } else if request.url.ends_with("/child") {
+                    (
+                        "text/html;charset=windows-1252",
+                        b"<p>\xe9</p><script>globalThis.seen=document.characterSet</script>"
+                            .to_vec(),
+                    )
+                } else {
+                    ("text/html;charset=windows-1252", b"<script>globalThis.seen=document.characterSet</script><p>\xe9</p><iframe id=staticFrame src='/child'></iframe>".to_vec())
+                };
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), mime.into())],
+                    body,
+                })
+            }
+        }
+        let context = Browser::new().new_context_with_broker(
+            ContextOptions::default(),
+            SharedNetworkBroker::new(EncodingFixture),
+        );
+        let page = context.new_page();
+        page.goto("https://encoding.test/root").await.unwrap();
+        assert_eq!(page.evaluate("[document.characterSet,seen,document.querySelector('p').textContent,staticFrame.contentDocument.characterSet,staticFrame.contentWindow.seen,staticFrame.contentDocument.querySelector('p').textContent].join('|')").await.unwrap(), "windows-1252|windows-1252|é|windows-1252|windows-1252|é");
+        page.evaluate("globalThis.dynamicFrame=document.createElement('iframe');dynamicFrame.src='/child';document.body.appendChild(dynamicFrame);true").await.unwrap();
+        assert_eq!(page.evaluate("[dynamicFrame.contentDocument.characterSet,dynamicFrame.contentWindow.seen].join('|')").await.unwrap(), "windows-1252|windows-1252");
+        page.goto("https://encoding.test/bom").await.unwrap();
+        assert_eq!(
+            page.evaluate("[document.characterSet,document.body.textContent].join('|')")
+                .await
+                .unwrap(),
+            "UTF-16LE|\u{feff}Text"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn navigation_dispatches_xml_and_image_responses() {
         struct MimeFixture(Arc<Mutex<Vec<String>>>);
         impl NetworkBroker for MimeFixture {
@@ -12947,7 +13005,7 @@ mod tests {
         );
         let page = context.new_page();
         page.goto("https://mime.example.test/xml").await.unwrap();
-        assert_eq!(page.evaluate("[document.contentType,document.compatMode,document.documentElement.nodeName,document.querySelector('value').textContent,document.body===null].join('|')").await.unwrap(), "application/xml|CSS1Compat|root|é|true");
+        assert_eq!(page.evaluate("[document.contentType,document.compatMode,document.documentElement.nodeName,document.querySelector('value').textContent,document.body===null,document.characterSet].join('|')").await.unwrap(), "application/xml|CSS1Compat|root|é|true|windows-1252");
         page.goto("https://mime.example.test/image").await.unwrap();
         assert_eq!(page.evaluate("[document.contentType,document.compatMode,document.body.firstElementChild.tagName,document.body.firstElementChild.getAttribute('src')].join('|')").await.unwrap(), "image/bmp|CSS1Compat|IMG|https://mime.example.test/image");
         let requests = requests.lock().unwrap();

@@ -932,6 +932,7 @@ type ScriptRecord = (
 struct LoadedFrameResource {
     url: String,
     source: String,
+    encoding: String,
     content_type: Option<String>,
 }
 
@@ -1064,11 +1065,13 @@ impl ParserResourceScheduler {
                         source,
                         destination,
                         content_type,
+                        encoding,
                         ..
                     } if destination == "frame" => Ok(LoadedFrameResource {
                         url,
                         source,
                         content_type,
+                        encoding,
                     }),
                     _ => Err("parent returned an invalid frame response".into()),
                 });
@@ -1393,6 +1396,19 @@ fn apply_parser_resource_completion(
     Ok(None)
 }
 
+fn set_parsed_encoding(parsed: &mut ParsedDocument, encoding: &str) -> Result<(), HostError> {
+    if let Some(metadata) = parsed
+        .dom
+        .get_mut(parsed.document)
+        .map_err(|error| HostError::Execution(error.to_string()))?
+        .document_metadata
+        .as_mut()
+    {
+        metadata.encoding = encoding.into();
+    }
+    Ok(())
+}
+
 struct LiveParseResult {
     document: ParsedDocument,
     scripts: Vec<ScriptRecord>,
@@ -1414,6 +1430,7 @@ fn parse_live_document(
     use std::collections::VecDeque;
 
     let mut loaded_frames = BTreeMap::new();
+    let encoding = input_stream.encoding;
     let mut source = input_stream.chunks;
     let essence = input_stream
         .content_type
@@ -1448,6 +1465,19 @@ fn parse_live_document(
             Some(chunk) => Some(chunk),
             None => source.next().transpose()?,
         };
+        if let Some(encoding) = *encoding.lock().expect("navigation encoding") {
+            let mut dom = live_dom.borrow_mut();
+            let document = dom.document();
+            if let Some(metadata) = dom
+                .arena_mut()
+                .get_mut(document)
+                .map_err(|error| HostError::Execution(error.to_string()))?
+                .document_metadata
+                .as_mut()
+            {
+                metadata.encoding = encoding.into();
+            }
+        }
         let Some(mut chunk) = next else { break };
         if chunk.is_empty() {
             continue;
@@ -2284,11 +2314,15 @@ impl RustExecutableDocument {
                     for chunk in stream.chunks {
                         source.push_str(&chunk?);
                     }
-                    DocumentLoad::Snapshot(Box::new(oryn_dom::xml::parse_navigation(
+                    let mut parsed = oryn_dom::xml::parse_navigation(
                         &source,
                         Some(&essence),
                         base_url.as_ref().map_or("about:blank", Url::as_str),
-                    )))
+                    );
+                    if let Some(encoding) = *stream.encoding.lock().expect("navigation encoding") {
+                        set_parsed_encoding(&mut parsed, encoding)?;
+                    }
+                    DocumentLoad::Snapshot(Box::new(parsed))
                 }
             }
             other => other,
@@ -2471,13 +2505,14 @@ impl RustExecutableDocument {
                         Url::parse(&frame.url).ok().or(requested_url.clone()),
                         frame.source.clone(),
                         frame.content_type.clone(),
+                        frame.encoding.clone(),
                     )
                 })
                 .or_else(|| {
                     resources
                         .get(&source)
                         .cloned()
-                        .map(|body| (requested_url.clone(), body, None::<String>))
+                        .map(|body| (requested_url.clone(), body, None::<String>, "UTF-8".into()))
                 });
             #[cfg(unix)]
             if loaded_frame.is_none()
@@ -2498,16 +2533,18 @@ impl RustExecutableDocument {
                         source: body,
                         destination,
                         content_type,
+                        encoding,
                         ..
                     }) if destination == "frame" => Some((
                         Url::parse(&url).ok().or(requested_url.clone()),
                         body,
                         content_type,
+                        encoding,
                     )),
                     _ => None,
                 };
             }
-            let Some((frame_url, frame_html, content_type)) = loaded_frame else {
+            let Some((frame_url, frame_html, content_type, encoding)) = loaded_frame else {
                 diagnostics.push(oryn_common::v3::CapabilityDiagnostic {
                     capability: "html.frame.load".into(),
                     support: oryn_common::v3::SupportLevel::Unsupported,
@@ -2534,11 +2571,12 @@ impl RustExecutableDocument {
                     )),
                 });
             }
-            let child = oryn_dom::xml::parse_navigation(
+            let mut child = oryn_dom::xml::parse_navigation(
                 &frame_html,
                 content_type.as_deref(),
                 frame_url.as_ref().map_or("about:blank", Url::as_str),
             );
+            set_parsed_encoding(&mut child, &encoding)?;
             let child_referrer_policy = child
                 .events
                 .iter()
@@ -3946,6 +3984,7 @@ impl RustExecutableDocument {
                             .unwrap_or_else(|| "strict-origin-when-cross-origin".into()),
                         None,
                         None::<String>,
+                        "UTF-8".to_owned(),
                     ))
                 } else if let (Some(requested), Some((client, page_id, _))) =
                     (requested.as_ref(), &self.context)
@@ -3977,6 +4016,7 @@ impl RustExecutableDocument {
                             referrer_policy,
                             refresh_url,
                             content_type,
+                            encoding,
                         }) if destination == "frame" => Some((
                             url,
                             source,
@@ -3984,6 +4024,7 @@ impl RustExecutableDocument {
                             referrer_policy,
                             refresh_url,
                             content_type,
+                            encoding,
                         )),
                         Ok(_) => {
                             return Err(HostError::Execution(
@@ -4011,6 +4052,7 @@ impl RustExecutableDocument {
                             "strict-origin-when-cross-origin".into(),
                             None,
                             None::<String>,
+                            "UTF-8".to_owned(),
                         )
                     })
                 } else {
@@ -4027,6 +4069,7 @@ impl RustExecutableDocument {
                             .unwrap_or_else(|| "strict-origin-when-cross-origin".into()),
                         None,
                         None::<String>,
+                        "UTF-8".to_owned(),
                     ))
                 } else if let Some(requested) = requested.as_ref() {
                     self.resources.get(requested).cloned().map(|source| {
@@ -4041,6 +4084,7 @@ impl RustExecutableDocument {
                             "strict-origin-when-cross-origin".into(),
                             None,
                             None::<String>,
+                            "UTF-8".to_owned(),
                         )
                     })
                 } else {
@@ -4053,6 +4097,7 @@ impl RustExecutableDocument {
                     mut child_referrer_policy,
                     refresh_url,
                     content_type,
+                    encoding,
                 )) = fetched
                 else {
                     continue;
@@ -4095,8 +4140,9 @@ impl RustExecutableDocument {
                         )),
                     });
                 }
-                let parsed =
+                let mut parsed =
                     oryn_dom::xml::parse_navigation(&source, content_type.as_deref(), &url);
+                set_parsed_encoding(&mut parsed, &encoding)?;
                 if let Some(content) = parsed
                     .events
                     .iter()

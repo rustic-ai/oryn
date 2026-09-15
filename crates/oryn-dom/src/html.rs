@@ -67,6 +67,15 @@ pub struct ParseProgress {
     pub blocked_on: Option<ParserEvent>,
 }
 
+// Every entry point receives Unicode, after byte-level BOM processing by
+// the resource decoder (or directly from a DOM string API). U+FEFF here is
+// document content; removing it again loses a second BOM or author text.
+fn decoded_parse_options() -> ParseOpts {
+    let mut options = ParseOpts::default();
+    options.tokenizer.discard_bom = false;
+    options
+}
+
 pub fn parse(input: &str) -> ParsedDocument {
     let mut parser = StreamingParser::new();
     parser.push(input);
@@ -75,7 +84,7 @@ pub fn parse(input: &str) -> ParsedDocument {
 
 /// Parse a detached document with the HTML scripting flag disabled.
 pub fn parse_inert(input: &str) -> ParsedDocument {
-    let mut options = ParseOpts::default();
+    let mut options = decoded_parse_options();
     options.tree_builder.scripting_enabled = false;
     parse_document(OrynTreeSink::new_html_document(), options).one(input)
 }
@@ -122,7 +131,7 @@ pub fn parse_fragment(input: &str, context_local_name: &str) -> ParsedDocument {
     );
     let mut parser = html5_parse_fragment(
         OrynTreeSink::new(),
-        ParseOpts::default(),
+        decoded_parse_options(),
         context,
         Vec::new(),
         true,
@@ -160,7 +169,7 @@ impl StreamingParser {
         let document = dom.borrow().document();
         let sink = OrynTreeSink::with_runtime(dom.clone(), document);
         Self {
-            inner: parse_document(sink, ParseOpts::default()),
+            inner: parse_document(sink, decoded_parse_options()),
             dom,
             document,
             bytes_seen: 0,
@@ -801,6 +810,29 @@ impl TreeSink for OrynTreeSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decoded_and_dom_string_parsers_preserve_leading_feff() {
+        for text in ["\u{feff}", "\u{feff}\u{feff}", "\u{feff}<b>text</b>"] {
+            let expected = text.replace("<b>", "").replace("</b>", "");
+            for parsed in [
+                parse(text),
+                parse_inert(text),
+                parse_fragment(text, "div"),
+                parse_streamed(text, 1),
+            ] {
+                let actual: String = parsed
+                    .dom
+                    .iter()
+                    .filter_map(|(_, node)| match &node.kind {
+                        NodeKind::Text { data } => Some(data.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(actual, expected);
+            }
+        }
+    }
 
     #[test]
     fn foreign_attribute_namespaces_survive_parser_snapshot_and_import() {

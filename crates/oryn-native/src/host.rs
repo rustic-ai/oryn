@@ -3,6 +3,7 @@
 pub(crate) struct DocumentStream {
     pub chunks: Box<dyn Iterator<Item = Result<String, HostError>>>,
     pub content_type: Option<String>,
+    pub encoding: std::sync::Arc<std::sync::Mutex<Option<&'static str>>>,
 }
 
 #[cfg_attr(not(feature = "v8-host"), allow(dead_code))]
@@ -11,6 +12,7 @@ impl DocumentStream {
         Self {
             chunks,
             content_type: None,
+            encoding: Default::default(),
         }
     }
 }
