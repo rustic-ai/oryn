@@ -1576,6 +1576,50 @@ impl ParentContextService {
                     "request blocked by Content-Security-Policy {destination:?}"
                 )));
             }
+            if target.scheme() == "data" {
+                if redirects != 0 {
+                    return Err(RuntimeError::Network(
+                        "HTTP redirect to data URL denied".into(),
+                    ));
+                }
+                // Fetch data URLs produce a local basic response. Keep them
+                // behind the same native ownership, CSP, stream quota and
+                // cancellation checks as HTTP without sending them to a socket
+                // broker or requiring a CORS preflight for an opaque origin.
+                let (content_type, bytes) = crate::network::decode_data_url(&target)
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                if bytes.len() > 16 * 1024 * 1024 {
+                    return Err(RuntimeError::WorkerLimitExceeded {
+                        resource: "decoded data URL response body".into(),
+                    });
+                }
+                let length = bytes.len();
+                let (sender, events) = tokio::sync::mpsc::channel(2);
+                sender
+                    .try_send(NetworkEvent::Chunk {
+                        request_id: public_request_id,
+                        bytes: bytes.into(),
+                    })
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                sender
+                    .try_send(NetworkEvent::Complete {
+                        request_id: public_request_id,
+                    })
+                    .map_err(|error| RuntimeError::Network(error.to_string()))?;
+                break (
+                    NetworkOperation {
+                        request_id: public_request_id,
+                        events,
+                        demand: None,
+                    },
+                    200,
+                    vec![(
+                        "content-type".into(),
+                        content_type.unwrap_or_else(|| "text/plain;charset=US-ASCII".into()),
+                    )],
+                    Some(length),
+                );
+            }
             enforce_mixed_content(source.as_str(), &target)?;
             let cross_origin = target.origin().ascii_serialization() != source_origin;
             let credentials = match credentials_mode.as_deref() {
@@ -4144,6 +4188,100 @@ mod tests {
         assert_eq!(
             context.security_audit()[0].decision,
             crate::PolicyDecision::Denied
+        );
+    }
+
+    #[test]
+    fn data_response_streams_preserve_bytes_ownership_cancellation_and_csp() {
+        let context = Browser::in_process_probe().new_context();
+        let page = context.new_page();
+        let page_id = page.page_id();
+        context
+            .commit_page_url(page_id, "https://example.test/".into())
+            .unwrap();
+        let service = ParentContextService::new_with_network(
+            context.clone(),
+            page_id,
+            Some(SharedNetworkBroker::new(FixtureNetwork)),
+        );
+        let request = HttpStreamRequest {
+            request_id: 500,
+            method: "GET".into(),
+            url: "data:text/plain,%00%80%FF".into(),
+            headers: vec![],
+            body_base64: String::new(),
+            credentials: false,
+            credentials_mode: Some("omit".into()),
+            initiator_url: None,
+            referrer_policy: None,
+        };
+        let start = || {
+            service.handle(ContextServiceRequest::HttpStreamStart {
+                page_id,
+                request: request.clone(),
+            })
+        };
+        let ContextServiceResponse::HttpStreamStarted {
+            stream_id,
+            status,
+            total_bytes,
+            ..
+        } = start().unwrap()
+        else {
+            panic!("data response missing")
+        };
+        assert_eq!((status, total_bytes), (200, Some(3)));
+        assert!(
+            service
+                .handle(ContextServiceRequest::HttpStreamRead {
+                    page_id: PageId(999),
+                    stream_id,
+                    max_bytes: 3
+                })
+                .is_err()
+        );
+        let ContextServiceResponse::HttpStreamChunk {
+            body_base64, done, ..
+        } = service
+            .handle(ContextServiceRequest::HttpStreamRead {
+                page_id,
+                stream_id,
+                max_bytes: 3,
+            })
+            .unwrap()
+        else {
+            panic!("data chunk missing")
+        };
+        assert_eq!(body_base64, "AID/");
+        assert!(done);
+        assert!(
+            service
+                .handle(ContextServiceRequest::HttpStreamRead {
+                    page_id,
+                    stream_id,
+                    max_bytes: 3
+                })
+                .is_err()
+        );
+        service
+            .handle(ContextServiceRequest::HttpRequestAbort {
+                page_id,
+                request_id: 500,
+            })
+            .unwrap();
+        assert!(start().is_err());
+        context
+            .install_document_security(
+                page_id,
+                "https://example.test/".into(),
+                &[(
+                    "content-security-policy".into(),
+                    "connect-src 'none'".into(),
+                )],
+            )
+            .unwrap();
+        assert!(
+            matches!(start(),Err(RuntimeError::ContextService(message)) if message.contains("Content-Security-Policy"))
         );
     }
 

@@ -1819,9 +1819,6 @@ globalThis.Worker=OrynWorker;globalThis.SharedWorker=OrynSharedWorker;globalThis
 const __oryn_service_worker_container={controller:null,onmessage:null,__listeners:new Map(),addEventListener(type,callback){const list=this.__listeners.get(String(type))||[];list.push(callback);this.__listeners.set(String(type),list)},register(url,options={}){const worker=new OrynServiceWorker(url,options);this.controller=worker;worker.addEventListener('message',event=>{for(const callback of this.__listeners.get('message')||[])callback.call(this,event);if(typeof this.onmessage==='function')this.onmessage(event)});return Promise.resolve({installing:null,waiting:null,active:worker,scope:new OrynURL('.',location.href).href,unregister(){worker.__worker.terminate();return Promise.resolve(true)}})},get ready(){return Promise.resolve({active:this.controller})}};
 if(!globalThis.navigator)globalThis.navigator={};globalThis.navigator.serviceWorker=__oryn_service_worker_container;
 const __oryn_context_poll_without_workers=globalThis.__oryn_poll_context;globalThis.__oryn_poll_context=()=>{__oryn_context_poll_without_workers();for(const worker of [...__oryn_workers])worker.__poll()};
-class OrynTextEncoder {encode(value=''){const encoded=unescape(encodeURIComponent(String(value)));return Uint8Array.from(encoded,char=>char.charCodeAt(0))}encodeInto(value,destination){value=String(value);if(!(destination instanceof Uint8Array))throw new TypeError('destination must be a Uint8Array');let read=0,written=0;for(const scalar of value){const encoded=this.encode(scalar);if(written+encoded.length>destination.length)break;destination.set(encoded,written);written+=encoded.length;read+=scalar.length}return{read,written}}}
-class OrynTextDecoder {decode(value=new Uint8Array()){let encoded='';for(const byte of new Uint8Array(value.buffer||value,value.byteOffset||0,value.byteLength??value.length))encoded+=String.fromCharCode(byte);return decodeURIComponent(escape(encoded))}}
-globalThis.TextEncoder=OrynTextEncoder;globalThis.TextDecoder=OrynTextDecoder;
 const b64chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const bytesToBase64=value=>{const bytes=value instanceof Uint8Array?value:new Uint8Array(value);let out='';for(let index=0;index<bytes.length;index+=3){const first=bytes[index],second=bytes[index+1],third=bytes[index+2];out+=b64chars[first>>2];out+=b64chars[((first&3)<<4)|((second??0)>>4)];out+=second===undefined?'=':b64chars[((second&15)<<2)|((third??0)>>6)];out+=third===undefined?'=':b64chars[third&63]}return out};
 const base64ToBytes=value=>{value=String(value).replace(/\s/g,'');const out=[];for(let index=0;index<value.length;index+=4){const first=b64chars.indexOf(value[index]),second=b64chars.indexOf(value[index+1]),third=value[index+2]==='='?-1:b64chars.indexOf(value[index+2]),fourth=value[index+3]==='='?-1:b64chars.indexOf(value[index+3]);out.push((first<<2)|(second>>4));if(third>=0)out.push(((second&15)<<4)|(third>>2));if(fourth>=0)out.push(((third&3)<<6)|fourth)}return Uint8Array.from(out)};
@@ -10483,6 +10480,36 @@ mod tests {
                 .unwrap(),
             "complete"
         );
+    }
+
+    #[test]
+    fn native_text_encoding_survives_page_bootstrap_and_worker_exposure() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<output id=result>pending</output><script>
+            globalThis.pageEncoding=[new TextDecoder('latin1').encoding,
+                new TextDecoder('latin1').decode(new Uint8Array([128])),
+                [...new TextEncoder().encode('\ud800')].join(',')].join('|');
+            const worker=new Worker('data:,'+encodeURIComponent(`
+                const decoder=new TextDecoder('utf-8',{fatal:true});
+                decoder.decode(new Uint8Array([0xe2]),{stream:true});
+                postMessage([decoder.decode(new Uint8Array([0x82,0xac])),
+                  [...new TextEncoder().encode('💡')].join(',')].join('|'));
+            `));
+            worker.onmessage=event=>document.querySelector('#result').textContent=event.data;
+            </script>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                "__oryn_drain(true);pageEncoding+'|'+document.querySelector('#result').textContent"
+            )
+            .unwrap(),
+            "windows-1252|€|239,191,189|€|240,159,146,161"
+        );
+        assert!(page.diagnostics.is_empty(), "{:?}", page.diagnostics);
     }
 
     #[test]

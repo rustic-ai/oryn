@@ -5351,7 +5351,7 @@ mod raw_v8 {
                 }
                 continue;
             }
-            if origin(&url) != request_origin {
+            if url.scheme() != "data" && origin(&url) != request_origin {
                 let allowed_origin = headers
                     .iter()
                     .find(|(name, _)| name.eq_ignore_ascii_case("access-control-allow-origin"))

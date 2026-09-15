@@ -29,45 +29,71 @@ const MAX_DECODED_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const PERSISTENT_HTTP_CACHE: TableDefinition<&str, &[u8]> = TableDefinition::new("http_cache_v1");
 
 pub(crate) fn decode_data_url(url: &Url) -> Result<(Option<String>, Vec<u8>), NetworkError> {
+    // Fetch's data-URL processor excludes the fragment, preserves malformed
+    // percent escapes, and uses forgiving base64 rather than strict RFC 4648.
+    let mut url = url.clone();
+    url.set_fragment(None);
     let (metadata, payload) = url
         .as_str()
         .strip_prefix("data:")
         .and_then(|value| value.split_once(','))
         .ok_or_else(|| NetworkError::Transport("malformed data URL".into()))?;
-    let mut bytes = Vec::with_capacity(payload.len());
+    let ascii_space = |ch: char| matches!(ch, '\t' | '\n' | '\u{c}' | '\r' | ' ');
+    let mut metadata = metadata.trim_matches(ascii_space);
+    let base64 = metadata.rsplit_once(';').filter(|(_, suffix)| {
+        suffix
+            .trim_start_matches(' ')
+            .eq_ignore_ascii_case("base64")
+    });
+    if let Some((mime, _)) = base64 {
+        metadata = mime;
+    }
+    let mut bytes = Vec::with_capacity(payload.len().min(MAX_DECODED_RESPONSE_BYTES));
     let input = payload.as_bytes();
     let mut index = 0;
     while index < input.len() {
-        if input[index] == b'%' {
-            let pair = input
-                .get(index + 1..index + 3)
-                .ok_or_else(|| NetworkError::Transport("truncated data URL escape".into()))?;
-            let pair = std::str::from_utf8(pair)
-                .map_err(|_| NetworkError::Transport("invalid data URL escape".into()))?;
-            bytes.push(
-                u8::from_str_radix(pair, 16)
-                    .map_err(|_| NetworkError::Transport("invalid data URL escape".into()))?,
-            );
+        if input[index] == b'%'
+            && let Some(pair) = input.get(index + 1..index + 3)
+            && let Ok(pair) = std::str::from_utf8(pair)
+            && let Ok(byte) = u8::from_str_radix(pair, 16)
+        {
+            bytes.push(byte);
             index += 3;
         } else {
             bytes.push(input[index]);
             index += 1;
         }
+        if bytes.len() > MAX_DECODED_RESPONSE_BYTES * 4 / 3 + 4 {
+            return Err(NetworkError::Transport(
+                "data URL body exceeds limit".into(),
+            ));
+        }
     }
-    if metadata
-        .split(';')
-        .any(|item| item.eq_ignore_ascii_case("base64"))
-    {
-        bytes = BASE64.decode(bytes).map_err(|error| {
-            NetworkError::Transport(format!("invalid data URL base64: {error}"))
-        })?;
+    if base64.is_some() {
+        bytes.retain(|byte| !matches!(byte, b'\t' | b'\n' | 0x0c | b'\r' | b' '));
+        let config = base64::engine::general_purpose::GeneralPurposeConfig::new()
+            .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
+            .with_decode_allow_trailing_bits(true);
+        bytes = base64::engine::GeneralPurpose::new(&base64::alphabet::STANDARD, config)
+            .decode(bytes)
+            .map_err(|error| {
+                NetworkError::Transport(format!("invalid data URL base64: {error}"))
+            })?;
     }
-    let media_type = metadata
-        .split(';')
-        .next()
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
-    Ok((media_type, bytes))
+    if bytes.len() > MAX_DECODED_RESPONSE_BYTES {
+        return Err(NetworkError::Transport(
+            "data URL body exceeds limit".into(),
+        ));
+    }
+    let metadata = if metadata.starts_with(';') {
+        format!("text/plain{metadata}")
+    } else {
+        metadata.to_owned()
+    };
+    let media_type = oryn_js::mime_type::MimeType::parse(&metadata)
+        .map(|mime| mime.serialize())
+        .unwrap_or_else(|| "text/plain;charset=US-ASCII".into());
+    Ok((Some(media_type), bytes))
 }
 
 fn operation_runtime() -> &'static tokio::runtime::Runtime {
@@ -3409,7 +3435,7 @@ mod tests {
         let url = Url::parse("data:text/css;charset=utf-8,a%20%7Bcolor%3Ared%7D")
             .expect("valid data URL");
         let (media_type, body) = decode_data_url(&url).expect("decoded data URL");
-        assert_eq!(media_type.as_deref(), Some("text/css"));
+        assert_eq!(media_type.as_deref(), Some("text/css;charset=utf-8"));
         assert_eq!(body, b"a {color:red}");
 
         let url =
@@ -3420,12 +3446,39 @@ mod tests {
     }
 
     #[test]
+    fn data_url_processing_preserves_mime_and_uses_forgiving_decoding() {
+        for (url, mime, bytes) in [
+            (
+                "data:,a%2Gb%#excluded",
+                "text/plain;charset=US-ASCII",
+                b"a%2Gb%".as_slice(),
+            ),
+            (
+                "data:;charset=windows-1252,%80",
+                "text/plain;charset=windows-1252",
+                &[128],
+            ),
+            ("data:text/plain; BASE64,YQ", "text/plain", b"a"),
+            ("data:text/plain;base64,YR==", "text/plain", b"a"),
+            ("data:text/plain;base64,Y%20Q%0A==", "text/plain", b"a"),
+            ("data:text/plain;base64;x=y,YQ==", "text/plain;x=y", b"YQ=="),
+            ("data:invalid,a", "text/plain;charset=US-ASCII", b"a"),
+        ] {
+            let result = decode_data_url(&Url::parse(url).unwrap()).unwrap();
+            assert_eq!(result.0.as_deref(), Some(mime), "{url}");
+            assert_eq!(result.1, bytes, "{url}");
+        }
+        for payload in ["Y", "Y===", "YQ===", "YQ-_"] {
+            assert!(
+                decode_data_url(&Url::parse(&format!("data:;base64,{payload}")).unwrap()).is_err()
+            );
+        }
+    }
+
+    #[test]
     fn malformed_data_urls_are_rejected() {
         let malformed = Url::parse("data:text/plain,%Q0").expect("URL parser accepts payload");
-        assert!(matches!(
-            decode_data_url(&malformed),
-            Err(NetworkError::Transport(message)) if message == "invalid data URL escape"
-        ));
+        assert_eq!(decode_data_url(&malformed).unwrap().1, b"%Q0");
         let malformed =
             Url::parse("data:text/plain;base64,not-base64").expect("URL parser accepts payload");
         assert!(matches!(

@@ -325,7 +325,8 @@ impl IncrementalTextDecoder {
             .map(|(_, length)| length)
             .unwrap_or(0);
         self.encoding_name = Some(encoding.name());
-        self.decoder = Some(encoding.new_decoder_with_bom_removal());
+        // Selection consumed the one leading BOM. A second BOM is content.
+        self.decoder = Some(encoding.new_decoder_without_bom_handling());
         self.decode(&bytes[bom_length..], last)
     }
 
@@ -346,7 +347,7 @@ pub fn decode_resource_text(
     let bytes = encoding_rs::Encoding::for_bom(bytes)
         .map(|(_, length)| &bytes[length..])
         .unwrap_or(bytes);
-    let (decoded, _, _) = encoding.decode(bytes);
+    let (decoded, _) = encoding.decode_without_bom_handling(bytes);
     (decoded.into_owned(), encoding.name())
 }
 
@@ -615,6 +616,28 @@ mod tests {
         );
         assert!(decoded.ends_with("ok"));
         assert_eq!(encoding, "UTF-8");
+    }
+
+    #[test]
+    fn resource_decoders_remove_exactly_one_bom_at_every_chunk_boundary() {
+        for (bytes, expected_encoding) in [
+            (b"\xef\xbb\xbf\xef\xbb\xbfA".as_slice(), "UTF-8"),
+            (b"\xff\xfe\xff\xfeA\x00".as_slice(), "UTF-16LE"),
+            (b"\xfe\xff\xfe\xff\x00A".as_slice(), "UTF-16BE"),
+        ] {
+            assert_eq!(
+                decode_resource_text(bytes, Some("text/html"), TextResourceKind::Html),
+                ("\u{feff}A".into(), expected_encoding)
+            );
+            for boundary in 0..=bytes.len() {
+                let mut decoder =
+                    IncrementalTextDecoder::new(Some("text/html"), TextResourceKind::Html);
+                let mut text = decoder.push(&bytes[..boundary]);
+                text.push_str(&decoder.push(&bytes[boundary..]));
+                text.push_str(&decoder.finish());
+                assert_eq!(text, "\u{feff}A", "{expected_encoding} at {boundary}");
+            }
+        }
     }
 
     #[test]

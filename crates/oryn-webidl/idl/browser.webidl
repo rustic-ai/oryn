@@ -1,3 +1,34 @@
+[Exposed=(Window,Worker)]
+interface TextDecoder {
+  constructor(optional DOMString label = "utf-8", optional TextDecoderOptions options);
+  readonly attribute DOMString encoding;
+  readonly attribute boolean fatal;
+  readonly attribute boolean ignoreBOM;
+  USVString decode([AllowShared] optional (ArrayBuffer or ArrayBufferView) input, optional TextDecodeOptions options);
+};
+
+dictionary TextDecoderOptions {
+  boolean fatal = false;
+  boolean ignoreBOM = false;
+};
+
+dictionary TextDecodeOptions {
+  boolean stream = false;
+};
+
+[Exposed=(Window,Worker)]
+interface TextEncoder {
+  constructor();
+  readonly attribute DOMString encoding;
+  Uint8Array encode(optional USVString input = "");
+  TextEncoderEncodeIntoResult encodeInto(USVString source, [AllowShared] Uint8Array destination);
+};
+
+dictionary TextEncoderEncodeIntoResult {
+  unsigned long long read;
+  unsigned long long written;
+};
+
 [Exposed=Window]
 interface Window : EventTarget {
   attribute DOMString name;

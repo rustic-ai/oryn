@@ -48,6 +48,7 @@ mod message_ports;
 mod opaque_ranges;
 pub mod structured_clone;
 pub mod submissions;
+mod text_encoding;
 mod token_lists;
 mod tree_walkers;
 mod url_objects;
@@ -526,6 +527,8 @@ struct IdbKeyRangeRecord {
 }
 
 enum PlatformObjectRecord {
+    TextEncoder,
+    TextDecoder(Box<text_encoding::DecoderRecord>),
     EventTarget,
     DomException {
         name: String,
@@ -1132,6 +1135,7 @@ pub struct V8BindingState {
     storage_fallback: RefCell<[BTreeMap<String, String>; 2]>,
     next_platform_object_id: Cell<u64>,
     platform_objects: RefCell<BTreeMap<u64, PlatformObjectRecord>>,
+    text_encoding_releases: RefCell<Vec<u64>>,
     security_origin: RefCell<Option<String>>,
     location_url: RefCell<Url>,
     location_object: Cell<Option<u64>>,
@@ -2980,6 +2984,7 @@ impl V8BindingState {
     }
 
     pub fn process_weak_releases(&self) -> Result<usize, BindingError> {
+        text_encoding::collect(self);
         collect_dead_ranges(self, true)?;
         node_lists::collect(self)?;
         let live_wrappers = {
@@ -3442,6 +3447,7 @@ pub fn install_generated_bindings_with_root_for_global(
         storage_fallback: RefCell::new([BTreeMap::new(), BTreeMap::new()]),
         next_platform_object_id: Cell::new(1),
         platform_objects: RefCell::new(BTreeMap::new()),
+        text_encoding_releases: RefCell::new(Vec::new()),
         security_origin: RefCell::new(
             context
                 .get_slot::<crate::realm::RealmDescriptor>()
@@ -7297,6 +7303,8 @@ fn is_platform_interface(interface: &str) -> bool {
     matches!(
         interface,
         "Blob"
+            | "TextEncoder"
+            | "TextDecoder"
             | "File"
             | "FileReader"
             | "FormData"
@@ -7805,6 +7813,10 @@ fn initialize_platform_constructor<'s>(
 ) -> Result<bool, V8BindingError> {
     if !args.is_construct_call() {
         return Ok(false);
+    }
+    if matches!(name, "TextEncoder" | "TextDecoder") {
+        text_encoding::construct(scope, state, name, args)?;
+        return Ok(true);
     }
     if name == "DOMException" {
         let message = if args.length() == 0 || args.get(0).is_undefined() {
@@ -17946,6 +17958,9 @@ fn get_platform_attribute<'s>(
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     let id = stateful_id(scope, object)?;
+    if matches!(interface, "TextEncoder" | "TextDecoder") {
+        return text_encoding::get(scope, state, id, interface, member);
+    }
     if interface == "Location" {
         return location::get(scope, state, id, member);
     }
@@ -19382,6 +19397,9 @@ fn call_platform_operation<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let id = stateful_id(scope, object)?;
+    if matches!(interface, "TextEncoder" | "TextDecoder") {
+        return text_encoding::operation(scope, state, id, interface, member, args);
+    }
     if interface == "Location" {
         return location::operation(scope, state, id, member, args);
     }
@@ -32128,6 +32146,165 @@ mod tests {
     use oryn_dom::html;
 
     use super::*;
+
+    #[test]
+    fn native_text_encoding_preserves_stream_state_bom_and_scalar_boundaries() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+          const errors=[];const eq=(a,b,label)=>{if(a!==b)errors.push(label+': '+a+' != '+b)};
+          const fail=(fn,type,label)=>{let good=false;try{fn()}catch(e){good=e instanceof type}eq(good,true,label)};
+          const encoder=new TextEncoder('windows-1252');
+          eq(encoder.encoding,'utf-8','encoder encoding');
+          eq([...encoder.encode('\ud800A\udc00💡')].join(','),'239,191,189,65,239,191,189,240,159,146,161','USV conversion');
+          eq(encoder.encode().length,0,'empty encode');
+          const storage=new Uint8Array(8).fill(99), dest=storage.subarray(2,7);
+          const result=encoder.encodeInto('A💡B',dest);
+          eq(result.read,3,'UTF16 read count');eq(result.written,5,'byte count');
+          eq([...storage].join(','),'99,99,65,240,159,146,161,99','view offsets');
+          eq(encoder.encodeInto('💡',new Uint8Array(3)).read,0,'no partial scalar');
+          const detached=new Uint8Array(4);detached.buffer.transfer();
+          eq(encoder.encodeInto('test',detached).read,0,'detached destination read');
+          eq(encoder.encodeInto('test',detached).written,0,'detached destination written');
+          for(const [label,bytes] of [['big5',[0xf9,0x40]],['shift_jis',[0x81,0x87]],['euc-kr',[0xa1,0xde]]]) {
+            const expected=new TextDecoder(label).decode(new Uint8Array(bytes));
+            for(const fatal of [false,true]) {
+              const legacy=new TextDecoder(label,{fatal});
+              const chunks=[legacy.decode(new Uint8Array(bytes.slice(0,1)),{stream:true}),
+                legacy.decode(new Uint8Array(),{stream:true}),
+                legacy.decode(new Uint8Array(bytes.slice(1)),{stream:true}),legacy.decode()];
+              eq(chunks.join(''),expected,label+' empty streaming chunk');
+            }
+          }
+          const d=new TextDecoder(' UTF8 ');
+          eq(d.encoding,'utf-8','label canonicalization');
+          eq(d.decode(new Uint8Array([0xef]),{stream:true}),'','split BOM');
+          eq(d.decode(new Uint8Array([0xbb,0xbf,0xf0,0x9f]),{stream:true}),'','pending scalar');
+          eq(d.decode(new Uint8Array([0x92,0xa1])),'💡','complete scalar');
+          eq(d.decode(new Uint8Array([0xef,0xbb,0xbf,65])),'A','BOM resets per decode');
+          eq(new TextDecoder('utf-8',{ignoreBOM:true}).decode(new Uint8Array([0xef,0xbb,0xbf,65])),'\ufeffA','preserve BOM');
+          eq(new TextDecoder('windows-1252').decode(new Uint8Array([0x80])),'€','legacy codec');
+          eq(new TextDecoder('utf-16be').decode(new Uint8Array([0xfe,0xff,0x20,0xac])),'€','UTF16 BOM');
+          eq(d.decode(new DataView(new Uint8Array([90,65,66,90]).buffer,1,2)),'AB','DataView offsets');
+          eq(d.decode(new Uint8Array([0xe2]),{stream:true}),'','incomplete input');
+          eq(d.decode(),'\ufffd','EOF replacement');
+          const fatal=new TextDecoder('utf-8',{fatal:true});
+          fail(()=>fatal.decode(new Uint8Array([0xff])),TypeError,'fatal error');
+          eq(fatal.decode(new Uint8Array([65])),'A','reset after fatal nonstreaming error');
+          eq(fatal.fatal,true,'fatal property');eq(fatal.ignoreBOM,false,'BOM property');
+          fail(()=>new TextDecoder('replacement'),RangeError,'replacement prohibited');
+          fail(()=>new TextDecoder('not-an-encoding'),RangeError,'unknown label');
+          fail(()=>d.decode(null),TypeError,'null is not BufferSource');
+          fail(()=>encoder.encodeInto('a',new Uint8ClampedArray(1)),TypeError,'destination type');
+          fail(()=>TextDecoder(),TypeError,'requires new');
+          let calls=0;const input={toString(){calls++;return 'x'}};
+          fail(()=>TextEncoder.prototype.encode.call(d,input),TypeError,'receiver brand');
+          eq(calls,0,'brand before conversion');
+          const shared=new SharedArrayBuffer(4);new Uint8Array(shared)[0]=65;
+          eq(d.decode(new Uint8Array(shared,0,1)),'A','shared view input');
+          eq(encoder.encodeInto('BC',new Uint8Array(shared,1)).written,2,'shared destination');
+          eq([...new Uint8Array(shared)].join(','),'65,66,67,0','shared writes');
+          fail(()=>d.decode(new ArrayBuffer(4,{maxByteLength:8})),TypeError,'resizable input');
+          errors.length?errors.join('\n'):'ok';
+        "#).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(script.run(scope).unwrap().to_rust_string_lossy(scope), "ok");
+    }
+
+    #[test]
+    fn native_text_encoding_releases_unreachable_codecs_and_preserves_live_streams() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(
+            scope,
+            r#"
+          globalThis.retainedDecoder=new TextDecoder();
+          retainedDecoder.decode(new Uint8Array([0xe2]),{stream:true});
+          for(let i=0;i<2048;i++){new TextDecoder('shift_jis');new TextEncoder()}
+          true;
+        "#,
+        )
+        .unwrap();
+        assert!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+        scope.low_memory_notification();
+        state.process_weak_releases().unwrap();
+        assert_eq!(
+            state
+                .platform_objects
+                .borrow()
+                .values()
+                .filter(|record| matches!(
+                    record,
+                    PlatformObjectRecord::TextDecoder(_) | PlatformObjectRecord::TextEncoder
+                ))
+                .count(),
+            1
+        );
+        let source =
+            v8::String::new(scope, "retainedDecoder.decode(new Uint8Array([0x82,0xac]))").unwrap();
+        assert_eq!(
+            v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .to_rust_string_lossy(scope),
+            "€"
+        );
+    }
+
+    #[test]
+    fn native_text_encoding_converts_options_before_borrowing_decoder() {
+        initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            html::parse("<main></main>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source = v8::String::new(scope, r#"
+          const errors=[];const eq=(a,b,label)=>{if(a!==b)errors.push(label+': '+a+' != '+b)};
+          const trace=[], marker={};
+          const d=new TextDecoder({toString(){trace.push('label');return 'utf8'}},{
+            get fatal(){trace.push('fatal');return false},get ignoreBOM(){trace.push('ignoreBOM');return false}});
+          eq(trace.join(','),'label,fatal,ignoreBOM','conversion order');
+          const bytes=new Uint8Array([65]);
+          eq(d.decode(bytes,{get stream(){eq(d.decode(new Uint8Array([66])),'B','reentrant decoder');bytes[0]=67;return false}}),'C','copy after dictionary conversion');
+          let preserved=false;try{d.decode(bytes,{get stream(){throw marker}})}catch(e){preserved=e===marker}
+          eq(preserved,true,'getter exception preserved');
+          eq(d.decode(bytes),'C','decoder remains usable after conversion exception');
+          let gotBOM=false;try{new TextDecoder('invalid',{get fatal(){throw marker},get ignoreBOM(){gotBOM=true}})}catch(e){eq(e,marker,'conversion before label validation')}
+          eq(gotBOM,false,'abrupt dictionary conversion');
+          const pending=new Uint8Array([0xe2]);d.decode(pending,{stream:true});pending[0]=65;
+          eq(d.decode(new Uint8Array([0x82,0xac])),'€','input is copied across calls');
+          const detached=new Uint8Array([65]);
+          eq(d.decode(detached,{get stream(){detached.buffer.transfer();return false}}),'','detach during options conversion');
+          errors.length?errors.join('\n'):'ok';
+        "#).unwrap();
+        let script = v8::Script::compile(scope, source, None).unwrap();
+        assert_eq!(script.run(scope).unwrap().to_rust_string_lossy(scope), "ok");
+    }
 
     #[test]
     fn multipart_encoding_preserves_files_and_normalizes_only_string_fields() {
