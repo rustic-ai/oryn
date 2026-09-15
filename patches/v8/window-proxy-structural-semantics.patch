@@ -2,7 +2,7 @@
 +++ b/include/v8-template.h
 @@ -1145,6 +1145,16 @@
    void SetImmutableProto();
- 
+
    /**
 +   * Opt a Context global template into HTML WindowProxy structural semantics.
 +   * For the resulting global proxy, preventing extensions fails, and a
@@ -25,7 +25,7 @@
    embedder_field_count: int32: 28 bit;
 +  has_window_proxy_structural_semantics: bool: 1 bit;
  }
- 
+
  @cppObjectLayoutDefinition
 --- a/src/objects/templates.h
 +++ b/src/objects/templates.h
@@ -35,14 +35,14 @@
    DECL_BOOLEAN_ACCESSORS(immutable_proto)
 +  DECL_BOOLEAN_ACCESSORS(window_proxy_structural_semantics)
    DECL_BOOLEAN_ACCESSORS(code_like)
- 
+
    // Starting from given object template's constructor walk up the inheritance
 --- a/src/objects/templates-inl.h
 +++ b/src/objects/templates-inl.h
 @@ -350,6 +350,14 @@
    return set_data(IsImmutablePrototypeBit::update(data(), immutable));
  }
- 
+
 +bool ObjectTemplateInfo::window_proxy_structural_semantics() const {
 +  return HasWindowProxyStructuralSemanticsBit::decode(data());
 +}
@@ -55,21 +55,21 @@
    return IsCodeKindBit::decode(data());
  }
 @@ -611,7 +619,8 @@
- 
+
  int ObjectTemplateInfo::data() const { return data_.load().value(); }
  void ObjectTemplateInfo::set_data(int value) {
 -  data_.store(this, Smi::FromInt(value));
 +  // The opt-in bit occupies the top bit of the 31-bit Smi payload.
 +  data_.store(this, Smi::From31BitPattern(value));
  }
- 
+
  Tagged<FixedArray> DictionaryTemplateInfo::property_names() const {
 --- a/src/api/api.cc
 +++ b/src/api/api.cc
 @@ -1823,6 +1823,13 @@
    self->set_immutable_proto(true);
  }
- 
+
 +void ObjectTemplate::SetWindowProxyStructuralSemantics() {
 +  auto self = Utils::OpenDirectHandle(this);
 +  i::Isolate* i_isolate = i::Isolate::Current();
@@ -88,23 +88,40 @@
 +          ->set_window_proxy_structural_semantics(
 +              Utils::OpenDirectHandle(*global_template)
 +                  ->window_proxy_structural_semantics());
- 
+
        // Set the global template to be the prototype template of
        // global proxy template.
+@@ -7164,6 +7175,16 @@
+   i::Isolate* i_isolate = i::Isolate::Current();
+   i::DirectHandle<i::JSObject> global(context->global_proxy(), i_isolate);
+   return Utils::ToLocal(global);
++}
++
++Maybe<bool> Context::SetGlobalObjectPrototype(Local<Value> prototype) {
++  auto context = Utils::OpenDirectHandle(this);
++  i::Isolate* i_isolate = i::Isolate::Current();
++  EnterV8NoScriptNoExceptionScope api_scope(i_isolate);
++  auto value = Utils::OpenDirectHandle(*prototype);
++  if (!i::IsJSReceiver(*value) && !i::IsNull(*value)) return Just(false);
++  i::DirectHandle<i::JSObject> global(context->global_object(), i_isolate);
++  return i::JSObject::SetPrototype(i_isolate, global, value, false, i::kDontThrow);
+ }
+
+ void Context::DetachGlobal() {
 --- a/src/objects/js-objects.cc
 +++ b/src/objects/js-objects.cc
 @@ -3,6 +3,7 @@
  // found in the LICENSE file.
- 
+
  #include "src/objects/js-objects.h"
 +#include "src/objects/templates-inl.h"
- 
+
  #include <limits>
  #include <optional>
 @@ -3671,6 +3672,28 @@
  #endif
  }
- 
+
 +namespace {
 +// This flag belongs to an embedder template, never an author-visible property.
 +// Global proxies can carry either a template or its instantiated API function
@@ -152,7 +169,7 @@
 +  }
 +
    static_assert(attrs == NONE || attrs == SEALED || attrs == FROZEN);
- 
+
    // Sealing/freezing sloppy arguments or namespace objects should be handled
 @@ -5405,6 +5438,12 @@
    if (from_javascript) {
@@ -167,3 +184,32 @@
        RETURN_ON_EXCEPTION_VALUE(
            isolate, isolate->ReportFailedAccessCheck(object), Nothing<bool>());
        UNREACHABLE();
+@@ -5438,7 +5477,11 @@
+   // Nothing to do if prototype is already set.
+   if (map->prototype() == *value) return Just(true);
+
+-  bool immutable_proto = map->is_immutable_proto();
++  // WindowProxy prototype identity is immutable to JavaScript, while native
++  // initialization may still attach the Window prototype chain.
++  bool immutable_proto = map->is_immutable_proto() ||
++                         (from_javascript &&
++                          HasWindowProxyStructuralSemantics(*object));
+   if (immutable_proto) {
+     DirectHandle<Object> msg;
+     if (IsJSObjectPrototype(*object)) {  // is [[Object.prototype]]
+--- a/include/v8-context.h
++++ b/include/v8-context.h
+@@ -60,6 +60,13 @@
+    * proxy object.
+    */
+   Local<Object> Global();
++
++  /**
++   * Set the inner global object's prototype during embedder initialization.
++   * Unlike Object::SetPrototype, this does not perform the JavaScript-visible
++   * WindowProxy operation. It runs no author code and preserves the proxy.
++   */
++  Maybe<bool> SetGlobalObjectPrototype(Local<Value> prototype);
+
+   /**
+    * Detaches the global object from its context before

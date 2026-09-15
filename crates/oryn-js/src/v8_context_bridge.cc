@@ -16,6 +16,14 @@ extern "C" void oryn_v8_detach_global(v8::Context* context) {
   context->DetachGlobal();
 }
 
+extern "C" bool oryn_v8_set_global_object_prototype(
+    v8::Context* context, const v8::Value* prototype) {
+  // The pinned rusty_v8 binding uses this opaque Local<T> representation too.
+  static_assert(sizeof(v8::Local<v8::Value>) == sizeof(prototype));
+  auto local = *reinterpret_cast<const v8::Local<v8::Value>*>(&prototype);
+  return context->SetGlobalObjectPrototype(local).FromMaybe(false);
+}
+
 // Security tokens are embedder-owned and include distinct identities for opaque
 // origins. Read the caller's incumbent context, not the native function's realm.
 extern "C" bool oryn_v8_can_access_window(v8::Isolate* isolate,

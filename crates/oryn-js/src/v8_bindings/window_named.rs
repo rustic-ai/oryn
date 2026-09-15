@@ -279,7 +279,11 @@ pub(super) fn install(
         .new_instance(scope, &[])
         .ok_or(V8BindingError::Allocation("Window named-properties object"))?;
     if window_prototype.set_prototype(scope, named.into()) != Some(true)
-        || global.set_prototype(scope, window_prototype.into()) != Some(true)
+        || !crate::v8_context_bridge::set_global_object_prototype(
+            scope,
+            context,
+            window_prototype.into(),
+        )
     {
         return Err(V8BindingError::Allocation("Window prototype chain"));
     }

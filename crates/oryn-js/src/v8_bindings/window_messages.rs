@@ -64,6 +64,36 @@ fn post(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::Re
         throw_type_error(scope, "postMessage requires a Window receiver");
         return;
     };
+    post_to(scope, &args, &target);
+}
+
+/// Cross-origin callable data holds the original target Context in V8's traced
+/// graph. The callable is bound to that Window; its receiver is irrelevant.
+/// Native origin checks and incumbent-source capture still apply on every call.
+pub fn cross_origin_post(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _: v8::ReturnValue,
+) {
+    let Some(context) = window_proxy::callback_context(scope, &args) else {
+        throw_type_error(scope, "Missing native Window target");
+        return;
+    };
+    let Some(target) = context
+        .get_slot::<V8BindingState>()
+        .filter(|state| state.binding_global == BindingGlobal::Window)
+    else {
+        throw_type_error(scope, "postMessage requires a Window target");
+        return;
+    };
+    post_to(scope, &args, &target);
+}
+
+fn post_to(
+    scope: &mut v8::PinScope,
+    args: &v8::FunctionCallbackArguments,
+    target: &Rc<V8BindingState>,
+) {
     if args.length() == 0 {
         throw_type_error(scope, "postMessage requires a message");
         return;
@@ -72,7 +102,7 @@ fn post(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::Re
         .or_else(|| scope.get_current_context().get_slot::<V8BindingState>());
     let result = enqueue(
         scope,
-        &target,
+        target,
         source.as_ref(),
         args.get(0),
         args.get(1),
@@ -211,4 +241,192 @@ pub fn deliver(
     fields.set_index(scope, 3, source);
     global_events::dispatch(scope, state, event)?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use v8::MapFnTo;
+
+    fn execute(scope: &mut v8::PinScope, source: &str) -> String {
+        v8::tc_scope!(let scope, scope);
+        let source = v8::String::new(scope, source).unwrap();
+        let value = v8::Script::compile(scope, source, None).unwrap().run(scope);
+        if let Some(error) = scope.exception() {
+            panic!("{}", error.to_rust_string_lossy(scope));
+        }
+        value.unwrap().to_rust_string_lossy(scope)
+    }
+
+    fn original_window(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        mut rv: v8::ReturnValue,
+    ) {
+        let context = window_proxy::callback_context(scope, &args).unwrap();
+        rv.set(context.global(scope).into());
+    }
+
+    #[test]
+    fn cross_origin_window_messages_ignore_overrides_and_bind_the_native_target() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let caller_template = v8::ObjectTemplate::new(scope);
+        window_proxy::configure_template(scope, caller_template);
+        let caller = v8::Context::new(
+            scope,
+            v8::ContextOptions {
+                global_template: Some(caller_template),
+                ..Default::default()
+            },
+        );
+        let template = v8::ObjectTemplate::new(scope);
+        window_proxy::configure_template(scope, template);
+        let target = v8::Context::new(
+            scope,
+            v8::ContextOptions {
+                global_template: Some(template),
+                ..Default::default()
+            },
+        );
+        let mut states = Vec::new();
+        for (id, context, url) in [
+            (0, caller, "https://caller.test"),
+            (1, target, "https://target.test"),
+        ] {
+            let origin = Origin::from_url(url);
+            context.set_security_token(
+                v8::String::new(scope, &origin.security_token_key())
+                    .unwrap()
+                    .into(),
+            );
+            context.set_slot(Rc::new(RealmDescriptor {
+                id: RealmId(id),
+                origin,
+                document_generation: 1,
+                frame_id: None,
+            }));
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            ));
+            states.push(install_generated_bindings(scope, context, dom, RealmId(id), 1).unwrap());
+        }
+        let mut callbacks = [original_window.map_fn_to(); 13];
+        callbacks[12] = cross_origin_post.map_fn_to();
+        for context in [caller, target] {
+            window_proxy::install_context(
+                context,
+                window_proxy::WindowCrossOriginCallbacks {
+                    properties: callbacks,
+                    location_setter: original_window.map_fn_to(),
+                },
+            );
+        }
+        {
+            let scope = &mut v8::ContextScope::new(scope, target);
+            let key = v8::String::new(scope, "expectedSource").unwrap();
+            target.global(scope).create_data_property(
+                scope,
+                key.into(),
+                caller.global(scope).into(),
+            );
+            execute(
+                scope,
+                r#"
+                globalThis.results=[];globalThis.authorCalled=false;
+                const prototype=Object.getPrototypeOf(window);
+                if(prototype!==Window.prototype || !(window instanceof EventTarget))throw Error('native prototype chain');
+                if(!Reflect.setPrototypeOf(window,prototype) || Reflect.setPrototypeOf(window,{}))throw Error('Window prototype mutability');
+                try{Object.setPrototypeOf(window,{})}catch(e){if(!(e instanceof TypeError))throw e}
+                if(Object.getPrototypeOf(window)!==prototype)throw Error('Window prototype changed');
+                addEventListener('message',e=>{
+                    results.push([e.data instanceof Map,e.data.get('x'),
+                        e.source===expectedSource,e.origin,e.isTrusted]);
+                    e.source.postMessage('reply'+e.data.get('x'),'*');
+                });
+                Object.defineProperty(globalThis,'postMessage',{configurable:true,get(){authorCalled=true;throw Error('author getter')}});
+                close=23;focus='override';blur=null;
+                'ready'
+            "#,
+            );
+        }
+        {
+            let scope = &mut v8::ContextScope::new(scope, caller);
+            let key = v8::String::new(scope, "foreignWindow").unwrap();
+            caller.global(scope).create_data_property(
+                scope,
+                key.into(),
+                target.global(scope).into(),
+            );
+            assert_eq!(
+                execute(
+                    scope,
+                    r#"
+                globalThis.saved=foreignWindow.postMessage;
+                globalThis.replies=[];
+                addEventListener('message',e=>replies.push([e.data,e.origin,e.source===foreignWindow]));
+                const check=(value,message)=>{if(!value)throw Error(message)};
+                check(saved instanceof Function && saved===foreignWindow.postMessage,'caller realm and cache');
+                for(const key of ['close','focus','blur','postMessage']) {
+                    const f=foreignWindow[key];check(f.name===key,'method name');
+                    check(f.length===(key==='postMessage'?1:0),'method length');
+                    check(Object.getOwnPropertyDescriptor(foreignWindow,key).value===f,'method descriptor');
+                    try{new f();throw Error('constructable')}catch(e){check(e instanceof TypeError,'constructor error realm')}
+                }
+                for(const key of ['window','self','location','closed','frames','length','top','opener','parent']) {
+                    const d=Object.getOwnPropertyDescriptor(foreignWindow,key);
+                    check(d.get.name==='get '+key && d.get.length===0,'getter metadata');
+                    if(key==='location')check(d.set.name==='set location' && d.set.length===1,'setter metadata');
+                }
+                saved(new Map([['x',1]]),'*');
+                saved.call({},new Map([['x',2]]),{targetOrigin:'https://TARGET.test:443/path'});
+                saved(new Map([['x',3]]));
+                saved(new Map([['x',4]]),'https://caller.test');
+                try{saved();throw Error('missing argument')}catch(e){check(e instanceof TypeError,'argument error realm')}
+                try{foreignWindow.document;throw Error('DOM leaked')}catch(e){check(e.name==='SecurityError','DOM protection')}
+                'ok'
+            "#
+                ),
+                "ok"
+            );
+        }
+        {
+            let scope = &mut v8::ContextScope::new(scope, target);
+            assert_eq!(execute(scope, "results.length"), "0");
+            for _ in 0..4 {
+                assert!(deliver(scope, &states[1]).unwrap());
+            }
+            assert!(!deliver(scope, &states[1]).unwrap());
+            assert_eq!(
+                execute(scope, "JSON.stringify(results)"),
+                r#"[[true,1,true,"https://caller.test",true],[true,2,true,"https://caller.test",true]]"#
+            );
+            assert_eq!(execute(scope, "authorCalled"), "false");
+        }
+        {
+            let scope = &mut v8::ContextScope::new(scope, caller);
+            assert_eq!(execute(scope, "replies.length"), "0");
+            assert!(deliver(scope, &states[0]).unwrap());
+            assert!(deliver(scope, &states[0]).unwrap());
+            assert!(!deliver(scope, &states[0]).unwrap());
+            assert_eq!(
+                execute(scope, "JSON.stringify(replies)"),
+                r#"[["reply1","https://target.test",true],["reply2","https://target.test",true]]"#
+            );
+        }
+        states[1].retire_execution();
+        {
+            let scope = &mut v8::ContextScope::new(scope, caller);
+            assert_eq!(
+                execute(
+                    scope,
+                    "const buffer=new ArrayBuffer(2);saved(buffer,'*',[buffer]);buffer.byteLength"
+                ),
+                "0"
+            );
+        }
+        assert!(!states[1].has_pending_window_message());
+    }
 }

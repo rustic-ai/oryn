@@ -200,10 +200,20 @@ fn callable<'s>(
     } else {
         state.callbacks.properties[index]
     };
+    let name = if setter {
+        format!("set {}", NAMES[index])
+    } else if METHODS.contains(&index) {
+        NAMES[index].to_owned()
+    } else {
+        format!("get {}", NAMES[index])
+    };
+    let length = i32::from(setter || index == 12);
     let function = v8::Function::builder_raw(callback)
+        .length(length)
         .data(data.into())
         .constructor_behavior(v8::ConstructorBehavior::Throw)
         .build(scope)?;
+    function.set_name(v8::String::new(scope, &name)?);
     entry.create_data_property(scope, key.into(), function.into())?;
     Some(function)
 }
@@ -213,33 +223,9 @@ fn method_value<'s>(
     state: &WindowCrossOriginState,
     index: usize,
 ) -> Option<v8::Local<'s, v8::Value>> {
-    let entry = cache_entry(scope, context)?;
-    let cache_key = v8::String::new(scope, &format!("{index}:0"))?;
-    if entry.has_own_property(scope, cache_key.into())? {
-        return entry.get(scope, cache_key.into());
-    }
-    let original = {
-        let scope = &mut v8::ContextScope::new(scope, context);
-        let key = v8::String::new(scope, NAMES[index])?;
-        let descriptor = context
-            .global(scope)
-            .get_own_property_descriptor(scope, key.into())?;
-        let value_key = v8::String::new(scope, "value")?;
-        let value = if let Ok(descriptor) = v8::Local::<v8::Object>::try_from(descriptor)
-            && descriptor.has_own_property(scope, value_key.into())?
-        {
-            descriptor.get(scope, value_key.into())?
-        } else {
-            v8::undefined(scope).into()
-        };
-        v8::Global::new(scope, value)
-    };
-    let original = v8::Local::new(scope, &original);
-    if original.is_function() {
-        return callable(scope, context, state, index, false).map(Into::into);
-    }
-    entry.create_data_property(scope, cache_key.into(), original)?;
-    Some(original)
+    // Cross-origin exposure uses the platform's original methods, regardless
+    // of own-property replacements or getters installed by the target page.
+    callable(scope, context, state, index, false).map(Into::into)
 }
 fn put(
     scope: &mut v8::PinScope,
@@ -586,7 +572,9 @@ pub fn configure_template(
     scope: &mut v8::PinScope<'_, '_, ()>,
     template: v8::Local<v8::ObjectTemplate>,
 ) {
-    template.set_immutable_proto();
+    // Structural WindowProxy semantics reject author prototype mutations.
+    // Do not freeze the inner global template: native binding installation
+    // still needs to attach Window.prototype and its named-properties chain.
     configure_local_template(scope, template);
     crate::v8_context_bridge::set_window_failed_access_callback(scope);
     set_cross_context_handlers(

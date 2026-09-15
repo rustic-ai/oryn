@@ -5,6 +5,43 @@
 
 ## Completion implementation in progress — September 15
 
+### Native cross-origin Window authority and prototype initialization
+
+Cross-origin Window methods now use the native platform callbacks even when a
+page replaces them with values, functions or throwing getters. Callable names,
+lengths, caller-realm identity and per-target caching follow the pinned WPT
+cross-origin-object contract. The native cross-origin `postMessage` entry point
+binds its original target Context and shares the queued serialization/delivery
+path. A two-origin regression verifies requests and replies through `event.source`,
+origin filtering, destination prototypes and document retirement.
+
+Testing exposed a V8 initialization conflict: freezing the global template blocked
+binding installation, while removing the freeze allowed same-origin author
+prototype changes. The engine patch now rejects author WindowProxy prototype
+changes directly and provides a native-only Context API for attaching the inner
+global's prototype. The public API bridge and verified vendored headers use this
+API; ordinary objects retain their normal prototype behavior.
+
+**Rebuilt engine archive:** `96adc7770672816985ce72f28752efb8f10619e8e3f7d56e8c1e4b26dae20fcd`.
+**Patch SHA-256:** `16be65a3cdccb57d302191a00dffc117540091539407c1983543ad2f88d151ac`.
+The pinned V8 revision and sandbox/pointer-compression build settings are unchanged.
+Future builds of this source require the new archive, which exports the added
+native API. Its paths and provenance are recorded in
+[engine manifest](../../artifacts/core-completion-2026-09-15/window-proxy-engine/engine-manifest.json).
+The prior frozen signed candidate is preserved.
+
+Validation with the rebuilt archive: **586 native tests passed / 6 existing
+ignores**, **313 JS tests passed / 3 existing ignores**, strict JS Clippy,
+generated bindings and formatting pass. Exact base-to-patched V8 source hashes
+and vendored header hashes verify. The initial failing prototype regression and
+build logs are retained; the same regression passes with the final engine.
+Evidence: `artifacts/core-completion-2026-09-15/window-cross-origin-engine-*.log`.
+
+Production frame linking still needs migration from JavaScript proxy factories,
+including synchronous initial about:blank creation and navigation identity.
+These are native integration regressions, not signed WPT/OIL or complete engine
+release qualification. The combined plan and its release gates remain open.
+
 ### Native Window posted-message prerequisite
 
 `Window.postMessage` now enters native bindings, performs structured cloning and

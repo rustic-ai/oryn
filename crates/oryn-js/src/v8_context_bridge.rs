@@ -4,6 +4,10 @@ use std::rc::Rc;
 unsafe extern "C" {
     fn oryn_v8_incumbent_context(isolate: v8::UnsafeRawIsolatePtr) -> *const v8::Context;
     fn oryn_v8_detach_global(context: *const v8::Context);
+    fn oryn_v8_set_global_object_prototype(
+        context: *const v8::Context,
+        prototype: *const v8::Value,
+    ) -> bool;
     fn oryn_v8_can_access_window(
         isolate: v8::UnsafeRawIsolatePtr,
         receiver: *const v8::Object,
@@ -25,6 +29,19 @@ pub fn detach_global(scope: &mut v8::PinScope<'_, '_, ()>, context: v8::Local<v8
     // mutation through the opaque handle, as do rusty_v8's other context methods.
     let context = v8::Local::new(scope, context);
     unsafe { oryn_v8_detach_global(&*context) }
+}
+
+/// Attach the Window prototype chain without invoking the author-visible
+/// WindowProxy [[SetPrototypeOf]] operation. No author code executes here.
+pub(crate) fn set_global_object_prototype(
+    scope: &mut v8::PinScope,
+    context: v8::Local<v8::Context>,
+    prototype: v8::Local<v8::Value>,
+) -> bool {
+    let context = v8::Local::new(scope, context);
+    // SAFETY: Both opaque local handles belong to this entered isolate and
+    // remain rooted throughout the synchronous native initialization call.
+    unsafe { oryn_v8_set_global_object_prototype(&*context, &*prototype) }
 }
 
 /// Check the calling realm against an actual native Window global proxy.

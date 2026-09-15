@@ -6638,9 +6638,9 @@ mod raw_v8 {
             )
             .unwrap();
             assert_eq!(
-                host.evaluate_string("foreignWindow.close+'|'+String(foreignWindow.focus)")
+                host.evaluate_string("typeof foreignWindow.close+'|'+typeof foreignWindow.focus")
                     .unwrap(),
-                "23|undefined"
+                "function|function"
             );
             assert_eq!(host.evaluate_string("foreignWindow.window===foreignWindow && foreignWindow.self===foreignWindow && foreignWindow[0]===globalThis").unwrap(), "true");
             assert_eq!(
@@ -6659,8 +6659,8 @@ mod raw_v8 {
                     .unwrap();
             }
             host.isolate.low_memory_notification();
-            assert_eq!(host.evaluate_string("foreignWindow.close+'|'+String(foreignWindow.postMessage===savedMethod)+'|'+String(Object.getOwnPropertyDescriptor(foreignWindow,'window').get===savedGetter)").unwrap(), "23|true|true");
-            assert_eq!(host.evaluate_string("(()=>{const d=Object.getOwnPropertyDescriptor(foreignWindow,'close');return d.value===23 && !d.writable && !d.enumerable && d.configurable})()").unwrap(), "true");
+            assert_eq!(host.evaluate_string("typeof foreignWindow.close+'|'+String(foreignWindow.postMessage===savedMethod)+'|'+String(Object.getOwnPropertyDescriptor(foreignWindow,'window').get===savedGetter)").unwrap(), "function|true|true");
+            assert_eq!(host.evaluate_string("(()=>{const d=Object.getOwnPropertyDescriptor(foreignWindow,'close');return d.value===foreignWindow.close && !d.writable && !d.enumerable && d.configurable})()").unwrap(), "true");
             assert_eq!(host.evaluate_string("foreignWindow.then===undefined && foreignWindow[Symbol.toStringTag]===undefined && foreignWindow[Symbol.hasInstance]===undefined && foreignWindow[Symbol.isConcatSpreadable]===undefined").unwrap(), "true");
             assert_eq!(host.evaluate_string("(()=>{const d=Object.getOwnPropertyDescriptor(foreignWindow,'then');return d.value===undefined && !d.writable && !d.enumerable && d.configurable})()").unwrap(), "true");
             assert_eq!(host.evaluate_string("Reflect.ownKeys(foreignWindow).map(k=>typeof k==='symbol'?k.toString():k).join('|')").unwrap(), "0|window|self|location|close|closed|focus|blur|frames|length|top|opener|parent|postMessage|then|Symbol(Symbol.toStringTag)|Symbol(Symbol.hasInstance)|Symbol(Symbol.isConcatSpreadable)");

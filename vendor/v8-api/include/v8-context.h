@@ -62,6 +62,13 @@ class V8_EXPORT Context : public Data {
   Local<Object> Global();
 
   /**
+   * Set the inner global object's prototype during embedder initialization.
+   * Unlike Object::SetPrototype, this does not perform the JavaScript-visible
+   * WindowProxy operation. It runs no author code and preserves the proxy.
+   */
+  Maybe<bool> SetGlobalObjectPrototype(Local<Value> prototype);
+
+  /**
    * Detaches the global object from its context before
    * the global object can be reused to create a new context.
    */
