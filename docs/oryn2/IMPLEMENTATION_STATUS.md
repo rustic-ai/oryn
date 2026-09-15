@@ -14,17 +14,28 @@ controller supports enqueue/error/terminate and stable callback identity. Readab
 demand controls writes; count-based high-water marks are validated and reflected
 in readiness. `pipeThrough` accepts native readable/writable pairs.
 
-The signed `f8b6a3d8` candidate passes **22/26 encoding-stream/IDL WPT entries**,
-with 22 improvements and zero regressions against the same IDs. Four assertion
-failures remain: transferred empty buffers (Window and worker), cross-realm object
-and error creation, and synchronous initial iframe creation. There are no blocked
-executions. Native regression validation passes **583 tests / 6 existing ignores**.
+The signed `da4026f6` candidate passes **929/930 selected encoding executions**,
+up from **904/930** on the same IDs: **25 improvements, zero regressions**. The
+focused stream/IDL run passes **25/26**, including both IDL entries and the
+transferred-buffer and cross-realm cases. All selected executions finished, with
+no environment-blocked results. The one remaining entry,
+`encoding/streams/invalid-realm.window.js`, fails because a newly appended iframe
+has `contentWindow === null` before the stream can be constructed. Synchronous
+initial iframe realm creation remains part of package R.
 
-Follow-up buffer and realm repairs pass **312 JS tests / 3 existing ignores** and
-strict Clippy. Streams retain weak creation-context references; wrappers, read
-results and codec errors use the creating realm. Dedicated cross-realm and
-transferred-buffer regressions pass. A replacement signed WPT run is pending;
-these unit results do not change the 22/26 signed result. This does not close the stream package: pipe lifecycle and
+Validation on this source: **312 JS tests / 3 existing ignores**, **583 native
+tests / 6 existing ignores**, strict JS Clippy, generated bindings and formatting
+checks pass. The signed build's sandbox security probes pass. Stream ownership
+uses weak creation-context references. The same frozen parent/worker candidate
+was used for both the focused and 930-entry runs. See
+[encoding comparison](../../artifacts/core-completion-2026-09-15/encoding-semantic-streams-comparison.json)
+and [full run evidence](../../artifacts/core-completion-2026-09-15/encoding-semantic-streams-wpt.json).
+
+These are selected diagnostic results, not full Core qualification. The **378
+prior encoding runtime failures** were not included and remain open; the broader
+five-family and security/reliability/performance gates are unchanged.
+
+This does not close the stream package: pipe lifecycle and
 propagation, custom size functions, bytes/BYOB streams, realm behavior and complete
 upstream acceptance still require evidence and implementation.
 
@@ -69,7 +80,7 @@ Writable/transform sequencing and error propagation, strategy/backpressure
 conformance, encoding streams, the 378 runtime failures, and the combined plan
 acceptance remain open. No WPT totals are changed by these unit-test results.
 
-### Last signed candidate results
+### Earlier signed candidate results
 
 **Signed implementation checkpoint: `0dd16976`. The complete plan remains unfinished.**
 The final signed candidate passes **904/930 selected encoding executions**
