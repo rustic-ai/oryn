@@ -5,6 +5,29 @@
 
 ## Completion implementation in progress — September 15
 
+### Native Window posted-message prerequisite
+
+`Window.postMessage` now enters native bindings, performs structured cloning and
+transfer processing synchronously, and queues a bounded destination-realm task.
+Delivery constructs a trusted native `MessageEvent`, preserves the incumbent
+sender's Window and origin, and applies native target-origin matching. Author
+replacements of `origin`, `MessageEvent`, `structuredClone` or `dispatchEvent` do
+not supply delivery authority. Retiring a document clears its queued messages.
+The runtime bootstrap preserves this native Window method.
+
+Validation: **586 native tests passed / 6 existing ignores**, **312 JS tests
+passed / 3 existing ignores**, strict JS Clippy, generated-binding and formatting
+checks pass. Three new native regressions cover task/microtask ordering, cyclic
+and Map payload snapshots, buffer/port transfers, origin normalization/filtering,
+conversion failures, destination prototypes, incumbent source and retirement.
+Logs: `artifacts/core-completion-2026-09-15/window-messages-{native,js}-tests.log`.
+
+This is prerequisite work for package R. Production frame linking still uses
+JavaScript proxy factories and its older message delivery path; synchronous
+initial about:blank creation, native cross-origin Window linking and unified task
+source scheduling remain open. These unit results do not change the signed WPT
+or OIL totals below, and do not qualify the complete plan.
+
 ### Native encoding streams and transform pressure
 
 Native `TextEncoderStream` and `TextDecoderStream` now share the transform queue,

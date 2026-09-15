@@ -2776,11 +2776,9 @@ mod raw_v8 {
         }
 
         pub fn next_timer_delay(&mut self) -> Option<Duration> {
-            if self
-                .binding_states
-                .values()
-                .any(|state| state.has_pending_control_event())
-            {
+            if self.binding_states.values().any(|state| {
+                state.has_pending_control_event() || state.has_pending_window_message()
+            }) {
                 return Some(Duration::ZERO);
             }
             let registry = self.isolate.get_slot_mut::<TimerRegistry>()?;
@@ -2814,7 +2812,9 @@ mod raw_v8 {
                 let control_state = self
                     .binding_states
                     .iter()
-                    .find(|(_, state)| state.has_pending_control_event())
+                    .find(|(_, state)| {
+                        state.has_pending_control_event() || state.has_pending_window_message()
+                    })
                     .map(|(realm, state)| (*realm, state.clone()));
                 if let Some((realm, state)) = control_state {
                     let Some(context) = self.contexts.get(&realm).cloned() else {
@@ -2824,8 +2824,12 @@ mod raw_v8 {
                     v8::scope!(let handle_scope, &mut self.isolate);
                     let context = v8::Local::new(handle_scope, &context);
                     let scope = &mut v8::ContextScope::new(handle_scope, context);
-                    deliver_control_event(scope, &state)
-                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    if state.has_pending_control_event() {
+                        deliver_control_event(scope, &state)
+                    } else {
+                        oryn_js::v8_bindings::window_messages::deliver(scope, &state)
+                    }
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
                     queue_mutation_observer_microtask(scope);
                     scope.perform_microtask_checkpoint();
                     if deadline.expired() || scope.is_execution_terminating() {
@@ -7014,6 +7018,123 @@ mod raw_v8 {
             assert_eq!(host.evaluate_string("oldBody.id").unwrap(), "old");
             host.activate_realm(next).unwrap();
             assert_eq!(host.evaluate_string("calls").unwrap(), "0");
+        }
+
+        #[test]
+        fn window_post_message_is_a_native_task_with_cloning_and_transfers() {
+            let mut host = host();
+            host.install_dom(
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+                )),
+                1,
+            )
+            .unwrap();
+            host.execute(
+                r#"
+                globalThis.results=[]; globalThis.order=[];
+                const NativeMessageEvent=MessageEvent;
+                addEventListener('message', e=>{
+                    results.push([e instanceof NativeMessageEvent,e.isTrusted,e.source===window,
+                        e.origin,e.data.map instanceof Map,e.data.map.get('x'),
+                        e.data.cycle===e.data,new Uint8Array(e.data.buffer)[0],
+                        e.ports.length,Object.isFrozen(e.ports),e.target===window]);
+                    order.push('message'); Promise.resolve().then(()=>order.push('after'));
+                });
+                globalThis.MessageEvent=()=>{throw Error('author constructor')};
+                globalThis.dispatchEvent=()=>{throw Error('author dispatch')};
+                globalThis.structuredClone=()=>{throw Error('author clone')};
+                const buffer=new Uint8Array([42]).buffer;
+                const data={map:new Map([['x',1]]),buffer};data.cycle=data;
+                const channel=new MessageChannel();
+                postMessage(data,{transfer:[buffer,channel.port1]});
+                data.map.set('x',99);
+                if(buffer.byteLength!==0)throw Error('not transferred synchronously');
+                Promise.resolve().then(()=>order.push('microtask'));order.push('script');
+            "#,
+            )
+            .unwrap();
+            assert_eq!(
+                host.evaluate_string("JSON.stringify(order)").unwrap(),
+                r#"["script","microtask"]"#
+            );
+            assert_eq!(host.next_timer_delay(), Some(Duration::ZERO));
+            assert_eq!(host.drain_scheduled_timers(false).unwrap(), 1);
+            assert_eq!(
+                host.evaluate_string("JSON.stringify(results)").unwrap(),
+                r#"[[true,true,true,"https://example.test",true,1,true,42,1,true,true]]"#
+            );
+            assert_eq!(
+                host.evaluate_string("JSON.stringify(order)").unwrap(),
+                r#"["script","microtask","message","after"]"#
+            );
+        }
+
+        #[test]
+        fn window_post_message_checks_origins_overloads_and_conversion_errors() {
+            let mut host = host();
+            host.install_dom(
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+                )),
+                1,
+            )
+            .unwrap();
+            host.execute(r#"
+                globalThis.results=[];addEventListener('message',e=>results.push(e.data));
+                globalThis.origin='https://attacker.test';
+                postMessage('default');postMessage('null',null);postMessage('wildcard','*');
+                postMessage('normalized','https://EXAMPLE.test:443/path');
+                postMessage('filtered','https://other.test');postMessage('opaque','data:text/plain,x');
+                const check=(f,name)=>{try{f();throw Error('accepted')}catch(e){if(e.name!==name)throw e}};
+                check(()=>postMessage(),'TypeError');
+                check(()=>postMessage.call({},'x','*'),'TypeError');
+                check(()=>postMessage('x','/relative'),'SyntaxError');
+                check(()=>postMessage(()=>{},'*'),'DataCloneError');
+                check(()=>postMessage('x',Symbol()),'TypeError');
+                const sentinel={};let caught=false;
+                try{postMessage('x',{get targetOrigin(){throw sentinel}})}catch(e){caught=e===sentinel}
+                if(!caught)throw Error('getter error lost');
+                const buffer=new ArrayBuffer(1);check(()=>postMessage('x','bad',[buffer]),'SyntaxError');
+                if(buffer.byteLength!==1)throw Error('invalid origin transferred');
+                const filtered=new ArrayBuffer(1);postMessage('drop','https://other.test',[filtered]);
+                if(filtered.byteLength!==0)throw Error('filtered transfer skipped');
+            "#).unwrap();
+            assert_eq!(host.drain_scheduled_timers(false).unwrap(), 7);
+            assert_eq!(
+                host.evaluate_string("JSON.stringify(results)").unwrap(),
+                r#"["default","null","wildcard","normalized"]"#
+            );
+        }
+
+        #[test]
+        fn window_post_message_uses_incumbent_source_and_destination_realm() {
+            let mut host = host();
+            let dom = || {
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+                ))
+            };
+            host.install_dom(dom(), 1).unwrap();
+            let frame = host
+                .create_realm_with_dom("https://example.test", 1, Some(7), dom())
+                .unwrap();
+            expose_child(&mut host, frame);
+            host.execute("child.parentReference=window;child.results=[];")
+                .unwrap();
+            host.activate_realm(frame).unwrap();
+            host.execute("addEventListener('message',e=>results.push(e.source===parentReference && e.data instanceof Map && e.origin==='https://example.test')); ").unwrap();
+            host.activate_realm(RealmId(0)).unwrap();
+            host.execute("child.postMessage(new Map());").unwrap();
+            assert_eq!(host.drain_scheduled_timers(false).unwrap(), 1);
+            assert_eq!(
+                host.evaluate_string("JSON.stringify(child.results)")
+                    .unwrap(),
+                "[true]"
+            );
+            host.execute("child.postMessage('retired','*')").unwrap();
+            host.binding_states.get(&frame).unwrap().retire_execution();
+            assert_eq!(host.drain_scheduled_timers(false).unwrap(), 0);
         }
 
         #[test]

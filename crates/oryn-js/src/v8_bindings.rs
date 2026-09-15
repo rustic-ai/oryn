@@ -57,6 +57,7 @@ mod tree_walkers;
 mod url_objects;
 mod validation;
 mod window_document;
+pub mod window_messages;
 mod writable_streams;
 mod writable_writers;
 
@@ -1166,6 +1167,7 @@ pub struct V8BindingState {
     delivered_selection_revision: Cell<u64>,
     text_control_selections: RefCell<BTreeMap<NodeId, (u32, u32, String)>>,
     control_event_tasks: RefCell<VecDeque<(NodeId, v8::Global<v8::Object>)>>,
+    window_messages: RefCell<window_messages::Queue>,
     control_tasks_retired: Cell<bool>,
     selection_object: RefCell<Option<v8::Global<v8::Object>>>,
     implementation_documents: RefCell<BTreeMap<u64, NodeId>>,
@@ -1324,6 +1326,10 @@ impl V8BindingState {
         self.selection_revision.get() != self.delivered_selection_revision.get()
     }
 
+    pub fn has_pending_window_message(&self) -> bool {
+        !self.window_messages.borrow().tasks.is_empty()
+    }
+
     pub fn has_pending_control_event(&self) -> bool {
         !self.control_event_tasks.borrow().is_empty()
     }
@@ -1356,6 +1362,7 @@ impl V8BindingState {
         self.control_tasks_retired.set(true);
         self.control_event_tasks.borrow_mut().clear();
         message_ports::retire(self);
+        self.window_messages.borrow_mut().clear();
         if let Some(host) = self.platform_host.borrow_mut().take() {
             host.retire();
             for id in self.pending_platform_operations.borrow().keys() {
@@ -3499,6 +3506,7 @@ pub fn install_generated_bindings_with_root_for_global(
         delivered_selection_revision: Cell::new(0),
         text_control_selections: RefCell::new(BTreeMap::new()),
         control_event_tasks: RefCell::new(VecDeque::new()),
+        window_messages: RefCell::new(window_messages::Queue::new(context)),
         control_tasks_retired: Cell::new(false),
         selection_object: RefCell::new(None),
         implementation_documents: RefCell::new(BTreeMap::new()),
@@ -3993,6 +4001,7 @@ pub fn install_generated_bindings_with_root_for_global(
         // other realm-owned objects; the accessor must not defer this lifetime.
         wrap_node(scope, &state, document)?;
         window_document::install(scope, context)?;
+        window_messages::install(scope, context)?;
         publish_named_window_properties(scope, context, &state, document)?;
         let history = new_stateful_object(scope, &state, "History", 1)?;
         let name =
