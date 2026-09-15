@@ -5,7 +5,30 @@
 
 ## Completion implementation in progress — September 15
 
-**Latest completed checkpoint: `0dd16976`. The complete plan remains unfinished.**
+### Readable stream prerequisite work
+
+The current continuation implements stored stream errors, stable reader `closed`
+promises, queue draining, reader release, cancellation, and asynchronous source
+callback sequencing. Pending and future reads preserve the original failure;
+network body-read failures enter the same error state. Late network chunks after
+cancellation are discarded. Native promise reactions identify the owning stream
+through its controller, and source callbacks retain their receiver.
+
+Validation: **292 JS tests passed, 3 existing ignores**, including eight new
+stream lifecycle regressions; strict JS Clippy passes. These tests use
+`v8-host,v8-sandbox`, matching the supplied sandbox-enabled V8 archive. An earlier
+`v8-host`-only run crashed in the pattern-service test and is retained in the
+artifacts. The native regression suite passes **583 tests with 6 existing
+ignores**. Formatting and diff checks also pass.
+
+This is a prerequisite checkpoint, not encoding-stream or Core qualification.
+Writable/transform sequencing and error propagation, strategy/backpressure
+conformance, encoding streams, the 378 runtime failures, and the combined plan
+acceptance remain open. No WPT totals are changed by these unit-test results.
+
+### Last signed candidate results
+
+**Signed implementation checkpoint: `0dd16976`. The complete plan remains unfinished.**
 The final signed candidate passes **904/930 selected encoding executions**
 (**823 improvements, zero regressions** against the same IDs), including **76/78**
 of the API subset. All 26 remaining selected failures require encoding streams;

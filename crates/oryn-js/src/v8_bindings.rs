@@ -47,6 +47,7 @@ mod location;
 mod message_events;
 mod message_ports;
 mod opaque_ranges;
+mod readable_streams;
 pub mod structured_clone;
 pub mod submissions;
 mod text_encoding;
@@ -587,6 +588,8 @@ enum PlatformObjectRecord {
     },
     ReadableReader {
         stream_id: u64,
+        closed: v8::Global<v8::PromiseResolver>,
+        released: bool,
     },
     WritableStream(WritableStreamRecord),
     WritableController {
@@ -602,6 +605,12 @@ enum PlatformObjectRecord {
 }
 
 struct ReadableStreamRecord {
+    error: Option<v8::Global<v8::Value>>,
+    reader_id: Option<u64>,
+    started: bool,
+    pulling: bool,
+    pull_again: bool,
+    source: Option<v8::Global<v8::Value>>,
     queue: VecDeque<v8::Global<v8::Value>>,
     waiting: VecDeque<v8::Global<v8::PromiseResolver>>,
     closed: bool,
@@ -1921,6 +1930,12 @@ impl V8BindingState {
                     self,
                     stream_object_id,
                     PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+                        error: None,
+                        reader_id: None,
+                        started: true,
+                        pulling: false,
+                        pull_again: false,
+                        source: None,
                         queue: VecDeque::new(),
                         waiting: VecDeque::new(),
                         closed: false,
@@ -1974,6 +1989,9 @@ impl V8BindingState {
                         return Err(V8BindingError::Allocation("host ReadableStream"));
                     };
                     stream.host_read_pending = false;
+                    if stream.closed {
+                        return Ok(());
+                    }
                     stream.controller_id
                 };
                 if !bytes.is_empty() {
@@ -2817,6 +2835,15 @@ impl V8BindingState {
             (PendingPlatformOperation::IdbDatabases { resolver }, Err(error)) => {
                 let exception = dom_exception_value(scope, &idb_error_name(&error.to_string()))?;
                 v8::Local::new(scope, resolver).reject(scope, exception);
+            }
+            (PendingPlatformOperation::BodyRead { stream_object_id }, Err(error)) => {
+                if let PlatformObjectRecord::ReadableStream(stream) =
+                    &mut *platform_object_mut(self, stream_object_id)?
+                {
+                    stream.host_read_pending = false;
+                }
+                let reason = readable_streams::type_error(scope, &error.to_string())?;
+                readable_streams::error(scope, self, stream_object_id, reason)?;
             }
             (pending, Err(error)) => {
                 if let PendingPlatformOperation::ImageStart {
@@ -7677,6 +7704,7 @@ fn readable_enqueue<'s>(
     for writable_id in pipes {
         let _ = writable_write(scope, state, writable_id, value)?;
     }
+    readable_streams::pull(scope, state, stream_id)?;
     Ok(())
 }
 
@@ -7737,12 +7765,16 @@ fn readable_close(
         let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
             return Err(V8BindingError::Allocation("ReadableStream record"));
         };
+        if stream.closed || stream.error.is_some() {
+            return Ok(());
+        }
         stream.closed = true;
         (
             stream.waiting.drain(..).collect::<Vec<_>>(),
             std::mem::take(&mut stream.pipes),
         )
     };
+    readable_streams::settle_closed(scope, state, stream_id)?;
     for waiter in waiters {
         let waiter = v8::Local::new(scope, waiter);
         let undefined = v8::undefined(scope).into();
@@ -8224,6 +8256,12 @@ fn initialize_platform_constructor<'s>(
             state,
             stream_id,
             PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+                error: None,
+                reader_id: None,
+                started: false,
+                pulling: false,
+                pull_again: false,
+                source: Some(v8::Global::new(scope, source)),
                 queue: VecDeque::new(),
                 waiting: VecDeque::new(),
                 closed: false,
@@ -8237,21 +8275,7 @@ fn initialize_platform_constructor<'s>(
             }),
         );
         bind_platform_object(scope, state, stream_id, args.this());
-        if let Some(start) = start {
-            let start = v8::Local::new(scope, start);
-            let controller = new_stateful_object(
-                scope,
-                state,
-                "ReadableStreamDefaultController",
-                controller_id,
-            )?;
-            let receiver = v8::undefined(scope).into();
-            if start.call(scope, receiver, &[controller.into()]).is_none() {
-                return Err(V8BindingError::EventCallback(
-                    "ReadableStream start callback failed".into(),
-                ));
-            }
-        }
+        readable_streams::start(scope, state, stream_id, start)?;
         return Ok(true);
     }
     if name == "WritableStream" {
@@ -8297,6 +8321,12 @@ fn initialize_platform_constructor<'s>(
             state,
             readable_id,
             PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+                error: None,
+                reader_id: None,
+                started: true,
+                pulling: false,
+                pull_again: false,
+                source: None,
                 queue: VecDeque::new(),
                 waiting: VecDeque::new(),
                 closed: false,
@@ -8687,6 +8717,12 @@ fn new_byte_stream_record(
         state,
         stream_id,
         PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+            error: None,
+            reader_id: None,
+            started: true,
+            pulling: false,
+            pull_again: false,
+            source: None,
             queue: VecDeque::from([v8::Global::new(scope, v8::Local::<v8::Value>::from(array))]),
             waiting: VecDeque::new(),
             closed: true,
@@ -17999,6 +18035,13 @@ fn get_platform_attribute<'s>(
         set_object_property(scope, object, cache_key, value)?;
         return Ok(value);
     }
+    if interface == "ReadableStreamDefaultReader" && member == "closed" {
+        let record = platform_object(state, id)?;
+        let PlatformObjectRecord::ReadableReader { closed, .. } = &*record else {
+            return Err(V8BindingError::Allocation("ReadableStream reader"));
+        };
+        return Ok(v8::Local::new(scope, closed).get_promise(scope).into());
+    }
     if matches!(
         interface,
         "ReadableStreamDefaultReader" | "WritableStreamDefaultWriter"
@@ -18006,7 +18049,7 @@ fn get_platform_attribute<'s>(
         let stream_id = {
             let record = platform_object(state, id)?;
             match &*record {
-                PlatformObjectRecord::ReadableReader { stream_id }
+                PlatformObjectRecord::ReadableReader { stream_id, .. }
                 | PlatformObjectRecord::WritableWriter { stream_id } => *stream_id,
                 _ => return Err(V8BindingError::Allocation("stream reader/writer record")),
             }
@@ -21246,6 +21289,12 @@ fn call_platform_operation<'s>(
                 state,
                 stream_id,
                 PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+                    error: None,
+                    reader_id: None,
+                    started: true,
+                    pulling: false,
+                    pull_again: false,
+                    source: None,
                     queue: VecDeque::from([v8::Global::new(scope, array_value)]),
                     waiting: VecDeque::new(),
                     closed: true,
@@ -21322,36 +21371,23 @@ fn call_platform_operation<'s>(
             return Ok(Some(iterator));
         }
         ("ReadableStream", "getReader") => {
-            {
-                let mut record = platform_object_mut(state, id)?;
-                let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
-                    return Err(V8BindingError::Allocation("ReadableStream record"));
-                };
-                if stream.locked {
-                    return Err(V8BindingError::Unsupported {
-                        interface: interface.into(),
-                        member: "stream is locked".into(),
-                    });
-                }
-                stream.locked = true;
-            }
-            let reader_id = register_platform_object(
-                state,
-                PlatformObjectRecord::ReadableReader { stream_id: id },
-            );
+            let reader_id = readable_streams::acquire(scope, state, id)?;
             return Ok(Some(
                 new_platform_object(scope, state, "ReadableStreamDefaultReader", reader_id)?.into(),
             ));
         }
         ("ReadableStreamDefaultReader", "read") => {
+            if let Some(error) = readable_streams::reader_error(scope, state, id)? {
+                return Ok(Some(readable_streams::reject(scope, error)?.into()));
+            }
             let stream_id = {
                 let record = platform_object(state, id)?;
-                let PlatformObjectRecord::ReadableReader { stream_id } = &*record else {
+                let PlatformObjectRecord::ReadableReader { stream_id, .. } = &*record else {
                     return Err(V8BindingError::Allocation("ReadableStream reader"));
                 };
                 *stream_id
             };
-            let (queued, closed, pull, controller_id, host_stream_id, host_read_pending) = {
+            let (queued, closed, host_stream_id, host_read_pending) = {
                 let mut record = platform_object_mut(state, stream_id)?;
                 let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
                     return Err(V8BindingError::Allocation("ReadableStream record"));
@@ -21359,13 +21395,16 @@ fn call_platform_operation<'s>(
                 (
                     stream.queue.pop_front(),
                     stream.closed,
-                    stream.pull.clone(),
-                    stream.controller_id,
                     stream.host_stream_id,
                     stream.host_read_pending,
                 )
             };
+            if let Some(error) = readable_streams::stored_error(scope, state, stream_id)? {
+                return Ok(Some(readable_streams::reject(scope, error)?.into()));
+            }
             if let Some(queued) = queued {
+                readable_streams::settle_closed(scope, state, stream_id)?;
+                readable_streams::pull(scope, state, stream_id)?;
                 let value = v8::Local::new(scope, queued);
                 let result = read_result(scope, false, value)?;
                 return Ok(Some(resolved_promise(scope, result.into())?.into()));
@@ -21400,34 +21439,43 @@ fn call_platform_operation<'s>(
                     },
                 )?;
             }
-            if let Some(pull) = pull {
-                let pull = v8::Local::new(scope, pull);
-                let controller = new_stateful_object(
-                    scope,
-                    state,
-                    "ReadableStreamDefaultController",
-                    controller_id,
-                )?;
-                let receiver = v8::undefined(scope).into();
-                pull.call(scope, receiver, &[controller.into()]);
-            }
+            readable_streams::pull(scope, state, stream_id)?;
             return Ok(Some(promise.into()));
         }
         ("ReadableStream", "cancel") | ("ReadableStreamDefaultReader", "cancel") => {
+            if interface == "ReadableStreamDefaultReader" {
+                if let Some(error) = readable_streams::reader_error(scope, state, id)? {
+                    return Ok(Some(readable_streams::reject(scope, error)?.into()));
+                }
+            } else if let PlatformObjectRecord::ReadableStream(stream) =
+                &*platform_object(state, id)?
+                && stream.locked
+            {
+                let error = readable_streams::type_error(scope, "Cannot cancel a locked stream")?;
+                return Ok(Some(readable_streams::reject(scope, error)?.into()));
+            }
             let stream_id = if interface == "ReadableStream" {
                 id
             } else {
                 let record = platform_object(state, id)?;
-                let PlatformObjectRecord::ReadableReader { stream_id } = &*record else {
+                let PlatformObjectRecord::ReadableReader { stream_id, .. } = &*record else {
                     return Err(V8BindingError::Allocation("ReadableStream reader"));
                 };
                 *stream_id
             };
+            if let Some(error) = readable_streams::stored_error(scope, state, stream_id)? {
+                return Ok(Some(readable_streams::reject(scope, error)?.into()));
+            }
             let (cancel, controller_id, host_stream_id) = {
-                let record = platform_object(state, stream_id)?;
-                let PlatformObjectRecord::ReadableStream(stream) = &*record else {
+                let mut record = platform_object_mut(state, stream_id)?;
+                let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
                     return Err(V8BindingError::Allocation("ReadableStream record"));
                 };
+                if stream.closed && stream.queue.is_empty() {
+                    let undefined = v8::undefined(scope).into();
+                    return Ok(Some(resolved_promise(scope, undefined)?.into()));
+                }
+                stream.queue.clear();
                 (
                     stream.cancel.clone(),
                     stream.controller_id,
@@ -21435,6 +21483,7 @@ fn call_platform_operation<'s>(
                 )
             };
             readable_close(scope, state, controller_id)?;
+            readable_streams::settle_closed(scope, state, stream_id)?;
             if let Some(stream_id) = host_stream_id {
                 submit_platform_operation(
                     state,
@@ -21443,22 +21492,19 @@ fn call_platform_operation<'s>(
                 )?;
             }
             return Ok(Some(
-                callback_promise(scope, cancel, &[args.get(0)])?.into(),
+                readable_streams::cancel(scope, state, stream_id, cancel, args.get(0))?.into(),
             ));
         }
         ("ReadableStreamDefaultReader", "releaseLock") => {
-            let stream_id = {
-                let record = platform_object(state, id)?;
-                let PlatformObjectRecord::ReadableReader { stream_id } = &*record else {
-                    return Err(V8BindingError::Allocation("ReadableStream reader"));
-                };
-                *stream_id
+            readable_streams::release(scope, state, id)?;
+            return Ok(None);
+        }
+        ("ReadableStreamDefaultController", "error") => {
+            let stream_id = match &*platform_object(state, id)? {
+                PlatformObjectRecord::ReadableController { stream_id } => *stream_id,
+                _ => return Err(V8BindingError::Allocation("ReadableStream controller")),
             };
-            let mut record = platform_object_mut(state, stream_id)?;
-            let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
-                return Err(V8BindingError::Allocation("ReadableStream record"));
-            };
-            stream.locked = false;
+            readable_streams::error(scope, state, stream_id, args.get(0))?;
             return Ok(None);
         }
         ("ReadableStreamDefaultController", "enqueue") => {
