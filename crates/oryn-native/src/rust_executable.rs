@@ -475,13 +475,28 @@ fn binding_layout_from_output(output: &oryn_layout::LayoutOutput) -> BindingLayo
         })
         .collect();
     let mut styles = output.computed_styles.clone();
+    let mut resolved_styles = BTreeSet::new();
     for (node, resolved) in &output.resolved_values {
         if let Some(values) = styles.get_mut(node) {
-            values.extend(
+            if resolved
+                .iter()
+                .all(|(name, value)| values.get(name) == Some(value))
+            {
+                continue;
+            }
+            let mut combined = (**values).clone();
+            combined.extend(
                 resolved
                     .iter()
                     .map(|(name, value)| (name.clone(), value.clone())),
             );
+            *values = if let Some(shared) = resolved_styles.get(&combined) {
+                std::sync::Arc::clone(shared)
+            } else {
+                let shared = std::sync::Arc::new(combined);
+                resolved_styles.insert(shared.clone());
+                shared
+            };
         }
     }
     BindingLayout {

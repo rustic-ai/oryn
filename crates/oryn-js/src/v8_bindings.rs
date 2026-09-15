@@ -810,7 +810,7 @@ pub enum BindingGeometry {
 pub struct BindingLayout {
     pub author_whitespace: BTreeSet<u64>,
     pub offset_dimensions: BTreeMap<u64, (f64, f64)>,
-    pub styles: BTreeMap<u64, BTreeMap<String, String>>,
+    pub styles: BTreeMap<u64, std::sync::Arc<BTreeMap<String, String>>>,
     pub geometry: BTreeMap<u64, BindingGeometry>,
 }
 
@@ -36712,7 +36712,7 @@ mod tests {
             offset_dimensions: BTreeMap::new(),
             styles: BTreeMap::from([(
                 node_key(probe),
-                BTreeMap::from([("display".to_string(), "block".to_string())]),
+                BTreeMap::from([("display".to_string(), "block".to_string())]).into(),
             )]),
             geometry: BTreeMap::new(),
         });
@@ -36779,7 +36779,8 @@ mod tests {
                 BTreeMap::from([
                     ("color".into(), "green".into()),
                     ("--Case".into(), "yes".into()),
-                ]),
+                ])
+                .into(),
             )]),
             ..BindingLayout::default()
         });
@@ -37142,7 +37143,7 @@ mod tests {
                     offset_dimensions: BTreeMap::new(),
                     styles: BTreeMap::from([(
                         node_key(self.node),
-                        BTreeMap::from([("font-size".to_string(), "18px".to_string())]),
+                        BTreeMap::from([("font-size".to_string(), "18px".to_string())]).into(),
                     )]),
                     geometry: BTreeMap::new(),
                 })

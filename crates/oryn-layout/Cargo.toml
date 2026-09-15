@@ -9,7 +9,7 @@ description = "Worker-only deterministic style and layout adapter for Oryn"
 icu_properties = "=2.1.2"
 oryn-dom = { path = "../oryn-dom" }
 oryn-common = { path = "../oryn-common" }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 regex = "1"
 url = "2"

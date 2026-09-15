@@ -205,6 +205,16 @@ pub struct BrowserContext {
     inner: Arc<BrowserContextInner>,
 }
 
+/// Internal services observe a context without extending its public lifetime.
+#[derive(Clone)]
+pub(crate) struct WeakBrowserContext(Weak<BrowserContextInner>);
+
+impl WeakBrowserContext {
+    pub(crate) fn upgrade(&self) -> Option<BrowserContext> {
+        self.0.upgrade().map(|inner| BrowserContext { inner })
+    }
+}
+
 struct BrowserContextInner {
     id: u64,
     config: BrowserConfig,
@@ -1983,6 +1993,10 @@ impl Default for Browser {
 }
 
 impl BrowserContext {
+    pub(crate) fn downgrade(&self) -> WeakBrowserContext {
+        WeakBrowserContext(Arc::downgrade(&self.inner))
+    }
+
     pub fn id(&self) -> u64 {
         self.inner.id
     }
@@ -3536,9 +3550,9 @@ impl BrowserContext {
         let config = self.inner.config.clone();
         let context_options = self.inner.options.clone();
         let broker = self.inner.broker.clone();
-        let context_owner = BrowserContext {
-            inner: self.inner.clone(),
-        };
+        // The registry retains this actor's sender. Holding the context here
+        // would keep both alive after every public owner has been dropped.
+        let context_owner = self.downgrade();
         #[cfg(all(unix, feature = "v8-host"))]
         let context_client = self.inner.context_client.clone().or_else(|| {
             Some(SharedContextClient::direct(
@@ -3594,6 +3608,9 @@ impl BrowserContext {
                     receiver.blocking_recv()
                 };
                 let Some(command) = command else { break };
+                let Some(context_owner) = context_owner.upgrade() else {
+                    break;
+                };
                 match command {
                     PageCommand::LoadHtml { url, html, reply } => {
                         state.trace.push(
@@ -8038,7 +8055,7 @@ impl PageState {
             Ok(ComputedStyle {
                 semantic_ref: target,
                 style_revision: oryn_common::v4::StyleRevision(self.style_revision),
-                properties,
+                properties: (*properties).clone(),
             })
         }
         #[cfg(not(feature = "v8-host"))]
@@ -8217,7 +8234,7 @@ impl PageState {
                 node_id,
                 tag: name.local.to_string(),
                 geometry,
-                style,
+                style: (*style).clone(),
                 text: layout
                     .text_fragments
                     .get(&node_id)
@@ -10374,6 +10391,43 @@ fn page_poll_delay(timer_delay: Option<Duration>, pending_work: bool) -> Duratio
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn last_public_page_owner_releases_context_with_active_timers() {
+        let context = super::Browser::new().new_context();
+        let weak = context.downgrade();
+        let page = context.new_page();
+        let sibling = context.new_page();
+        page.load_html(
+            "https://lifetime.test/",
+            "<script>setInterval(() => {}, 1)</script><p>Alive</p>",
+        )
+        .await
+        .unwrap();
+        drop(context);
+        assert!(weak.upgrade().is_some());
+        assert_eq!(
+            page.evaluate("document.querySelector('p').textContent")
+                .await
+                .unwrap(),
+            serde_json::json!("Alive")
+        );
+        drop(page);
+        assert!(
+            weak.upgrade().is_some(),
+            "a public sibling still owns the context"
+        );
+        drop(sibling);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while weak.upgrade().is_some() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "page actors or direct services retained the context after its final public owner"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn structured_extraction_obeys_scope_and_document_order() {
         let page = super::Browser::new().new_context().new_page();

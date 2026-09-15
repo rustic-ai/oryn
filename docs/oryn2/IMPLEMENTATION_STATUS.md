@@ -3,6 +3,81 @@
 > **Current priority: complete conformance. Not a release candidate.**
 > Historical selected-inventory measurement: **3,144/4,022 (78.2%)**, **878 remaining**. Not a current full-WPT baseline.
 
+## Completion implementation in progress — September 15
+
+The pre-implementation working tree was committed as `ba7ba33d`. Native
+TextEncoder/TextDecoder and resource-decoding fixes are committed as `aa8bbf2d`;
+the complete Core allocation ledger is committed as `d3ac0407`. The overall
+completion plan remains open; no package is declared complete by these changes.
+
+- Native codecs replace the page bootstrap substitutes in Window and workers,
+  including streaming state, fatal errors, BOM handling, legacy labels, shared
+  buffers, scalar-safe `encodeInto`, and collection of unreachable codec records.
+- Upstream tests exposed and prompted repairs for detached encoder destinations,
+  empty streaming chunks in legacy decoders, double BOM removal in document
+  loading, and native data-URL response handling. Text encoding streams remain
+  unimplemented.
+- The allocation tool reconciles all **16,737 Core obligations** against the
+  manifest and evidence fingerprints. It assigns implementation packages while
+  preserving raw outcomes, qualification status, and unknown root causes.
+- Validation before the following signed run: **579 native tests passed / 6
+  ignored**, **281 JS tests passed / 3 ignored**, targeted resource-decoder tests
+  passed, and strict Clippy passed. Ignores are existing tests, not new waivers.
+
+The first signed top-level encoding run passed **61/78** executions, versus
+**4/78** for the same IDs in the baseline: **57 improvements, no regressions**.
+Its 17 failures are preserved in
+[encoding API evidence](../../artifacts/core-completion-2026-09-15/encoding-api.json).
+The subsequent clean-source signed run completed all **1,308 mapped encoding
+executions** in 25m 32s: **81 passed, 1,227 failed** (849 assertion failures,
+378 runtime failures; no harness or environment-blocked results). The original
+78-case subset now passes **69/78**. The HTML parser still removes an additional
+BOM after resource decoding; document encoding metadata, legacy form/URL encoding,
+and encoding streams also remain open. See the immutable
+[full encoding result](../../artifacts/core-completion-2026-09-15/encoding-all.json).
+
+Shared immutable computed styles now avoid repeated map copies and preserve
+independent observable CSS values. Layout tests pass **74/74** and JS tests pass
+**281/284**, with three existing ignores. A separate signed candidate still fails
+all five representative large-document checks: four RSS limits and one navigation
+wall-time limit. This optimization does not close the resource failures.
+
+A sampled native run exposed context ownership cycles: the context registry
+retained actors and worker routes that strongly retained the context. These
+internal owners now retain weak references, upgrading only during bounded work.
+New regressions cover active timers, sibling public owners, and retained broker
+routes after context disposal. The full native suite passes **581 tests**, with
+**6 existing ignores**. These changes postdate the signed encoding/OIL candidate;
+they do not explain or close the shopping timeout without further evidence.
+
+The clean-source signed candidate at `d3ac0407` completed the existing controlled
+workflow regression matrix, using three samples each:
+
+| Controlled suite | Passed / planned |
+| --- | ---: |
+| Research | 18 / 18 |
+| Forms | 57 / 57 |
+| Shopping | 20 / 21 |
+| Persisted SaaS | 12 / 12 |
+| Booking | 18 / 18 |
+| Eight framework applications | 24 / 24 |
+| Five authentication mechanics | 15 / 15 |
+| **Total** | **164 / 165** |
+
+All six outcome-runner reports confirm source/build identity. The three auth
+batches used the same explicit frozen parent and worker paths. The shopping
+`price_change_recovery` third sample failed with **wall time,
+phase=ipc_response, command=execute, message_id=35**. Its failed persisted-state
+oracle remains recorded; passing retries would not explain or close that defect.
+See [batch exits](../../artifacts/core-completion-2026-09-15/oil-batch-exit.json),
+[shopping report](../../artifacts/core-completion-2026-09-15/oil-shopping/summary.json),
+[framework report](../../artifacts/core-completion-2026-09-15/oil-frameworks/summary.json),
+and [auth exits](../../artifacts/core-completion-2026-09-15/oil-auth-exit.json).
+
+These are controlled regression outcomes, **not expanded five-family acceptance,
+complete Core conformance, or release qualification**. The historical full-WPT
+baseline below remains unchanged.
+
 ## Complete Core and five-family implementation plan — September 15
 
 The [complete implementation plan](CORE-AND-OIL-COMPLETION-PLAN-2026-09-15.md)

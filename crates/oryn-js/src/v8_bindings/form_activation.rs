@@ -1,6 +1,354 @@
 //! Native HTML activation shared by dispatchEvent, device clicks and click().
 use super::*;
 
+enum Previous {
+    Checkbox {
+        checked: bool,
+        indeterminate: bool,
+    },
+    Radio {
+        selected: Option<NodeId>,
+        changed: bool,
+    },
+    Label,
+    Submit,
+}
+
+pub(super) struct Activation {
+    dom: Rc<RefCell<DomRuntime>>,
+    node: NodeId,
+    previous: Previous,
+}
+
+impl Drop for Activation {
+    fn drop(&mut self) {
+        let mut dom = self.dom.borrow_mut();
+        let _ = dom.release_native(self.node);
+        if let Previous::Radio {
+            selected: Some(node),
+            ..
+        } = self.previous
+        {
+            let _ = dom.release_native(node);
+        }
+    }
+}
+
+fn mouse_payload<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    object: v8::Local<v8::Object>,
+) -> Option<v8::Local<'s, v8::Array>> {
+    ui_event_property(scope, object, "UIEvent", "detail").ok()?;
+    let payload = object
+        .get_internal_field(scope, 2)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())?;
+    let kind = payload.get_index(scope, 5)?.to_rust_string_lossy(scope);
+    matches!(kind.as_str(), "MouseEvent" | "PointerEvent" | "WheelEvent").then_some(payload)
+}
+
+pub(super) fn prepare(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    target: NodeId,
+    object: v8::Local<v8::Object>,
+    id: u64,
+) -> Result<Option<Activation>, V8BindingError> {
+    let bubbles = {
+        let events = state.events.borrow();
+        let event = &events[&id];
+        if event.event_type != "click" {
+            return Ok(None);
+        }
+        event.bubbles
+    };
+    if mouse_payload(scope, object).is_none() {
+        return Ok(None);
+    }
+    let mut dom = state.dom.borrow_mut();
+    let mut cursor = Some(target);
+    while let Some(node) = cursor {
+        if dom.is_element(node, "http://www.w3.org/1999/xhtml", "button")
+            || validation::is_submit_button(&dom, node)?
+        {
+            dom.retain_native(node)?;
+            return Ok(Some(Activation {
+                dom: state.dom.clone(),
+                node,
+                previous: Previous::Submit,
+            }));
+        }
+        if dom.is_element(node, "http://www.w3.org/1999/xhtml", "input")
+            && !dom
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("hidden"))
+        {
+            let previous = match dom
+                .attribute_in_null_namespace(node, "type")?
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "checkbox" => {
+                    let checked = dom.checked(node)?;
+                    let indeterminate = dom.arena().get(node)?.indeterminate;
+                    dom.set_checked(node, !checked)?;
+                    dom.set_indeterminate(node, false)?;
+                    Previous::Checkbox {
+                        checked,
+                        indeterminate,
+                    }
+                }
+                "radio" => {
+                    let changed = !dom.checked(node)?;
+                    let mut selected = None;
+                    for (peer, record) in dom.arena().iter() {
+                        if record.checked() && (peer == node || dom.same_radio_group(node, peer)?) {
+                            selected = Some(peer);
+                            break;
+                        }
+                    }
+                    if let Some(peer) = selected {
+                        dom.retain_native(peer)?;
+                    }
+                    dom.set_checked(node, true)?;
+                    Previous::Radio { selected, changed }
+                }
+                // The activation target is chosen before dispatch, but its
+                // activation behavior observes the type after click handlers.
+                _ => Previous::Submit,
+            };
+            dom.retain_native(node)?;
+            return Ok(Some(Activation {
+                dom: state.dom.clone(),
+                node,
+                previous,
+            }));
+        }
+        if dom.is_element(node, "http://www.w3.org/1999/xhtml", "label") {
+            dom.retain_native(node)?;
+            return Ok(Some(Activation {
+                dom: state.dom.clone(),
+                node,
+                previous: Previous::Label,
+            }));
+        }
+        if dom.is_interactive_content(node) || !bubbles {
+            break;
+        }
+        cursor = dom.parent(node)?;
+    }
+    Ok(None)
+}
+
+pub(super) fn finish(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    activation: Option<Activation>,
+    target: NodeId,
+    source: v8::Local<v8::Object>,
+    accepted: bool,
+) -> Result<(), V8BindingError> {
+    let Some(activation) = activation else {
+        return Ok(());
+    };
+    let node = activation.node;
+    if !accepted {
+        let mut dom = state.dom.borrow_mut();
+        match activation.previous {
+            Previous::Checkbox {
+                checked,
+                indeterminate,
+            } if dom
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox")) =>
+            {
+                dom.set_checkedness(node, checked)?;
+                dom.set_indeterminate(node, indeterminate)?;
+            }
+            Previous::Radio { selected, .. } if dom.is_radio(node) => {
+                if let Some(selected) = selected.filter(|peer| {
+                    *peer == node || dom.same_radio_group(node, *peer).unwrap_or(false)
+                }) {
+                    dom.set_checkedness(selected, true)?;
+                } else {
+                    dom.set_checkedness(node, false)?;
+                }
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+    if validation::is_submit_button(&state.dom.borrow(), node)? {
+        let form = {
+            let dom = state.dom.borrow();
+            if dom.control_disabled(node)? || !validation::is_submit_button(&dom, node)? {
+                return Ok(());
+            }
+            dom.form_owner(node)?
+        };
+        if let Some(form) = form {
+            select_image_coordinate(scope, state, node, source)?;
+            if !validation::request_submit(scope, state, form, Some(node))? {
+                return Ok(());
+            }
+            submissions::queue(
+                scope,
+                state,
+                form,
+                Some(node),
+                submissions::SubmissionSource::Activation,
+            )?;
+        }
+        return Ok(());
+    }
+    if let Previous::Label = activation.previous {
+        let control = {
+            let dom = state.dom.borrow();
+            let mut cursor = Some(target);
+            while let Some(current) = cursor.filter(|current| *current != node) {
+                if dom.is_interactive_content(current) {
+                    return Ok(());
+                }
+                cursor = dom.parent(current)?;
+            }
+            dom.label_control(node)?
+                .filter(|control| !dom.control_disabled(*control).unwrap_or(true))
+        };
+        if let Some(control) = control {
+            if control == target
+                || state
+                    .dom
+                    .borrow()
+                    .arena()
+                    .ancestors(target)?
+                    .contains(&control)
+            {
+                return Ok(());
+            }
+            let event = create_synthetic_click_event(scope, state)?;
+            if let Some(payload) = mouse_payload(scope, source) {
+                event.set_internal_field(2, payload.into());
+            }
+            let source_id = event_id(scope, source)?;
+            let id = event_id(scope, event)?;
+            let trusted = state.events.borrow()[&source_id].is_trusted;
+            state.events.borrow_mut().get_mut(&id).unwrap().is_trusted = trusted;
+            if !state.click_in_progress.borrow_mut().insert(control) {
+                return Ok(());
+            }
+            let result = dispatch_event(scope, state, control, event);
+            state.click_in_progress.borrow_mut().remove(&control);
+            if result? {
+                submissions::queue_click(state, control)?;
+            }
+        }
+        return Ok(());
+    }
+    let fire = {
+        let dom = state.dom.borrow();
+        dom.is_connected(node)?
+            && match activation.previous {
+                Previous::Checkbox { .. } => dom
+                    .attribute_in_null_namespace(node, "type")?
+                    .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox")),
+                Previous::Radio { changed, .. } => {
+                    changed && dom.is_radio(node) && dom.checked(node)?
+                }
+                Previous::Label | Previous::Submit => false,
+            }
+    };
+    if fire {
+        for event_type in ["input", "change"] {
+            let event = create_event_object(scope, state, event_type, true, false)?;
+            let id = event_id(scope, event)?;
+            {
+                let mut events = state.events.borrow_mut();
+                let record = events.get_mut(&id).unwrap();
+                record.is_trusted = true;
+                record.composed = event_type == "input";
+            }
+            dispatch_event(scope, state, node, event)?;
+        }
+    }
+    Ok(())
+}
+
+fn select_image_coordinate(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    event: v8::Local<v8::Object>,
+) -> Result<(), V8BindingError> {
+    {
+        let dom = state.dom.borrow();
+        if !dom.is_element(node, "http://www.w3.org/1999/xhtml", "input")
+            || !dom
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|s| s.eq_ignore_ascii_case("image"))
+        {
+            return Ok(());
+        }
+    }
+    // HTMLElement.click() synthesizes a non-pointing PointerEvent. It must
+    // preserve an earlier coordinate, unlike a pointing MouseEvent activation.
+    if native_input_property(scope, event, "PointerEvent", "pointerId")
+        .ok()
+        .and_then(|value| value.int32_value(scope))
+        == Some(-1)
+    {
+        return Ok(());
+    }
+    let x = native_input_property(scope, event, "MouseEvent", "clientX")?
+        .number_value(scope)
+        .ok_or(V8BindingError::JavaScriptException)?;
+    let y = native_input_property(scope, event, "MouseEvent", "clientY")?
+        .number_value(scope)
+        .ok_or(V8BindingError::JavaScriptException)?;
+    let rect = match geometry_for_node(state, node)? {
+        BindingGeometry::Available(rect) => rect,
+        BindingGeometry::Hidden => return Ok(()),
+        BindingGeometry::Unsupported(detail) => {
+            return Err(V8BindingError::Unsupported {
+                interface: "HTMLInputElement".into(),
+                member: format!("image activation: {detail}"),
+            });
+        }
+    };
+    let layout = state.layout.borrow();
+    let inset = |names: [&str; 2]| -> f64 {
+        names
+            .into_iter()
+            .filter_map(|name| {
+                layout
+                    .styles
+                    .get(&node_key(node))?
+                    .get(name)?
+                    .strip_suffix("px")?
+                    .parse::<f64>()
+                    .ok()
+            })
+            .sum()
+    };
+    let left = inset(["border-left-width", "padding-left"]);
+    let top = inset(["border-top-width", "padding-top"]);
+    let coordinate = |point: f64, start: f64, extent: f64, inset: f64| {
+        ((point - start).clamp(0., extent.max(0.)) - inset).round() as i32
+    };
+    let selected = (
+        coordinate(x, rect.x, rect.width, left),
+        coordinate(y, rect.y, rect.height, top),
+    );
+    drop(layout);
+    state
+        .dom
+        .borrow_mut()
+        .arena_mut()
+        .get_mut(node)?
+        .image_coordinates = selected;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -912,352 +1260,4 @@ mod tests {
             'ok'
         "#);
     }
-}
-
-enum Previous {
-    Checkbox {
-        checked: bool,
-        indeterminate: bool,
-    },
-    Radio {
-        selected: Option<NodeId>,
-        changed: bool,
-    },
-    Label,
-    Submit,
-}
-
-pub(super) struct Activation {
-    dom: Rc<RefCell<DomRuntime>>,
-    node: NodeId,
-    previous: Previous,
-}
-
-impl Drop for Activation {
-    fn drop(&mut self) {
-        let mut dom = self.dom.borrow_mut();
-        let _ = dom.release_native(self.node);
-        if let Previous::Radio {
-            selected: Some(node),
-            ..
-        } = self.previous
-        {
-            let _ = dom.release_native(node);
-        }
-    }
-}
-
-fn mouse_payload<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    object: v8::Local<v8::Object>,
-) -> Option<v8::Local<'s, v8::Array>> {
-    ui_event_property(scope, object, "UIEvent", "detail").ok()?;
-    let payload = object
-        .get_internal_field(scope, 2)
-        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
-        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())?;
-    let kind = payload.get_index(scope, 5)?.to_rust_string_lossy(scope);
-    matches!(kind.as_str(), "MouseEvent" | "PointerEvent" | "WheelEvent").then_some(payload)
-}
-
-pub(super) fn prepare(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    target: NodeId,
-    object: v8::Local<v8::Object>,
-    id: u64,
-) -> Result<Option<Activation>, V8BindingError> {
-    let bubbles = {
-        let events = state.events.borrow();
-        let event = &events[&id];
-        if event.event_type != "click" {
-            return Ok(None);
-        }
-        event.bubbles
-    };
-    if mouse_payload(scope, object).is_none() {
-        return Ok(None);
-    }
-    let mut dom = state.dom.borrow_mut();
-    let mut cursor = Some(target);
-    while let Some(node) = cursor {
-        if dom.is_element(node, "http://www.w3.org/1999/xhtml", "button")
-            || validation::is_submit_button(&dom, node)?
-        {
-            dom.retain_native(node)?;
-            return Ok(Some(Activation {
-                dom: state.dom.clone(),
-                node,
-                previous: Previous::Submit,
-            }));
-        }
-        if dom.is_element(node, "http://www.w3.org/1999/xhtml", "input")
-            && !dom
-                .attribute_in_null_namespace(node, "type")?
-                .is_some_and(|kind| kind.eq_ignore_ascii_case("hidden"))
-        {
-            let previous = match dom
-                .attribute_in_null_namespace(node, "type")?
-                .unwrap_or("")
-                .to_ascii_lowercase()
-                .as_str()
-            {
-                "checkbox" => {
-                    let checked = dom.checked(node)?;
-                    let indeterminate = dom.arena().get(node)?.indeterminate;
-                    dom.set_checked(node, !checked)?;
-                    dom.set_indeterminate(node, false)?;
-                    Previous::Checkbox {
-                        checked,
-                        indeterminate,
-                    }
-                }
-                "radio" => {
-                    let changed = !dom.checked(node)?;
-                    let mut selected = None;
-                    for (peer, record) in dom.arena().iter() {
-                        if record.checked() && (peer == node || dom.same_radio_group(node, peer)?) {
-                            selected = Some(peer);
-                            break;
-                        }
-                    }
-                    if let Some(peer) = selected {
-                        dom.retain_native(peer)?;
-                    }
-                    dom.set_checked(node, true)?;
-                    Previous::Radio { selected, changed }
-                }
-                // The activation target is chosen before dispatch, but its
-                // activation behavior observes the type after click handlers.
-                _ => Previous::Submit,
-            };
-            dom.retain_native(node)?;
-            return Ok(Some(Activation {
-                dom: state.dom.clone(),
-                node,
-                previous,
-            }));
-        }
-        if dom.is_element(node, "http://www.w3.org/1999/xhtml", "label") {
-            dom.retain_native(node)?;
-            return Ok(Some(Activation {
-                dom: state.dom.clone(),
-                node,
-                previous: Previous::Label,
-            }));
-        }
-        if dom.is_interactive_content(node) || !bubbles {
-            break;
-        }
-        cursor = dom.parent(node)?;
-    }
-    Ok(None)
-}
-
-pub(super) fn finish(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    activation: Option<Activation>,
-    target: NodeId,
-    source: v8::Local<v8::Object>,
-    accepted: bool,
-) -> Result<(), V8BindingError> {
-    let Some(activation) = activation else {
-        return Ok(());
-    };
-    let node = activation.node;
-    if !accepted {
-        let mut dom = state.dom.borrow_mut();
-        match activation.previous {
-            Previous::Checkbox {
-                checked,
-                indeterminate,
-            } if dom
-                .attribute_in_null_namespace(node, "type")?
-                .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox")) =>
-            {
-                dom.set_checkedness(node, checked)?;
-                dom.set_indeterminate(node, indeterminate)?;
-            }
-            Previous::Radio { selected, .. } if dom.is_radio(node) => {
-                if let Some(selected) = selected.filter(|peer| {
-                    *peer == node || dom.same_radio_group(node, *peer).unwrap_or(false)
-                }) {
-                    dom.set_checkedness(selected, true)?;
-                } else {
-                    dom.set_checkedness(node, false)?;
-                }
-            }
-            _ => {}
-        }
-        return Ok(());
-    }
-    if validation::is_submit_button(&state.dom.borrow(), node)? {
-        let form = {
-            let dom = state.dom.borrow();
-            if dom.control_disabled(node)? || !validation::is_submit_button(&dom, node)? {
-                return Ok(());
-            }
-            dom.form_owner(node)?
-        };
-        if let Some(form) = form {
-            select_image_coordinate(scope, state, node, source)?;
-            if !validation::request_submit(scope, state, form, Some(node))? {
-                return Ok(());
-            }
-            submissions::queue(
-                scope,
-                state,
-                form,
-                Some(node),
-                submissions::SubmissionSource::Activation,
-            )?;
-        }
-        return Ok(());
-    }
-    if let Previous::Label = activation.previous {
-        let control = {
-            let dom = state.dom.borrow();
-            let mut cursor = Some(target);
-            while let Some(current) = cursor.filter(|current| *current != node) {
-                if dom.is_interactive_content(current) {
-                    return Ok(());
-                }
-                cursor = dom.parent(current)?;
-            }
-            dom.label_control(node)?
-                .filter(|control| !dom.control_disabled(*control).unwrap_or(true))
-        };
-        if let Some(control) = control {
-            if control == target
-                || state
-                    .dom
-                    .borrow()
-                    .arena()
-                    .ancestors(target)?
-                    .contains(&control)
-            {
-                return Ok(());
-            }
-            let event = create_synthetic_click_event(scope, state)?;
-            if let Some(payload) = mouse_payload(scope, source) {
-                event.set_internal_field(2, payload.into());
-            }
-            let source_id = event_id(scope, source)?;
-            let id = event_id(scope, event)?;
-            let trusted = state.events.borrow()[&source_id].is_trusted;
-            state.events.borrow_mut().get_mut(&id).unwrap().is_trusted = trusted;
-            if !state.click_in_progress.borrow_mut().insert(control) {
-                return Ok(());
-            }
-            let result = dispatch_event(scope, state, control, event);
-            state.click_in_progress.borrow_mut().remove(&control);
-            if result? {
-                submissions::queue_click(state, control)?;
-            }
-        }
-        return Ok(());
-    }
-    let fire = {
-        let dom = state.dom.borrow();
-        dom.is_connected(node)?
-            && match activation.previous {
-                Previous::Checkbox { .. } => dom
-                    .attribute_in_null_namespace(node, "type")?
-                    .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox")),
-                Previous::Radio { changed, .. } => {
-                    changed && dom.is_radio(node) && dom.checked(node)?
-                }
-                Previous::Label | Previous::Submit => false,
-            }
-    };
-    if fire {
-        for event_type in ["input", "change"] {
-            let event = create_event_object(scope, state, event_type, true, false)?;
-            let id = event_id(scope, event)?;
-            {
-                let mut events = state.events.borrow_mut();
-                let record = events.get_mut(&id).unwrap();
-                record.is_trusted = true;
-                record.composed = event_type == "input";
-            }
-            dispatch_event(scope, state, node, event)?;
-        }
-    }
-    Ok(())
-}
-
-fn select_image_coordinate(
-    scope: &mut v8::PinScope,
-    state: &Rc<V8BindingState>,
-    node: NodeId,
-    event: v8::Local<v8::Object>,
-) -> Result<(), V8BindingError> {
-    {
-        let dom = state.dom.borrow();
-        if !dom.is_element(node, "http://www.w3.org/1999/xhtml", "input")
-            || !dom
-                .attribute_in_null_namespace(node, "type")?
-                .is_some_and(|s| s.eq_ignore_ascii_case("image"))
-        {
-            return Ok(());
-        }
-    }
-    // HTMLElement.click() synthesizes a non-pointing PointerEvent. It must
-    // preserve an earlier coordinate, unlike a pointing MouseEvent activation.
-    if native_input_property(scope, event, "PointerEvent", "pointerId")
-        .ok()
-        .and_then(|value| value.int32_value(scope))
-        == Some(-1)
-    {
-        return Ok(());
-    }
-    let x = native_input_property(scope, event, "MouseEvent", "clientX")?
-        .number_value(scope)
-        .ok_or(V8BindingError::JavaScriptException)?;
-    let y = native_input_property(scope, event, "MouseEvent", "clientY")?
-        .number_value(scope)
-        .ok_or(V8BindingError::JavaScriptException)?;
-    let rect = match geometry_for_node(state, node)? {
-        BindingGeometry::Available(rect) => rect,
-        BindingGeometry::Hidden => return Ok(()),
-        BindingGeometry::Unsupported(detail) => {
-            return Err(V8BindingError::Unsupported {
-                interface: "HTMLInputElement".into(),
-                member: format!("image activation: {detail}"),
-            });
-        }
-    };
-    let layout = state.layout.borrow();
-    let inset = |names: [&str; 2]| -> f64 {
-        names
-            .into_iter()
-            .filter_map(|name| {
-                layout
-                    .styles
-                    .get(&node_key(node))?
-                    .get(name)?
-                    .strip_suffix("px")?
-                    .parse::<f64>()
-                    .ok()
-            })
-            .sum()
-    };
-    let left = inset(["border-left-width", "padding-left"]);
-    let top = inset(["border-top-width", "padding-top"]);
-    let coordinate = |point: f64, start: f64, extent: f64, inset: f64| {
-        ((point - start).clamp(0., extent.max(0.)) - inset).round() as i32
-    };
-    let selected = (
-        coordinate(x, rect.x, rect.width, left),
-        coordinate(y, rect.y, rect.height, top),
-    );
-    drop(layout);
-    state
-        .dom
-        .borrow_mut()
-        .arena_mut()
-        .get_mut(node)?
-        .image_coordinates = selected;
-    Ok(())
 }

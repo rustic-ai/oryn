@@ -56,7 +56,7 @@ fn styles(
         .borrow()
         .styles
         .get(&node_key(node))
-        .cloned()
+        .map(|style| (**style).clone())
         .unwrap_or_default();
     // Preserve the existing layout bridge fallback until all resolved longhands
     // are exported by Stylo. Never override a value supplied by the provider.

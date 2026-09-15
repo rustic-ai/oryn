@@ -225,6 +225,90 @@ fn report_controls(
     Ok(())
 }
 
+fn key<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    name: &str,
+) -> Result<v8::Local<'s, v8::Private>, V8BindingError> {
+    let name = v8::String::new(scope, name).ok_or(V8BindingError::Allocation("validation key"))?;
+    Ok(v8::Private::for_api(scope, Some(name)))
+}
+
+pub(super) fn wrap<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let owner = wrap_node(scope, state, node)?;
+    let cache = key(scope, "oryn.validity")?;
+    if let Some(value) = owner.get_private(scope, cache)
+        && let Ok(value) = v8::Local::<v8::Object>::try_from(value)
+    {
+        return Ok(value);
+    }
+    let object = new_stateful_object(scope, state, "ValidityState", 0)?;
+    let owner_key = key(scope, "oryn.associated.owner")?;
+    object
+        .set_private(scope, owner_key, owner.into())
+        .ok_or(V8BindingError::JavaScriptException)?;
+    owner
+        .set_private(scope, cache, object.into())
+        .ok_or(V8BindingError::JavaScriptException)?;
+    Ok(object)
+}
+
+pub(super) fn attribute<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    object: v8::Local<v8::Object>,
+    member: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let invalid = || V8BindingError::Unsupported {
+        interface: "ValidityState".into(),
+        member: "incompatible receiver".into(),
+    };
+    if object.is_proxy() {
+        return Err(invalid());
+    }
+    let owner_key = key(scope, "oryn.associated.owner")?;
+    let owner = object
+        .get_private(scope, owner_key)
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+        .ok_or_else(invalid)?;
+    let cache = key(scope, "oryn.validity")?;
+    if !owner
+        .get_private(scope, cache)
+        .is_some_and(|value| value.strict_equals(object.into()))
+    {
+        return Err(invalid());
+    }
+    let node = argument_node(scope, state, owner.into())?;
+    let dom = state.dom.borrow();
+    if ![
+        "select", "input", "textarea", "button", "fieldset", "output", "object",
+    ]
+    .iter()
+    .any(|tag| dom.is_element(node, "http://www.w3.org/1999/xhtml", tag))
+    {
+        return Err(invalid());
+    }
+    let value = match member {
+        "valueMissing" => dom.control_value_missing(node)?,
+        "customError" => !dom.custom_validity_message(node)?.is_empty(),
+        "valid" => dom.control_validity(node)?,
+        "typeMismatch" => dom.control_type_mismatch(node)?,
+        "rangeUnderflow" => dom.control_numeric_validity(node)?.range_underflow,
+        "rangeOverflow" => dom.control_numeric_validity(node)?.range_overflow,
+        "stepMismatch" => dom.control_numeric_validity(node)?.step_mismatch,
+        "patternMismatch" => dom.control_pattern_mismatch(node)?,
+        // Remaining input constraint algorithms are not implemented yet.
+        "tooLong" => dom.control_length_validity(node)?.1,
+        "tooShort" => dom.control_length_validity(node)?.0,
+        "badInput" => false,
+        _ => return Err(invalid()),
+    };
+    Ok(v8::Boolean::new(scope, value).into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,88 +418,4 @@ mod tests {
         state.process_weak_releases().unwrap();
         assert_eq!(state.objects.borrow().len(), baseline);
     }
-}
-
-fn key<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    name: &str,
-) -> Result<v8::Local<'s, v8::Private>, V8BindingError> {
-    let name = v8::String::new(scope, name).ok_or(V8BindingError::Allocation("validation key"))?;
-    Ok(v8::Private::for_api(scope, Some(name)))
-}
-
-pub(super) fn wrap<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    state: &Rc<V8BindingState>,
-    node: NodeId,
-) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
-    let owner = wrap_node(scope, state, node)?;
-    let cache = key(scope, "oryn.validity")?;
-    if let Some(value) = owner.get_private(scope, cache)
-        && let Ok(value) = v8::Local::<v8::Object>::try_from(value)
-    {
-        return Ok(value);
-    }
-    let object = new_stateful_object(scope, state, "ValidityState", 0)?;
-    let owner_key = key(scope, "oryn.associated.owner")?;
-    object
-        .set_private(scope, owner_key, owner.into())
-        .ok_or(V8BindingError::JavaScriptException)?;
-    owner
-        .set_private(scope, cache, object.into())
-        .ok_or(V8BindingError::JavaScriptException)?;
-    Ok(object)
-}
-
-pub(super) fn attribute<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    state: &Rc<V8BindingState>,
-    object: v8::Local<v8::Object>,
-    member: &str,
-) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    let invalid = || V8BindingError::Unsupported {
-        interface: "ValidityState".into(),
-        member: "incompatible receiver".into(),
-    };
-    if object.is_proxy() {
-        return Err(invalid());
-    }
-    let owner_key = key(scope, "oryn.associated.owner")?;
-    let owner = object
-        .get_private(scope, owner_key)
-        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
-        .ok_or_else(invalid)?;
-    let cache = key(scope, "oryn.validity")?;
-    if !owner
-        .get_private(scope, cache)
-        .is_some_and(|value| value.strict_equals(object.into()))
-    {
-        return Err(invalid());
-    }
-    let node = argument_node(scope, state, owner.into())?;
-    let dom = state.dom.borrow();
-    if ![
-        "select", "input", "textarea", "button", "fieldset", "output", "object",
-    ]
-    .iter()
-    .any(|tag| dom.is_element(node, "http://www.w3.org/1999/xhtml", tag))
-    {
-        return Err(invalid());
-    }
-    let value = match member {
-        "valueMissing" => dom.control_value_missing(node)?,
-        "customError" => !dom.custom_validity_message(node)?.is_empty(),
-        "valid" => dom.control_validity(node)?,
-        "typeMismatch" => dom.control_type_mismatch(node)?,
-        "rangeUnderflow" => dom.control_numeric_validity(node)?.range_underflow,
-        "rangeOverflow" => dom.control_numeric_validity(node)?.range_overflow,
-        "stepMismatch" => dom.control_numeric_validity(node)?.step_mismatch,
-        "patternMismatch" => dom.control_pattern_mismatch(node)?,
-        // Remaining input constraint algorithms are not implemented yet.
-        "tooLong" => dom.control_length_validity(node)?.1,
-        "tooShort" => dom.control_length_validity(node)?.0,
-        "badInput" => false,
-        _ => return Err(invalid()),
-    };
-    Ok(v8::Boolean::new(scope, value).into())
 }

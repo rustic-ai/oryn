@@ -161,11 +161,17 @@ impl Drop for RouteAdmission {
 struct PageNetworkBroker {
     authority: Arc<RouteAuthority>,
     inner: crate::network::SharedNetworkBroker,
-    context: BrowserContext,
+    context: crate::runtime::WeakBrowserContext,
     page_id: PageId,
 }
 
 impl PageNetworkBroker {
+    fn context_owner(&self) -> Result<BrowserContext, NetworkError> {
+        self.context
+            .upgrade()
+            .ok_or_else(|| NetworkError::Transport("browser context is closed".into()))
+    }
+
     fn ensure_bound(&self) -> Result<(), NetworkError> {
         self.authority.ensure_live()
     }
@@ -176,13 +182,13 @@ impl PageNetworkBroker {
     ) -> Result<(NetworkRequest, String), NetworkError> {
         self.ensure_bound()?;
         let page_url = self
-            .context
+            .context_owner()?
             .page_url(self.page_id)
             .map_err(|error| NetworkError::Transport(error.to_string()))?;
         let target = url::Url::parse(&request.url)
             .map_err(|error| NetworkError::InvalidUrl(error.to_string()))?;
         if let Some(upgraded) = self
-            .context
+            .context_owner()?
             .upgrade_csp_url(self.page_id, &target)
             .map_err(|error| NetworkError::Transport(error.to_string()))?
         {
@@ -207,7 +213,7 @@ impl PageNetworkBroker {
         };
         if let Some(destination) = destination {
             let decision = self
-                .context
+                .context_owner()?
                 .authorize_csp(
                     self.page_id,
                     &CspRequest {
@@ -245,13 +251,13 @@ impl NetworkBroker for PageNetworkBroker {
         let _admission = self.authority.admit(Some(request.request_id))?;
         self.ensure_bound()?;
         let page_url = self
-            .context
+            .context_owner()?
             .page_url(self.page_id)
             .map_err(|error| NetworkError::Transport(error.to_string()))?;
         let target = url::Url::parse(&request.url)
             .map_err(|error| NetworkError::InvalidUrl(error.to_string()))?;
         if let Some(upgraded) = self
-            .context
+            .context_owner()?
             .upgrade_csp_url(self.page_id, &target)
             .map_err(|error| NetworkError::Transport(error.to_string()))?
         {
@@ -276,7 +282,7 @@ impl NetworkBroker for PageNetworkBroker {
         };
         if let Some(destination) = destination {
             let decision = self
-                .context
+                .context_owner()?
                 .authorize_csp(
                     self.page_id,
                     &CspRequest {
@@ -330,7 +336,7 @@ impl NetworkBroker for PageNetworkBroker {
                 content_type,
                 oryn_net::TextResourceKind::Html,
             );
-            self.context
+            self.context_owner()?
                 .prepare_document_security(self.page_id, request.url, &response.headers, &html)
                 .map_err(|error| NetworkError::Transport(error.to_string()))?;
         }
@@ -355,6 +361,14 @@ impl NetworkBroker for PageNetworkBroker {
             let mut body = Vec::new();
             let mut prepared_meta_count = 0_usize;
             while let Some(event) = operation.events.blocking_recv() {
+                let Some(context) = context.upgrade() else {
+                    let _ = route.inner.cancel_operation(request_id);
+                    let _ = sender.blocking_send(NetworkEvent::Failed {
+                        request_id,
+                        error: "browser context is closed".into(),
+                    });
+                    return;
+                };
                 if let Err(error) = route.ensure_bound() {
                     let _ = route.inner.cancel_operation(request_id);
                     let _ = sender.blocking_send(NetworkEvent::Failed {
@@ -1008,7 +1022,7 @@ impl WorkerClient {
         let broker_network = PageNetworkBroker {
             authority: Arc::new(RouteAuthority::default()),
             inner: parent_network.clone().for_page(page_id.0),
-            context: context_owner.clone(),
+            context: context_owner.downgrade(),
             page_id,
         };
         let router = Arc::new(WorkerBrokerRouter::default());
@@ -1234,7 +1248,7 @@ impl WorkerClient {
             network: PageNetworkBroker {
                 authority: Arc::new(RouteAuthority::default()),
                 inner: parent_network.clone().for_page(page_id.0),
-                context: context_owner.clone(),
+                context: context_owner.downgrade(),
                 page_id,
             },
             context: Arc::new(ParentContextService::new_with_network(
@@ -2250,7 +2264,7 @@ mod tests {
             inner: crate::network::SharedNetworkBroker::new(CaptureBroker {
                 requests: requests.clone(),
             }),
-            context: context.clone(),
+            context: context.downgrade(),
             page_id: page.page_id(),
         };
         broker
@@ -2324,6 +2338,7 @@ mod tests {
 
     #[test]
     fn asynchronous_network_admission_is_held_until_revocation_cancels_the_operation() {
+        let fixture_context = Browser::new().new_context();
         struct HeldOperationBroker {
             sender: Mutex<Option<tokio::sync::mpsc::Sender<NetworkEvent>>>,
             cancelled: Arc<Mutex<Vec<u64>>>,
@@ -2351,7 +2366,7 @@ mod tests {
             }
         }
         let cancelled = Arc::new(Mutex::new(Vec::new()));
-        let mut route = fixture_worker_route();
+        let mut route = fixture_worker_route(&fixture_context);
         route.network.inner = crate::network::SharedNetworkBroker::new(HeldOperationBroker {
             sender: Mutex::new(None),
             cancelled: cancelled.clone(),
@@ -2379,7 +2394,7 @@ mod tests {
         assert_eq!(*cancelled.lock().unwrap(), [17]);
         assert_eq!(authority.state.lock().unwrap().active, 0);
         drop(operation);
-        router.bind(fixture_worker_route()).unwrap();
+        router.bind(fixture_worker_route(&fixture_context)).unwrap();
         router.unbind().unwrap();
     }
 
@@ -2409,8 +2424,7 @@ mod tests {
         authority.wait_drained(Duration::ZERO).unwrap();
     }
 
-    fn fixture_worker_route() -> BoundWorkerRoute {
-        let context = Browser::new().new_context();
+    fn fixture_worker_route(context: &BrowserContext) -> BoundWorkerRoute {
         let page = context.new_page();
         let network = crate::network::SharedNetworkBroker::new(CaptureBroker {
             requests: Arc::new(Mutex::new(Vec::new())),
@@ -2425,19 +2439,39 @@ mod tests {
             network: PageNetworkBroker {
                 authority: Arc::new(RouteAuthority::default()),
                 inner: network,
-                context,
+                context: context.downgrade(),
                 page_id: page.page_id(),
             },
         }
     }
 
     #[test]
+    fn retained_worker_route_does_not_keep_its_browser_context_alive() {
+        let context = Browser::new().new_context();
+        let weak = context.downgrade();
+        let route = fixture_worker_route(&context);
+        assert!(route.network.context_owner().is_ok());
+        drop(context);
+        assert!(weak.upgrade().is_none());
+        assert!(route.network.context_owner().is_err());
+        assert!(matches!(
+            route.context.handle(
+                crate::context_service::ContextServiceRequest::GetReferrerPolicy {
+                    page_id: oryn_common::v3::PageId(route.identity.environment),
+                }
+            ),
+            Err(RuntimeError::Closed)
+        ));
+    }
+
+    #[test]
     fn broker_route_rejects_missing_forged_and_stale_authority() {
+        let fixture_context = Browser::new().new_context();
         let router = WorkerBrokerRouter::default();
-        let mut misbound = fixture_worker_route();
+        let mut misbound = fixture_worker_route(&fixture_context);
         misbound.identity.environment = u64::MAX;
         assert!(router.bind(misbound).is_err());
-        let route = fixture_worker_route();
+        let route = fixture_worker_route(&fixture_context);
         let identity = route.identity.clone();
         router.bind(route).unwrap();
         assert!(router.authorized(Some(&identity)).is_ok());
@@ -2459,15 +2493,16 @@ mod tests {
             assert!(router.authorized(Some(&changed)).is_err());
         }
         router.unbind().unwrap();
-        router.bind(fixture_worker_route()).unwrap();
+        router.bind(fixture_worker_route(&fixture_context)).unwrap();
         assert!(router.authorized(Some(&identity)).is_err());
     }
 
     #[test]
     fn context_wire_keeps_old_clients_bound_to_revoked_authority() {
+        let fixture_context = Browser::new().new_context();
         use crate::context_service::{IpcContextClient, SharedContextClient};
         let router = Arc::new(WorkerBrokerRouter::default());
-        let old_route = fixture_worker_route();
+        let old_route = fixture_worker_route(&fixture_context);
         let old_identity = old_route.identity.clone();
         let old_page = old_route.network.page_id;
         router.bind(old_route).unwrap();
@@ -2487,7 +2522,7 @@ mod tests {
                 .is_err()
         );
         router.unbind().unwrap();
-        let replacement = fixture_worker_route();
+        let replacement = fixture_worker_route(&fixture_context);
         let new_page = replacement.network.page_id;
         let new_client = unbound.for_route(replacement.identity.clone());
         router.bind(replacement).unwrap();
@@ -2510,8 +2545,9 @@ mod tests {
 
     #[test]
     fn draining_router_rejects_rebinding_until_every_admission_has_ended() {
+        let fixture_context = Browser::new().new_context();
         let router = Arc::new(WorkerBrokerRouter::default());
-        let route = fixture_worker_route();
+        let route = fixture_worker_route(&fixture_context);
         let authority = route.network.authority.clone();
         let admission = authority.admit(None).unwrap();
         router.bind(route).unwrap();
@@ -2525,23 +2561,24 @@ mod tests {
         assert!(state.retired);
         drop(state);
         assert!(router.current().is_err());
-        assert!(router.bind(fixture_worker_route()).is_err());
+        assert!(router.bind(fixture_worker_route(&fixture_context)).is_err());
         drop(admission);
         thread.join().unwrap().unwrap();
-        router.bind(fixture_worker_route()).unwrap();
+        router.bind(fixture_worker_route(&fixture_context)).unwrap();
         assert!(authority.ensure_live().is_err());
         router.unbind().unwrap();
     }
 
     #[test]
     fn failed_drain_permanently_retires_router_even_after_late_completion() {
+        let fixture_context = Browser::new().new_context();
         let router = WorkerBrokerRouter::default();
-        let route = fixture_worker_route();
+        let route = fixture_worker_route(&fixture_context);
         let admission = route.network.authority.admit(None).unwrap();
         router.bind(route).unwrap();
         assert!(router.unbind_with_timeout(Duration::ZERO).is_err());
         drop(admission);
-        assert!(router.bind(fixture_worker_route()).is_err());
+        assert!(router.bind(fixture_worker_route(&fixture_context)).is_err());
         assert!(router.unbind().is_err());
     }
 
@@ -2582,7 +2619,7 @@ mod tests {
                 network: PageNetworkBroker {
                     authority: Arc::new(RouteAuthority::default()),
                     inner: network,
-                    context,
+                    context: context.downgrade(),
                     page_id: page.page_id(),
                 },
                 context: service.clone(),

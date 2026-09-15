@@ -286,13 +286,17 @@ pub enum ColorScheme {
     Dark,
 }
 
+/// Immutable style projections can be shared across equal elements and snapshots.
+pub type ComputedStyle = Arc<BTreeMap<String, String>>;
+pub type ComputedStyles = BTreeMap<u64, ComputedStyle>;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutOutput {
     /// CSSOM used values measured before transforms, including invisible boxes.
     /// Properties without an applicable layout box retain their computed value.
     #[serde(default)]
     pub resolved_values: BTreeMap<u64, BTreeMap<String, String>>,
-    pub computed_styles: BTreeMap<u64, BTreeMap<String, String>>,
+    pub computed_styles: ComputedStyles,
     /// Elements/text whose computed whitespace includes author-specified values.
     /// Internal editing metadata, deliberately separate from CSSOM properties.
     #[serde(default)]
@@ -752,7 +756,7 @@ pub fn compute(input: &LayoutInput, limits: &LayoutLimits) -> Result<LayoutOutpu
 fn compute_with_styles(
     input: &LayoutInput,
     limits: &LayoutLimits,
-    computed_styles: BTreeMap<u64, BTreeMap<String, String>>,
+    computed_styles: ComputedStyles,
 ) -> Result<LayoutOutput, LayoutError> {
     validate(input, limits)?;
     let (web_fonts, loaded_fonts, mut diagnostics) = prepare_web_fonts(input, limits);
@@ -968,13 +972,23 @@ fn rewrite_custom_state_selectors(stylesheet: &str) -> Cow<'_, str> {
 /// matching, origins, cascade, variables and inheritance are all resolved by
 /// Stylo rather than reconstructed by Oryn.
 #[cfg(test)]
-fn stylo_computed_values(
-    input: &LayoutInput,
-) -> Result<BTreeMap<u64, BTreeMap<String, String>>, LayoutError> {
+fn stylo_computed_values(input: &LayoutInput) -> Result<ComputedStyles, LayoutError> {
     stylo_computed_values_with_provenance(input).map(|(styles, _)| styles)
 }
 
-type StyloStyleProjection = (BTreeMap<u64, BTreeMap<String, String>>, BTreeSet<u64>);
+type StyloStyleProjection = (ComputedStyles, BTreeSet<u64>);
+
+fn intern_computed_style(
+    values: BTreeMap<String, String>,
+    pool: &mut BTreeSet<ComputedStyle>,
+) -> ComputedStyle {
+    if let Some(shared) = pool.get(&values) {
+        return shared.clone();
+    }
+    let shared = Arc::new(values);
+    pool.insert(shared.clone());
+    shared
+}
 
 fn stylo_computed_values_with_provenance(
     input: &LayoutInput,
@@ -1250,7 +1264,8 @@ fn stylo_computed_values_with_provenance(
         document.resolve_stylist(0.0);
     }
 
-    let mut output: BTreeMap<u64, BTreeMap<String, String>> = BTreeMap::new();
+    let mut output = ComputedStyles::new();
+    let mut shared_styles = BTreeSet::<ComputedStyle>::new();
     let mut author_whitespace = BTreeSet::new();
     let mut pending = BTreeSet::new();
     for node in &input.nodes {
@@ -1313,7 +1328,7 @@ fn stylo_computed_values_with_provenance(
         if node.attributes.contains_key("hidden") {
             values.insert("display".into(), "none".into());
         }
-        output.insert(node.id, values);
+        output.insert(node.id, intern_computed_style(values, &mut shared_styles));
     }
     // Parent-first traversal is required for text nodes even when the input
     // snapshot itself is deliberately out of order.
@@ -1324,7 +1339,10 @@ fn stylo_computed_values_with_provenance(
                 return false;
             };
             let Some(parent) = node.parent else {
-                output.insert(*id, ua_style(node));
+                output.insert(
+                    *id,
+                    intern_computed_style(ua_style(node), &mut shared_styles),
+                );
                 return false;
             };
             let Some(parent_style) = output.get(&parent).cloned() else {
@@ -1333,11 +1351,11 @@ fn stylo_computed_values_with_provenance(
             if author_whitespace.contains(&parent) {
                 author_whitespace.insert(*id);
             }
-            let style = output.entry(*id).or_default();
-            *style = parent_style;
+            let mut style = (*parent_style).clone();
             if node.tag == "#text" || node.tag == "#comment" {
                 style.insert("display".into(), "inline".into());
             }
+            output.insert(*id, intern_computed_style(style, &mut shared_styles));
             false
         });
         if pending.len() == before {
@@ -1346,10 +1364,12 @@ fn stylo_computed_values_with_provenance(
     }
     for node in &input.nodes {
         if node.attributes.contains_key("hidden") {
-            output
-                .entry(node.id)
-                .or_default()
-                .insert("display".into(), "none".into());
+            let mut style = output
+                .get(&node.id)
+                .map(|style| (**style).clone())
+                .unwrap_or_default();
+            style.insert("display".into(), "none".into());
+            output.insert(node.id, intern_computed_style(style, &mut shared_styles));
         }
     }
     Ok((output, author_whitespace))
@@ -1402,7 +1422,7 @@ fn stylesheet_fingerprint(input: &LayoutInput) -> [u8; 32] {
 
 fn apply_ancestor_clipping(
     by_id: &BTreeMap<u64, &LayoutNode>,
-    styles: &BTreeMap<u64, BTreeMap<String, String>>,
+    styles: &ComputedStyles,
     geometry: &mut BTreeMap<u64, NodeGeometry>,
     viewport: CssRect,
 ) {
@@ -1438,7 +1458,7 @@ fn apply_ancestor_clipping(
                 break;
             };
             let style = styles.get(&parent_id);
-            let (clip_x, clip_y) = style.map_or((false, false), overflow_clip_axes);
+            let (clip_x, clip_y) = style.map_or((false, false), |style| overflow_clip_axes(style));
             if clip_x || clip_y {
                 let clip = parent_box.padding_box;
                 visible = (!clip_x || horizontal_overlap(rect, clip))
@@ -1937,7 +1957,7 @@ fn layout_node(
     id: u64,
     containing: FlowBox,
     by_id: &BTreeMap<u64, &LayoutNode>,
-    styles: &BTreeMap<u64, BTreeMap<String, String>>,
+    styles: &ComputedStyles,
     geometry: &mut BTreeMap<u64, NodeGeometry>,
     offset_dimensions: &mut BTreeMap<u64, (f64, f64)>,
     resolved_values: &mut BTreeMap<u64, BTreeMap<String, String>>,
@@ -2385,7 +2405,7 @@ fn descendant_text(node: &LayoutNode, by_id: &BTreeMap<u64, &LayoutNode>) -> Str
 fn taffy_child_placements(
     node: &LayoutNode,
     parent_style: &BTreeMap<String, String>,
-    styles: &BTreeMap<u64, BTreeMap<String, String>>,
+    styles: &ComputedStyles,
     width: f64,
     viewport: ViewportState,
 ) -> Option<Vec<ChildPlacement>> {
@@ -2806,6 +2826,48 @@ mod tests {
             intrinsic_image_size: None,
             text: text.into(),
         }
+    }
+
+    #[test]
+    fn repeated_styles_share_storage_without_merging_distinct_values() {
+        let mut root = node(1, None, "html", "");
+        root.children = (2..=2049).collect();
+        let mut nodes = vec![root];
+        for id in 2..=2049 {
+            let mut child = node(id, Some(1), "span", "");
+            if id == 2049 {
+                child
+                    .attributes
+                    .insert("style".into(), "color: red; --label: special".into());
+            }
+            nodes.push(child);
+        }
+        let input = LayoutInput {
+            nodes,
+            stylesheets: vec!["span { color: blue; --label: ordinary }".into()],
+            stylesheet_media: BTreeMap::new(),
+            stylesheet_scope_roots: BTreeMap::new(),
+            custom_states: BTreeMap::new(),
+            focused_node: None,
+            focus_visible: false,
+            viewport: ViewportState::default(),
+            scroll: ScrollState::default(),
+            color_scheme: ColorScheme::Light,
+            reduced_motion: false,
+            web_fonts: Vec::new(),
+        };
+        let styles = stylo_computed_values(&input).unwrap();
+        for id in 3..2049 {
+            assert!(Arc::ptr_eq(&styles[&2], &styles[&id]));
+        }
+        assert!(!Arc::ptr_eq(&styles[&2], &styles[&2049]));
+        assert_eq!(styles[&2]["color"], "rgb(0, 0, 255)");
+        assert_eq!(styles[&2049]["color"], "rgb(255, 0, 0)");
+        assert_eq!(styles[&2049]["--label"], "special");
+        let mut snapshot = styles.clone();
+        Arc::make_mut(snapshot.get_mut(&2).unwrap()).insert("color".into(), "green".into());
+        assert_eq!(styles[&2]["color"], "rgb(0, 0, 255)");
+        assert_eq!(snapshot[&3]["color"], "rgb(0, 0, 255)");
     }
 
     #[test]
@@ -4019,10 +4081,7 @@ mod tests {
             34.0
         );
         let mut styles = output.computed_styles;
-        styles
-            .get_mut(&3)
-            .unwrap()
-            .insert("transform".into(), "scale(2)".into());
+        Arc::make_mut(styles.get_mut(&3).unwrap()).insert("transform".into(), "scale(2)".into());
         let transformed = compute_with_styles(&input, &LayoutLimits::default(), styles).unwrap();
         assert_eq!(transformed.offset_dimensions[&3], (114.0, 34.0));
         assert_eq!(

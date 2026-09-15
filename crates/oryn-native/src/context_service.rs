@@ -749,7 +749,7 @@ impl SharedContextClient {
 }
 
 pub struct ParentContextService {
-    context: BrowserContext,
+    context: crate::runtime::WeakBrowserContext,
     source_page_id: PageId,
     next_socket_id: AtomicU64,
     sockets: Mutex<BTreeMap<u64, WebSocket<MaybeTlsStream<TcpStream>>>>,
@@ -842,6 +842,10 @@ fn receive_network_event(
 }
 
 impl ParentContextService {
+    fn context_owner(&self) -> Result<BrowserContext, RuntimeError> {
+        self.context.upgrade().ok_or(RuntimeError::Closed)
+    }
+
     pub fn new(context: BrowserContext, source_page_id: PageId) -> Self {
         let network = context.shared_network_broker();
         Self::new_with_network(context, source_page_id, network)
@@ -857,7 +861,7 @@ impl ParentContextService {
             .into_iter()
             .collect::<BTreeSet<_>>();
         Self {
-            context,
+            context: context.downgrade(),
             source_page_id,
             next_socket_id: AtomicU64::new(1),
             sockets: Mutex::new(BTreeMap::new()),
@@ -909,6 +913,9 @@ impl ParentContextService {
         &self,
         request: ContextServiceRequest,
     ) -> Result<ContextServiceResponse, RuntimeError> {
+        // Keep the context alive for this bounded request, never for the
+        // lifetime of the service retained by one of its own page actors.
+        let context_owner = self.context_owner()?;
         if self.shutting_down.load(Ordering::Acquire) {
             return Err(RuntimeError::WorkerCrashed(
                 "context service is shutting down".into(),
@@ -918,7 +925,11 @@ impl ParentContextService {
             ContextServiceRequest::GetReferrerPolicy { page_id } => {
                 self.validate_socket_owner(page_id)?;
                 Ok(ContextServiceResponse::ReferrerPolicy {
-                    value: self.context.page_referrer_policy(page_id)?.as_str().into(),
+                    value: self
+                        .context_owner()?
+                        .page_referrer_policy(page_id)?
+                        .as_str()
+                        .into(),
                 })
             }
             ContextServiceRequest::HttpStreamStart { page_id, request } => {
@@ -947,15 +958,16 @@ impl ParentContextService {
             ContextServiceRequest::Storage { request } => {
                 self.validate_storage_scope(&request)?;
                 let response = self
-                    .context
+                    .context_owner()?
                     .context_store()
                     .execute(request)
                     .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
                 if let StorageResponse::Changed { change } = &response {
-                    self.context.push_context_event(ContextEvent::Storage {
-                        source_page_id: self.source_page_id,
-                        change: change.clone(),
-                    });
+                    self.context_owner()?
+                        .push_context_event(ContextEvent::Storage {
+                            source_page_id: self.source_page_id,
+                            change: change.clone(),
+                        });
                 }
                 Ok(ContextServiceResponse::Storage {
                     response: Box::new(response),
@@ -972,13 +984,13 @@ impl ParentContextService {
                         "worker cannot open a popup for another page".into(),
                     ));
                 }
-                if !self.context.popups_allowed() {
+                if !self.context_owner()?.popups_allowed() {
                     return Ok(ContextServiceResponse::PageDenied {
                         reason: "popup policy denied page creation".into(),
                     });
                 }
                 if self
-                    .context
+                    .context_owner()?
                     .csp_sandbox(opener_page_id)?
                     .is_some_and(|sandbox| !sandbox.allow_popups)
                 {
@@ -986,14 +998,14 @@ impl ParentContextService {
                         reason: "Content-Security-Policy sandbox denied popup creation".into(),
                     });
                 }
-                let opener_origin = self.context.page_origin(opener_page_id)?;
+                let opener_origin = self.context_owner()?.page_origin(opener_page_id)?;
                 let target_origin = url.as_deref().and_then(|value| {
-                    self.context
+                    context_owner
                         .resolve_page_url(self.source_page_id, value)
                         .ok()
                         .map(|url| url.origin().ascii_serialization())
                 });
-                if let Err(error) = self.context.require_policy(
+                if let Err(error) = self.context_owner()?.require_policy(
                     PolicyRequest {
                         action: ConsequentialAction::Popup,
                         source_origin: opener_origin.clone(),
@@ -1007,12 +1019,13 @@ impl ParentContextService {
                     });
                 }
                 if let Some(url) = &url {
-                    self.context.validate_page_url(self.source_page_id, url)?;
+                    self.context_owner()?
+                        .validate_page_url(self.source_page_id, url)?;
                 }
                 if let Some(resource) = &post {
                     if url
                         .as_ref()
-                        .and_then(|url| self.context.resolve_page_url(opener_page_id, url).ok())
+                        .and_then(|url| context_owner.resolve_page_url(opener_page_id, url).ok())
                         .is_none_or(|url| !resource.valid_for(&url))
                     {
                         return Err(RuntimeError::ContextService(
@@ -1038,7 +1051,7 @@ impl ParentContextService {
                 // Clone sessionStorage before the popup's first document can
                 // execute, matching the browser's initial-copy semantics.
                 let initial_url = url;
-                let page = self.context.new_popup(opener_page_id, None);
+                let page = self.context_owner()?.new_popup(opener_page_id, None);
                 let opener_scope = StorageScope {
                     origin: opener_origin.clone(),
                     top_level_page_id: opener_page_id,
@@ -1048,7 +1061,7 @@ impl ParentContextService {
                     top_level_page_id: page.page_id(),
                 };
                 if let StorageResponse::Entries { entries } = self
-                    .context
+                    .context_owner()?
                     .context_store()
                     .execute(StorageRequest::Entries {
                         area: StorageArea::Session,
@@ -1057,7 +1070,7 @@ impl ParentContextService {
                     .map_err(|error| RuntimeError::ContextService(error.to_string()))?
                 {
                     for (key, value) in entries {
-                        self.context
+                        self.context_owner()?
                             .context_store()
                             .execute(StorageRequest::Set {
                                 area: StorageArea::Session,
@@ -1069,7 +1082,7 @@ impl ParentContextService {
                     }
                 }
                 if let Some(url) = initial_url {
-                    self.context.queue_resource_navigation(
+                    self.context_owner()?.queue_resource_navigation(
                         page.page_id(),
                         url,
                         post,
@@ -1089,7 +1102,7 @@ impl ParentContextService {
                         "worker cannot impersonate another page".into(),
                     ));
                 }
-                self.context.activate_page(target_page_id)?;
+                self.context_owner()?.activate_page(target_page_id)?;
                 Ok(ContextServiceResponse::PageActivated {
                     page_id: target_page_id,
                 })
@@ -1100,8 +1113,9 @@ impl ParentContextService {
                         "worker cannot commit another page".into(),
                     ));
                 }
-                self.context.validate_page_commit_url(page_id, &url)?;
-                self.context.commit_page_url(page_id, url)?;
+                self.context_owner()?
+                    .validate_page_commit_url(page_id, &url)?;
+                self.context_owner()?.commit_page_url(page_id, url)?;
                 Ok(ContextServiceResponse::PageCommitted)
             }
             ContextServiceRequest::InstallDocumentSecurity {
@@ -1115,15 +1129,24 @@ impl ParentContextService {
                     ));
                 }
                 if self.trusted_in_process_runtime {
-                    self.context
-                        .install_document_security(page_id, document_url, &headers)?;
+                    self.context_owner()?.install_document_security(
+                        page_id,
+                        document_url,
+                        &headers,
+                    )?;
                 } else {
                     #[cfg(test)]
-                    self.context
-                        .install_document_security(page_id, document_url, &headers)?;
+                    self.context_owner()?.install_document_security(
+                        page_id,
+                        document_url,
+                        &headers,
+                    )?;
                     #[cfg(not(test))]
-                    self.context
-                        .verify_document_security(page_id, &document_url, &headers)?;
+                    self.context_owner()?.verify_document_security(
+                        page_id,
+                        &document_url,
+                        &headers,
+                    )?;
                 }
                 Ok(ContextServiceResponse::DocumentSecurityInstalled)
             }
@@ -1136,7 +1159,8 @@ impl ParentContextService {
                         "worker cannot install meta policy for another page".into(),
                     ));
                 }
-                self.context.install_meta_security(page_id, &serialized)?;
+                self.context_owner()?
+                    .install_meta_security(page_id, &serialized)?;
                 Ok(ContextServiceResponse::DocumentSecurityInstalled)
             }
             ContextServiceRequest::InstallReferrerPolicy {
@@ -1148,7 +1172,8 @@ impl ParentContextService {
                         "worker cannot install referrer policy for another page".into(),
                     ));
                 }
-                self.context.install_meta_referrer(page_id, &serialized)?;
+                self.context_owner()?
+                    .install_meta_referrer(page_id, &serialized)?;
                 Ok(ContextServiceResponse::DocumentSecurityInstalled)
             }
             ContextServiceRequest::ReportCspViolations {
@@ -1165,7 +1190,8 @@ impl ParentContextService {
                         resource: "CSP violation batch".into(),
                     });
                 }
-                self.context.handle_csp_violations(page_id, violations)?;
+                self.context_owner()?
+                    .handle_csp_violations(page_id, violations)?;
                 Ok(ContextServiceResponse::CspViolationsAccepted)
             }
             ContextServiceRequest::GetDocumentCookie { page_id } => {
@@ -1175,7 +1201,7 @@ impl ParentContextService {
                     ));
                 }
                 Ok(ContextServiceResponse::DocumentCookie {
-                    value: self.context.document_cookie(page_id)?,
+                    value: self.context_owner()?.document_cookie(page_id)?,
                 })
             }
             ContextServiceRequest::SetDocumentCookie { page_id, value } => {
@@ -1184,7 +1210,7 @@ impl ParentContextService {
                         "worker cannot write another page's cookies".into(),
                     ));
                 }
-                self.context.set_document_cookie(page_id, value)?;
+                self.context_owner()?.set_document_cookie(page_id, value)?;
                 Ok(ContextServiceResponse::DocumentCookieSet)
             }
             ContextServiceRequest::GetSecurityOrigin { page_id } => {
@@ -1194,8 +1220,8 @@ impl ParentContextService {
                     ));
                 }
                 Ok(ContextServiceResponse::SecurityOrigin {
-                    serialized: self.context.page_origin(page_id)?,
-                    opaque: self.context.is_opaque_origin(page_id)?,
+                    serialized: self.context_owner()?.page_origin(page_id)?,
+                    opaque: self.context_owner()?.is_opaque_origin(page_id)?,
                 })
             }
             ContextServiceRequest::GetRelatedPageOrigin {
@@ -1204,7 +1230,7 @@ impl ParentContextService {
             } => {
                 if source_page_id != self.source_page_id
                     || !self
-                        .context
+                        .context_owner()?
                         .may_read_related_page_origin(source_page_id, target_page_id)
                 {
                     return Err(RuntimeError::ContextService(
@@ -1212,8 +1238,8 @@ impl ParentContextService {
                     ));
                 }
                 Ok(ContextServiceResponse::SecurityOrigin {
-                    serialized: self.context.page_origin(target_page_id)?,
-                    opaque: self.context.is_opaque_origin(target_page_id)?,
+                    serialized: self.context_owner()?.page_origin(target_page_id)?,
+                    opaque: self.context_owner()?.is_opaque_origin(target_page_id)?,
                 })
             }
             ContextServiceRequest::MaterializeUpload { page_id, label } => {
@@ -1222,7 +1248,9 @@ impl ParentContextService {
                         "worker cannot materialize an upload for another page".into(),
                     ));
                 }
-                let file = self.context.materialize_upload_label(page_id, &label)?;
+                let file = self
+                    .context_owner()?
+                    .materialize_upload_label(page_id, &label)?;
                 use base64::Engine as _;
                 Ok(ContextServiceResponse::UploadMaterialized {
                     filename: file.filename,
@@ -1237,13 +1265,13 @@ impl ParentContextService {
                         "worker cannot navigate another page".into(),
                     ));
                 }
-                self.context.validate_page_url(page_id, &url)?;
-                let source_origin = self.context.page_origin(page_id)?;
-                let resolved = self.context.resolve_page_url(page_id, &url)?;
+                self.context_owner()?.validate_page_url(page_id, &url)?;
+                let source_origin = self.context_owner()?.page_origin(page_id)?;
+                let resolved = self.context_owner()?.resolve_page_url(page_id, &url)?;
                 let target_origin = resolved.origin().ascii_serialization();
                 if source_origin != target_origin
                     && source_origin != "null"
-                    && let Err(error) = self.context.require_policy(
+                    && let Err(error) = self.context_owner()?.require_policy(
                         PolicyRequest {
                             action: ConsequentialAction::CrossOriginNavigation,
                             source_origin,
@@ -1257,7 +1285,8 @@ impl ParentContextService {
                         reason: error.to_string(),
                     });
                 }
-                self.context.queue_script_navigation(page_id, url)?;
+                self.context_owner()?
+                    .queue_script_navigation(page_id, url)?;
                 Ok(ContextServiceResponse::NavigationQueued)
             }
             ContextServiceRequest::AuthorizeNavigation { page_id, url } => {
@@ -1266,9 +1295,9 @@ impl ParentContextService {
                         "worker cannot authorize navigation for another page".into(),
                     ));
                 }
-                self.context.validate_page_url(page_id, &url)?;
-                let source_origin = self.context.page_origin(page_id)?;
-                let resolved = self.context.resolve_page_url(page_id, &url)?;
+                self.context_owner()?.validate_page_url(page_id, &url)?;
+                let source_origin = self.context_owner()?.page_origin(page_id)?;
+                let resolved = self.context_owner()?.resolve_page_url(page_id, &url)?;
                 let target_origin = resolved.origin().ascii_serialization();
                 if source_origin != target_origin && source_origin != "null" {
                     let request = PolicyRequest {
@@ -1277,10 +1306,13 @@ impl ParentContextService {
                         target_origin: Some(target_origin),
                         detail: Some(resolved.to_string()),
                     };
-                    let authorization = if self.context.navigation_chain_is_preconfirmed(page_id) {
-                        self.context.require_preconfirmed_policy(request)
+                    let authorization = if self
+                        .context_owner()?
+                        .navigation_chain_is_preconfirmed(page_id)
+                    {
+                        self.context_owner()?.require_preconfirmed_policy(request)
                     } else {
-                        self.context.require_policy(request, None)
+                        self.context_owner()?.require_policy(request, None)
                     };
                     if let Err(error) = authorization {
                         return Ok(ContextServiceResponse::PageDenied {
@@ -1300,9 +1332,9 @@ impl ParentContextService {
                         "worker cannot authorize form submission for another page".into(),
                     ));
                 }
-                self.context.validate_page_url(page_id, &url)?;
+                self.context_owner()?.validate_page_url(page_id, &url)?;
                 if self
-                    .context
+                    .context_owner()?
                     .csp_sandbox(page_id)?
                     .is_some_and(|sandbox| !sandbox.allow_forms)
                 {
@@ -1310,10 +1342,10 @@ impl ParentContextService {
                         reason: "Content-Security-Policy sandbox denied form submission".into(),
                     });
                 }
-                let source_origin = self.context.page_origin(page_id)?;
-                let resolved = self.context.resolve_page_url(page_id, &url)?;
+                let source_origin = self.context_owner()?.page_origin(page_id)?;
+                let resolved = self.context_owner()?.resolve_page_url(page_id, &url)?;
                 if !self
-                    .context
+                    .context_owner()?
                     .authorize_csp(
                         page_id,
                         &crate::csp::CspRequest {
@@ -1339,10 +1371,12 @@ impl ParentContextService {
                     target_origin: Some(target_origin),
                     detail: Some(format!("{} {}", method.to_uppercase(), resolved)),
                 };
-                let authorization = if self.context.consume_form_submission_grant(page_id) {
-                    self.context.require_preconfirmed_policy(policy_request)
+                let authorization = if self.context_owner()?.consume_form_submission_grant(page_id)
+                {
+                    self.context_owner()?
+                        .require_preconfirmed_policy(policy_request)
                 } else {
-                    self.context.require_policy(policy_request, None)
+                    self.context_owner()?.require_policy(policy_request, None)
                 };
                 if let Err(error) = authorization {
                     return Ok(ContextServiceResponse::PageDenied {
@@ -1357,14 +1391,14 @@ impl ParentContextService {
             } => {
                 if source_page_id != self.source_page_id
                     || !self
-                        .context
+                        .context_owner()?
                         .may_script_close(source_page_id, target_page_id)
                 {
                     return Err(RuntimeError::ContextService(
                         "page is not permitted to close the target".into(),
                     ));
                 }
-                let context = self.context.clone();
+                let context = self.context_owner()?.clone();
                 std::thread::spawn(move || {
                     if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
@@ -1386,23 +1420,24 @@ impl ParentContextService {
                         "worker cannot impersonate another message source".into(),
                     ));
                 }
-                let source_origin = self.context.page_origin(source_page_id)?;
-                let actual_target_origin = self.context.page_origin(target_page_id)?;
+                let source_origin = self.context_owner()?.page_origin(source_page_id)?;
+                let actual_target_origin = self.context_owner()?.page_origin(target_page_id)?;
                 if target_origin != "*"
-                    && (self.context.is_opaque_origin(target_page_id)?
+                    && (self.context_owner()?.is_opaque_origin(target_page_id)?
                         || target_origin != actual_target_origin)
                 {
                     return Err(RuntimeError::ContextService(
                         "postMessage target origin did not match".into(),
                     ));
                 }
-                self.context.push_context_event(ContextEvent::Message {
-                    source_page_id,
-                    target_page_id,
-                    source_origin,
-                    data,
-                });
-                self.context.wake_context_events(target_page_id);
+                self.context_owner()?
+                    .push_context_event(ContextEvent::Message {
+                        source_page_id,
+                        target_page_id,
+                        source_origin,
+                        data,
+                    });
+                self.context_owner()?.wake_context_events(target_page_id);
                 Ok(ContextServiceResponse::MessageQueued)
             }
             ContextServiceRequest::PollEvents {
@@ -1416,7 +1451,7 @@ impl ParentContextService {
                     ));
                 }
                 Ok(ContextServiceResponse::Events {
-                    events: self.context.poll_context_events(
+                    events: self.context_owner()?.poll_context_events(
                         page_id,
                         after_event_id,
                         max_events.min(32),
@@ -1528,7 +1563,7 @@ impl ParentContextService {
                 RuntimeError::ContextService("HTTP streaming broker is unavailable".into())
             })?
             .for_page(page_id.0);
-        let page_url = self.context.page_url(page_id)?;
+        let page_url = self.context_owner()?.page_url(page_id)?;
         let source_url = request.initiator_url.as_deref().unwrap_or(&page_url);
         let page_base =
             Url::parse(&page_url).map_err(|error| RuntimeError::Network(error.to_string()))?;
@@ -1548,15 +1583,15 @@ impl ParentContextService {
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .map_or(
-                self.context.page_referrer_policy(page_id)?,
+                self.context_owner()?.page_referrer_policy(page_id)?,
                 crate::referrer::ReferrerPolicy::parse_list,
             );
         let mut redirects = 0_u8;
         let (operation, response_status, response_headers, content_length) = loop {
-            if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &target)? {
+            if let Some(upgraded) = self.context_owner()?.upgrade_csp_url(page_id, &target)? {
                 target = upgraded;
             }
-            let csp = self.context.authorize_csp(
+            let csp = self.context_owner()?.authorize_csp(
                 page_id,
                 &crate::csp::CspRequest {
                     destination,
@@ -1568,7 +1603,7 @@ impl ParentContextService {
                 },
             )?;
             if !csp.violations.is_empty() {
-                self.context
+                self.context_owner()?
                     .handle_csp_violations(page_id, csp.violations.clone())?;
             }
             if !csp.allowed {
@@ -1662,7 +1697,7 @@ impl ParentContextService {
                             credentials: crate::cookies::CookieCredentials::Omit,
                             kind: crate::cookies::CookieRequestKind::Fetch,
                             initiator_url: Some(source_origin.clone()),
-                            top_level_url: Some(self.context.page_url(page_id)?),
+                            top_level_url: Some(self.context_owner()?.page_url(page_id)?),
                             ..Default::default()
                         },
                         resolved_addrs: Vec::new(),
@@ -1699,7 +1734,7 @@ impl ParentContextService {
                             crate::cookies::CookieRequestKind::Fetch
                         },
                         initiator_url: Some(source_origin.clone()),
-                        top_level_url: Some(self.context.page_url(page_id)?),
+                        top_level_url: Some(self.context_owner()?.page_url(page_id)?),
                         ..Default::default()
                     },
                     resolved_addrs: Vec::new(),
@@ -2019,20 +2054,22 @@ impl ParentContextService {
         let network = self.network.clone().ok_or_else(|| {
             RuntimeError::ContextService("worker-script broker is unavailable".into())
         })?;
-        let source_origin = self.context.page_origin(page_id)?;
+        let source_origin = self.context_owner()?.page_origin(page_id)?;
         if source_origin == "null" {
             return Err(RuntimeError::ContextService(
                 "SecurityError: an opaque-origin document cannot create an external worker".into(),
             ));
         }
-        let mut url = self.context.resolve_page_url(page_id, requested_url)?;
+        let mut url = self
+            .context_owner()?
+            .resolve_page_url(page_id, requested_url)?;
         if url.origin().ascii_serialization() != source_origin {
             return Err(RuntimeError::ContextService(
                 "SecurityError: dedicated worker scripts must be same-origin".into(),
             ));
         }
         for redirect in 0..=10 {
-            let decision = self.context.authorize_csp(
+            let decision = self.context_owner()?.authorize_csp(
                 page_id,
                 &crate::csp::CspRequest {
                     destination: crate::csp::CspDestination::Worker,
@@ -2044,7 +2081,7 @@ impl ParentContextService {
                 },
             )?;
             if !decision.violations.is_empty() {
-                self.context
+                self.context_owner()?
                     .handle_csp_violations(page_id, decision.violations.clone())?;
             }
             if !decision.allowed {
@@ -2066,8 +2103,8 @@ impl ParentContextService {
                     credentials: true,
                     security: crate::cookies::CookieRequestContext {
                         kind: crate::cookies::CookieRequestKind::Worker,
-                        initiator_url: Some(self.context.page_url(page_id)?),
-                        top_level_url: Some(self.context.page_url(page_id)?),
+                        initiator_url: Some(self.context_owner()?.page_url(page_id)?),
+                        top_level_url: Some(self.context_owner()?.page_url(page_id)?),
                         ..Default::default()
                     },
                     resolved_addrs: Vec::new(),
@@ -2147,7 +2184,7 @@ impl ParentContextService {
         nonce: Option<&str>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
         self.validate_socket_owner(page_id)?;
-        let decision = self.context.authorize_csp(
+        let decision = self.context_owner()?.authorize_csp(
             page_id,
             &crate::csp::CspRequest {
                 destination: crate::csp::CspDestination::Script,
@@ -2159,7 +2196,7 @@ impl ParentContextService {
             },
         )?;
         if !decision.violations.is_empty() {
-            self.context
+            self.context_owner()?
                 .handle_csp_violations(page_id, decision.violations.clone())?;
         }
         if !decision.allowed {
@@ -2183,25 +2220,26 @@ impl ParentContextService {
         let network = self.network.clone().ok_or_else(|| {
             RuntimeError::ContextService("script resource broker is unavailable".into())
         })?;
-        let page_url = self.context.page_url(page_id)?;
+        let page_url = self.context_owner()?.page_url(page_id)?;
         let source_url = initiator_url.unwrap_or(&page_url);
         let source =
             Url::parse(source_url).map_err(|error| RuntimeError::Network(error.to_string()))?;
         let source_origin = source.origin().ascii_serialization();
         let policy = referrer_policy
             .filter(|value| !value.trim().is_empty())
-            .map_or(self.context.page_referrer_policy(page_id)?, |value| {
-                crate::referrer::ReferrerPolicy::parse_list(value)
-            });
+            .map_or(
+                self.context_owner()?.page_referrer_policy(page_id)?,
+                crate::referrer::ReferrerPolicy::parse_list,
+            );
         let mut url = source
             .join(requested_url)
             .or_else(|_| Url::parse(requested_url))
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
         for redirect in 0..=10 {
-            if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &url)? {
+            if let Some(upgraded) = self.context_owner()?.upgrade_csp_url(page_id, &url)? {
                 url = upgraded;
             }
-            let decision = self.context.authorize_csp(
+            let decision = self.context_owner()?.authorize_csp(
                 page_id,
                 &crate::csp::CspRequest {
                     destination: crate::csp::CspDestination::Script,
@@ -2213,7 +2251,7 @@ impl ParentContextService {
                 },
             )?;
             if !decision.violations.is_empty() {
-                self.context
+                self.context_owner()?
                     .handle_csp_violations(page_id, decision.violations.clone())?;
             }
             if !decision.allowed {
@@ -2331,7 +2369,7 @@ impl ParentContextService {
         if let Some(resource) = &post {
             if destination != "frame"
                 || self
-                    .context
+                    .context_owner()?
                     .resolve_page_url(page_id, requested_url)
                     .map_or(true, |url| !resource.valid_for(&url))
             {
@@ -2389,21 +2427,22 @@ impl ParentContextService {
         let network = self.network.clone().ok_or_else(|| {
             RuntimeError::ContextService("page resource broker is unavailable".into())
         })?;
-        let page_url = self.context.page_url(page_id)?;
+        let page_url = self.context_owner()?.page_url(page_id)?;
         let source_url = initiator_url.unwrap_or(&page_url);
         let source =
             Url::parse(source_url).map_err(|error| RuntimeError::Network(error.to_string()))?;
         let policy = referrer_policy
             .filter(|value| !value.trim().is_empty())
-            .map_or(self.context.page_referrer_policy(page_id)?, |value| {
-                crate::referrer::ReferrerPolicy::parse_list(value)
-            });
+            .map_or(
+                self.context_owner()?.page_referrer_policy(page_id)?,
+                crate::referrer::ReferrerPolicy::parse_list,
+            );
         let mut url = source
             .join(requested_url)
             .or_else(|_| Url::parse(requested_url))
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
         for redirect in 0..=10 {
-            if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &url)? {
+            if let Some(upgraded) = self.context_owner()?.upgrade_csp_url(page_id, &url)? {
                 url = upgraded;
             }
             if post
@@ -2431,7 +2470,7 @@ impl ParentContextService {
                     }
                 }
             }
-            let decision = self.context.authorize_csp(
+            let decision = self.context_owner()?.authorize_csp(
                 page_id,
                 &crate::csp::CspRequest {
                     destination: csp_destination,
@@ -2443,7 +2482,7 @@ impl ParentContextService {
                 },
             )?;
             if !decision.violations.is_empty() {
-                self.context
+                self.context_owner()?
                     .handle_csp_violations(page_id, decision.violations.clone())?;
             }
             if !decision.allowed {
@@ -2598,7 +2637,7 @@ impl ParentContextService {
                 .begin_websocket(page_id.0, socket_id, url)
         });
         let mut url = Url::parse(url).map_err(|error| RuntimeError::Network(error.to_string()))?;
-        if let Some(upgraded) = self.context.upgrade_csp_url(page_id, &url)? {
+        if let Some(upgraded) = self.context_owner()?.upgrade_csp_url(page_id, &url)? {
             url = upgraded;
         }
         if !matches!(url.scheme(), "ws" | "wss") {
@@ -2606,7 +2645,7 @@ impl ParentContextService {
                 "WebSocket URL must use ws or wss".into(),
             ));
         }
-        let decision = self.context.authorize_csp(
+        let decision = self.context_owner()?.authorize_csp(
             page_id,
             &crate::csp::CspRequest {
                 destination: crate::csp::CspDestination::Connect,
@@ -2618,7 +2657,7 @@ impl ParentContextService {
             },
         )?;
         if !decision.violations.is_empty() {
-            self.context
+            self.context_owner()?
                 .handle_csp_violations(page_id, decision.violations.clone())?;
         }
         if !decision.allowed {
@@ -2626,15 +2665,16 @@ impl ParentContextService {
                 "WebSocket blocked by Content-Security-Policy connect-src".into(),
             ));
         }
-        enforce_mixed_content(&self.context.page_url(page_id)?, &url)?;
-        let addresses = crate::network::resolve_and_authorize(self.context.network_policy(), &url)
-            .map_err(|error| RuntimeError::Network(error.to_string()))?;
+        enforce_mixed_content(&self.context_owner()?.page_url(page_id)?, &url)?;
+        let addresses =
+            crate::network::resolve_and_authorize(self.context_owner()?.network_policy(), &url)
+                .map_err(|error| RuntimeError::Network(error.to_string()))?;
         let connector = fixture_websocket_connector(
             &url,
             !addresses.is_empty() && addresses.iter().all(|address| address.ip().is_loopback()),
             std::env::var_os("ORYN_WPT_CA_CERT").as_deref(),
         )?;
-        let timeout = self.context.request_timeout();
+        let timeout = self.context_owner()?.request_timeout();
         let mut stream = None;
         let mut last_error = None;
         for address in addresses {
@@ -2661,14 +2701,14 @@ impl ParentContextService {
             .as_str()
             .into_client_request()
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
-        let origin = self.context.page_origin(page_id)?;
+        let origin = self.context_owner()?.page_origin(page_id)?;
         request.headers_mut().insert(
             "origin",
             origin
                 .parse()
                 .map_err(|error| RuntimeError::Network(format!("invalid Origin: {error}")))?,
         );
-        if let Some(cookie) = self.context.cookie_header_for_request(
+        if let Some(cookie) = self.context_owner()?.cookie_header_for_request(
             page_id,
             &url,
             "GET",
@@ -2925,12 +2965,15 @@ impl ParentContextService {
     }
 
     fn validate_storage_scope(&self, request: &StorageRequest) -> Result<(), RuntimeError> {
-        if self.context.is_opaque_origin(self.source_page_id)? {
+        if self
+            .context_owner()?
+            .is_opaque_origin(self.source_page_id)?
+        {
             return Err(RuntimeError::ContextService(
                 "SecurityError: sandboxed opaque origins cannot access storage".into(),
             ));
         }
-        let current_page_origin = self.context.page_origin(self.source_page_id)?;
+        let current_page_origin = self.context_owner()?.page_origin(self.source_page_id)?;
         let origin_is_authorized = |origin: &str| -> Result<bool, RuntimeError> {
             Ok(origin == current_page_origin
                 || self
