@@ -14,9 +14,17 @@ controller supports enqueue/error/terminate and stable callback identity. Readab
 demand controls writes; count-based high-water marks are validated and reflected
 in readiness. `pipeThrough` accepts native readable/writable pairs.
 
-Validation so far: **310 JS tests passed, 3 existing ignores**; strict JS Clippy,
-generated bindings and formatting checks pass. Signed WPT and native regression
-validation are pending. This does not close the stream package: pipe lifecycle and
+The signed `f8b6a3d8` candidate passes **22/26 encoding-stream/IDL WPT entries**,
+with 22 improvements and zero regressions against the same IDs. Four assertion
+failures remain: transferred empty buffers (Window and worker), cross-realm object
+and error creation, and synchronous initial iframe creation. There are no blocked
+executions. Native regression validation passes **583 tests / 6 existing ignores**.
+
+Follow-up buffer and realm repairs pass **312 JS tests / 3 existing ignores** and
+strict Clippy. Streams retain weak creation-context references; wrappers, read
+results and codec errors use the creating realm. Dedicated cross-realm and
+transferred-buffer regressions pass. A replacement signed WPT run is pending;
+these unit results do not change the 22/26 signed result. This does not close the stream package: pipe lifecycle and
 propagation, custom size functions, bytes/BYOB streams, realm behavior and complete
 upstream acceptance still require evidence and implementation.
 

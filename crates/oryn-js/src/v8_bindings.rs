@@ -617,6 +617,7 @@ enum PlatformObjectRecord {
 }
 
 struct ReadableStreamRecord {
+    creation_context: v8::Weak<v8::Context>,
     error: Option<v8::Global<v8::Value>>,
     reader_id: Option<u64>,
     transform_writable_id: Option<u64>,
@@ -805,6 +806,7 @@ enum WritableKind {
 }
 
 struct WritableStreamRecord {
+    creation_context: v8::Weak<v8::Context>,
     locked: bool,
     closed: bool,
     kind: WritableKind,
@@ -1958,6 +1960,7 @@ impl V8BindingState {
                     self,
                     stream_object_id,
                     PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+                        creation_context: weak_current_context(scope),
                         error: None,
                         reader_id: None,
                         transform_writable_id: None,
@@ -7439,6 +7442,11 @@ fn bind_platform_object(
         .insert(id, v8::Weak::new(scope, object));
 }
 
+fn weak_current_context(scope: &mut v8::PinScope) -> v8::Weak<v8::Context> {
+    let context = scope.get_current_context();
+    v8::Weak::new(scope, context)
+}
+
 fn new_platform_object<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
@@ -7453,7 +7461,29 @@ fn new_platform_object<'s>(
     {
         return Ok(object);
     }
-    let object = new_stateful_object(scope, state, interface, id)?;
+    let context = {
+        let record = platform_object(state, id)?;
+        match &*record {
+            PlatformObjectRecord::ReadableStream(stream) => stream.creation_context.to_local(scope),
+            PlatformObjectRecord::WritableStream(stream) => stream.creation_context.to_local(scope),
+            PlatformObjectRecord::TransformController { readable_id, .. } => {
+                let record = platform_object(state, *readable_id)?;
+                match &*record {
+                    PlatformObjectRecord::ReadableStream(stream) => {
+                        stream.creation_context.to_local(scope)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    };
+    let object = if let Some(context) = context {
+        let scope = &mut v8::ContextScope::new(scope, context);
+        new_stateful_object(scope, state, interface, id)?
+    } else {
+        new_stateful_object(scope, state, interface, id)?
+    };
     state
         .platform_wrappers
         .borrow_mut()
@@ -7609,9 +7639,17 @@ fn rejected_body_promise<'s>(
 
 fn read_result<'s>(
     scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    stream_id: u64,
     done: bool,
     value: v8::Local<'s, v8::Value>,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let context = match &*platform_object(state, stream_id)? {
+        PlatformObjectRecord::ReadableStream(stream) => stream.creation_context.to_local(scope),
+        _ => None,
+    }
+    .ok_or(V8BindingError::Allocation("readable creation context"))?;
+    let scope = &mut v8::ContextScope::new(scope, context);
     let result = v8::Object::new(scope);
     let done_name =
         v8::String::new(scope, "done").ok_or(V8BindingError::Allocation("stream result done"))?;
@@ -7669,7 +7707,7 @@ fn readable_enqueue<'s>(
     };
     if let Some(waiter) = waiter {
         let waiter = v8::Local::new(scope, waiter);
-        let result = read_result(scope, false, value)?;
+        let result = read_result(scope, state, stream_id, false, value)?;
         waiter.resolve(scope, result.into());
     }
     for writable_id in pipes {
@@ -7717,7 +7755,7 @@ fn readable_close(
     for waiter in waiters {
         let waiter = v8::Local::new(scope, waiter);
         let undefined = v8::undefined(scope).into();
-        let result = read_result(scope, true, undefined)?;
+        let result = read_result(scope, state, stream_id, true, undefined)?;
         waiter.resolve(scope, result.into());
     }
     for pipe in pipes {
@@ -8201,6 +8239,7 @@ fn initialize_platform_constructor<'s>(
             state,
             stream_id,
             PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+                creation_context: weak_current_context(scope),
                 error: None,
                 reader_id: None,
                 transform_writable_id: None,
@@ -8239,6 +8278,7 @@ fn initialize_platform_constructor<'s>(
             state,
             stream_id,
             PlatformObjectRecord::WritableStream(WritableStreamRecord {
+                creation_context: weak_current_context(scope),
                 error: None,
                 queue: VecDeque::new(),
                 busy: false,
@@ -8616,6 +8656,7 @@ fn new_byte_stream_record(
         state,
         stream_id,
         PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+            creation_context: weak_current_context(scope),
             error: None,
             reader_id: None,
             transform_writable_id: None,
@@ -17908,7 +17949,7 @@ fn get_platform_attribute<'s>(
     }
 
     if matches!(interface, "TextEncoderStream" | "TextDecoderStream") {
-        return text_encoding::get_stream(scope, state, id, member);
+        return text_encoding::get_stream(scope, state, id, interface, member);
     }
     if matches!(interface, "TextEncoder" | "TextDecoder") {
         return text_encoding::get(scope, state, id, interface, member);
@@ -21200,6 +21241,7 @@ fn call_platform_operation<'s>(
                 state,
                 stream_id,
                 PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+                    creation_context: weak_current_context(scope),
                     error: None,
                     reader_id: None,
                     transform_writable_id: None,
@@ -21319,12 +21361,12 @@ fn call_platform_operation<'s>(
                 readable_streams::settle_closed(scope, state, stream_id)?;
                 readable_streams::pull(scope, state, stream_id)?;
                 let value = v8::Local::new(scope, queued);
-                let result = read_result(scope, false, value)?;
+                let result = read_result(scope, state, stream_id, false, value)?;
                 return Ok(Some(resolved_promise(scope, result.into())?.into()));
             }
             if closed {
                 let undefined = v8::undefined(scope).into();
-                let result = read_result(scope, true, undefined)?;
+                let result = read_result(scope, state, stream_id, true, undefined)?;
                 return Ok(Some(resolved_promise(scope, result.into())?.into()));
             }
             let resolver = v8::PromiseResolver::new(scope)

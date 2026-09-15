@@ -164,6 +164,7 @@ pub(super) fn get<'s>(
 fn validate_input(
     scope: &mut v8::PinScope,
     value: v8::Local<v8::Value>,
+    allow_detached: bool,
 ) -> Result<(), V8BindingError> {
     if value.is_undefined() {
         return Ok(());
@@ -181,7 +182,9 @@ fn validate_input(
     } else {
         return Err(error("TypeError"));
     };
-    if buffer.was_detached() || buffer.get_backing_store().is_resizable_by_user_javascript() {
+    if (buffer.was_detached() && !allow_detached)
+        || buffer.get_backing_store().is_resizable_by_user_javascript()
+    {
         return Err(error("TypeError"));
     }
     Ok(())
@@ -216,7 +219,7 @@ pub(super) fn operation<'s>(
         _ => return Err(error("TypeError")),
     }
     if member == "decode" {
-        validate_input(scope, args.get(0))?;
+        validate_input(scope, args.get(0), false)?;
         let options = dictionary(args.get(1))?;
         let stream = boolean_member(scope, options, "stream")?;
         let bytes = copy_input(args.get(0));
@@ -352,12 +355,16 @@ pub(super) fn get_stream<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
     id: u64,
+    interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     let record = platform_object(state, id)?;
     let PlatformObjectRecord::EncodingStream(record) = &*record else {
         return Err(error("TypeError"));
     };
+    if (interface == "TextEncoderStream") != matches!(record.codec, StreamCodec::Encoder { .. }) {
+        return Err(error("TypeError"));
+    }
     match member {
         "readable" => {
             Ok(new_platform_object(scope, state, "ReadableStream", record.readable_id)?.into())
@@ -408,7 +415,7 @@ pub(super) fn transform_chunk<'s>(
             if chunk.is_undefined() {
                 return Err(error("TypeError"));
             }
-            validate_input(scope, chunk)?;
+            validate_input(scope, chunk, true)?;
             (Vec::new(), copy_input(chunk))
         }
     } else {
@@ -517,5 +524,91 @@ mod stream_tests {
             const r=output.getReader();let result='';while(true){const x=await r.read();if(x.done)break;result+=x.value}
             check(result==='undefinednull3.14[object Object]hi','pipeline output: '+result);return 'ok';
         })()"#);
+    }
+    #[test]
+    fn decoder_stream_treats_transferred_chunks_as_empty_and_getters_check_brand() {
+        run(r#"(async()=>{
+            const check=(x,m)=>{if(!x)throw Error(m)};
+            for(const view of [false,true]){
+                const buffer=new ArrayBuffer(3),chunk=view?new Uint8Array(buffer):buffer;buffer.transfer();
+                const s=new TextDecoderStream(),r=s.readable.getReader(),w=s.writable.getWriter();const read=r.read();
+                await w.write(chunk);await w.close();check((await read).done,'detached chunk is empty');
+            }
+            for(const [Getter,wrong] of [[TextEncoderStream,new TextDecoderStream()],[TextDecoderStream,new TextEncoderStream()]]){
+                for(const member of ['encoding','readable','writable']){
+                    let e;try{Object.getOwnPropertyDescriptor(Getter.prototype,member).get.call(wrong)}catch(x){e=x}check(e instanceof TypeError,'getter brand');
+                }
+            }return 'ok';
+        })()"#);
+    }
+
+    #[test]
+    fn stream_objects_results_and_errors_use_constructor_realm_with_foreign_methods() {
+        use super::*;
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let owner = v8::Context::new(scope, Default::default());
+        let (stream, decoder, constructors) = {
+            let scope = &mut v8::ContextScope::new(scope, owner);
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            ));
+            install_generated_bindings(scope, owner, dom, RealmId(1), 1).unwrap();
+            let source = v8::String::new(scope, "[new TextEncoderStream(),new TextDecoderStream(),{Object,Uint8Array,TypeError,ReadableStream,WritableStream}]").unwrap();
+            let result = v8::Script::compile(scope, source, None)
+                .unwrap()
+                .run(scope)
+                .unwrap();
+            let values = v8::Local::<v8::Array>::try_from(result).unwrap();
+            (
+                values.get_index(scope, 0).unwrap(),
+                values.get_index(scope, 1).unwrap(),
+                values.get_index(scope, 2).unwrap(),
+            )
+        };
+        let foreign = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, foreign);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        install_generated_bindings(scope, foreign, dom, RealmId(2), 1).unwrap();
+        let global = foreign.global(scope);
+        for (name, value) in [
+            ("stream", stream),
+            ("decoder", decoder),
+            ("owner", constructors),
+        ] {
+            let key = v8::String::new(scope, name).unwrap();
+            global.set(scope, key.into(), value);
+        }
+        let source = v8::String::new(scope, r#"(async()=>{
+            const check=(x,m)=>{if(!x)throw Error(m)};
+            const readable=Object.getOwnPropertyDescriptor(TextEncoderStream.prototype,'readable').get.call(stream);
+            const writable=Object.getOwnPropertyDescriptor(TextEncoderStream.prototype,'writable').get.call(stream);
+            check(readable.constructor===owner.ReadableStream,'readable realm');check(writable.constructor===owner.WritableStream,'writable realm');
+            const r=readable.getReader(),w=writable.getWriter();
+            const read=ReadableStreamDefaultReader.prototype.read.call(r);const write=WritableStreamDefaultWriter.prototype.write.call(w,'A');
+            const value=await read;await write;check(value.constructor===owner.Object,'result realm');check(value.value.constructor===owner.Uint8Array,'chunk realm');
+            await w.close();
+            const dr=decoder.readable.getReader(),dw=decoder.writable.getWriter();const pending=ReadableStreamDefaultReader.prototype.read.call(dr);
+            const bad=WritableStreamDefaultWriter.prototype.write.call(dw,null);
+            for(const p of [pending,bad]){let e;try{await p}catch(x){e=x}check(e instanceof owner.TypeError,'error realm')}
+            return 'ok';
+        })()"#).unwrap();
+        v8::tc_scope!(let scope, scope);
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let promise = v8::Local::<v8::Promise>::try_from(result).unwrap();
+        scope.perform_microtask_checkpoint();
+        assert_ne!(promise.state(), v8::PromiseState::Pending);
+        assert_eq!(
+            promise.state(),
+            v8::PromiseState::Fulfilled,
+            "{}",
+            promise.result(scope).to_rust_string_lossy(scope)
+        );
     }
 }

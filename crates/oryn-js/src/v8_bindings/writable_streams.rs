@@ -323,6 +323,12 @@ pub(super) fn pump(
     state: &Rc<V8BindingState>,
     id: u64,
 ) -> Result<(), V8BindingError> {
+    let context = match &*platform_object(state, id)? {
+        PlatformObjectRecord::WritableStream(stream) => stream.creation_context.to_local(scope),
+        _ => None,
+    }
+    .ok_or(V8BindingError::Allocation("writable creation context"))?;
+    let scope = &mut v8::ContextScope::new(scope, context);
     if transform_streams::write_blocked(state, id)? {
         return Ok(());
     }

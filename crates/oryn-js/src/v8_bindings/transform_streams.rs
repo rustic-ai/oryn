@@ -41,6 +41,7 @@ pub(super) fn create<'s>(
         state,
         readable_id,
         PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+            creation_context: weak_current_context(scope),
             error: None,
             reader_id: None,
             transform_writable_id: Some(writable_id),
@@ -72,6 +73,7 @@ pub(super) fn create<'s>(
         state,
         writable_id,
         PlatformObjectRecord::WritableStream(WritableStreamRecord {
+            creation_context: weak_current_context(scope),
             error: None,
             queue: VecDeque::new(),
             busy: false,
