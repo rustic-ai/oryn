@@ -56,6 +56,8 @@ mod tree_walkers;
 mod url_objects;
 mod validation;
 mod window_document;
+mod writable_streams;
+mod writable_writers;
 
 pub fn set_native_window_frame_element(
     scope: &mut v8::PinScope,
@@ -597,6 +599,9 @@ enum PlatformObjectRecord {
     },
     WritableWriter {
         stream_id: u64,
+        ready: v8::Global<v8::PromiseResolver>,
+        closed: v8::Global<v8::PromiseResolver>,
+        released: bool,
     },
     TransformStream {
         readable_id: u64,
@@ -792,6 +797,17 @@ struct WritableStreamRecord {
     locked: bool,
     closed: bool,
     kind: WritableKind,
+    error: Option<v8::Global<v8::Value>>,
+    queue: VecDeque<writable_streams::Request>,
+    pending_abort: Option<writable_streams::Abort>,
+    abort_in_flight: bool,
+    abort_completion: Option<v8::Global<v8::PromiseResolver>>,
+    writer_id: Option<u64>,
+    busy: bool,
+    closing: bool,
+    started: bool,
+    controller_id: u64,
+    source: v8::Global<v8::Value>,
 }
 
 struct TrustedPolicyCallbacks {
@@ -7590,75 +7606,13 @@ fn read_result<'s>(
     Ok(result)
 }
 
-fn callback_promise<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    callback: Option<v8::Global<v8::Function>>,
-    arguments: &[v8::Local<'s, v8::Value>],
-) -> Result<v8::Local<'s, v8::Promise>, V8BindingError> {
-    let value = if let Some(callback) = callback {
-        let callback = v8::Local::new(scope, callback);
-        let receiver = v8::undefined(scope).into();
-        callback
-            .call(scope, receiver, arguments)
-            .ok_or_else(|| V8BindingError::EventCallback("stream callback failed".into()))?
-    } else {
-        v8::undefined(scope).into()
-    };
-    if let Ok(promise) = v8::Local::<v8::Promise>::try_from(value) {
-        Ok(promise)
-    } else {
-        resolved_promise(scope, value)
-    }
-}
-
 fn writable_write<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
     stream_id: u64,
     chunk: v8::Local<'s, v8::Value>,
 ) -> Result<v8::Local<'s, v8::Promise>, V8BindingError> {
-    enum Target {
-        Sink(Option<v8::Global<v8::Function>>),
-        Transform(Option<v8::Global<v8::Function>>, u64),
-    }
-    let target = {
-        let record = platform_object(state, stream_id)?;
-        let PlatformObjectRecord::WritableStream(stream) = &*record else {
-            return Err(V8BindingError::Allocation("WritableStream record"));
-        };
-        if stream.closed {
-            return Err(V8BindingError::Unsupported {
-                interface: "WritableStream".into(),
-                member: "write after close".into(),
-            });
-        }
-        match &stream.kind {
-            WritableKind::Sink { write, .. } => Target::Sink(write.clone()),
-            WritableKind::Transform {
-                transform,
-                readable_controller_id,
-                ..
-            } => Target::Transform(transform.clone(), *readable_controller_id),
-        }
-    };
-    match target {
-        Target::Sink(callback) => callback_promise(scope, callback, &[chunk]),
-        Target::Transform(callback, controller_id) => {
-            let controller = new_stateful_object(
-                scope,
-                state,
-                "ReadableStreamDefaultController",
-                controller_id,
-            )?;
-            if callback.is_some() {
-                callback_promise(scope, callback, &[chunk, controller.into()])
-            } else {
-                readable_enqueue(scope, state, controller_id, chunk)?;
-                let undefined = v8::undefined(scope).into();
-                resolved_promise(scope, undefined)
-            }
-        }
-    }
+    writable_streams::enqueue(scope, state, stream_id, Some(chunk))
 }
 
 fn readable_enqueue<'s>(
@@ -7713,39 +7667,7 @@ fn writable_close<'s>(
     state: &Rc<V8BindingState>,
     stream_id: u64,
 ) -> Result<v8::Local<'s, v8::Promise>, V8BindingError> {
-    enum Target {
-        Sink(Option<v8::Global<v8::Function>>),
-        Transform(Option<v8::Global<v8::Function>>, u64),
-    }
-    let target = {
-        let mut record = platform_object_mut(state, stream_id)?;
-        let PlatformObjectRecord::WritableStream(stream) = &mut *record else {
-            return Err(V8BindingError::Allocation("WritableStream record"));
-        };
-        stream.closed = true;
-        match &stream.kind {
-            WritableKind::Sink { close, .. } => Target::Sink(close.clone()),
-            WritableKind::Transform {
-                flush,
-                readable_controller_id,
-                ..
-            } => Target::Transform(flush.clone(), *readable_controller_id),
-        }
-    };
-    match target {
-        Target::Sink(callback) => callback_promise(scope, callback, &[]),
-        Target::Transform(callback, controller_id) => {
-            let controller = new_stateful_object(
-                scope,
-                state,
-                "ReadableStreamDefaultController",
-                controller_id,
-            )?;
-            let promise = callback_promise(scope, callback, &[controller.into()])?;
-            readable_close(scope, state, controller_id)?;
-            Ok(promise)
-        }
-    }
+    writable_streams::enqueue(scope, state, stream_id, None)
 }
 
 fn readable_close(
@@ -7796,7 +7718,7 @@ fn writer_stream_id(
     writer_id: u64,
 ) -> Result<u64, V8BindingError> {
     let record = platform_object(state, writer_id)?;
-    let PlatformObjectRecord::WritableWriter { stream_id } = &*record else {
+    let PlatformObjectRecord::WritableWriter { stream_id, .. } = &*record else {
         return Err(V8BindingError::Allocation("WritableStream writer"));
     };
     Ok(*stream_id)
@@ -8291,6 +8213,17 @@ fn initialize_platform_constructor<'s>(
             state,
             stream_id,
             PlatformObjectRecord::WritableStream(WritableStreamRecord {
+                error: None,
+                queue: VecDeque::new(),
+                busy: false,
+                closing: false,
+                started: false,
+                controller_id,
+                source: v8::Global::new(scope, sink),
+                pending_abort: None,
+                abort_in_flight: false,
+                abort_completion: None,
+                writer_id: None,
                 locked: false,
                 closed: false,
                 kind: WritableKind::Sink {
@@ -8301,6 +8234,8 @@ fn initialize_platform_constructor<'s>(
             }),
         );
         bind_platform_object(scope, state, stream_id, args.this());
+        let start = option_function(scope, sink, "start");
+        writable_streams::start(scope, state, stream_id, start)?;
         return Ok(true);
     }
     if name == "TransformStream" {
@@ -8350,6 +8285,17 @@ fn initialize_platform_constructor<'s>(
             state,
             writable_id,
             PlatformObjectRecord::WritableStream(WritableStreamRecord {
+                error: None,
+                queue: VecDeque::new(),
+                busy: false,
+                closing: false,
+                started: false,
+                controller_id: writable_controller_id,
+                source: v8::Global::new(scope, transformer),
+                pending_abort: None,
+                abort_in_flight: false,
+                abort_completion: None,
+                writer_id: None,
                 locked: false,
                 closed: false,
                 kind: WritableKind::Transform {
@@ -8368,6 +8314,8 @@ fn initialize_platform_constructor<'s>(
             },
         );
         bind_platform_object(scope, state, transform_id, args.this());
+        let start = option_function(scope, transformer, "start");
+        writable_streams::start(scope, state, writable_id, start)?;
         return Ok(true);
     }
     let record = match name {
@@ -18042,36 +17990,8 @@ fn get_platform_attribute<'s>(
         };
         return Ok(v8::Local::new(scope, closed).get_promise(scope).into());
     }
-    if matches!(
-        interface,
-        "ReadableStreamDefaultReader" | "WritableStreamDefaultWriter"
-    ) {
-        let stream_id = {
-            let record = platform_object(state, id)?;
-            match &*record {
-                PlatformObjectRecord::ReadableReader { stream_id, .. }
-                | PlatformObjectRecord::WritableWriter { stream_id } => *stream_id,
-                _ => return Err(V8BindingError::Allocation("stream reader/writer record")),
-            }
-        };
-        if interface == "WritableStreamDefaultWriter" && member == "desiredSize" {
-            return Ok(v8::Integer::new(scope, 1).into());
-        }
-        if matches!(member, "ready" | "closed") {
-            let undefined = v8::undefined(scope).into();
-            return Ok(resolved_promise(scope, undefined)?.into());
-        }
-        let record = platform_object(state, stream_id)?;
-        return match (&*record, interface, member) {
-            (PlatformObjectRecord::ReadableStream(stream), _, "closed") if stream.closed => {
-                let undefined = v8::undefined(scope).into();
-                Ok(resolved_promise(scope, undefined)?.into())
-            }
-            _ => Err(V8BindingError::Unsupported {
-                interface: interface.into(),
-                member: member.into(),
-            }),
-        };
+    if interface == "WritableStreamDefaultWriter" {
+        return writable_writers::get(scope, state, id, member);
     }
     if matches!(interface, "IDBCursor" | "IDBCursorWithValue")
         && matches!(member, "key" | "primaryKey" | "value")
@@ -19448,6 +19368,24 @@ fn call_platform_operation<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let id = stateful_id(scope, object)?;
+    if interface == "WritableStreamDefaultWriter"
+        && matches!(member, "write" | "close" | "abort")
+        && matches!(
+            &*platform_object(state, id)?,
+            PlatformObjectRecord::WritableWriter { released: true, .. }
+        )
+    {
+        let reason = readable_streams::type_error(scope, "Writer has released its stream")?;
+        return Ok(Some(readable_streams::reject(scope, reason)?.into()));
+    }
+    if interface == "WritableStream"
+        && matches!(member, "close" | "abort")
+        && matches!(&*platform_object(state, id)?, PlatformObjectRecord::WritableStream(stream) if stream.locked)
+    {
+        let reason = readable_streams::type_error(scope, "Writable stream is locked")?;
+        return Ok(Some(readable_streams::reject(scope, reason)?.into()));
+    }
+
     if matches!(interface, "TextEncoder" | "TextDecoder") {
         return text_encoding::operation(scope, state, id, interface, member, args);
     }
@@ -21548,23 +21486,7 @@ fn call_platform_operation<'s>(
             ));
         }
         ("WritableStream", "getWriter") => {
-            {
-                let mut record = platform_object_mut(state, id)?;
-                let PlatformObjectRecord::WritableStream(stream) = &mut *record else {
-                    return Err(V8BindingError::Allocation("WritableStream record"));
-                };
-                if stream.locked {
-                    return Err(V8BindingError::Unsupported {
-                        interface: interface.into(),
-                        member: "stream is locked".into(),
-                    });
-                }
-                stream.locked = true;
-            }
-            let writer_id = register_platform_object(
-                state,
-                PlatformObjectRecord::WritableWriter { stream_id: id },
-            );
+            let writer_id = writable_writers::acquire(scope, state, id)?;
             return Ok(Some(
                 new_platform_object(scope, state, "WritableStreamDefaultWriter", writer_id)?.into(),
             ));
@@ -21589,19 +21511,8 @@ fn call_platform_operation<'s>(
             } else {
                 writer_stream_id(scope, state, id)?
             };
-            let callback = {
-                let mut record = platform_object_mut(state, stream_id)?;
-                let PlatformObjectRecord::WritableStream(stream) = &mut *record else {
-                    return Err(V8BindingError::Allocation("WritableStream record"));
-                };
-                stream.closed = true;
-                match &stream.kind {
-                    WritableKind::Sink { abort, .. } => abort.clone(),
-                    WritableKind::Transform { .. } => None,
-                }
-            };
             return Ok(Some(
-                callback_promise(scope, callback, &[args.get(0)])?.into(),
+                writable_streams::abort(scope, state, stream_id, args.get(0))?.into(),
             ));
         }
         ("WritableStreamDefaultController", "error") => {
@@ -21612,20 +21523,11 @@ fn call_platform_operation<'s>(
                 };
                 *stream_id
             };
-            let mut record = platform_object_mut(state, stream_id)?;
-            let PlatformObjectRecord::WritableStream(stream) = &mut *record else {
-                return Err(V8BindingError::Allocation("WritableStream record"));
-            };
-            stream.closed = true;
+            writable_streams::error(scope, state, stream_id, args.get(0))?;
             return Ok(None);
         }
         ("WritableStreamDefaultWriter", "releaseLock") => {
-            let stream_id = writer_stream_id(scope, state, id)?;
-            let mut record = platform_object_mut(state, stream_id)?;
-            let PlatformObjectRecord::WritableStream(stream) = &mut *record else {
-                return Err(V8BindingError::Allocation("WritableStream record"));
-            };
-            stream.locked = false;
+            writable_writers::release(scope, state, id)?;
             return Ok(None);
         }
         _ => {}

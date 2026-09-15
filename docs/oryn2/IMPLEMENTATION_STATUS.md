@@ -5,6 +5,26 @@
 
 ## Completion implementation in progress — September 15
 
+### Writable and transform stream prerequisite work
+
+The next continuation implements an ordered native write/close queue and tracks
+asynchronous sink initialization, writes and transform flush. Sink callbacks keep
+their receiver and original thrown/rejected values. Flush finishes before the
+readable side closes; transform failures propagate to pending reads. Abort waits
+for the in-flight operation and asynchronous cleanup, with explicit close/abort
+race handling and the required abort/close/closed promise order.
+
+Writers now retain stable `ready` and `closed` promises, reflect the default queue's
+backpressure, reject operations after release, and allow a new writer to observe
+existing queued work. Locked-stream close/abort rejects. These changes do not yet
+implement custom queuing strategies or transform-readable backpressure.
+
+Validation: **301 JS tests passed, 3 existing ignores**, including nine new
+writable/transform regressions; strict JS Clippy passes. Native regressions pass
+**583 tests with 6 existing ignores**. Formatting and diff checks pass. Pipe propagation, full queuing strategies, native
+transform controller semantics and encoding streams remain open. No signed WPT
+or OIL totals are changed by these tests.
+
 ### Readable stream prerequisite work
 
 The current continuation implements stored stream errors, stable reader `closed`
