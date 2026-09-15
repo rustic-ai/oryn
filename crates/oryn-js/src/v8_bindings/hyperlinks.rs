@@ -48,8 +48,15 @@ fn encode_query<'a>(
     for character in input.chars() {
         let mut buffer = [0u8; 4];
         let scalar = character.encode_utf8(&mut buffer);
-        if !character.is_ascii() && encoding.encode(scalar).2 {
-            replaced.push_str(&format!("%26%23{}%3B", character as u32));
+        if encoding.encode(scalar).2 {
+            let codepoint = if encoding == encoding_rs::ISO_2022_JP
+                && matches!(character, '\u{0e}' | '\u{0f}' | '\u{1b}')
+            {
+                0xfffd
+            } else {
+                character as u32
+            };
+            replaced.push_str(&format!("%26%23{codepoint}%3B"));
         } else {
             replaced.push(character);
         }
@@ -228,6 +235,28 @@ pub(super) fn set(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn iso2022jp_query_escapes_replacement_references_for_disallowed_controls() {
+        for (input, expected) in [
+            (
+                "\u{0e}\u{0f}\u{1b}x",
+                "?%26%2365533%3B%26%2365533%3B%26%2365533%3Bx",
+            ),
+            (
+                "‾\u{0e}\u{0f}\u{1b}x",
+                "?%1B(J~%26%2365533%3B%26%2365533%3B%26%2365533%3Bx%1B(B",
+            ),
+        ] {
+            let url = parse(
+                &format!("https://example.test/?{input}"),
+                None,
+                encoding_rs::ISO_2022_JP,
+            )
+            .unwrap();
+            assert_eq!(url::quirks::search(&url), expected);
+        }
+    }
+
     #[test]
     fn hyperlink_components_use_legacy_encoding_and_live_native_base() {
         super::super::tests::initialize_v8();

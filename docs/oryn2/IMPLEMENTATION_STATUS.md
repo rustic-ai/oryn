@@ -80,15 +80,31 @@ HTML parser BOM repair. The latter signed candidate passes **71/78** encoding AP
 executions. Native tests verify metadata before parser scripts and in static and
 dynamic frames, plus preservation of a second UTF-16 BOM.
 
-The next candidate implements owner-document hyperlink components and legacy
+The candidate at `b09d9429` implements owner-document hyperlink components and legacy
 query encoding; form GET and POST encoding (URL-encoded, text and multipart),
 `_charset_`, and byte-preserving uploads; bounded HTML charset prescanning and
 same-origin parent encoding fallback. Its regression suites pass **116 DOM,
 283 JS, 582 native, and 13 network tests**, with only the existing 3 JS and 6
-native ignores. Strict Clippy passes across those crates. Signed upstream and
-workflow validation is pending; these implementations are not new qualification
-claims. Two pre-existing test-module ordering warnings and an excessive-precision
-literal were repaired without changing test values.
+native ignores. Strict Clippy passes across those crates.
+
+The signed candidate at `b09d9429` completed the 930 previously semantic encoding
+cases: **903 passed / 27 failed**, an improvement of **822 cases with zero
+regressions** against the same IDs. The 378 prior runtime failures are excluded
+from this diagnostic subset and remain open. Twenty-six failures require encoding
+streams; the other ISO-2022-JP control-character case is repaired locally.
+The same candidate completed the controlled workflow matrix at **163/165**:
+shopping `required_blocks` sample 2 and SaaS `logged_out_access_denied` sample 1
+hit IPC-response execute deadlines (messages 41 and 11). These results do not
+qualify Core or the expanded families. See the
+[implementation run report](../../artifacts/core-completion-2026-09-15/REPORT.md).
+Two pre-existing test-module ordering warnings and an excessive-precision literal
+were repaired without changing test values.
+
+The follow-up repairs release temporary context ownership before blocked network
+forwarding and escape ISO-2022-JP control-character replacement references. The
+backpressure regression was first reproduced failing, then passed with the fix.
+Full follow-up suites pass **583 native / 6 existing ignores** and **284 JS / 3
+existing ignores**; strict Clippy passes. Final signed verification is pending.
 
 These are controlled regression outcomes, **not expanded five-family acceptance,
 complete Core conformance, or release qualification**. The historical full-WPT

@@ -371,6 +371,7 @@ impl NetworkBroker for PageNetworkBroker {
                 };
                 if let Err(error) = route.ensure_bound() {
                     let _ = route.inner.cancel_operation(request_id);
+                    drop(context);
                     let _ = sender.blocking_send(NetworkEvent::Failed {
                         request_id,
                         error: error.to_string(),
@@ -391,6 +392,7 @@ impl NetworkBroker for PageNetworkBroker {
                             "",
                         )
                     {
+                        drop(context);
                         let _ = sender.blocking_send(NetworkEvent::Failed {
                             request_id,
                             error: error.to_string(),
@@ -406,6 +408,7 @@ impl NetworkBroker for PageNetworkBroker {
                             .authorize_frame_ancestors(std::slice::from_ref(&page_url))
                             .allowed
                         {
+                            drop(context);
                             let _ = sender.blocking_send(NetworkEvent::Failed {
                                 request_id,
                                 error: "Content-Security-Policy frame-ancestors blocked the embedded document".into(),
@@ -432,6 +435,7 @@ impl NetworkBroker for PageNetworkBroker {
                         if let Err(error) =
                             context.append_document_meta_security(page_id, serialized)
                         {
+                            drop(context);
                             let _ = sender.blocking_send(NetworkEvent::Failed {
                                 request_id,
                                 error: error.to_string(),
@@ -441,6 +445,9 @@ impl NetworkBroker for PageNetworkBroker {
                         prepared_meta_count = prepared_meta_count.saturating_add(1);
                     }
                 }
+                // A full downstream queue must not retain the context that
+                // owns this route while waiting for a reader that was dropped.
+                drop(context);
                 let terminal = matches!(
                     event,
                     NetworkEvent::Complete { .. } | NetworkEvent::Failed { .. }
@@ -2443,6 +2450,70 @@ mod tests {
                 page_id: page.page_id(),
             },
         }
+    }
+
+    #[test]
+    fn backpressured_response_does_not_retain_the_context() {
+        struct Flood;
+        impl NetworkBroker for Flood {
+            fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                unreachable!()
+            }
+            fn start_operation(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkOperation, NetworkError> {
+                let (sender, events) = tokio::sync::mpsc::channel(32);
+                for _ in 0..16 {
+                    sender
+                        .try_send(NetworkEvent::Chunk {
+                            request_id: request.request_id,
+                            bytes: vec![b'x'].into(),
+                        })
+                        .unwrap();
+                }
+                Ok(NetworkOperation {
+                    request_id: request.request_id,
+                    events,
+                    demand: None,
+                })
+            }
+        }
+        let context = Browser::new().new_context();
+        let weak = context.downgrade();
+        let mut route = fixture_worker_route(&context);
+        route.network.inner = crate::network::SharedNetworkBroker::new(Flood);
+        let operation = route
+            .network
+            .start_operation(NetworkRequest {
+                request_id: 99,
+                method: "GET".into(),
+                url: "https://example.test/data".into(),
+                headers: Vec::new(),
+                body: Vec::new(),
+                credentials: false,
+                security: CookieRequestContext::default(),
+                resolved_addrs: Vec::new(),
+            })
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while operation.events.len() < 8 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "response did not fill the bounded queue"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+        drop(context);
+        while weak.upgrade().is_some() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "blocked forwarding retained the context"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        drop(operation);
     }
 
     #[test]
