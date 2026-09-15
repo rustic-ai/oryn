@@ -1,0 +1,90 @@
+{
+  "cases": [
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "authenticated": 0,
+      "logins": 1
+    }
+  ],
+  "records": [
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "title": "Approved",
+      "version": 2
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "action": "login",
+      "outcome": 401,
+      "authorized": 0,
+      "body_sha256": "86c4b85bbe5fd5043d1a6cae728455b224cd8cc44d003dfba2f8dba742c4a503"
+    },
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "action": "login",
+      "outcome": 303,
+      "authorized": 0,
+      "body_sha256": "131c955ca748255236d58cab0b91a2bc5f3fc261774179ffd9800431f04d9aa2"
+    },
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "action": "create",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "56052ef723a45be0c0c8635e3006fdeb7ce8e1fc0a61e722de7535b51e99eedc"
+    },
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "action": "update",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "79789cdb25b492380d05d1776ff63aed43dbc4be772f02228fa790f1fe2a5025"
+    },
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "action": "logout",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "2d6d4c5f5de285e8af02fd3da0526b7782b907fa742bfec79cd8dd00061a654c"
+    }
+  ],
+  "views": [
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "f7430ba72c2df860f76826db1a745ddc",
+      "page": "login",
+      "authorized": 0
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "case_id": "53ef434fa8c9fa71806e8819cedf13f1"
+    }
+  ],
+  "visits": [
+    {
+      "case_id": "53ef434fa8c9fa71806e8819cedf13f1",
+      "path": "start",
+      "query": "{}",
+      "status": 200,
+      "body_sha256": "9ae70ca381fa240969e9df9973d9e77e6e0fcc7b0efe20afbaffe6f2c1b102cf"
+    },
+    {
+      "case_id": "53ef434fa8c9fa71806e8819cedf13f1",
+      "path": "search",
+      "query": "{\"q\": [\"missing\"]}",
+      "status": 200,
+      "body_sha256": "10bf1232a774ef112cbd2ac0557012eaf76ccdec60de96a08cb70d9f54e91751"
+    },
+    {
+      "case_id": "53ef434fa8c9fa71806e8819cedf13f1",
+      "path": "gone",
+      "query": "{}",
+      "status": 404,
+      "body_sha256": "c2dde9e177ee6636543c148ce5d3cdc9e5d88a6d7168fa41a5774d1730df6301"
+    },
+    {
+      "case_id": "53ef434fa8c9fa71806e8819cedf13f1",
+      "path": "search",
+      "query": "{\"q\": [\"missing\"]}",
+      "status": 200,
+      "body_sha256": "10bf1232a774ef112cbd2ac0557012eaf76ccdec60de96a08cb70d9f54e91751"
+    },
+    {
+      "case_id": "53ef434fa8c9fa71806e8819cedf13f1",
+      "path": "article/alpha",
+      "query": "{}",
+      "status": 200,
+      "body_sha256": "d8f6c9eb3b290f816dfa2de99a021ba084bb9cc5f5b7fa6cbae27e6292d47572"
+    }
+  ]
+}

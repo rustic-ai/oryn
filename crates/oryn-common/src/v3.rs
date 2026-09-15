@@ -101,6 +101,28 @@ pub enum PageLifecycleEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeValidationState {
+    /// Eligibility is separate from validity (e.g. disabled radios can be missing).
+    pub will_validate: bool,
+    pub valid: bool,
+    pub value_missing: bool,
+    pub type_mismatch: bool,
+    pub custom_error: bool,
+    #[serde(default)]
+    pub range_underflow: bool,
+    #[serde(default)]
+    pub range_overflow: bool,
+    #[serde(default)]
+    pub step_mismatch: bool,
+    #[serde(default)]
+    pub pattern_mismatch: bool,
+    #[serde(default)]
+    pub too_short: bool,
+    #[serde(default)]
+    pub too_long: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SemanticNodeView {
     pub semantic_ref: SemanticRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -115,6 +137,10 @@ pub struct SemanticNodeView {
     pub value: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Native flags only, never page-authored error text or control values.
+    /// Absent for non-controls and backends without native validation evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<NativeValidationState>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub states: BTreeSet<NodeState>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -267,6 +293,7 @@ impl Observation {
                     selector: node.selector.clone(),
                     value: node.value.clone(),
                     description: node.description.clone(),
+                    validation: None,
                     states: node.states.clone(),
                     actions: node.actions.clone(),
                     content_trust: node.content_trust,
@@ -405,6 +432,7 @@ fn node_from_element(
     }
 
     SemanticNodeView {
+        validation: None,
         semantic_ref: SemanticRef {
             page_id,
             document_generation,
@@ -548,6 +576,38 @@ mod tests {
         let reference: SemanticRef = serde_json::from_str(r#"{"document_generation":4,"node":2}"#)
             .expect("deserialize legacy ref");
         assert_eq!(reference.page_id, PageId::LEGACY);
+    }
+
+    #[test]
+    fn native_validation_is_optional_and_roundtrips_without_page_text() {
+        let legacy =
+            crate::v2::Observation::from_scan(&scan(), ExecutionDomain::Chromium, 5, Revision(8));
+        let mut observation = Observation::from_v2(&legacy, PageId(42));
+        assert!(observation.nodes.iter().all(|n| n.validation.is_none()));
+        let legacy_json = serde_json::to_string(&observation).unwrap();
+        assert!(!legacy_json.contains("validation"));
+        assert_eq!(
+            serde_json::from_str::<Observation>(&legacy_json).unwrap(),
+            observation
+        );
+        observation.nodes[0].validation = Some(NativeValidationState {
+            pattern_mismatch: false,
+            too_short: false,
+            too_long: false,
+            range_underflow: false,
+            range_overflow: false,
+            step_mismatch: false,
+            will_validate: false,
+            valid: false,
+            value_missing: true,
+            type_mismatch: false,
+            custom_error: true,
+        });
+        let encoded = serde_json::to_string(&observation).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Observation>(&encoded).unwrap(),
+            observation
+        );
     }
 
     #[test]

@@ -1,0 +1,16 @@
+{
+  "case": "required_blocks",
+  "sample": 1,
+  "case_id": "401a3480d23954d145f93b472dae0a26",
+  "base": "http://127.0.0.1:53355/booking/401a3480d23954d145f93b472dae0a26",
+  "errors": [
+    "nonempty OIL stderr",
+    "OIL process failed or timed out",
+    "missing or failed OIL frames"
+  ],
+  "timed_out": false,
+  "passed": false,
+  "task_sha256": "c1a5216ae56fcd764f55a7b481c2a3a643dea4e349a5d0ea52d8ac7db5e87101",
+  "returncode": 1,
+  "elapsed_seconds": 30.12
+}

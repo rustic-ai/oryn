@@ -1,0 +1,88 @@
+{
+  "upload": false,
+  "requests": [
+    {
+      "content_type": "application/x-www-form-urlencoded",
+      "bytes": 206,
+      "sha256": "d5cdee4565b653f9bf7bdb0c1faa2581ce856cef167d7313c469f2181bb663c2",
+      "fields": [
+        [
+          "name",
+          "Zo\u00eb Test"
+        ],
+        [
+          "email",
+          "zoe@example.test"
+        ],
+        [
+          "role",
+          "developer"
+        ],
+        [
+          "message",
+          "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e"
+        ],
+        [
+          "skill",
+          "rust"
+        ],
+        [
+          "skill",
+          "javascript"
+        ],
+        [
+          "case_id",
+          "6b4cdf3f16222d1d338557e1e0259383"
+        ],
+        [
+          "intent",
+          "apply"
+        ]
+      ],
+      "files": [],
+      "status": 303
+    }
+  ],
+  "receipts": [
+    {
+      "case_id": "6b4cdf3f16222d1d338557e1e0259383",
+      "fields": [
+        [
+          "name",
+          "Zo\u00eb Test"
+        ],
+        [
+          "email",
+          "zoe@example.test"
+        ],
+        [
+          "role",
+          "developer"
+        ],
+        [
+          "message",
+          "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e"
+        ],
+        [
+          "skill",
+          "rust"
+        ],
+        [
+          "skill",
+          "javascript"
+        ],
+        [
+          "case_id",
+          "6b4cdf3f16222d1d338557e1e0259383"
+        ],
+        [
+          "intent",
+          "apply"
+        ]
+      ],
+      "files": [],
+      "request_sha256": "d5cdee4565b653f9bf7bdb0c1faa2581ce856cef167d7313c469f2181bb663c2"
+    }
+  ],
+  "receipt_views": 2
+}

@@ -1,0 +1,4 @@
+observe
+click "Add item"
+extract text --selector "output"
+trace stop

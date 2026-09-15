@@ -1,5 +1,9 @@
 {
   "schema_version": 1,
+  "revision": 2,
+  "previous_lock": "fixtures-v1.lock.json",
+  "previous_lock_sha256": "a7f4e8ef33279c2923a570767f9fd978072f982b13a9fe4665c4b81330c386be",
+  "revision_reason": "Auth harness uses the selected origin for SSO, runs all five cases after failures, and validates complete page-local action identities and traces. Application sources and original OIL tasks are unchanged.",
   "locked": true,
   "hash_algorithm": "sha256",
   "source_set": "Each app's non-generated files, excluding node_modules, dist, out, build, .next, .nuxt, .output, .angular, .svelte-kit, and ssr-dist; hashes include sorted relative paths and file hashes.",
@@ -32,7 +36,8 @@
     "controlled_regression_validator": "f0ea5e14c537db68d8e0e4279d0050b7c72c560a6b8b3ad2ba29718db3844726",
     "framework_validator": "dc48523ce7f1d8142a3e972ff46f170915abf28f08c7feff4b3cd3ceaac99079",
     "limitations_validator": "105c8176f717a7bf41b524254b38ebc3ad299c0870cc92e742e65b5991df639f",
-    "oauth_validator": "6789d18eb3beb63c3a0cc691590b4515c73e8bd258d9b0113388291f82de18e7",
+    "oauth_validator": "f5205295dd60445d3f7582118989cc8cc37c40a4db606c0f0f9d20a085a2da05",
+    "oauth_outcome_validator": "9323c7edf8bccea856d8542e71c8a13ed4786610684677847a31d5f2aa259b59",
     "wpt_manifest": "75157c982149030def24585e5297e65bdb1c9226670f240e7db9531fdcf0e1a2",
     "wpt_validator": "e62c0d04be76e173e94da43e349407217d371a095de4c7aaaac2c407bc7e5468"
   },

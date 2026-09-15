@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "family": "booking",
+  "scope": "Controlled persisted appointments; no real bookings and not full family qualification",
+  "cases": [
+    {"id":"dst_first_occurrence","scenario":"normal","slot":"early","final_slot":"early","zone":"America/New_York","fill":true,"recovery":false,"duplicate":false,"reservations":1,"statuses":[303]},
+    {"id":"dst_second_occurrence","scenario":"normal","slot":"late","final_slot":"late","zone":"America/New_York","fill":true,"recovery":false,"duplicate":false,"reservations":1,"statuses":[303]},
+    {"id":"required_blocks","scenario":"normal","slot":"early","final_slot":"early","zone":"UTC","fill":false,"recovery":false,"duplicate":false,"reservations":0,"statuses":[]},
+    {"id":"stale_slot_blocks","scenario":"stale","slot":"early","final_slot":"early","zone":"America/Vancouver","fill":true,"recovery":false,"duplicate":false,"reservations":0,"statuses":[409]},
+    {"id":"stale_slot_recovery","scenario":"stale","slot":"early","final_slot":"late","zone":"America/New_York","fill":true,"recovery":true,"duplicate":false,"reservations":1,"statuses":[409,303]},
+    {"id":"duplicate_reservation","scenario":"normal","slot":"late","final_slot":"late","zone":"UTC","fill":true,"recovery":false,"duplicate":true,"reservations":1,"statuses":[303,303]}
+  ]
+}

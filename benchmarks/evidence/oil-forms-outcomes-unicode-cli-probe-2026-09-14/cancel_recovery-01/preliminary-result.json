@@ -1,0 +1,13 @@
+{
+  "case": "cancel_recovery",
+  "sample": 1,
+  "case_id": "a6f51840c810c9d996ad61e636b02195",
+  "passed": false,
+  "errors": [
+    "receipt did not survive independent GET reload"
+  ],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "4b51f1de9fda2cd920dfd913fdef0d5fd4bec5513309b6e0ea43b5584b92ec11",
+  "elapsed_seconds": 0.283
+}

@@ -1,0 +1,11 @@
+{
+  "case": "maxlength_unicode_truncation",
+  "sample": 2,
+  "case_id": "020df9b3647feeb64557de61e4da7db8",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "89fdb8868604e8baf1d921d5ea9d7474aa9c97545ed75663b2bbfaa0f1e1bdda",
+  "elapsed_seconds": 0.3
+}

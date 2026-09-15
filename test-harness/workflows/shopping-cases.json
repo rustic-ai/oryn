@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "family": "shopping",
+  "scope": "Controlled persisted checkout diagnostics; no real purchases and not full family qualification",
+  "browse": [
+    "goto \"{base}/start\"",
+    "wait visible css(#search)",
+    "click \"Inspect desk set\"",
+    "wait visible css(#desk-spec)",
+    "observe",
+    "click \"Browse catalog\"",
+    "type \"Search catalog\" \"field\"",
+    "select \"Category\" \"outdoor\"",
+    "click \"Filter catalog\"",
+    "observe",
+    "click \"Inspect field kit\"",
+    "wait visible css(#field-spec)",
+    "observe",
+    "select \"Variant\" \"blue\"",
+    "click \"Add to cart\"",
+    "type \"Cart quantity\" \"2\"",
+    "click \"Update cart\"",
+    "click \"Reload cart\"",
+    "observe",
+    "click \"Review checkout\""
+  ],
+  "details": ["type \"Recipient\" \"Zoë Test\"", "type \"Contact email\" \"zoe@example.test\""],
+  "cases": [
+    {"id":"persisted_checkout","scenario":"normal","fill":true,"recovery":null,"duplicate":false,"orders":1,"variant":"blue","unit_price":2500,"checkout_outcomes":[303]},
+    {"id":"required_blocks","scenario":"normal","fill":false,"recovery":null,"duplicate":false,"orders":0,"variant":"blue","unit_price":2500,"checkout_outcomes":[]},
+    {"id":"price_change_blocks","scenario":"price","fill":true,"recovery":null,"duplicate":false,"orders":0,"variant":"blue","unit_price":3000,"checkout_outcomes":[409]},
+    {"id":"price_change_recovery","scenario":"price","fill":true,"recovery":"price","duplicate":false,"orders":1,"variant":"blue","unit_price":3000,"checkout_outcomes":[409,303]},
+    {"id":"stock_change_blocks","scenario":"stock","fill":true,"recovery":null,"duplicate":false,"orders":0,"variant":"blue","unit_price":2500,"checkout_outcomes":[409]},
+    {"id":"stock_change_recovery","scenario":"stock","fill":true,"recovery":"stock","duplicate":false,"orders":1,"variant":"green","unit_price":2500,"checkout_outcomes":[409,303]},
+    {"id":"duplicate_checkout","scenario":"normal","fill":true,"recovery":null,"duplicate":true,"orders":1,"variant":"blue","unit_price":2500,"checkout_outcomes":[303,303]}
+  ]
+}

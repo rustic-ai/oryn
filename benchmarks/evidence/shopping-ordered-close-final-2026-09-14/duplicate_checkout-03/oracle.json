@@ -1,0 +1,138 @@
+{
+  "cases": [
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "scenario": "normal",
+      "unit_price": 2500,
+      "blue_stock": 8,
+      "green_stock": 10,
+      "quote_count": 1
+    }
+  ],
+  "carts": [
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "variant": "blue",
+      "quantity": 2
+    }
+  ],
+  "quotes": [
+    {
+      "quote": "8e915483d05e7e346a48ff1e2c1caf64",
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "variant": "blue",
+      "quantity": 2,
+      "unit_price": 2500,
+      "total": 5000
+    }
+  ],
+  "orders": [
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "order_id": "7619b089a6487b2d0afbe455d616a504",
+      "quote": "8e915483d05e7e346a48ff1e2c1caf64",
+      "variant": "blue",
+      "quantity": 2,
+      "unit_price": 2500,
+      "total": 5000,
+      "name": "Zo\u00eb Test",
+      "email": "zoe@example.test"
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "action": "cart",
+      "outcome": 303,
+      "body_sha256": "2e53971dbbf74df23e2c4831018e8c0cf3f2ececc3d3c722587d11ec377adf23",
+      "fields": "{\"quantity\": [\"1\"], \"variant\": [\"blue\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "action": "cart",
+      "outcome": 303,
+      "body_sha256": "ab4f287c4ad60be3a66d9e5834f5a46c124793b9e3c2d5fffcd5b62bc7ca15f6",
+      "fields": "{\"quantity\": [\"2\"], \"variant\": [\"blue\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "action": "checkout",
+      "outcome": 303,
+      "body_sha256": "e03e250b3b1e5565854f180f6f9d3a4bf7794a4686a71a314d7e7273e21474df",
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"quote\": [\"8e915483d05e7e346a48ff1e2c1caf64\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "action": "checkout",
+      "outcome": 303,
+      "body_sha256": "e03e250b3b1e5565854f180f6f9d3a4bf7794a4686a71a314d7e7273e21474df",
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"quote\": [\"8e915483d05e7e346a48ff1e2c1caf64\"]}",
+      "cookie_valid": 1
+    }
+  ],
+  "views": [
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "catalog",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "product/desk",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "catalog",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "catalog",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "product/field",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "review",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "order",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "order",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f849214a9b8c1768bb70da2ffee31e7d",
+      "page": "order",
+      "cookie_valid": 1
+    }
+  ]
+}

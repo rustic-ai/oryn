@@ -1,0 +1,112 @@
+{
+  "upload": false,
+  "requests": [
+    {
+      "content_type": "application/x-www-form-urlencoded",
+      "bytes": 246,
+      "sha256": "cff29185a30da8dbeab5aefbe2bea69c96f4047a1555bc0a6cbb610163226dae",
+      "fields": [
+        [
+          "name",
+          "Zo\u00eb Test"
+        ],
+        [
+          "email",
+          "zoe@example.test"
+        ],
+        [
+          "role",
+          "developer"
+        ],
+        [
+          "message",
+          "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e"
+        ],
+        [
+          "quantity",
+          "3"
+        ],
+        [
+          "date",
+          "2026-10-01"
+        ],
+        [
+          "time",
+          "23:00"
+        ],
+        [
+          "skill",
+          "rust"
+        ],
+        [
+          "skill",
+          "javascript"
+        ],
+        [
+          "case_id",
+          "f44bd5b11769afea99ea94d69957a18e"
+        ],
+        [
+          "intent",
+          "apply"
+        ]
+      ],
+      "files": [],
+      "status": 303
+    }
+  ],
+  "receipts": [
+    {
+      "case_id": "f44bd5b11769afea99ea94d69957a18e",
+      "fields": [
+        [
+          "name",
+          "Zo\u00eb Test"
+        ],
+        [
+          "email",
+          "zoe@example.test"
+        ],
+        [
+          "role",
+          "developer"
+        ],
+        [
+          "message",
+          "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e"
+        ],
+        [
+          "quantity",
+          "3"
+        ],
+        [
+          "date",
+          "2026-10-01"
+        ],
+        [
+          "time",
+          "23:00"
+        ],
+        [
+          "skill",
+          "rust"
+        ],
+        [
+          "skill",
+          "javascript"
+        ],
+        [
+          "case_id",
+          "f44bd5b11769afea99ea94d69957a18e"
+        ],
+        [
+          "intent",
+          "apply"
+        ]
+      ],
+      "files": [],
+      "request_sha256": "cff29185a30da8dbeab5aefbe2bea69c96f4047a1555bc0a6cbb610163226dae"
+    }
+  ],
+  "receipt_views": 2
+}

@@ -21,6 +21,8 @@ hash_app() {
 }
 
 jq -e '.schema_version == 1 and .locked == true and .hash_algorithm == "sha256"' "$lock" >/dev/null
+test "$(hash_file "$repo_root/benchmarks/app-compatibility/fixtures-v1.lock.json")" = \
+  "$(jq -r '.previous_lock_sha256' "$lock")"
 
 for app in angular next nuxt preact react svelte sveltekit vue; do
   expected="$(jq -r --arg app "$app" '.frameworks[$app].source_hash' "$lock")"
@@ -74,6 +76,7 @@ controlled_regression_validator	scripts/validate-app-controlled-regressions.sh
 framework_validator	scripts/validate-frameworks.sh
 limitations_validator	scripts/validate-app-limitations.sh
 oauth_validator	scripts/validate-auth-flows.sh
+oauth_outcome_validator	scripts/validate_auth_flow.jq
 wpt_manifest	benchmarks/app-compatibility/wpt-subset-v1.json
 wpt_validator	scripts/validate-app-platform-subset.sh
 EOF

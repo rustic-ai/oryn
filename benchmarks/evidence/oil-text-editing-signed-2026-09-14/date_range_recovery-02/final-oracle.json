@@ -1,0 +1,120 @@
+{
+  "upload": false,
+  "requests": [
+    {
+      "content_type": "application/x-www-form-urlencoded",
+      "bytes": 263,
+      "sha256": "c53e542820d4e8cd69512c631b3122b7e9ee588e5d52b3031e9f00425a142a05",
+      "fields": [
+        [
+          "name",
+          "Zo\u00eb Test"
+        ],
+        [
+          "email",
+          "zoe@example.test"
+        ],
+        [
+          "role",
+          "developer"
+        ],
+        [
+          "message",
+          "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e"
+        ],
+        [
+          "quantity",
+          "3"
+        ],
+        [
+          "date",
+          "2026-10-01"
+        ],
+        [
+          "time",
+          "23:00"
+        ],
+        [
+          "reference",
+          "ABC123"
+        ],
+        [
+          "skill",
+          "rust"
+        ],
+        [
+          "skill",
+          "javascript"
+        ],
+        [
+          "case_id",
+          "c34ab47455415d920e76aa79c196bd87"
+        ],
+        [
+          "intent",
+          "apply"
+        ]
+      ],
+      "files": [],
+      "status": 303
+    }
+  ],
+  "receipts": [
+    {
+      "case_id": "c34ab47455415d920e76aa79c196bd87",
+      "fields": [
+        [
+          "name",
+          "Zo\u00eb Test"
+        ],
+        [
+          "email",
+          "zoe@example.test"
+        ],
+        [
+          "role",
+          "developer"
+        ],
+        [
+          "message",
+          "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e"
+        ],
+        [
+          "quantity",
+          "3"
+        ],
+        [
+          "date",
+          "2026-10-01"
+        ],
+        [
+          "time",
+          "23:00"
+        ],
+        [
+          "reference",
+          "ABC123"
+        ],
+        [
+          "skill",
+          "rust"
+        ],
+        [
+          "skill",
+          "javascript"
+        ],
+        [
+          "case_id",
+          "c34ab47455415d920e76aa79c196bd87"
+        ],
+        [
+          "intent",
+          "apply"
+        ]
+      ],
+      "files": [],
+      "request_sha256": "c53e542820d4e8cd69512c631b3122b7e9ee588e5d52b3031e9f00425a142a05"
+    }
+  ],
+  "receipt_views": 2
+}

@@ -1,0 +1,11 @@
+{
+  "case": "authorized_document_upload",
+  "sample": 3,
+  "case_id": "365d322d5d4f36ab5b32c9469e8b6eb9",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "ff8ed2728df71c5c4d69b48b243c1d77e6691be0e202238ae51ef96fc03d0128",
+  "elapsed_seconds": 0.315
+}

@@ -1,0 +1,4007 @@
+{
+  "assertions": [
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/overridemimetype-blob.html|window|:315f868c418446f58c88c03ab43d7b1f",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 152,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "31ce91457289478498e2dc5dd92da184"
+          }
+        ],
+        "id": "f89e29668b5d4a3ab7c0ba8a49cd59d3",
+        "ports": [
+          49198,
+          49199,
+          49202,
+          49207,
+          49209,
+          49214,
+          49217
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 302,
+          "teardown_ms": 361
+        },
+        "tls": {
+          "ca_sha256": "0a470779347f6f6ada0dbea452e0a8404127607f07468875a6968abf09d888f3",
+          "certificate_sha256": "fd17a4eb000945e3a610671a86a8f1d82dd074bb2319d221d08e0655a0fc81b5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/overridemimetype-blob.html|window|",
+      "path": "xhr/overridemimetype-blob.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49198/xhr/overridemimetype-blob.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49198/mimesniff/mime-types/resources/mime-types.json"
+          },
+          "page_id": "1",
+          "sequence": 2
+        },
+        {
+          "event": {
+            "bytes": 2036,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49198/xhr/overridemimetype-blob.html"
+          },
+          "page_id": "1",
+          "sequence": 9
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 2036,
+          "response_sha256": "63e5c40f966087fa6a22d18de4afbe0c2b55300a322355475b17c33e1153491e",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/overridemimetype-blob.html",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49198/xhr/overridemimetype-blob.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/resources/testharness.js",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49198/xhr/overridemimetype-blob.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/resources/testharnessreport.js",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": "65aa02faf749ae9fb0294645afaf9013ade5cd5a50fd373724afddeba1068d4c",
+          "request_id": 2,
+          "response_bytes": 35,
+          "response_sha256": "2a64945a9070223350660ef6d8802cf5adffd0091a76e52eb1b8c9b9e4ee1c57",
+          "sequence": 4,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "application/json",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 13656,
+          "response_sha256": "016d3dd91b647e03af2a69c7ec241bf787df8bffe7953018fe566e8ec5d7b822",
+          "sequence": 5,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/mimesniff/mime-types/resources/mime-types.json",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 6,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 7,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 6,
+          "started_ms": 69,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 7,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 8,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 7,
+          "started_ms": 69,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 5,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 15,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 8,
+          "started_ms": 70,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 5,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 21,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 9,
+          "started_ms": 70,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 5,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 25,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 10,
+          "started_ms": 70,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 12,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 11,
+          "started_ms": 70,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 5,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 13,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 12,
+          "started_ms": 70,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 8,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 14,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 13,
+          "started_ms": 71,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 11,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 9,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 14,
+          "started_ms": 71,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 16,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 15,
+          "started_ms": 71,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 9,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 17,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 16,
+          "started_ms": 71,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 13,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 18,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 17,
+          "started_ms": 72,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 13,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 19,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 18,
+          "started_ms": 72,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 14,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 20,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 19,
+          "started_ms": 72,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 13,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 10,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 20,
+          "started_ms": 72,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 15,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 22,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 21,
+          "started_ms": 72,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 23,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 22,
+          "started_ms": 72,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 26,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 24,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 23,
+          "started_ms": 73,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 21,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 11,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 24,
+          "started_ms": 73,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 26,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 26,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 25,
+          "started_ms": 73,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 27,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 27,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 26,
+          "started_ms": 73,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 13,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 28,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 27,
+          "started_ms": 73,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 30,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 29,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 28,
+          "started_ms": 73,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 23,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 30,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 29,
+          "started_ms": 74,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 9,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 31,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 30,
+          "started_ms": 74,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 32,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 31,
+          "started_ms": 74,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 7,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 33,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 32,
+          "started_ms": 74,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 33,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 34,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 33,
+          "started_ms": 74,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 42,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 35,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 34,
+          "started_ms": 74,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 36,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 35,
+          "started_ms": 75,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 11,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 37,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 36,
+          "started_ms": 75,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 8,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 38,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 37,
+          "started_ms": 75,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 7,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 39,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 38,
+          "started_ms": 77,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 40,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 39,
+          "started_ms": 77,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 41,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 40,
+          "started_ms": 77,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 42,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 41,
+          "started_ms": 77,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 40,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 44,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 42,
+          "started_ms": 77,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 43,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 43,
+          "started_ms": 78,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 45,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 44,
+          "started_ms": 78,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 9,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 46,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 45,
+          "started_ms": 79,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 18,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 47,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 46,
+          "started_ms": 81,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 48,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 47,
+          "started_ms": 83,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 13,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 49,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 48,
+          "started_ms": 83,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 50,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 49,
+          "started_ms": 84,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 13,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 51,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 50,
+          "started_ms": 85,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 14,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 52,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 51,
+          "started_ms": 85,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 10,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 53,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 52,
+          "started_ms": 86,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 13,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 54,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 53,
+          "started_ms": 87,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 12,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 55,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 54,
+          "started_ms": 87,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 13,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 56,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 55,
+          "started_ms": 88,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 14,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 57,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 56,
+          "started_ms": 88,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 10,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 58,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 57,
+          "started_ms": 88,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 9,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 59,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 58,
+          "started_ms": 89,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 14,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 60,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 59,
+          "started_ms": 89,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 7,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 61,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 60,
+          "started_ms": 89,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 8,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 62,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 61,
+          "started_ms": 89,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 27,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 63,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 62,
+          "started_ms": 90,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 8,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 64,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 63,
+          "started_ms": 97,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 65,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 64,
+          "started_ms": 98,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 5,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 67,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 65,
+          "started_ms": 99,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 15,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 66,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 66,
+          "started_ms": 99,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 17,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 68,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 67,
+          "started_ms": 99,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 17,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 69,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 68,
+          "started_ms": 100,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 10,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 70,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 69,
+          "started_ms": 101,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 15,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 71,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 70,
+          "started_ms": 101,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 15,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 72,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 71,
+          "started_ms": 101,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 14,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 73,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 72,
+          "started_ms": 101,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 14,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 74,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 73,
+          "started_ms": 102,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 14,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 75,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 74,
+          "started_ms": 102,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 15,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 76,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 75,
+          "started_ms": 102,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 13,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 77,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 76,
+          "started_ms": 102,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 14,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 79,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 77,
+          "started_ms": 103,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 13,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 78,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 78,
+          "started_ms": 103,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 11,
+          "initiator": "http://localhost:49198/",
+          "method": "GET",
+          "mime": "",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 80,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 79,
+          "started_ms": 103,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49198/xhr/resources/status.py",
+          "worker_pid": 6599
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Use text/xml as fallback MIME type",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Use text/xml as fallback MIME type, 2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Loading data\u2026",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "1) MIME types need to be parsed and serialized: text/html;charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "2) MIME types need to be parsed and serialized: TEXT/HTML;CHARSET=GBK",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "3) MIME types need to be parsed and serialized: text/html;charset=gbk(",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "4) MIME types need to be parsed and serialized: text/html;x=(;charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "5) MIME types need to be parsed and serialized: text/html;charset=gbk;charset=windows-1255",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "6) MIME types need to be parsed and serialized: text/html;charset=();charset=GBK",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "7) MIME types need to be parsed and serialized: text/html;charset =gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "8) MIME types need to be parsed and serialized: text/html ;charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "9) MIME types need to be parsed and serialized: text/html; charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "10) MIME types need to be parsed and serialized: text/html;charset= gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "11) MIME types need to be parsed and serialized: text/html;charset= \"gbk\"",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "12) MIME types need to be parsed and serialized: text/html;charset=\u000bgbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "13) MIME types need to be parsed and serialized: text/html;charset=\fgbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "14) MIME types need to be parsed and serialized: text/html;\u000bcharset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "15) MIME types need to be parsed and serialized: text/html;\fcharset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "16) MIME types need to be parsed and serialized: text/html;charset='gbk'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "17) MIME types need to be parsed and serialized: text/html;charset='gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "18) MIME types need to be parsed and serialized: text/html;charset=gbk'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "19) MIME types need to be parsed and serialized: text/html;charset=';charset=GBK",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "20) MIME types need to be parsed and serialized: text/html;test;charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "21) MIME types need to be parsed and serialized: text/html;test=;charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "22) MIME types need to be parsed and serialized: text/html;';charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "23) MIME types need to be parsed and serialized: text/html;\";charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "24) MIME types need to be parsed and serialized: text/html ; ; charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "25) MIME types need to be parsed and serialized: text/html;;;;charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "26) MIME types need to be parsed and serialized: text/html;charset= \"\u007f;charset=GBK",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "27) MIME types need to be parsed and serialized: text/html;charset=\"\u007f;charset=foo\";charset=GBK",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "28) MIME types need to be parsed and serialized: text/html;charset=\"gbk\"",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "29) MIME types need to be parsed and serialized: text/html;charset=\"gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "30) MIME types need to be parsed and serialized: text/html;charset=gbk\"",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "31) MIME types need to be parsed and serialized: text/html;charset=\" gbk\"",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "32) MIME types need to be parsed and serialized: text/html;charset=\"gbk \"",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "33) MIME types need to be parsed and serialized: text/html;charset=\"\\ gbk\"",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "34) MIME types need to be parsed and serialized: text/html;charset=\"\\g\\b\\k\"",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "35) MIME types need to be parsed and serialized: text/html;charset=\"gbk\"x",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "36) MIME types need to be parsed and serialized: text/html;charset=\"\";charset=GBK",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "37) MIME types need to be parsed and serialized: text/html;charset=\";charset=GBK",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "38) MIME types need to be parsed and serialized: text/html;charset={gbk}",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "39) MIME types need to be parsed and serialized: text/html;0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789=x;charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "40) MIME types need to be parsed and serialized: 0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789/0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "41) MIME types need to be parsed and serialized: text/html;a]=bar;b[=bar;c=bar",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "42) MIME types need to be parsed and serialized: text/html;valid=\";\";foo=bar",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "43) MIME types need to be parsed and serialized: text/html;in]valid=\";asd=foo\";foo=bar",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "44) MIME types need to be parsed and serialized: !#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz;!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz=!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "45) MIME types need to be parsed and serialized: x/x;x=\"\t !\\\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\u0080\u0081\u0082\u0083\u0084\u0085\u0086\u0087\u0088\u0089\u008a\u008b\u008c\u008d\u008e\u008f\u0090\u0091\u0092\u0093\u0094\u0095\u0096\u0097\u0098\u0099\u009a\u009b\u009c\u009d\u009e\u009f\u00a0\u00a1\u00a2\u00a3\u00a4\u00a5\u00a6\u00a7\u00a8\u00a9\u00aa\u00ab\u00ac\u00ad\u00ae\u00af\u00b0\u00b1\u00b2\u00b3\u00b4\u00b5\u00b6\u00b7\u00b8\u00b9\u00ba\u00bb\u00bc\u00bd\u00be\u00bf\u00c0\u00c1\u00c2\u00c3\u00c4\u00c5\u00c6\u00c7\u00c8\u00c9\u00ca\u00cb\u00cc\u00cd\u00ce\u00cf\u00d0\u00d1\u00d2\u00d3\u00d4\u00d5\u00d6\u00d7\u00d8\u00d9\u00da\u00db\u00dc\u00dd\u00de\u00df\u00e0\u00e1\u00e2\u00e3\u00e4\u00e5\u00e6\u00e7\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed\u00ee\u00ef\u00f0\u00f1\u00f2\u00f3\u00f4\u00f5\u00f6\u00f7\u00f8\u00f9\u00fa\u00fb\u00fc\u00fd\u00fe\u00ff\"",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "46) MIME types need to be parsed and serialized: x/x;test",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "47) MIME types need to be parsed and serialized: x/x;test=\"\\",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "48) MIME types need to be parsed and serialized: x/x;x= ",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "49) MIME types need to be parsed and serialized: x/x;x=\t",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "50) MIME types need to be parsed and serialized: x/x\n\r\t ;x=x",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "51) MIME types need to be parsed and serialized: \n\r\t x/x;x=x\n\r\t ",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "52) MIME types need to be parsed and serialized: x/x;\n\r\t x=x\n\r\t ;x=y",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "53) MIME types need to be parsed and serialized: text/html;test=\u00ff;charset=gbk",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "54) MIME types need to be parsed and serialized: x/x;test=\ufffd;x=x",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "55) MIME types need to be parsed and serialized: \u000bx/x",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "56) MIME types need to be parsed and serialized: \fx/x",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "57) MIME types need to be parsed and serialized: x/x\u000b",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "58) MIME types need to be parsed and serialized: x/x\f",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "59) MIME types need to be parsed and serialized: ",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "60) MIME types need to be parsed and serialized: \t",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "61) MIME types need to be parsed and serialized: /",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "62) MIME types need to be parsed and serialized: bogus",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "63) MIME types need to be parsed and serialized: bogus/",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "64) MIME types need to be parsed and serialized: bogus/ ",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "65) MIME types need to be parsed and serialized: bogus/bogus/;",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "66) MIME types need to be parsed and serialized: </>",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "67) MIME types need to be parsed and serialized: (/)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "68) MIME types need to be parsed and serialized: \u00ff/\u00ff",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "69) MIME types need to be parsed and serialized: text/html(;doesnot=matter",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "70) MIME types need to be parsed and serialized: {/}",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "71) MIME types need to be parsed and serialized: \u0100/\u0100",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "72) MIME types need to be parsed and serialized: text /html",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "73) MIME types need to be parsed and serialized: text/ html",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "74) MIME types need to be parsed and serialized: \"text/html\"",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6599,
+          "rss_bytes": 38780928
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/overridemimetype-done-state.any.js|window|:fc040fa8f98e4ff6a3d70fb17c19c64f",
+        "page_id": 4,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 109,
+        "teardown_ms": 43,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "b9e2a0a36a8441c6a0c06cfd2ed2729f"
+          }
+        ],
+        "id": "af55237bbc524e48ae76752db63ff3f3",
+        "ports": [
+          49204,
+          49206,
+          49212,
+          49215,
+          49219,
+          49220,
+          49223
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 301,
+          "teardown_ms": 896
+        },
+        "tls": {
+          "ca_sha256": "0a470779347f6f6ada0dbea452e0a8404127607f07468875a6968abf09d888f3",
+          "certificate_sha256": "fd17a4eb000945e3a610671a86a8f1d82dd074bb2319d221d08e0655a0fc81b5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/overridemimetype-done-state.any.js|window|",
+      "path": "xhr/overridemimetype-done-state.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49204/xhr/overridemimetype-done-state.any.html"
+          },
+          "page_id": "4",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 396,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49204/xhr/overridemimetype-done-state.any.html"
+          },
+          "page_id": "4",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 12,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 396,
+          "response_sha256": "04bf4427ff9caa9f801461213c0aed61263253f625d909a1f05c917fcbf5c78e",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49204/xhr/overridemimetype-done-state.any.html",
+          "worker_pid": 6596
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49204/xhr/overridemimetype-done-state.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49204/resources/testharness.js",
+          "worker_pid": 6596
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49204/xhr/overridemimetype-done-state.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 55,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49204/resources/testharnessreport.js",
+          "worker_pid": 6596
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49204/xhr/overridemimetype-done-state.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 847,
+          "response_sha256": "5f559fc19c7ef1a2ebbae74af90ef54414b2d0bc8981b4a21b10b702c06b90f3",
+          "sequence": 3,
+          "started_ms": 60,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49204/xhr/overridemimetype-done-state.any.js",
+          "worker_pid": 6596
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49204/",
+          "method": "GET",
+          "mime": "text/plain;charset=iso-8859-1",
+          "page_id": 4,
+          "query_sha256": "b257765c5e548f102ad70668de176b493a0218df56562716d7ec6b17082e5bf9",
+          "request_id": 1,
+          "response_bytes": 17,
+          "response_sha256": "cf680d8e475890a14d6d381b41e0c8e2ef713cd8d4dc2f04a5742fbb89e47166",
+          "sequence": 4,
+          "started_ms": 65,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49204/xhr/resources/status.py",
+          "worker_pid": 6596
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "overridemimetype-done-state",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6596,
+          "rss_bytes": 34422784
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/overridemimetype-edge-cases.window.js|window|:6122d5b01e2c493880d8a3b820225ae9",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 119,
+        "teardown_ms": 34,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "089d71bb995843339687a34a282a6510"
+          }
+        ],
+        "id": "cf120e8206964e5daec08729795f6926",
+        "ports": [
+          49200,
+          49201,
+          49203,
+          49205,
+          49208,
+          49213,
+          49216
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 302,
+          "teardown_ms": 900
+        },
+        "tls": {
+          "ca_sha256": "0a470779347f6f6ada0dbea452e0a8404127607f07468875a6968abf09d888f3",
+          "certificate_sha256": "fd17a4eb000945e3a610671a86a8f1d82dd074bb2319d221d08e0655a0fc81b5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/overridemimetype-edge-cases.window.js|window|",
+      "path": "xhr/overridemimetype-edge-cases.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49200/xhr/overridemimetype-edge-cases.window.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 231,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49200/xhr/overridemimetype-edge-cases.window.html"
+          },
+          "page_id": "3",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 11,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 231,
+          "response_sha256": "7f4b85fb805081e6020c65f34ab85790a340499378d3a25898775e2bafe5c68b",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49200/xhr/overridemimetype-edge-cases.window.html",
+          "worker_pid": 6597
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49200/xhr/overridemimetype-edge-cases.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49200/resources/testharness.js",
+          "worker_pid": 6597
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49200/xhr/overridemimetype-edge-cases.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49200/resources/testharnessreport.js",
+          "worker_pid": 6597
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49200/xhr/overridemimetype-edge-cases.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1648,
+          "response_sha256": "aad8396268288dbed8517d2032ca7b9969645afd4590727f349e110730c79a6b",
+          "sequence": 3,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49200/xhr/overridemimetype-edge-cases.window.js",
+          "worker_pid": 6597
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 5,
+          "initiator": "http://localhost:49200/",
+          "method": "GET",
+          "mime": "text/plain;charset=windows-1252",
+          "page_id": 3,
+          "query_sha256": "87bb87ac6c675d24b3e24aa125200f996bde17e1f7bdc543088a3c9d2163ca1c",
+          "request_id": 1,
+          "response_bytes": 2,
+          "response_sha256": "998b92610ea722e55b2c2f0fad7ecdb41f84117b97304f267874918a6a0b6927",
+          "sequence": 4,
+          "started_ms": 66,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49200/xhr/resources/status.py",
+          "worker_pid": 6597
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49200/",
+          "method": "GET",
+          "mime": "text/plain;charset=windows-1252",
+          "page_id": 3,
+          "query_sha256": "87bb87ac6c675d24b3e24aa125200f996bde17e1f7bdc543088a3c9d2163ca1c",
+          "request_id": 2,
+          "response_bytes": 2,
+          "response_sha256": "998b92610ea722e55b2c2f0fad7ecdb41f84117b97304f267874918a6a0b6927",
+          "sequence": 5,
+          "started_ms": 66,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49200/xhr/resources/status.py",
+          "worker_pid": 6597
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 5,
+          "initiator": "http://localhost:49200/",
+          "method": "GET",
+          "mime": "text/plain;charset=windows-1252",
+          "page_id": 3,
+          "query_sha256": "87bb87ac6c675d24b3e24aa125200f996bde17e1f7bdc543088a3c9d2163ca1c",
+          "request_id": 3,
+          "response_bytes": 2,
+          "response_sha256": "998b92610ea722e55b2c2f0fad7ecdb41f84117b97304f267874918a6a0b6927",
+          "sequence": 6,
+          "started_ms": 66,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49200/xhr/resources/status.py",
+          "worker_pid": 6597
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49200/",
+          "method": "GET",
+          "mime": "text/plain;charset=windows-1252",
+          "page_id": 3,
+          "query_sha256": "87bb87ac6c675d24b3e24aa125200f996bde17e1f7bdc543088a3c9d2163ca1c",
+          "request_id": 4,
+          "response_bytes": 2,
+          "response_sha256": "998b92610ea722e55b2c2f0fad7ecdb41f84117b97304f267874918a6a0b6927",
+          "sequence": 7,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49200/xhr/resources/status.py",
+          "worker_pid": 6597
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49200/",
+          "method": "GET",
+          "mime": "text/plain;charset=windows-1252",
+          "page_id": 3,
+          "query_sha256": "87bb87ac6c675d24b3e24aa125200f996bde17e1f7bdc543088a3c9d2163ca1c",
+          "request_id": 10,
+          "response_bytes": 2,
+          "response_sha256": "998b92610ea722e55b2c2f0fad7ecdb41f84117b97304f267874918a6a0b6927",
+          "sequence": 8,
+          "started_ms": 73,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49200/xhr/resources/status.py",
+          "worker_pid": 6597
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "overrideMimeType() is not reset by open(), basic",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "overrideMimeType() is not reset by open()",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "If charset is not overridden by overrideMimeType() the original continues to be used",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Charset can be overridden by overrideMimeType() with a bogus charset",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6597,
+          "rss_bytes": 34258944
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/overridemimetype-headers-received-state-force-shiftjis.htm|window|:e39f24446bfa40e5a50589736999ab7a",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 106,
+        "teardown_ms": 47,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "5a8695632e2d43269a807e27d74fd220"
+          }
+        ],
+        "id": "cc3a9c5f9b9448b3947df93af0effb21",
+        "ports": [
+          49210,
+          49211,
+          49218,
+          49221,
+          49222,
+          49224,
+          49225
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 302,
+          "teardown_ms": 873
+        },
+        "tls": {
+          "ca_sha256": "0a470779347f6f6ada0dbea452e0a8404127607f07468875a6968abf09d888f3",
+          "certificate_sha256": "fd17a4eb000945e3a610671a86a8f1d82dd074bb2319d221d08e0655a0fc81b5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/overridemimetype-headers-received-state-force-shiftjis.htm|window|",
+      "path": "xhr/overridemimetype-headers-received-state-force-shiftjis.htm",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49210/xhr/overridemimetype-headers-received-state-force-shiftjis.htm"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1414,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49210/xhr/overridemimetype-headers-received-state-force-shiftjis.htm"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 10,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1414,
+          "response_sha256": "8cf39db52ea4701c8b133e6287f9f698c70a6985b728c8f909a530565722e7a1",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49210/xhr/overridemimetype-headers-received-state-force-shiftjis.htm",
+          "worker_pid": 6598
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49210/xhr/overridemimetype-headers-received-state-force-shiftjis.htm",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49210/resources/testharness.js",
+          "worker_pid": 6598
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49210/xhr/overridemimetype-headers-received-state-force-shiftjis.htm",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49210/resources/testharnessreport.js",
+          "worker_pid": 6598
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49210/",
+          "method": "GET",
+          "mime": "text/html;charset=UTF-8",
+          "page_id": 2,
+          "query_sha256": "f851433936bef5a66bd8dcc510c8d84173c330430ca504a098ec1e9a7ff01cb3",
+          "request_id": 1,
+          "response_bytes": 6,
+          "response_sha256": "241790777e1b5fcd89c73cf6e4eb4c605afe3eec8b704147b89b298aa8e057b1",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49210/xhr/resources/status.py",
+          "worker_pid": 6598
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: overrideMimeType() in HEADERS RECEIVED state, enforcing Shift-JIS encoding",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6598,
+          "rss_bytes": 33701888
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/overridemimetype-invalid-mime-type.htm|window|:7bd348ab8f6e481a90e47a3f319fec90",
+        "page_id": 5,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 95,
+        "teardown_ms": 19,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "f3f590279ccc4ee3b173ba6a7ba9913d"
+          }
+        ],
+        "id": "841c378308734d1192d6ced5a6c0708f",
+        "ports": [
+          49274,
+          49275,
+          49276,
+          49277,
+          49278,
+          49279,
+          49280
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 252,
+          "teardown_ms": 926
+        },
+        "tls": {
+          "ca_sha256": "0a470779347f6f6ada0dbea452e0a8404127607f07468875a6968abf09d888f3",
+          "certificate_sha256": "fd17a4eb000945e3a610671a86a8f1d82dd074bb2319d221d08e0655a0fc81b5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/overridemimetype-invalid-mime-type.htm|window|",
+      "path": "xhr/overridemimetype-invalid-mime-type.htm",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49274/xhr/overridemimetype-invalid-mime-type.htm"
+          },
+          "page_id": "5",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1738,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49274/xhr/overridemimetype-invalid-mime-type.htm"
+          },
+          "page_id": "5",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 17,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1738,
+          "response_sha256": "a0a0bc2bb8cdff16fcc65cba00028f36b045db11a1724b328996c350948c70d0",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49274/xhr/overridemimetype-invalid-mime-type.htm",
+          "worker_pid": 6615
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49274/xhr/overridemimetype-invalid-mime-type.htm",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49274/resources/testharness.js",
+          "worker_pid": 6615
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49274/xhr/overridemimetype-invalid-mime-type.htm",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49274/resources/testharnessreport.js",
+          "worker_pid": 6615
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49274/",
+          "method": "GET",
+          "mime": "text/html;charset=windows-1252",
+          "page_id": 5,
+          "query_sha256": "dc547f606baa88d71b109706827672ddbcc65bb1645e926c2be49326ce82c9e0",
+          "request_id": 1,
+          "response_bytes": 1,
+          "response_sha256": "a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49274/xhr/resources/status.py",
+          "worker_pid": 6615
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49274/",
+          "method": "GET",
+          "mime": "text/html;charset=windows-1252",
+          "page_id": 5,
+          "query_sha256": "dc547f606baa88d71b109706827672ddbcc65bb1645e926c2be49326ce82c9e0",
+          "request_id": 2,
+          "response_bytes": 1,
+          "response_sha256": "a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89",
+          "sequence": 4,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49274/xhr/resources/status.py",
+          "worker_pid": 6615
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49274/",
+          "method": "GET",
+          "mime": "text/xml",
+          "page_id": 5,
+          "query_sha256": "7b54806b87ed559918fef5643d97475f2527abf1648d5e5438c07582a018676c",
+          "request_id": 3,
+          "response_bytes": 4,
+          "response_sha256": "2a31f44da4bd7decbbd3ddfd1a37ae04d02ec665e2c2688816ccc65631586ed1",
+          "sequence": 5,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49274/xhr/resources/status.py",
+          "worker_pid": 6615
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Bogus MIME type does not override encoding",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Bogus MIME type does not override encoding, 2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Bogus MIME type does override MIME type",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6615,
+          "rss_bytes": 34422784
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/overridemimetype-loading-state.htm|window|:74a2de7bf3a74096b8e7c2cc8851215e",
+        "page_id": 6,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 98,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "8d6cec82da194eb98ee939e9d19b7e41"
+          }
+        ],
+        "id": "c58a8d85fd8243ae80346967bbd6d095",
+        "ports": [
+          49286,
+          49287,
+          49288,
+          49289,
+          49290,
+          49291,
+          49292
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 259,
+          "teardown_ms": 933
+        },
+        "tls": {
+          "ca_sha256": "0a470779347f6f6ada0dbea452e0a8404127607f07468875a6968abf09d888f3",
+          "certificate_sha256": "fd17a4eb000945e3a610671a86a8f1d82dd074bb2319d221d08e0655a0fc81b5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/overridemimetype-loading-state.htm|window|",
+      "path": "xhr/overridemimetype-loading-state.htm",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49286/xhr/overridemimetype-loading-state.htm"
+          },
+          "page_id": "6",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1172,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49286/xhr/overridemimetype-loading-state.htm"
+          },
+          "page_id": "6",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 19,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1172,
+          "response_sha256": "0b55aa529c0d44de64eee93fbbacdfd9696374a3b860c8fd49f4eeac69f45c8a",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49286/xhr/overridemimetype-loading-state.htm",
+          "worker_pid": 6619
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49286/xhr/overridemimetype-loading-state.htm",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49286/resources/testharness.js",
+          "worker_pid": 6619
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49286/xhr/overridemimetype-loading-state.htm",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49286/resources/testharnessreport.js",
+          "worker_pid": 6619
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49286/",
+          "method": "GET",
+          "mime": "text/plain;charset=iso-8859-1",
+          "page_id": 6,
+          "query_sha256": "b257765c5e548f102ad70668de176b493a0218df56562716d7ec6b17082e5bf9",
+          "request_id": 1,
+          "response_bytes": 17,
+          "response_sha256": "cf680d8e475890a14d6d381b41e0c8e2ef713cd8d4dc2f04a5742fbb89e47166",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49286/xhr/resources/status.py",
+          "worker_pid": 6619
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: overrideMimeType() in LOADING state",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6619,
+          "rss_bytes": 34177024
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/overridemimetype-open-state-force-utf-8.htm|window|:a9a0be310e864e1f870ecc733313a1fa",
+        "page_id": 7,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 98,
+        "teardown_ms": 30,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "c69f16a6ea0d41d4a3d4547dbdbfb609"
+          }
+        ],
+        "id": "8395e8094c6242c2b21874d71457af83",
+        "ports": [
+          49293,
+          49294,
+          49295,
+          49296,
+          49297,
+          49298,
+          49299
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 258,
+          "teardown_ms": 932
+        },
+        "tls": {
+          "ca_sha256": "0a470779347f6f6ada0dbea452e0a8404127607f07468875a6968abf09d888f3",
+          "certificate_sha256": "fd17a4eb000945e3a610671a86a8f1d82dd074bb2319d221d08e0655a0fc81b5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/overridemimetype-open-state-force-utf-8.htm|window|",
+      "path": "xhr/overridemimetype-open-state-force-utf-8.htm",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49293/xhr/overridemimetype-open-state-force-utf-8.htm"
+          },
+          "page_id": "7",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1058,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49293/xhr/overridemimetype-open-state-force-utf-8.htm"
+          },
+          "page_id": "7",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 20,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1058,
+          "response_sha256": "3678d1078b3731fc7dda29af8bda622740182075584978ba90339bf9535c0140",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49293/xhr/overridemimetype-open-state-force-utf-8.htm",
+          "worker_pid": 6614
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49293/xhr/overridemimetype-open-state-force-utf-8.htm",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49293/resources/testharness.js",
+          "worker_pid": 6614
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49293/xhr/overridemimetype-open-state-force-utf-8.htm",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49293/resources/testharnessreport.js",
+          "worker_pid": 6614
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49293/",
+          "method": "GET",
+          "mime": "text/html;charset=Shift-JIS",
+          "page_id": 7,
+          "query_sha256": "8d7e51e33433bc85e8c62f2e2916aa7d444c97e3c7d6332aa260b6e52cccfac2",
+          "request_id": 1,
+          "response_bytes": 9,
+          "response_sha256": "8a535a3f4dcd2c396db11b7c1e54221d04375c9f9be96bce47dc2fdb237e86c9",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49293/xhr/resources/status.py",
+          "worker_pid": 6614
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: overrideMimeType() in open state, enforcing UTF-8 encoding",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6614,
+          "rss_bytes": 33505280
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/overridemimetype-open-state-force-xml.htm|window|:023d84a9ef6f432b93a5819bfaf878bc",
+        "page_id": 8,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 98,
+        "teardown_ms": 30,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "ec1bd2f2a82641efb7b2e2edb38e1fb1"
+          }
+        ],
+        "id": "d83ef69599984ec892993bf2a8ec1ad8",
+        "ports": [
+          49300,
+          49301,
+          49302,
+          49303,
+          49304,
+          49305,
+          49306
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 254,
+          "teardown_ms": 930
+        },
+        "tls": {
+          "ca_sha256": "0a470779347f6f6ada0dbea452e0a8404127607f07468875a6968abf09d888f3",
+          "certificate_sha256": "fd17a4eb000945e3a610671a86a8f1d82dd074bb2319d221d08e0655a0fc81b5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/overridemimetype-open-state-force-xml.htm|window|",
+      "path": "xhr/overridemimetype-open-state-force-xml.htm",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49300/xhr/overridemimetype-open-state-force-xml.htm"
+          },
+          "page_id": "8",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1617,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49300/xhr/overridemimetype-open-state-force-xml.htm"
+          },
+          "page_id": "8",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 21,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1617,
+          "response_sha256": "ad623a78302da25999b6787c30038427b87c4631503150adddc7b517e17a8a8e",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49300/xhr/overridemimetype-open-state-force-xml.htm",
+          "worker_pid": 6613
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49300/xhr/overridemimetype-open-state-force-xml.htm",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49300/resources/testharness.js",
+          "worker_pid": 6613
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49300/xhr/overridemimetype-open-state-force-xml.htm",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 55,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49300/resources/testharnessreport.js",
+          "worker_pid": 6613
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49300/",
+          "method": "GET",
+          "mime": "text/plain;charset=Shift-JIS",
+          "page_id": 8,
+          "query_sha256": "1c9c59c9a0fb6afded4d311507c62ec96ad89c6367eecc0d3a50cadcdbffd788",
+          "request_id": 1,
+          "response_bytes": 46,
+          "response_sha256": "47445e838c5cea014cae3a35800c202e706a93acd2742722b11aa4760b5e83dd",
+          "sequence": 3,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49300/xhr/resources/status.py",
+          "worker_pid": 6613
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: overrideMimeType() in open state, XML MIME type with UTF-8 charset",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6613,
+          "rss_bytes": 34373632
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/overridemimetype-unsent-state-force-shiftjis.any.js|window|:945f29e2c6b54cabbb372ab7cb20b666",
+        "page_id": 9,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 97,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "357aea8d8bc741039f0dcf2c369b62f3"
+          }
+        ],
+        "id": "0cbe4cef558041d0acd41aef2f82ef75",
+        "ports": [
+          49316,
+          49317,
+          49318,
+          49319,
+          49320,
+          49321,
+          49322
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 254,
+          "teardown_ms": 911
+        },
+        "tls": {
+          "ca_sha256": "0a470779347f6f6ada0dbea452e0a8404127607f07468875a6968abf09d888f3",
+          "certificate_sha256": "fd17a4eb000945e3a610671a86a8f1d82dd074bb2319d221d08e0655a0fc81b5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/overridemimetype-unsent-state-force-shiftjis.any.js|window|",
+      "path": "xhr/overridemimetype-unsent-state-force-shiftjis.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49316/xhr/overridemimetype-unsent-state-force-shiftjis.any.html"
+          },
+          "page_id": "9",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 413,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49316/xhr/overridemimetype-unsent-state-force-shiftjis.any.html"
+          },
+          "page_id": "9",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 25,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 413,
+          "response_sha256": "7db984550c62746317214dfc289e9acd133540c187eea773a5bf48db0a701881",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49316/xhr/overridemimetype-unsent-state-force-shiftjis.any.html",
+          "worker_pid": 6631
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:49316/xhr/overridemimetype-unsent-state-force-shiftjis.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49316/resources/testharness.js",
+          "worker_pid": 6631
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49316/xhr/overridemimetype-unsent-state-force-shiftjis.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49316/resources/testharnessreport.js",
+          "worker_pid": 6631
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49316/xhr/overridemimetype-unsent-state-force-shiftjis.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 527,
+          "response_sha256": "2be237c7478db03005ba7f088021cf9685b1c8b0343fd2b2aebaede04a1c69ba",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49316/xhr/overridemimetype-unsent-state-force-shiftjis.any.js",
+          "worker_pid": 6631
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49316/",
+          "method": "GET",
+          "mime": "text/html;charset=iso-8859-1",
+          "page_id": 9,
+          "query_sha256": "c4c2f200a56576797c69fbde2b5116dc38b45f363c85e16cb6e1eeb2d9266a8f",
+          "request_id": 1,
+          "response_bytes": 6,
+          "response_sha256": "241790777e1b5fcd89c73cf6e4eb4c605afe3eec8b704147b89b298aa8e057b1",
+          "sequence": 4,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49316/xhr/resources/status.py",
+          "worker_pid": 6631
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: overrideMimeType() in unsent state, enforcing Shift-JIS encoding",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6631,
+          "rss_bytes": 33456128
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "ed6db2b1c9e385364abc384bd7413873ee0451d340a93d60efab71a3d36a36c9",
+    "size_bytes": 7225920
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 6.477,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "36e6762551c0a6d8af41b0c7de121007f38ab382b2bb9d46b5aa277b69ff2483",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "d42ef621cbd7d8dc5d7ee29b1be0a0b52049c27c5a22f6ab88b2e3261271d1a1",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "eb934e8856906fe31033849fec9f20a5ba3f62916ba967059d8db374c8334f6a",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "56c99877ac59107d44fc3a0d4e9d0e02e49c9c8a47dad26e1e469929e7ea4287",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "cc936d7bb856b852013af0f00d522d8ef9c523baed77a0d51e5bd2a0a2d09833",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "928810f101c44392c9db6c9aa032d60bd4ace866318910ef7d778d31ad5e460e",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "eeba585c349c7cbe4b034a076219a30e3d2320baf1253a42b491a73a4df12925",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "8e122518cc03796f585b86463b60e6cb9295376b0e7a4d490f19994126bb7afe",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "36e6762551c0a6d8af41b0c7de121007f38ab382b2bb9d46b5aa277b69ff2483",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "d42ef621cbd7d8dc5d7ee29b1be0a0b52049c27c5a22f6ab88b2e3261271d1a1",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "eb934e8856906fe31033849fec9f20a5ba3f62916ba967059d8db374c8334f6a",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "56c99877ac59107d44fc3a0d4e9d0e02e49c9c8a47dad26e1e469929e7ea4287",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "cc936d7bb856b852013af0f00d522d8ef9c523baed77a0d51e5bd2a0a2d09833",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "928810f101c44392c9db6c9aa032d60bd4ace866318910ef7d778d31ad5e460e",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "eeba585c349c7cbe4b034a076219a30e3d2320baf1253a42b491a73a4df12925",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "8e122518cc03796f585b86463b60e6cb9295376b0e7a4d490f19994126bb7afe",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": "6f9e5f877b3c1c6f8e2fb24e3d9d03fafc958abe89a2cbe3e1a90b32f65c1b08",
+  "jobs": 4,
+  "outcome": {
+    "attempted": 9,
+    "environment_blocked": 0,
+    "required_finished": 9,
+    "required_passed": 9,
+    "required_total": 9,
+    "status": "passed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "2f2d7317aeb09aec9e5819c8f3a6a645267155ba98a297f8921020bb82a7a373",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "aa1f103dfa520a2bd9e3e4b2eff87ea6c2a13f772161cb942280552f9e89d117",
+    "worker_binary_sha256": "7aeb7580ae27dfa4f5ff897fade106d7b74a44c00721e94b990fc32028efd292",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "2c31393d06fea6e3a68adeec334edc84cd6e6df2",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": "overridemimetype",
+    "global": "window",
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 30,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "562f68287977e572022d797b5561c71bf89ba02968bfc90335119c46ad1709c1",
+    "untracked_file_count": 427,
+    "untracked_sha256": "e5e01d9605ebe9cf7496da9b041274a8bddcce92b128cb05ec8786630d5bffd3"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

@@ -1,0 +1,126 @@
+{
+  "upload": true,
+  "requests": [
+    {
+      "content_type": "multipart/form-data; boundary=----oryn-GUrMPsLk4VXeQBwdVjZhuXzT",
+      "bytes": 1445,
+      "sha256": "13ebaad6f00fafab44ca66197bc888ba45583a7fec32a899ec3a16b3f3417d51",
+      "fields": [
+        [
+          "name",
+          "Zo\u00eb Test"
+        ],
+        [
+          "email",
+          "zoe@example.test"
+        ],
+        [
+          "role",
+          "developer"
+        ],
+        [
+          "message",
+          "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e"
+        ],
+        [
+          "quantity",
+          "3"
+        ],
+        [
+          "date",
+          "2026-10-01"
+        ],
+        [
+          "time",
+          "23:00"
+        ],
+        [
+          "skill",
+          "rust"
+        ],
+        [
+          "skill",
+          "javascript"
+        ],
+        [
+          "case_id",
+          "ff49c594fda8f4c1026fe172987a0328"
+        ],
+        [
+          "intent",
+          "apply"
+        ]
+      ],
+      "files": [
+        {
+          "name": "document",
+          "filename": "authorized-document.txt",
+          "bytes": 151,
+          "sha256": "f3822a416004d1f9d068de6c1e47423a4720b55aa76fbd9ee6f2f190a9349676"
+        }
+      ],
+      "status": 303
+    }
+  ],
+  "receipts": [
+    {
+      "case_id": "ff49c594fda8f4c1026fe172987a0328",
+      "fields": [
+        [
+          "name",
+          "Zo\u00eb Test"
+        ],
+        [
+          "email",
+          "zoe@example.test"
+        ],
+        [
+          "role",
+          "developer"
+        ],
+        [
+          "message",
+          "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e"
+        ],
+        [
+          "quantity",
+          "3"
+        ],
+        [
+          "date",
+          "2026-10-01"
+        ],
+        [
+          "time",
+          "23:00"
+        ],
+        [
+          "skill",
+          "rust"
+        ],
+        [
+          "skill",
+          "javascript"
+        ],
+        [
+          "case_id",
+          "ff49c594fda8f4c1026fe172987a0328"
+        ],
+        [
+          "intent",
+          "apply"
+        ]
+      ],
+      "files": [
+        {
+          "name": "document",
+          "filename": "authorized-document.txt",
+          "bytes": 151,
+          "sha256": "f3822a416004d1f9d068de6c1e47423a4720b55aa76fbd9ee6f2f190a9349676"
+        }
+      ],
+      "request_sha256": "13ebaad6f00fafab44ca66197bc888ba45583a7fec32a899ec3a16b3f3417d51"
+    }
+  ],
+  "receipt_views": 2
+}

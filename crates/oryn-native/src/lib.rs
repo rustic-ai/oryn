@@ -46,6 +46,8 @@ pub mod executable;
 pub mod execution;
 pub mod host;
 pub mod html;
+#[cfg(feature = "v8-host")]
+mod import_maps;
 pub mod intent;
 #[cfg(target_os = "linux")]
 pub mod linux_sandbox;
@@ -66,6 +68,7 @@ pub mod worker;
 pub mod worker_client;
 #[cfg(feature = "v8-host")]
 pub mod worker_process;
+pub mod worker_route;
 
 pub use challenge::{
     CHALLENGE_DETECTOR_VERSION, ChallengeAssessment, ChallengeDisposition, ChallengeSignal,

@@ -43,6 +43,9 @@ pub struct SemanticGraph {
     document_generation: u64,
     full: BTreeMap<NodeId, SemanticNodeView>,
     compact: BTreeSet<NodeId>,
+    // Author-provided targeting hints are separate from accessibility names.
+    // Never include control values (especially password/secret values).
+    target_hints: BTreeMap<NodeId, Vec<(String, &'static str)>>,
     referenced_by: BTreeMap<NodeId, BTreeSet<NodeId>>,
     accessibility: BTreeMap<NodeId, AccessibilityNode>,
     structures: BTreeMap<String, SemanticStructure>,
@@ -50,6 +53,7 @@ pub struct SemanticGraph {
     authored_hidden: BTreeSet<NodeId>,
     geometry_hidden: BTreeSet<NodeId>,
     semantic_revision: u64,
+    native_control_cursor: Option<crate::dom::MutationCursor>,
     pending_upserts: BTreeMap<SemanticRef, SemanticNodeView>,
     pending_removed: BTreeSet<SemanticRef>,
     pending_accessibility_upserts: BTreeMap<SemanticRef, AccessibilityNode>,
@@ -66,6 +70,7 @@ impl SemanticGraph {
             document_generation,
             full: BTreeMap::new(),
             compact: BTreeSet::new(),
+            target_hints: BTreeMap::new(),
             referenced_by: BTreeMap::new(),
             accessibility: BTreeMap::new(),
             structures: BTreeMap::new(),
@@ -73,6 +78,7 @@ impl SemanticGraph {
             authored_hidden: BTreeSet::new(),
             geometry_hidden: BTreeSet::new(),
             semantic_revision: 0,
+            native_control_cursor: None,
             pending_upserts: BTreeMap::new(),
             pending_removed: BTreeSet::new(),
             pending_accessibility_upserts: BTreeMap::new(),
@@ -84,6 +90,7 @@ impl SemanticGraph {
     }
 
     pub fn reset(&mut self, dom: &DomArena, document_generation: u64) {
+        self.native_control_cursor = None;
         for node in self.full.values() {
             self.pending_removed.insert(node.semantic_ref);
         }
@@ -96,6 +103,7 @@ impl SemanticGraph {
         self.document_generation = document_generation;
         self.full.clear();
         self.compact.clear();
+        self.target_hints.clear();
         self.accessibility.clear();
         self.structures.clear();
         self.frame_ids.clear();
@@ -124,6 +132,9 @@ impl SemanticGraph {
     }
 
     pub fn apply_mutations(&mut self, dom: &DomArena, mutations: &[crate::dom::Mutation]) {
+        if !mutations.is_empty() {
+            self.native_control_cursor = None;
+        }
         use crate::dom::Mutation;
         let mut dirty = BTreeSet::new();
         let mut dependency_change = false;
@@ -157,6 +168,15 @@ impl SemanticGraph {
                 Mutation::ChildrenReplaced { .. } => {}
                 Mutation::Attribute { node, name, .. } => {
                     dirty.insert(*node);
+                    // These ancestor properties affect descendant visibility,
+                    // accessibility and action availability. Refreshing only
+                    // the container leaves controls in a stale hidden state.
+                    if matches!(
+                        name.as_str(),
+                        "style" | "class" | "hidden" | "aria-hidden" | "inert" | "disabled"
+                    ) {
+                        dirty.extend(dom.descendants_inclusive(*node).unwrap_or_default());
+                    }
                     dependency_change |= matches!(
                         name.as_str(),
                         "id" | "for"
@@ -302,6 +322,63 @@ impl SemanticGraph {
         self.semantic_revision
     }
 
+    /// Overlay live native state without encoding browser authority as authored
+    /// attributes. Recompute group-dependent validity after every checkpoint:
+    /// changing one radio, fieldset or form owner can affect other controls.
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn apply_native_control_state(
+        &mut self,
+        dom: &crate::dom::DomRuntime,
+    ) -> Result<(), crate::dom::DomError> {
+        let cursor = dom.mutation_cursor();
+        if self.native_control_cursor == Some(cursor) {
+            return Ok(());
+        }
+        let mut changed = false;
+        for (&id, node) in &mut self.full {
+            let record = dom.arena().get(id)?;
+            let control = matches!(&record.kind, NodeKind::Element { name }
+                if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                && matches!(name.local.as_ref(), "input" | "textarea" | "select" | "button" | "fieldset" | "output" | "object"));
+            let validation = if control {
+                let numeric = dom.control_numeric_validity(id)?;
+                Some(oryn_common::v3::NativeValidationState {
+                    too_short: dom.control_length_validity(id)?.0,
+                    too_long: dom.control_length_validity(id)?.1,
+                    pattern_mismatch: dom.control_pattern_mismatch(id)?,
+                    range_underflow: numeric.range_underflow,
+                    range_overflow: numeric.range_overflow,
+                    step_mismatch: numeric.step_mismatch,
+                    will_validate: dom.control_will_validate(id)?,
+                    valid: dom.control_validity(id)?,
+                    value_missing: dom.control_value_missing(id)?,
+                    type_mismatch: dom.control_type_mismatch(id)?,
+                    custom_error: !dom.custom_validity_message(id)?.is_empty(),
+                })
+            } else {
+                None
+            };
+            let focused = dom.focused() == Some(id);
+            if node.validation == validation && node.states.contains(&NodeState::Focused) == focused
+            {
+                continue;
+            }
+            node.validation = validation;
+            if focused {
+                node.states.insert(NodeState::Focused);
+            } else {
+                node.states.remove(&NodeState::Focused);
+            }
+            self.pending_upserts.insert(node.semantic_ref, node.clone());
+            changed = true;
+        }
+        if changed {
+            self.semantic_revision = self.semantic_revision.saturating_add(1);
+        }
+        self.native_control_cursor = Some(cursor);
+        Ok(())
+    }
+
     pub fn set_frame_ids(&mut self, frame_ids: BTreeMap<NodeId, u64>) {
         self.frame_ids = frame_ids;
     }
@@ -333,6 +410,14 @@ impl SemanticGraph {
             } else {
                 node.states.remove(&NodeState::Hidden);
                 node.states.insert(NodeState::Visible);
+            }
+            // Layout visibility can change after DOM projection. Keep the
+            // compact membership in sync too, otherwise revealed controls
+            // remain absent from OIL observations until an unrelated mutation.
+            if is_compact_semantic(node) {
+                self.compact.insert(id);
+            } else {
+                self.compact.remove(&id);
             }
             self.pending_upserts.insert(node.semantic_ref, node.clone());
             if let Some(accessible) = self.accessibility.get_mut(&id) {
@@ -447,10 +532,21 @@ impl SemanticGraph {
             Target::Text { text } => {
                 let expected = normalize_text(text).to_ascii_lowercase();
                 let actual = normalize_text(&node.name).to_ascii_lowercase();
-                if actual == expected {
+                if expected.is_empty() {
+                    None
+                } else if actual == expected {
                     Some((800, vec!["exact_accessible_name".into()]))
                 } else if !expected.is_empty() && actual.contains(&expected) {
                     Some((600, vec!["contained_accessible_name".into()]))
+                } else if node.states.contains(&NodeState::Visible) {
+                    self.target_hints
+                        .get(&unpack_node_ref(node.semantic_ref.node))
+                        .and_then(|hints| {
+                            hints.iter().find(|(value, _)| {
+                                normalize_text(value).to_ascii_lowercase() == expected
+                            })
+                        })
+                        .map(|(_, factor)| (550, vec![(*factor).into()]))
                 } else {
                     None
                 }
@@ -933,6 +1029,30 @@ impl SemanticGraph {
         });
         match projected {
             Some(node) => {
+                let mut hints = Vec::new();
+                if let Ok(record) = dom.get(id) {
+                    for (attribute, factor) in [
+                        ("id", "exact_element_id"),
+                        ("placeholder", "exact_placeholder"),
+                    ] {
+                        if let Some(value) = record
+                            .attributes
+                            .get_null(attribute)
+                            .filter(|value| !value.trim().is_empty())
+                        {
+                            hints.push((value.clone(), factor));
+                        }
+                    }
+                    if node.actions.contains(&SemanticAction::Click) {
+                        // Read content below the root so an aria-label on a
+                        // button doesn't erase its visible '+' / '×' label.
+                        let text = target_content_text(dom, id);
+                        if !text.trim().is_empty() {
+                            hints.push((normalize_text(&text), "exact_content_label"));
+                        }
+                    }
+                }
+                self.target_hints.insert(id, hints);
                 if node.states.contains(&NodeState::Hidden) {
                     self.authored_hidden.insert(id);
                 } else {
@@ -955,6 +1075,7 @@ impl SemanticGraph {
                 self.full.insert(id, node);
             }
             None => {
+                self.target_hints.remove(&id);
                 if let Some(previous) = self.full.remove(&id) {
                     self.pending_upserts.remove(&previous.semantic_ref);
                     self.pending_removed.insert(previous.semantic_ref);
@@ -1149,6 +1270,7 @@ impl SemanticGraph {
         self.full.retain(|id, node| {
             let keep = !removed.contains(&node.semantic_ref.node);
             if !keep {
+                self.target_hints.remove(id);
                 self.compact.remove(id);
                 self.pending_upserts.remove(&node.semantic_ref);
                 self.pending_removed.insert(node.semantic_ref);
@@ -1288,7 +1410,7 @@ pub fn project_element(
     let mut accessible =
         accessible_semantics(dom, id, local_name, &role, page_id, document_generation);
     if accessible.name.is_empty() && matches!(role.as_str(), "status" | "alert" | "log") {
-        let text = normalize_text(&dom.text_content(id).unwrap_or_default());
+        let text = normalize_text(&accessible_text_content(dom, id, false));
         if !text.is_empty() {
             // Compatibility observations historically surface live-region
             // content as the node's agent-facing name. Contract v5 keeps the
@@ -1451,6 +1573,7 @@ pub fn project_element(
     }
     let description = accessible.description;
     Some(SemanticNodeView {
+        validation: None,
         semantic_ref: SemanticRef {
             page_id,
             document_generation,
@@ -1823,7 +1946,7 @@ fn host_language_name(
             })
         })
     {
-        let text = normalize_text(&dom.text_content(*child).unwrap_or_default());
+        let text = normalize_text(&accessible_text_content(dom, *child, false));
         if !text.is_empty() {
             return Some((text, source.into()));
         }
@@ -1928,6 +2051,17 @@ fn accessible_text_content_excluding(
     let Ok(node) = dom.get(id) else {
         return String::new();
     };
+    // Raw DOM textContent intentionally includes source text. Agent-facing
+    // names must not treat executable code, styles or inert template contents
+    // as rendered label text, including when traversing a shadow tree.
+    if matches!(&node.kind, NodeKind::Element { name }
+        if (name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+            && matches!(name.local.as_ref(), "script" | "style" | "template"))
+        || (name.ns.as_ref() == "http://www.w3.org/2000/svg"
+            && matches!(name.local.as_ref(), "script" | "style")))
+    {
+        return String::new();
+    }
     if !include_hidden_root && accessibility_hidden(node) {
         // `visibility` is inherited but can be overridden by a descendant.
         // Other accessibility exclusions suppress the complete subtree.
@@ -3097,6 +3231,29 @@ fn supported_aria_role(role: &str) -> bool {
     )
 }
 
+fn target_content_text(dom: &DomArena, root: NodeId) -> String {
+    let mut pending = accessible_children(dom, root);
+    pending.reverse();
+    let mut seen = BTreeSet::new();
+    let mut parts = Vec::new();
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) || is_hidden(dom, id) {
+            continue;
+        }
+        let Ok(node) = dom.get(id) else { continue };
+        match &node.kind {
+            NodeKind::Text { data } => parts.push(data.clone()),
+            NodeKind::Element { name }
+                if matches!(
+                    name.local.as_ref(),
+                    "input" | "textarea" | "select" | "script" | "style" | "template"
+                ) => {}
+            _ => pending.extend(accessible_children(dom, id).into_iter().rev()),
+        }
+    }
+    normalize_text(&parts.join(" "))
+}
+
 fn is_compact_semantic(node: &SemanticNodeView) -> bool {
     !node.states.contains(&NodeState::Hidden)
         && (!node.actions.is_empty()
@@ -3301,6 +3458,79 @@ pub fn empty_observation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn targeting_hints_preserve_names_ambiguity_privacy_and_mutation_identity() {
+        use oryn_common::agent::Target;
+        let parsed = crate::html::parse(
+            "<button id=plus aria-label='Increase quantity'>+</button><label for=coupon>Coupon</label><input id=coupon placeholder='Enter code'><button aria-label='Submit'><input type=password value=secret><span hidden>hidden-label</span>Send</button>",
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        let resolve = |graph: &SemanticGraph, text: &str, action| {
+            graph.resolve(
+                &Target::Text { text: text.into() },
+                action,
+                Revision(1),
+                None,
+            )
+        };
+        let plus = resolve(&graph, "+", SemanticAction::Click)
+            .unwrap()
+            .selected
+            .unwrap();
+        assert_eq!(
+            resolve(&graph, "Increase quantity", SemanticAction::Click)
+                .unwrap()
+                .selected,
+            Some(plus)
+        );
+        assert!(
+            graph
+                .nodes(ProjectionProfile::Compact)
+                .iter()
+                .any(|node| node.semantic_ref == plus && node.name == "Increase quantity")
+        );
+        assert_eq!(
+            resolve(&graph, "coupon", SemanticAction::Type)
+                .unwrap()
+                .selected,
+            resolve(&graph, "Enter code", SemanticAction::Type)
+                .unwrap()
+                .selected
+        );
+        for text in ["secret", "hidden-label", ""] {
+            assert_eq!(
+                resolve(&graph, text, SemanticAction::Click),
+                Err(SemanticResolutionError::NotFound)
+            );
+        }
+        let cursor = dom.mutation_cursor();
+        let node = dom
+            .query_selector(dom.document(), "#plus")
+            .unwrap()
+            .unwrap();
+        dom.set_text_content(node, "-").unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert_eq!(
+            resolve(&graph, "+", SemanticAction::Click),
+            Err(SemanticResolutionError::NotFound)
+        );
+        assert_eq!(
+            resolve(&graph, "-", SemanticAction::Click)
+                .unwrap()
+                .selected,
+            Some(plus)
+        );
+        let parsed = crate::html::parse(
+            "<button aria-label=First>+</button><button aria-label=Second>+</button>",
+        );
+        graph.reset(&parsed.dom, 2);
+        assert!(
+            matches!(resolve(&graph, "+", SemanticAction::Click), Err(SemanticResolutionError::Ambiguous(items)) if items.len() == 2)
+        );
+    }
 
     #[test]
     fn retained_replaced_frame_document_is_removed_from_projection() {
@@ -3570,6 +3800,25 @@ mod tests {
             .expect("visibility upsert");
         assert!(save.semantic.states.contains(&NodeState::Hidden));
         assert!(changes.upserted_accessibility[0].excluded);
+        assert!(graph.nodes(ProjectionProfile::Compact).is_empty());
+        graph.apply_geometry_visibility(&BTreeMap::from([(
+            reference.node,
+            oryn_common::v4::NodeGeometry {
+                availability: oryn_common::v4::GeometryAvailability::Available,
+                box_model: None,
+                client_rects: Vec::new(),
+                in_viewport: true,
+                interactable: true,
+                diagnostic: None,
+            },
+        )]));
+        assert!(
+            graph
+                .nodes(ProjectionProfile::Compact)
+                .iter()
+                .any(|node| node.semantic_ref == reference
+                    && node.states.contains(&NodeState::Visible))
+        );
     }
 
     #[test]
@@ -3752,6 +4001,40 @@ mod tests {
         assert_eq!(
             accessibility_for_node(runtime.arena(), host).unwrap().1,
             "before fallback / default / second fallback after"
+        );
+    }
+
+    #[test]
+    fn accessible_names_exclude_source_text_inside_shadow_roots() {
+        let mut document = crate::html::parse(
+            r#"<button id=host>light</button><div id=shadow><style aria-label=css-leak>.secret { color:red }</style><script>source_leak()</script><template>template leak</template><span>Save</span><slot></slot></div>"#,
+        );
+        let find = |value: &str| {
+            document
+                .dom
+                .iter()
+                .find(|(_, node)| node.attributes.get_null("id").is_some_and(|id| id == value))
+                .map(|(id, _)| id)
+                .unwrap()
+        };
+        let host = find("host");
+        let shadow = find("shadow");
+        document.dom.get_mut(shadow).unwrap().kind = NodeKind::ShadowRoot {
+            mode: crate::dom::ShadowMode::Open,
+            clonable: false,
+        };
+        document.dom.append_child(host, shadow).unwrap();
+        assert_eq!(
+            accessibility_for_node(&document.dom, host).unwrap().1,
+            "Savelight"
+        );
+        // This is projection filtering, not destructive DOM sanitization.
+        assert!(
+            document
+                .dom
+                .text_content(shadow)
+                .unwrap()
+                .contains("source_leak()")
         );
     }
 

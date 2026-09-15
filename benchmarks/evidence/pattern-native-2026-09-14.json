@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree signed-worker diagnostic; not release qualification",
+  "goal_complete": false,
+  "family_qualified": false,
+  "source_sha256": "7dfac26fa97e45bb107b95eeb69613a72c4b0d3177f1dac7e3d30f9c5ae28074",
+  "parent_sha256": "6872f4a045c524645a196b00482b6b42842170df62db62946c954ef4c5615573",
+  "signed_worker_sha256": "a222e9166bc5661fb05941dcdc7e4aae68855fe8b91aaea7bd46093b804330ce",
+  "worker_build_sha256": "191fb89fee3d5b034ecf5feb4cfeccb67d4ee8d66cb37a810d95666dfd390df3",
+  "code_directory_hash": "3d86c142345844557853dec679f0c5bdb64c7a6a",
+  "signing_scope": "Apple Development signed worker bundle; parent recorded by executable SHA-256",
+  "webidl_manifest_sha256": "5deb69f1a9c5bfba3ca2357d6035bf9115fa0a8cec9d994670cfe6fbc44b02a3",
+  "v8": {
+    "archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "regexp_header_sha256": "8bdbcbb83463c77495973fe30294273d00a5c5cff90e8428415f5d2f034d0a8a"
+  },
+  "implementation": [
+    "Shared native DOM pattern constraints drive ValidityState, CSS selectors/computed style, form submission and OIL semantic validation flags.",
+    "Uses existing agent V8 isolate with lazy private context, UnicodeSets expressions and whole-value anchoring; authored source validated before wrapping.",
+    "Page RegExp constructor/prototype poisoning and page RegExp statics cannot control or observe validation execution.",
+    "Isolate slot owns native service teardown before V8 Dispose; retained matcher returns retired-engine error.",
+    "Live pattern reflection, six supported input states, unknown-type fallback, empty-value exemption, multiple-email token matching, invalid-syntax ignoring."
+  ],
+  "limits": {
+    "pattern_utf16_units": 16384,
+    "value_utf16_units": 1048576,
+    "cache_entries": 64,
+    "cache_pattern_units": 131072,
+    "email_tokens": 1024,
+    "backtracks": 100000,
+    "note": "V8 backtrack-ceiling exhaustion returns conservative mismatch; engine/resource/retirement errors propagate rather than report valid. Private context may internally retain RegExp subject state until replaced or destroyed; it is inaccessible to page JS and is destroyed with the isolate. No claim of arbitrary-complex-pattern completion or zero internal retention."
+  },
+  "tests": {
+    "native": {
+      "passed": 536,
+      "failed": 0,
+      "ignored": 6,
+      "elapsed_seconds": 161.84,
+      "binary_sha256": "31821cc3ff8c6e5026885200dbbd3f795ce1758045c5f18417648aeaa9c787e0",
+      "features": "v8-host,v8-sandbox,in-process-probe,core-full"
+    },
+    "javascript": {
+      "passed": 273,
+      "failed": 0,
+      "ignored": 3,
+      "elapsed_seconds": 4.41,
+      "binary_sha256": "789e429a3bfc67eadae272ad6ffc2a33e8d0220dc6dccb066e55236f02ab0363",
+      "features": "v8-host,v8-sandbox"
+    },
+    "dom_passed": 113,
+    "common_passed": 80,
+    "parser_passed": 31,
+    "webidl_passed": 10,
+    "independent_oracle_passed": 10,
+    "strict_native_clippy": "passed",
+    "rustfmt_generated_registry_ruff_diff_check": "passed",
+    "signed_worker_signature_designated_requirement_protocol10_sandbox_denials": "passed",
+    "targeted": "Private context, poisoned page methods/statics, Unicode sets, invalid source escape, surrogate UTF-16, bounds, cache churn, backtrack termination, isolate retirement, native OIL observation mutation, CSS and submission recovery.",
+    "timing_scope": "Test-run elapsed times with overlapping work, not performance qualification."
+  },
+  "wpt": {
+    "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "parent_mode": "persistent",
+    "worker_lifecycle": "isolated_prewarmed",
+    "jobs_per_run": 4,
+    "constraint_selection": {
+      "evidence": "pattern-constraints-wpt-2026-09-14.json",
+      "baseline": "numeric-apis-constraints-wpt-2026-09-14.json",
+      "files_passed": 26,
+      "files_total": 28,
+      "assertions_passed": 915,
+      "assertions_failed": 5,
+      "baseline_passes_retained": 861,
+      "gains": 54,
+      "lost_or_missing_passes": 0,
+      "environment_blocks": 0,
+      "runner_elapsed_seconds": 11.038,
+      "remaining": {
+        "textarea_default_value_editing": 4,
+        "emoji_maxlength": 1
+      }
+    },
+    "api_selection": {
+      "evidence": "pattern-numeric-apis-wpt-2026-09-14.json",
+      "baseline": "numeric-apis-wpt-2026-09-14.json",
+      "files_passed": 13,
+      "files_total": 13,
+      "assertions_passed": 182,
+      "assertions_failed": 0,
+      "lost_or_missing_passes": 0,
+      "environment_blocks": 0,
+      "runner_elapsed_seconds": 7.061
+    },
+    "input_selection": {
+      "evidence": "pattern-numeric-inputs-wpt-2026-09-14.json",
+      "baseline": "numeric-apis-inputs-wpt-2026-09-14.json",
+      "files_passed": 8,
+      "files_total": 8,
+      "assertions_passed": 150,
+      "assertions_failed": 0,
+      "lost_or_missing_passes": 0,
+      "environment_blocks": 0,
+      "runner_elapsed_seconds": 5.021
+    }
+  },
+  "oil": {
+    "evidence": "oil-pattern-signed-2026-09-14/summary.json",
+    "contract_version": 4,
+    "cases": 16,
+    "samples_per_case": 3,
+    "jobs": 3,
+    "passed": 48,
+    "planned": 48,
+    "all_final_oracles_verified": true,
+    "source_matches_signed_build": true,
+    "timeouts": 0,
+    "fixture_cleanup": {
+      "returncode": 0,
+      "forced": false
+    },
+    "new_cases": [
+      "pattern_blocks",
+      "pattern_recovery"
+    ],
+    "scope": "OIL types the application reference and submits. A separate stdin-controlled server oracle rejects invalid reference syntax independently, verifies exact ordered receipt fields and requires receipt GET reload. Negative case verifies zero POSTs; recovery exactly one accepted POST. Version 4 adds a field and two cases, not identical-fixture comparison with version 3."
+  },
+  "smoke": {
+    "evidence": "oil-pattern-smoke-2026-09-14",
+    "passed": 12,
+    "total": 12,
+    "port_3000_free_after": true,
+    "scope": "Existing controlled observation/error smoke, not independent full-workflow qualification."
+  },
+  "remaining": [
+    "Textarea defaultValue and user-edit length provenance; maxlength and editing commands.",
+    "Broader workflow outcomes and representative framework applications.",
+    "Connected-window ownership and routing, worker-agent execution, full Core WPT.",
+    "Clean-source security/performance and cross-platform qualification."
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "qualification": "failed local diagnostic; preserved before fixture synchronization repair",
+  "base_commit": "c3543ed",
+  "source_tree_sha256": "853838e5996f9669f32ba2fb07da39c34c9e48e661b8037214244d07600e1ba3",
+  "native_test_binary_sha256": "0503a9a0c9b190fbc61452d78ca38fe8d727ba425105f81cceac5581dd630d89",
+  "native_suite": {
+    "features": ["v8-host", "v8-sandbox", "in-process-probe", "core-full"],
+    "test_threads": 1,
+    "passed": 488,
+    "failed": 1,
+    "ignored": 6,
+    "elapsed_seconds": 139.62,
+    "failure": "runtime::tests::image_button_loads_intrinsic_svg_size_before_window_load",
+    "error": "ReferenceError: sizes is not defined"
+  },
+  "isolated_repeat": {"passed": 1, "elapsed_seconds": 0.11},
+  "diagnosis": "The fixture read values set by the window load handler immediately after load_html. The implementation explicitly allows document commit before asynchronous image completion. The correction waits for the existing Load lifecycle before asserting the same image sizes, click coordinates, and loaded-image count.",
+  "routing_tests": "all routing regressions passed in this full run",
+  "signed_qualification": "not run for this source",
+  "worker_protocol_version": 10,
+  "p0_complete": false
+}

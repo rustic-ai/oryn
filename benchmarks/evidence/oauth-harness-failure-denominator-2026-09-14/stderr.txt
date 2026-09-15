@@ -1,0 +1,6 @@
+application compatibility OAuth failed: popup-pkce (native); see /Users/rohit/Work/oryn2/oryn-roadmap-next/benchmarks/evidence/oauth-harness-failure-denominator-2026-09-14/popup-pkce-native.jsonl
+application compatibility OAuth failed: redirect (native); see /Users/rohit/Work/oryn2/oryn-roadmap-next/benchmarks/evidence/oauth-harness-failure-denominator-2026-09-14/redirect-native.jsonl
+application compatibility OAuth failed: mfa-handoff (native); see /Users/rohit/Work/oryn2/oryn-roadmap-next/benchmarks/evidence/oauth-harness-failure-denominator-2026-09-14/mfa-handoff-native.jsonl
+application compatibility OAuth failed: popup-close-recovery (native); see /Users/rohit/Work/oryn2/oryn-roadmap-next/benchmarks/evidence/oauth-harness-failure-denominator-2026-09-14/popup-close-recovery-native.jsonl
+application compatibility OAuth failed: existing-session-sso (native); see /Users/rohit/Work/oryn2/oryn-roadmap-next/benchmarks/evidence/oauth-harness-failure-denominator-2026-09-14/existing-session-sso-native.jsonl
+application compatibility OAuth failed: 5 of 5 native cases

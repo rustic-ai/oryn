@@ -13,12 +13,13 @@ use std::{
     os::unix::net::UnixStream,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc,
     },
     time::Duration,
 };
 
+use crate::worker_route::WorkerRoute;
 use oryn_common::v3::{PageId, PageLifecycleEvent};
 use serde::{Deserialize, Serialize};
 use tungstenite::{
@@ -40,8 +41,57 @@ use crate::{
     storage::{StorageArea, StorageChange, StorageRequest, StorageResponse, StorageScope},
 };
 
-pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 10;
+pub const CONTEXT_SERVICE_PROTOCOL_VERSION: u32 = 11;
 pub const MAX_CONTEXT_FRAME_BYTES: usize = 24 * 1024 * 1024;
+// Page bundles use the same ceiling as the default resource-cache entry.
+// Wire JSON remains independently bounded, including escape expansion.
+const MAX_PAGE_SCRIPT_BYTES: usize = 8 * 1024 * 1024;
+
+fn decode_page_script(body: &[u8], content_type: Option<&str>) -> Result<String, RuntimeError> {
+    if body.len() > MAX_PAGE_SCRIPT_BYTES {
+        return Err(RuntimeError::WorkerLimitExceeded {
+            resource: "page script resource".into(),
+        });
+    }
+    let (source, _) =
+        oryn_net::decode_resource_text(body, content_type, oryn_net::TextResourceKind::JavaScript);
+    if source.len() > MAX_PAGE_SCRIPT_BYTES {
+        return Err(RuntimeError::WorkerLimitExceeded {
+            resource: "decoded page script source".into(),
+        });
+    }
+    Ok(source)
+}
+const MAX_CONTEXT_OPERATIONS: usize = 32;
+// Allow one response-writing cohort in addition to the client's pending cohort:
+// a client may receive a reply just before its parent dispatch guard is dropped.
+const MAX_PARENT_CONTEXT_OPERATIONS: usize = MAX_CONTEXT_OPERATIONS * 2;
+
+/// Parent-owned limit: worker-side pending tables are not a security boundary.
+/// A permit covers dispatch *and* response writing, including error paths.
+#[derive(Default)]
+struct ContextDispatchLimit(Arc<AtomicUsize>);
+
+struct ContextDispatchPermit(Arc<AtomicUsize>);
+
+impl ContextDispatchLimit {
+    fn admit(&self) -> Result<ContextDispatchPermit, RuntimeError> {
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < MAX_PARENT_CONTEXT_OPERATIONS).then_some(active + 1)
+            })
+            .map_err(|_| RuntimeError::WorkerLimitExceeded {
+                resource: "parent context dispatch operations".into(),
+            })?;
+        Ok(ContextDispatchPermit(self.0.clone()))
+    }
+}
+
+impl Drop for ContextDispatchPermit {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
@@ -374,6 +424,7 @@ pub enum ContextEvent {
 #[derive(Debug, Serialize, Deserialize)]
 struct RequestEnvelope {
     protocol_version: u32,
+    route: Option<WorkerRoute>,
     message_id: u64,
     request: ContextServiceRequest,
 }
@@ -381,9 +432,70 @@ struct RequestEnvelope {
 #[derive(Debug, Serialize, Deserialize)]
 struct ResponseEnvelope {
     protocol_version: u32,
+    route: Option<WorkerRoute>,
     correlation_id: u64,
     response: Option<ContextServiceResponse>,
     error: Option<String>,
+}
+
+struct BoundedContextFrame {
+    bytes: Vec<u8>,
+    limit: usize,
+}
+
+impl Write for BoundedContextFrame {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let needed = self
+            .bytes
+            .len()
+            .checked_add(bytes.len())
+            .filter(|size| *size <= self.limit)
+            .ok_or_else(|| std::io::Error::other("context response frame limit exceeded"))?;
+        if needed > self.bytes.capacity() {
+            let capacity = needed
+                .max(self.bytes.capacity().saturating_mul(2))
+                .min(self.limit);
+            self.bytes
+                .try_reserve_exact(capacity - self.bytes.len())
+                .map_err(std::io::Error::other)?;
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn encode_context_response(
+    mut response: ResponseEnvelope,
+    limit: usize,
+) -> Result<Vec<u8>, RuntimeError> {
+    let mut frame = BoundedContextFrame {
+        bytes: Vec::new(),
+        limit: limit.saturating_sub(1),
+    };
+    if serde_json::to_writer(&mut frame, &response).is_err() {
+        // Nothing has reached the socket. Replace the entire oversized result,
+        // retaining authenticated route and correlation rather than truncating JSON.
+        frame.bytes.clear();
+        response.response = None;
+        response.error = Some("context-service response exceeded IPC frame budget".into());
+        serde_json::to_writer(&mut frame, &response)
+            .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
+    }
+    if limit == 0 {
+        return Err(RuntimeError::ProtocolViolation(
+            "empty context frame budget".into(),
+        ));
+    }
+    frame
+        .bytes
+        .try_reserve_exact(1)
+        .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
+    frame.bytes.push(b'\n');
+    Ok(frame.bytes)
 }
 
 pub struct IpcContextClient {
@@ -404,9 +516,12 @@ impl IpcContextClient {
         request: ContextServiceRequest,
     ) -> Result<ContextServiceResponse, RuntimeError> {
         let message_id = self.next_message_id;
-        self.next_message_id = self.next_message_id.saturating_add(1);
+        self.next_message_id = self.next_message_id.checked_add(1).ok_or_else(|| {
+            RuntimeError::ProtocolViolation("context message identifiers exhausted".into())
+        })?;
         let envelope = RequestEnvelope {
             protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
+            route: None,
             message_id,
             request,
         };
@@ -433,6 +548,7 @@ impl IpcContextClient {
         let response: ResponseEnvelope = serde_json::from_slice(&line)
             .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
         if response.protocol_version != CONTEXT_SERVICE_PROTOCOL_VERSION
+            || response.route.is_some()
             || response.correlation_id != message_id
         {
             return Err(RuntimeError::ProtocolViolation(
@@ -449,6 +565,18 @@ impl IpcContextClient {
 }
 
 pub(crate) trait ContextTransport: Send + Sync {
+    fn request_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        request: ContextServiceRequest,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
+        if route.is_some() {
+            return Err(RuntimeError::ProtocolViolation(
+                "context transport does not accept route authority".into(),
+            ));
+        }
+        self.request(request)
+    }
     fn request(
         &self,
         request: ContextServiceRequest,
@@ -456,7 +584,7 @@ pub(crate) trait ContextTransport: Send + Sync {
 }
 
 type ContextReply = Result<ContextServiceResponse, String>;
-type PendingContextReplies = BTreeMap<u64, mpsc::Sender<ContextReply>>;
+type PendingContextReplies = BTreeMap<u64, (Option<WorkerRoute>, mpsc::Sender<ContextReply>)>;
 
 struct IpcContextTransport {
     writer: Mutex<UnixStream>,
@@ -488,8 +616,10 @@ impl IpcContextTransport {
                     .lock()
                     .ok()
                     .and_then(|mut pending| pending.remove(&response.correlation_id));
-                if let Some(sender) = sender {
-                    let result = if response.protocol_version != CONTEXT_SERVICE_PROTOCOL_VERSION {
+                if let Some((route, sender)) = sender {
+                    let result = if response.protocol_version != CONTEXT_SERVICE_PROTOCOL_VERSION
+                        || response.route != route
+                    {
                         Err("context response protocol mismatch".into())
                     } else if let Some(error) = response.error {
                         Err(error)
@@ -502,7 +632,7 @@ impl IpcContextTransport {
                 }
             }
             if let Ok(mut pending) = reader_pending.lock() {
-                for (_, sender) in std::mem::take(&mut *pending) {
+                for (_, (_, sender)) in std::mem::take(&mut *pending) {
                     let _ = sender.send(Err("context service connection closed".into()));
                 }
             }
@@ -528,25 +658,39 @@ impl ContextTransport for IpcContextTransport {
         &self,
         request: ContextServiceRequest,
     ) -> Result<ContextServiceResponse, RuntimeError> {
+        self.request_routed(None, request)
+    }
+
+    fn request_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        request: ContextServiceRequest,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
         let (sender, receiver) = mpsc::channel();
         let mut writer = self
             .writer
             .lock()
             .map_err(|_| RuntimeError::ContextService("context writer lock poisoned".into()))?;
-        let message_id = self.next_message_id.fetch_add(1, Ordering::Relaxed);
+        let message_id = self
+            .next_message_id
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .map_err(|_| {
+                RuntimeError::ProtocolViolation("context message identifiers exhausted".into())
+            })?;
         let mut pending = self
             .pending
             .lock()
             .map_err(|_| RuntimeError::ContextService("context pending lock poisoned".into()))?;
-        if pending.len() >= 32 {
+        if pending.len() >= MAX_CONTEXT_OPERATIONS {
             return Err(RuntimeError::WorkerLimitExceeded {
                 resource: "pending context operations".into(),
             });
         }
-        pending.insert(message_id, sender);
+        pending.insert(message_id, (route.cloned(), sender));
         drop(pending);
         let envelope = RequestEnvelope {
             protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
+            route: route.cloned(),
             message_id,
             request,
         };
@@ -574,28 +718,33 @@ impl ContextTransport for IpcContextTransport {
 }
 
 #[derive(Clone)]
-pub struct SharedContextClient(Arc<dyn ContextTransport>);
+pub struct SharedContextClient(Arc<dyn ContextTransport>, Option<WorkerRoute>);
 
 impl SharedContextClient {
     pub fn new(client: IpcContextClient) -> Self {
-        Self(Arc::new(
-            IpcContextTransport::new(client).expect("context transport initialization"),
-        ))
+        Self(
+            Arc::new(IpcContextTransport::new(client).expect("context transport initialization")),
+            None,
+        )
+    }
+
+    pub(crate) fn for_route(&self, route: WorkerRoute) -> Self {
+        Self(self.0.clone(), Some(route))
     }
 
     #[cfg(feature = "v8-host")]
     pub(crate) fn direct(context: BrowserContext, source_page_id: PageId) -> Self {
-        Self(Arc::new(ParentContextService::new_direct(
-            context,
-            source_page_id,
-        )))
+        Self(
+            Arc::new(ParentContextService::new_direct(context, source_page_id)),
+            None,
+        )
     }
 
     pub fn request(
         &self,
         request: ContextServiceRequest,
     ) -> Result<ContextServiceResponse, RuntimeError> {
-        self.0.request(request)
+        self.0.request_routed(self.1.as_ref(), request)
     }
 }
 
@@ -1221,7 +1370,7 @@ impl ParentContextService {
                         .enable_all()
                         .build()
                     {
-                        let _ = runtime.block_on(context.close_page(target_page_id));
+                        let _ = runtime.block_on(context.close_page_from_script(target_page_id));
                     }
                 });
                 Ok(ContextServiceResponse::PageClosed)
@@ -1792,8 +1941,13 @@ impl ParentContextService {
             .lock()
             .map_err(|_| RuntimeError::ContextService("HTTP stream lock poisoned".into()))?
             .get(&stream_id)
-            .cloned()
-            .ok_or_else(|| RuntimeError::ContextService("unknown HTTP stream".into()))?;
+            .cloned();
+        // EOF, request cancellation and an explicit body abort can race. Once
+        // this endpoint's authority has been validated, absent streams need no
+        // further cleanup. A live stream owned by another page is still denied.
+        let Some(entry) = entry else {
+            return Ok(ContextServiceResponse::HttpStreamAborted);
+        };
         if entry.page_id != page_id {
             return Err(RuntimeError::ContextService(
                 "worker cannot abort another page's HTTP stream".into(),
@@ -2026,16 +2180,12 @@ impl ParentContextService {
             if url.scheme() == "data" {
                 let (media_type, body) = crate::network::decode_data_url(&url)
                     .map_err(|error| RuntimeError::Network(error.to_string()))?;
-                if body.len() > 1024 * 1024 {
+                if body.len() > MAX_PAGE_SCRIPT_BYTES {
                     return Err(RuntimeError::WorkerLimitExceeded {
                         resource: "decoded dynamic script data URL".into(),
                     });
                 }
-                let (source, _) = oryn_net::decode_resource_text(
-                    &body,
-                    media_type.as_deref(),
-                    oryn_net::TextResourceKind::JavaScript,
-                );
+                let source = decode_page_script(&body, media_type.as_deref())?;
                 return Ok(ContextServiceResponse::ScriptSource {
                     url: url.to_string(),
                     source,
@@ -2067,7 +2217,7 @@ impl ParentContextService {
                     resolved_addrs: Vec::new(),
                 },
                 Duration::from_secs(30),
-                1024 * 1024,
+                MAX_PAGE_SCRIPT_BYTES,
                 &self.shutting_down,
             )
             .map_err(|error| RuntimeError::Network(error.to_string()))?;
@@ -2090,7 +2240,7 @@ impl ParentContextService {
                     .map_err(|error| RuntimeError::Network(error.to_string()))?;
                 continue;
             }
-            if response.body.len() > 1024 * 1024 {
+            if response.body.len() > MAX_PAGE_SCRIPT_BYTES {
                 return Err(RuntimeError::WorkerLimitExceeded {
                     resource: "dynamic script resource".into(),
                 });
@@ -2111,11 +2261,7 @@ impl ParentContextService {
                 .iter()
                 .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
                 .map(|(_, value)| value.as_str());
-            let (source, _) = oryn_net::decode_resource_text(
-                &response.body,
-                content_type,
-                oryn_net::TextResourceKind::JavaScript,
-            );
+            let source = decode_page_script(&response.body, content_type)?;
             return Ok(ContextServiceResponse::ScriptSource {
                 url: url.to_string(),
                 source,
@@ -2820,6 +2966,7 @@ pub(crate) fn serve_context_transport(
     let mut reader = BufReader::new(reader_stream);
     let writer = Arc::new(Mutex::new(stream));
     let mut last_message_id = 0_u64;
+    let dispatch_limit = ContextDispatchLimit::default();
     loop {
         let mut line = Vec::new();
         let read = read_bounded_line(&mut reader, &mut line, MAX_CONTEXT_FRAME_BYTES)
@@ -2828,50 +2975,91 @@ pub(crate) fn serve_context_transport(
             break;
         }
         let request = serde_json::from_slice::<RequestEnvelope>(&line);
-        let (message_id, request, error) = match request {
+        let (message_id, route, request, error) = match request {
             Ok(envelope)
                 if envelope.protocol_version == CONTEXT_SERVICE_PROTOCOL_VERSION
                     && envelope.message_id > last_message_id =>
             {
                 last_message_id = envelope.message_id;
-                (envelope.message_id, Some(envelope.request), None)
+                (
+                    envelope.message_id,
+                    envelope.route,
+                    Some(envelope.request),
+                    None,
+                )
             }
             Ok(envelope) => (
                 envelope.message_id,
+                envelope.route,
                 None,
                 Some("duplicate message id or unsupported context protocol".into()),
             ),
-            Err(error) => (0, None, Some(format!("malformed context request: {error}"))),
+            Err(error) => (
+                0,
+                None,
+                None,
+                Some(format!("malformed context request: {error}")),
+            ),
         };
         let service = service.clone();
         let writer = writer.clone();
-        std::thread::spawn(move || -> Result<(), RuntimeError> {
-            let (response, error) = if let Some(request) = request {
-                match service.request(request) {
-                    Ok(response) => (Some(response), None),
-                    Err(error) => (None, Some(error.to_string())),
+        let permit = match dispatch_limit.admit() {
+            Ok(permit) => permit,
+            Err(error) => {
+                // Do not queue another task (or a potentially blocking error
+                // response) for an over-budget peer. Close the channel so all
+                // pending client operations fail, without taking the writer lock.
+                let _ = reader.get_ref().shutdown(Shutdown::Both);
+                return Err(error);
+            }
+        };
+        std::thread::Builder::new()
+            .name("oryn-context-dispatch".into())
+            .spawn(move || -> Result<(), RuntimeError> {
+                let _permit = permit;
+                let (response, error) = if let Some(request) = request {
+                    match service.request_routed(route.as_ref(), request) {
+                        Ok(response) => (Some(response), None),
+                        Err(error) => (None, Some(error.to_string())),
+                    }
+                } else {
+                    (None, error)
+                };
+                let mut writer = writer.lock().map_err(|_| {
+                    RuntimeError::ContextService("context writer lock poisoned".into())
+                })?;
+                // Serialize under the writer lock: at most one bounded encoded
+                // response buffer is retained by this channel, not one per dispatch.
+                let encoded = encode_context_response(
+                    ResponseEnvelope {
+                        protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
+                        route,
+                        correlation_id: message_id,
+                        response,
+                        error,
+                    },
+                    MAX_CONTEXT_FRAME_BYTES,
+                );
+                let encoded = match encoded {
+                    Ok(encoded) => encoded,
+                    Err(error) => {
+                        let _ = writer.shutdown(Shutdown::Both);
+                        return Err(error);
+                    }
+                };
+                let written = writer
+                    .write_all(&encoded)
+                    .and_then(|_| writer.flush())
+                    .map_err(|error| RuntimeError::ContextService(error.to_string()));
+                if written.is_err() {
+                    let _ = writer.shutdown(Shutdown::Both);
                 }
-            } else {
-                (None, error)
-            };
-            let mut writer = writer
-                .lock()
-                .map_err(|_| RuntimeError::ContextService("context writer lock poisoned".into()))?;
-            serde_json::to_writer(
-                &mut *writer,
-                &ResponseEnvelope {
-                    protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
-                    correlation_id: message_id,
-                    response,
-                    error,
-                },
-            )
-            .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
-            writer
-                .write_all(b"\n")
-                .and_then(|_| writer.flush())
-                .map_err(|error| RuntimeError::ContextService(error.to_string()))
-        });
+                written
+            })
+            .map_err(|error| {
+                let _ = reader.get_ref().shutdown(Shutdown::Both);
+                RuntimeError::ContextService(format!("context dispatch thread: {error}"))
+            })?;
     }
     Ok(())
 }
@@ -3079,12 +3267,261 @@ mod tests {
     };
 
     #[test]
+    fn page_script_loader_accepts_bundles_above_old_cap_and_rejects_over_budget() {
+        struct ScriptNetwork;
+        impl NetworkBroker for ScriptNetwork {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                let size = if request.url.ends_with("large.js") {
+                    MAX_PAGE_SCRIPT_BYTES + 1
+                } else {
+                    2 * 1024 * 1024
+                };
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), "text/javascript".into())],
+                    body: vec![b' '; size],
+                })
+            }
+        }
+        let context = Browser::new().new_context();
+        let page = context.new_page();
+        context
+            .commit_page_url(page.page_id(), "https://example.test/".into())
+            .unwrap();
+        let service = ParentContextService::new_with_network(
+            context,
+            page.page_id(),
+            Some(SharedNetworkBroker::new(ScriptNetwork)),
+        );
+        let load = |path| service.load_page_script(page.page_id(), path, false, None, None, None);
+        assert!(
+            matches!(load("/bundle.js").unwrap(), ContextServiceResponse::ScriptSource { source, .. } if source.len() == 2 * 1024 * 1024)
+        );
+        assert!(load("/large.js").is_err());
+    }
+
+    #[test]
+    fn page_script_budget_bounds_bytes_and_decoded_source() {
+        assert_eq!(
+            decode_page_script(&vec![b' '; MAX_PAGE_SCRIPT_BYTES], None)
+                .unwrap()
+                .len(),
+            MAX_PAGE_SCRIPT_BYTES
+        );
+        assert!(decode_page_script(&vec![b' '; MAX_PAGE_SCRIPT_BYTES + 1], None).is_err());
+        assert!(
+            decode_page_script(
+                &vec![0x80; MAX_PAGE_SCRIPT_BYTES / 3 + 1],
+                Some("text/javascript; charset=windows-1252")
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn response_frame_budget_includes_json_expansion_and_delimiter() {
+        let route = WorkerRoute::issue(7, 8, 9).unwrap();
+        let make = |value: String| ResponseEnvelope {
+            protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
+            route: Some(route.clone()),
+            correlation_id: 42,
+            response: Some(ContextServiceResponse::DocumentCookie { value }),
+            error: None,
+        };
+        let response = make("ordinary".into());
+        let exact = serde_json::to_vec(&response).unwrap().len() + 1;
+        assert_eq!(
+            encode_context_response(response, exact).unwrap().len(),
+            exact
+        );
+        let encoded = encode_context_response(make("\0".repeat(512)), 1024).unwrap();
+        assert!(encoded.len() <= 1024);
+        assert_eq!(encoded.last(), Some(&b'\n'));
+        let decoded: ResponseEnvelope = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded.route, Some(route.clone()));
+        assert_eq!(decoded.correlation_id, 42);
+        assert!(decoded.response.is_none());
+        assert!(decoded.error.unwrap().contains("frame budget"));
+        assert!(encode_context_response(make("large".repeat(512)), 1).is_err());
+    }
+
+    #[test]
+    fn oversized_response_does_not_corrupt_following_response() {
+        struct OversizedOnce(AtomicBool);
+        impl ContextTransport for OversizedOnce {
+            fn request(
+                &self,
+                _: ContextServiceRequest,
+            ) -> Result<ContextServiceResponse, RuntimeError> {
+                Ok(ContextServiceResponse::ReferrerPolicy {
+                    value: if self.0.swap(false, Ordering::SeqCst) {
+                        "\0".repeat(MAX_CONTEXT_FRAME_BYTES / 6)
+                    } else {
+                        "ok".into()
+                    },
+                })
+            }
+        }
+        let (worker, parent) = UnixStream::pair().unwrap();
+        worker
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let server = std::thread::spawn(move || {
+            serve_context_transport(parent, Arc::new(OversizedOnce(AtomicBool::new(true))))
+        });
+        let mut client = IpcContextClient::new(worker);
+        let request = || ContextServiceRequest::GetReferrerPolicy { page_id: PageId(1) };
+        assert!(
+            matches!(client.request(request()), Err(RuntimeError::ContextService(error)) if error.contains("frame budget"))
+        );
+        assert!(
+            matches!(client.request(request()).unwrap(), ContextServiceResponse::ReferrerPolicy { value } if value == "ok")
+        );
+        drop(client);
+        server.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn parent_dispatch_limit_releases_capacity_on_every_drop() {
+        let limit = ContextDispatchLimit::default();
+        let mut permits = (0..MAX_PARENT_CONTEXT_OPERATIONS)
+            .map(|_| limit.admit().unwrap())
+            .collect::<Vec<_>>();
+        assert!(matches!(
+            limit.admit(),
+            Err(RuntimeError::WorkerLimitExceeded { .. })
+        ));
+        permits.pop();
+        let replacement = limit.admit().unwrap();
+        assert!(limit.admit().is_err());
+        drop(permits);
+        drop(replacement);
+        assert_eq!(limit.0.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn raw_context_peer_cannot_bypass_parent_dispatch_limit() {
+        struct BlockedService(Arc<(Mutex<bool>, std::sync::Condvar)>);
+        impl ContextTransport for BlockedService {
+            fn request(
+                &self,
+                _: ContextServiceRequest,
+            ) -> Result<ContextServiceResponse, RuntimeError> {
+                let (lock, changed) = &*self.0;
+                let guard = lock.lock().unwrap();
+                drop(changed.wait_while(guard, |released| !*released).unwrap());
+                Err(RuntimeError::ContextService("released test service".into()))
+            }
+        }
+        struct Release(Arc<(Mutex<bool>, std::sync::Condvar)>);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                *self.0.0.lock().unwrap() = true;
+                self.0.1.notify_all();
+            }
+        }
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let _release = Release(gate.clone());
+        let (mut worker, parent) = UnixStream::pair().unwrap();
+        worker
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let (finished, result) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let _ = finished.send(serve_context_transport(
+                parent,
+                Arc::new(BlockedService(gate)),
+            ));
+        });
+        for message_id in 1..=MAX_PARENT_CONTEXT_OPERATIONS as u64 + 1 {
+            serde_json::to_writer(
+                &mut worker,
+                &RequestEnvelope {
+                    protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
+                    route: None,
+                    message_id,
+                    request: ContextServiceRequest::GetReferrerPolicy { page_id: PageId(1) },
+                },
+            )
+            .unwrap();
+            worker.write_all(b"\n").unwrap();
+        }
+        assert!(matches!(
+            result.recv_timeout(Duration::from_secs(5)).unwrap(),
+            Err(RuntimeError::WorkerLimitExceeded { .. })
+        ));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn context_message_exhaustion_rejects_before_writing() {
+        let (worker, mut parent) = UnixStream::pair().unwrap();
+        parent.set_nonblocking(true).unwrap();
+        let mut client = IpcContextClient::new(worker);
+        client.next_message_id = u64::MAX;
+        for _ in 0..2 {
+            assert!(matches!(
+                client.request(ContextServiceRequest::GetReferrerPolicy { page_id: PageId(1) }),
+                Err(RuntimeError::ProtocolViolation(_))
+            ));
+            assert_eq!(client.next_message_id, u64::MAX);
+        }
+        let mut byte = [0];
+        assert_eq!(
+            parent.read(&mut byte).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn context_reply_correlation_does_not_replace_route_authentication() {
+        let (worker, mut parent) = UnixStream::pair().unwrap();
+        parent
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let server = std::thread::spawn(move || {
+            let mut reader = BufReader::new(parent.try_clone().unwrap());
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            let request: RequestEnvelope = serde_json::from_slice(&line).unwrap();
+            let route = request.route.unwrap();
+            let forged =
+                WorkerRoute::issue(route.process_session, route.environment, route.generation)
+                    .unwrap();
+            serde_json::to_writer(
+                &mut parent,
+                &ResponseEnvelope {
+                    protocol_version: CONTEXT_SERVICE_PROTOCOL_VERSION,
+                    route: Some(forged),
+                    correlation_id: request.message_id,
+                    response: Some(ContextServiceResponse::ReferrerPolicy {
+                        value: "unsafe-url".into(),
+                    }),
+                    error: None,
+                },
+            )
+            .unwrap();
+            parent.write_all(b"\n").unwrap();
+        });
+        let client = SharedContextClient::new(IpcContextClient::new(worker))
+            .for_route(WorkerRoute::issue(1, 1, 0).unwrap());
+        assert!(
+            client
+                .request(ContextServiceRequest::GetReferrerPolicy { page_id: PageId(1) })
+                .is_err()
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
     fn indexeddb_request_envelope_preserves_numeric_keys_and_values() {
         use crate::storage::{IdbCommand, IdbWrite, StorageRequest};
 
         for number in [9007199254740991.0_f64, 9007199254740992.0, 0.1, -0.1] {
             let envelope = RequestEnvelope {
                 protocol_version: 1,
+                route: None,
                 message_id: 7,
                 request: ContextServiceRequest::Storage {
                     request: StorageRequest::IndexedDb {
@@ -3542,6 +3979,13 @@ mod tests {
             panic!("unexpected stream response");
         };
         assert_eq!(total_bytes, Some(150_000));
+        assert!(matches!(
+            service.handle(ContextServiceRequest::HttpStreamAbort {
+                page_id: PageId(92),
+                stream_id
+            }),
+            Err(RuntimeError::ContextService(_))
+        ));
         assert_eq!(
             headers,
             vec![("Content-Type".into(), "application/octet-stream".into())]
@@ -3575,6 +4019,12 @@ mod tests {
         }
         assert_eq!(bytes, 150_000);
         assert_eq!(chunks, 3);
+        for _ in 0..2 {
+            assert!(matches!(
+                service.handle(ContextServiceRequest::HttpStreamAbort { page_id, stream_id }),
+                Ok(ContextServiceResponse::HttpStreamAborted)
+            ));
+        }
         assert!(matches!(
             service.handle(ContextServiceRequest::HttpStreamRead {
                 page_id: PageId(92),

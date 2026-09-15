@@ -3867,6 +3867,15 @@ impl BrowserContext {
             .ok_or(RuntimeError::PageNotFound(page_id))?;
         page.close().await
     }
+
+    pub(crate) async fn close_page_from_script(&self, page_id: PageId) -> Result<(), RuntimeError> {
+        let page = self
+            .inner
+            .group
+            .handle(page_id)
+            .ok_or(RuntimeError::PageNotFound(page_id))?;
+        page.close_ordered().await
+    }
 }
 
 impl PageHandle {
@@ -5192,6 +5201,13 @@ impl PageHandle {
             }
             return Ok(());
         }
+        self.close_ordered().await
+    }
+
+    // Script closure must queue behind the current command: killing that command
+    // loses its action acknowledgement (notably when an OAuth popup closes itself).
+    // Explicit host closure above retains its ability to interrupt stuck scripts.
+    async fn close_ordered(&self) -> Result<(), RuntimeError> {
         #[cfg(unix)]
         if let Some(worker) = &self.worker {
             return match worker.close()? {
@@ -5387,6 +5403,8 @@ struct PageState {
     #[cfg(feature = "v8-host")]
     layout: Option<oryn_layout::LayoutOutput>,
     #[cfg(feature = "v8-host")]
+    layout_input_cache: Option<(u64, oryn_layout::LayoutInput)>,
+    #[cfg(feature = "v8-host")]
     style_engine: oryn_layout::StyleEngine,
     #[cfg(feature = "v8-host")]
     color_scheme: PreferredColorScheme,
@@ -5509,6 +5527,8 @@ impl PageState {
             web_fonts: Vec::new(),
             #[cfg(feature = "v8-host")]
             layout: None,
+            #[cfg(feature = "v8-host")]
+            layout_input_cache: None,
             #[cfg(feature = "v8-host")]
             style_engine: oryn_layout::StyleEngine::default(),
             #[cfg(feature = "v8-host")]
@@ -6005,6 +6025,10 @@ impl PageState {
         if post.is_none()
             && !matches!(history_update, HistoryUpdate::Reload)
             && self.document.is_some()
+            // Only a destination with a fragment can take the fragment-only
+            // navigation path. Following the current URL without a fragment
+            // loads a new document, even when its URL is unchanged.
+            && current.fragment().is_some()
             && same_document_url(&self.url, current.as_str())
         {
             #[cfg(feature = "v8-host")]
@@ -7861,6 +7885,20 @@ impl PageState {
             max_page_font_bytes: self.config.max_page_font_bytes,
             max_viewport_css_px: f64::from(self.config.max_viewport_css_px),
         };
+        // Compare the complete native input, not just semantic revision: focus,
+        // CSSOM, validation state, fonts, media, and viewport can affect layout
+        // without changing an accessible name. Keep only one input per page.
+        if self.layout.is_some()
+            && self
+                .layout_input_cache
+                .as_ref()
+                .is_some_and(|(generation, previous)| {
+                    *generation == self.document_generation && previous == &input
+                })
+        {
+            self.sync_executable_semantics();
+            return Ok(());
+        }
         let output = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.style_engine.compute(&input, &limits)
         })) {
@@ -7932,6 +7970,10 @@ impl PageState {
         }
         self.semantic_graph
             .apply_geometry_visibility(&output.geometry);
+        // A transient panic fallback has no geometry; never turn it into a
+        // reusable result that would prevent a later successful computation.
+        self.layout_input_cache =
+            (!output.geometry.is_empty()).then_some((self.document_generation, input));
         self.layout = Some(output);
         Ok(())
     }
@@ -8629,9 +8671,7 @@ impl PageState {
         }
         if target_requires_geometry(target) {
             #[cfg(feature = "v8-host")]
-            if self.layout.is_none() {
-                self.refresh_layout()?;
-            }
+            self.refresh_layout()?;
         }
         #[cfg(feature = "v8-host")]
         let geometry = self.layout.as_ref().map(|layout| &layout.geometry);
@@ -8641,7 +8681,15 @@ impl PageState {
             .resolve(target, action, Revision(self.revision), geometry)
             .map_err(|error| match error {
                 crate::semantic::SemanticResolutionError::NotFound => {
-                    RuntimeError::StaleSemanticRef
+                    if matches!(
+                        target,
+                        oryn_common::agent::Target::Reference { .. }
+                            | oryn_common::agent::Target::Alias { .. }
+                    ) {
+                        RuntimeError::StaleSemanticRef
+                    } else {
+                        RuntimeError::Semantic("no matching actionable target".into())
+                    }
                 }
                 crate::semantic::SemanticResolutionError::Ambiguous(candidates) => {
                     RuntimeError::AmbiguousTarget { candidates }
@@ -8666,9 +8714,14 @@ impl PageState {
             .document
             .as_ref()
             .ok_or(RuntimeError::StaleSemanticRef)?;
-        let roots = selector
-            .map(|selector| selector_nodes(document, selector).collect::<Vec<_>>())
-            .unwrap_or_else(|| vec![document.document]);
+        let (roots, scoped_nodes) = extraction_scope(document, selector);
+        let elements = |tag: &'static str| {
+            scoped_nodes.iter().copied().filter_map(move |id| {
+                let node = document.dom.get(id).ok()?;
+                matches!(&node.kind, crate::dom::NodeKind::Element { name } if name.local.as_ref() == tag)
+                    .then_some((id, node))
+            })
+        };
         match kind {
             ContentKind::Html => Ok(serde_json::Value::String(
                 roots
@@ -8688,12 +8741,7 @@ impl PageState {
                     .join(" "),
             )),
             ContentKind::Links => Ok(serde_json::Value::Array(
-                document
-                    .dom
-                    .iter()
-                    .filter(|(_, node)| {
-                        matches!(&node.kind, crate::dom::NodeKind::Element { name } if name.local.as_ref() == "a")
-                    })
+                elements("a")
                     .map(|(id, node)| {
                         serde_json::json!({
                             "text": document.dom.text_content(id).unwrap_or_default(),
@@ -8703,12 +8751,7 @@ impl PageState {
                     .collect(),
             )),
             ContentKind::Images => Ok(serde_json::Value::Array(
-                document
-                    .dom
-                    .iter()
-                    .filter(|(_, node)| {
-                        matches!(&node.kind, crate::dom::NodeKind::Element { name } if name.local.as_ref() == "img")
-                    })
+                elements("img")
                     .map(|(_, node)| {
                         serde_json::json!({
                             "src": node.attributes.get_null("src").cloned().unwrap_or_default(),
@@ -8718,12 +8761,7 @@ impl PageState {
                     .collect(),
             )),
             ContentKind::Tables => Ok(serde_json::Value::Array(
-                document
-                    .dom
-                    .iter()
-                    .filter(|(_, node)| {
-                        matches!(&node.kind, crate::dom::NodeKind::Element { name } if name.local.as_ref() == "table")
-                    })
+                elements("table")
                     .map(|(table, _)| {
                         serde_json::Value::Array(
                             descendants_of(&document.dom, table)
@@ -8731,7 +8769,7 @@ impl PageState {
                                 .filter(|id| {
                                     document.dom.get(*id).is_ok_and(|node| {
                                         matches!(&node.kind, crate::dom::NodeKind::Element { name } if name.local.as_ref() == "tr")
-                                    })
+                                    }) && nearest_table_ancestor(&document.dom, *id) == Some(table)
                                 })
                                 .map(|row| {
                                     serde_json::Value::Array(
@@ -8785,13 +8823,18 @@ impl PageState {
                 },
             );
         }
-        let document = executable.document.clone();
+        let mut document = executable.document.clone();
         if truncated {
             self.semantic_graph
                 .reset(&document.dom, self.document_generation);
         } else if !mutations.is_empty() {
             self.semantic_graph
                 .apply_mutations(&document.dom, &mutations);
+        }
+        if let Err(error) = executable.populate_semantic_control_state(&mut self.semantic_graph) {
+            document
+                .errors
+                .push(format!("native control state unavailable: {error}"));
         }
         self.document = Some(document);
     }
@@ -9225,9 +9268,10 @@ impl PageState {
         let _ = target;
         #[cfg(feature = "v8-host")]
         {
-            if self.layout.is_none() {
-                self.refresh_layout()?;
-            }
+            // A readiness checkpoint can run author callbacks after computing
+            // its layout. Flush again at the action boundary so hit testing
+            // cannot use boxes/styles from before those DOM mutations.
+            self.refresh_layout()?;
             let first = self
                 .layout
                 .as_ref()
@@ -9910,110 +9954,17 @@ fn selector_nodes<'a>(
     document: &'a ParsedDocument,
     selector: &'a str,
 ) -> impl Iterator<Item = crate::dom::NodeId> + 'a {
-    document
-        .dom
-        .iter()
-        .filter_map(move |(id, node)| matches_css_subject(node, selector).then_some(id))
-}
-
-fn matches_css_subject(node: &crate::dom::Node, selector: &str) -> bool {
-    let crate::dom::NodeKind::Element { name } = &node.kind else {
-        return false;
-    };
-    let subject = css_subject(selector);
-    let (subject, excluded_class) = subject
-        .split_once(":not(.")
-        .map(|(base, excluded)| (base, Some(excluded.trim_end_matches(')'))))
-        .unwrap_or((subject, None));
-    if excluded_class.is_some_and(|excluded| has_class(node, excluded)) {
-        return false;
-    }
-    let attribute_start = subject.find('[');
-    let simple = &subject[..attribute_start.unwrap_or(subject.len())];
-    let mut remainder = attribute_start.map(|index| &subject[index..]).unwrap_or("");
-    while let Some(open) = remainder.find('[') {
-        let after_open = &remainder[open + 1..];
-        let Some(close) = after_open.find(']') else {
-            return false;
-        };
-        let attribute = &after_open[..close];
-        let (key, expected, contains) = if let Some((key, value)) = attribute.split_once("*=") {
-            (key, Some(value.trim_matches(['\"', '\''])), true)
-        } else if let Some((key, value)) = attribute.split_once('=') {
-            (key, Some(value.trim_matches(['\"', '\''])), false)
-        } else {
-            (attribute, None, false)
-        };
-        let Some(actual) = node.attributes.get_null(key) else {
-            return false;
-        };
-        if expected.is_some_and(|expected| {
-            if contains {
-                !actual.contains(expected)
-            } else {
-                actual != expected
-            }
-        }) {
-            return false;
-        }
-        remainder = &after_open[close + 1..];
-    }
-    let mut tag_end = simple.len();
-    for marker in ['#', '.'] {
-        if let Some(index) = simple.find(marker) {
-            tag_end = tag_end.min(index);
-        }
-    }
-    let tag = &simple[..tag_end];
-    if !tag.is_empty() && !name.local.as_ref().eq_ignore_ascii_case(tag) {
-        return false;
-    }
-    if let Some(id_start) = simple.find('#') {
-        let id = simple[id_start + 1..].split('.').next().unwrap_or_default();
-        if node
-            .attributes
-            .get_null("id")
-            .is_none_or(|value| value != id)
-        {
-            return false;
-        }
-    }
-    for class in simple.split('.').skip(1) {
-        if !has_class(node, class) {
-            return false;
-        }
-    }
-    true
-}
-
-fn css_subject(selector: &str) -> &str {
-    let mut bracket_depth = 0_u32;
-    let mut quote = None;
-    let mut subject_start = 0;
-    for (index, character) in selector.char_indices() {
-        if let Some(active_quote) = quote {
-            if character == active_quote {
-                quote = None;
-            }
-            continue;
-        }
-        match character {
-            '"' | '\'' if bracket_depth > 0 => quote = Some(character),
-            '[' => bracket_depth += 1,
-            ']' => bracket_depth = bracket_depth.saturating_sub(1),
-            character if character.is_whitespace() && bracket_depth == 0 => {
-                subject_start = index + character.len_utf8();
-            }
-            _ => {}
-        }
-    }
-    selector[subject_start..].trim()
-}
-
-fn has_class(node: &crate::dom::Node, class: &str) -> bool {
-    node.attributes
-        .get_null("class")
-        .is_some_and(|classes| classes.split_whitespace().any(|item| item == class))
+    document.dom.iter().filter_map(move |(id, _)| {
+        selector
+            .split(',')
+            .any(|selector| {
+                document
+                    .dom
+                    .matches_selector_chain(id, selector.trim(), None)
+                    .unwrap_or(false)
+            })
+            .then_some(id)
+    })
 }
 
 fn descendants_of(dom: &crate::dom::DomArena, root: crate::dom::NodeId) -> Vec<crate::dom::NodeId> {
@@ -10022,6 +9973,7 @@ fn descendants_of(dom: &crate::dom::DomArena, root: crate::dom::NodeId) -> Vec<c
         .get(root)
         .map(|node| node.children.clone())
         .unwrap_or_default();
+    pending.reverse();
     while let Some(id) = pending.pop() {
         result.push(id);
         if let Ok(node) = dom.get(id) {
@@ -10029,6 +9981,66 @@ fn descendants_of(dom: &crate::dom::DomArena, root: crate::dom::NodeId) -> Vec<c
         }
     }
     result
+}
+
+/// Extraction is rooted in the current Document, never the allocation arena.
+/// Hosted/inert documents and detached nodes can share that arena without being
+/// part of this document's DOM tree. Overlapping scopes must not duplicate links,
+/// images or tables, and allocation order must not override current tree order.
+fn extraction_scope(
+    document: &ParsedDocument,
+    selector: Option<&str>,
+) -> (Vec<crate::dom::NodeId>, Vec<crate::dom::NodeId>) {
+    let tree = std::iter::once(document.document)
+        .chain(descendants_of(&document.dom, document.document))
+        .collect::<Vec<_>>();
+    let roots = match selector {
+        Some(selector) => tree
+            .iter()
+            .copied()
+            .filter(|id| {
+                selector.split(',').any(|part| {
+                    document
+                        .dom
+                        .matches_selector_chain(*id, part.trim(), None)
+                        .unwrap_or(false)
+                })
+            })
+            .collect::<Vec<_>>(),
+        None => vec![document.document],
+    };
+    let root_set = roots.iter().copied().collect::<BTreeSet<_>>();
+    let mut included = BTreeSet::new();
+    let mut scoped = Vec::new();
+    for id in tree {
+        let parent_in_scope = document
+            .dom
+            .get(id)
+            .ok()
+            .and_then(|node| node.parent)
+            .is_some_and(|parent| included.contains(&parent));
+        if root_set.contains(&id) || parent_in_scope {
+            included.insert(id);
+            scoped.push(id);
+        }
+    }
+    (roots, scoped)
+}
+
+fn nearest_table_ancestor(
+    dom: &crate::dom::DomArena,
+    node: crate::dom::NodeId,
+) -> Option<crate::dom::NodeId> {
+    let mut current = dom.get(node).ok()?.parent;
+    while let Some(id) = current {
+        let node = dom.get(id).ok()?;
+        if matches!(&node.kind, crate::dom::NodeKind::Element { name } if name.local.as_ref() == "table")
+        {
+            return Some(id);
+        }
+        current = node.parent;
+    }
+    None
 }
 
 fn serialize_dom_node(dom: &crate::dom::DomArena, id: crate::dom::NodeId) -> String {
@@ -10362,6 +10374,122 @@ fn page_poll_delay(timer_delay: Option<Duration>, pending_work: bool) -> Duratio
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test(flavor = "current_thread")]
+    async fn structured_extraction_obeys_scope_and_document_order() {
+        let page = super::Browser::new().new_context().new_page();
+        page.load_html(
+            "https://research.test/",
+            r#"
+            <a href=/outside>Outside</a><img alt=outside>
+            <table><tr><td>Outside</td></tr></table>
+            <section id=results>
+              <a href=/first>First</a><a href=/second>Second</a><img alt=inside>
+              <table id=facts><tr><th>Item</th><th>Value</th></tr>
+                <tr><td>First</td><td>11</td></tr><tr><td>Second</td><td>22</td></tr>
+              </table>
+            </section>"#,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            page.extract(
+                super::ContentKind::Links,
+                Some("#results, #results a".into())
+            )
+            .await
+            .unwrap(),
+            serde_json::json!([{"text":"First","href":"/first"},{"text":"Second","href":"/second"}])
+        );
+        assert_eq!(
+            page.extract(super::ContentKind::Images, Some("#results".into()))
+                .await
+                .unwrap(),
+            serde_json::json!([{"src":"","alt":"inside"}])
+        );
+        assert_eq!(
+            page.extract(super::ContentKind::Tables, Some("#facts".into()))
+                .await
+                .unwrap(),
+            serde_json::json!([[["Item", "Value"], ["First", "11"], ["Second", "22"]]])
+        );
+        for kind in [
+            super::ContentKind::Links,
+            super::ContentKind::Images,
+            super::ContentKind::Tables,
+        ] {
+            assert_eq!(
+                page.extract(kind, Some("#missing".into())).await.unwrap(),
+                serde_json::json!([])
+            );
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn extraction_excludes_detached_and_other_document_nodes() {
+        let page = super::Browser::new().new_context().new_page();
+        page.load_html(
+            "https://research.test/",
+            "<main><a href=/live>Live</a></main>",
+        )
+        .await
+        .unwrap();
+        page.evaluate(r#"
+            globalThis.detached = document.createElement('section');
+            detached.id = 'private';
+            detached.innerHTML = '<a href=/detached>Detached</a><img alt=detached><table><tr><td>Detached</td></tr></table>';
+            globalThis.other = document.implementation.createHTMLDocument('Other');
+            other.body.innerHTML = '<section id=private><a href=/other>Other</a><img alt=other><table><tr><td>Other</td></tr></table></section>';
+            true
+        "#).await.unwrap();
+        assert_eq!(
+            page.extract(super::ContentKind::Links, None).await.unwrap(),
+            serde_json::json!([{"text":"Live","href":"/live"}])
+        );
+        for kind in [
+            super::ContentKind::Links,
+            super::ContentKind::Images,
+            super::ContentKind::Tables,
+        ] {
+            assert_eq!(
+                page.extract(kind, Some("#private".into())).await.unwrap(),
+                serde_json::json!([])
+            );
+        }
+        for kind in [super::ContentKind::Text, super::ContentKind::Html] {
+            assert_eq!(
+                page.extract(kind, Some("#private".into())).await.unwrap(),
+                serde_json::json!("")
+            );
+        }
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn extraction_uses_live_order_and_separates_nested_tables() {
+        let page = super::Browser::new().new_context().new_page();
+        page.load_html("https://research.test/", r#"
+            <section id=results><a id=first href=/first>First</a><a id=second href=/second>Second</a></section>
+            <table id=outer><tbody><tr><td>A</td></tr></tbody><tbody>
+              <tr><td>B<table id=inner><tr><td>C</td></tr></table></td></tr>
+            </tbody></table>"#).await.unwrap();
+        page.evaluate(
+            "document.querySelector('#results').prepend(document.querySelector('#second')); true",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            page.extract(super::ContentKind::Links, None).await.unwrap(),
+            serde_json::json!([{"text":"Second","href":"/second"},{"text":"First","href":"/first"}])
+        );
+        assert_eq!(
+            page.extract(super::ContentKind::Tables, Some("#outer, #inner".into()))
+                .await
+                .unwrap(),
+            serde_json::json!([[["A"], ["BC"]], [["C"]]])
+        );
+    }
+
     #[test]
     fn page_poll_respects_timer_deadlines_and_bounds_idle_polling() {
         use super::page_poll_delay;
@@ -10398,6 +10526,43 @@ mod tests {
             .await
             .unwrap();
         sibling.close().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn script_close_does_not_interrupt_but_host_close_can_cancel_inflight_worker() {
+        struct ChildGuard(std::process::Child);
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        // Model an in-flight command without needing a signed executable. The
+        // client is intentionally empty; this test isolates cancellation policy.
+        let mut process = ChildGuard(
+            std::process::Command::new("/bin/sleep")
+                .arg("30")
+                .spawn()
+                .expect("start cancellation sentinel"),
+        );
+        let mut browser = Browser::new();
+        browser.worker_process = true;
+        let context = browser.new_context();
+        let page = context.new_page();
+        let worker = page.worker.as_ref().unwrap();
+        worker.pending.store(1, Ordering::Release);
+        worker.process_id.store(process.0.id(), Ordering::Release);
+        context
+            .close_page_from_script(page.page_id())
+            .await
+            .unwrap();
+        assert!(process.0.try_wait().unwrap().is_none());
+        page.close().await.unwrap();
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(process.0.wait().unwrap().signal(), Some(libc::SIGKILL));
+        worker.process_id.store(0, Ordering::Release);
+        worker.pending.store(0, Ordering::Release);
     }
 
     use std::{
@@ -11113,6 +11278,61 @@ mod tests {
                 .as_str()
                 .is_some_and(|text| text.contains("Users"))
         );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn same_url_without_fragment_loads_a_new_document() {
+        struct Receipt(Arc<Mutex<usize>>);
+        impl NetworkBroker for Receipt {
+            fn send(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkResponse, crate::network::NetworkError> {
+                *self.0.lock().unwrap() += 1;
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: vec![("content-type".into(), "text/html".into())],
+                    body: br##"<a href='/receipt'>Reload receipt</a><a href='#'>Fragment</a>"##
+                        .to_vec(),
+                })
+            }
+        }
+        let requests = Arc::new(Mutex::new(0));
+        let context = Browser::in_process_with_config(BrowserConfig::default())
+            .new_context_with_broker(
+                ContextOptions::default(),
+                SharedNetworkBroker::new(Receipt(requests.clone())),
+            );
+        let page = context.new_page();
+        page.goto("https://forms.test/receipt").await.unwrap();
+        // Both identical no-fragment URLs and removal of an existing fragment
+        // require a network load. An empty fragment is still a fragment.
+        for name in ["Reload receipt", "Fragment", "Reload receipt"] {
+            let before = page.observe().await.unwrap();
+            let count = *requests.lock().unwrap();
+            let target = before
+                .nodes
+                .iter()
+                .find(|node| node.name == name)
+                .unwrap()
+                .semantic_ref;
+            page.execute(NativeAction {
+                target,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .unwrap();
+            let after = page.observe().await.unwrap();
+            let reload = name == "Reload receipt";
+            assert_eq!(*requests.lock().unwrap(), count + usize::from(reload));
+            assert_eq!(
+                before.page.document_generation != after.page.document_generation,
+                reload
+            );
+        }
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -11832,12 +12052,21 @@ mod tests {
             f.onsubmit=e=>{e.preventDefault();const data=new FormData(f,i);globalThis.coords=data.get('x')+','+data.get('y')};
             window.addEventListener('load',()=>{const r=i.getBoundingClientRect();globalThis.sizes=r.width+'|'+r.height;i.dispatchEvent(new MouseEvent('click',{clientX:Math.round((r.left+r.right)/7),clientY:Math.round((r.top+r.bottom)/4)}))});
         </script>"#).await.unwrap();
+        // load_html commits the document without blocking the actor on image
+        // I/O. This assertion examines values produced by the load handler,
+        // so synchronize with that lifecycle event rather than thread timing.
+        page.wait_for(WaitPredicate::Lifecycle(LifecycleState::Load))
+            .await
+            .unwrap();
         assert_eq!(
             page.evaluate("sizes+'|'+coords").await.unwrap(),
             "200|200|23,46"
         );
         let images = "<img src=/map.svg>".repeat(40);
         page.load_html("https://images.test/many", &format!("{images}<script>window.addEventListener('load',()=>{{globalThis.loadedImages=Array.from(document.images).filter(image=>image.naturalWidth===200).length}})</script>")).await.unwrap();
+        page.wait_for(WaitPredicate::Lifecycle(LifecycleState::Load))
+            .await
+            .unwrap();
         assert_eq!(page.evaluate("loadedImages").await.unwrap(), "40");
         page.close().await.unwrap();
     }
@@ -14439,6 +14668,250 @@ mod tests {
         })
         .await
         .expect("top control remains interactable after navigation");
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn layout_reuses_identical_inputs_and_invalidates_style_changes() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://layout.example.test/cache", "<style>button{width:100px}button:focus{width:120px}</style><button id=target>Ready</button>").await.unwrap();
+        let options = ObservationOptions {
+            profile: ProjectionProfile::Full,
+            include_geometry: true,
+            viewport_only: false,
+            include_hidden: true,
+        };
+        let initial = page.observe_with(options).await.unwrap();
+        let unchanged = page.observe_with(options).await.unwrap();
+        assert_eq!(initial.layout_revision, unchanged.layout_revision);
+        page.evaluate("document.getElementById('target').focus()")
+            .await
+            .unwrap();
+        let focused = page.observe_with(options).await.unwrap();
+        assert!(focused.layout_revision.0 > unchanged.layout_revision.0);
+        let target = focused
+            .nodes
+            .iter()
+            .find(|node| node.semantic.name == "Ready")
+            .unwrap()
+            .semantic
+            .semantic_ref;
+        for _ in 0..10 {
+            page.execute(NativeAction {
+                target,
+                action: SemanticAction::Click,
+                value: None,
+            })
+            .await
+            .unwrap();
+        }
+        let clicked = page.observe_with(options).await.unwrap();
+        let settled = page.observe_with(options).await.unwrap();
+        assert_eq!(clicked.layout_revision, settled.layout_revision);
+        page.evaluate("document.getElementById('target').style.pointerEvents='none'")
+            .await
+            .unwrap();
+        let changed = page.observe_with(options).await.unwrap();
+        assert!(changed.layout_revision.0 > settled.layout_revision.0);
+        assert!(matches!(
+            page.execute(NativeAction {
+                target,
+                action: SemanticAction::Click,
+                value: None
+            })
+            .await,
+            Err(RuntimeError::NotInteractable(_))
+        ));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn oil_observations_share_native_pattern_validation() {
+        let mut page = PageState::new(
+            PageId(1),
+            None,
+            BrowserConfig::default(),
+            ContextOptions::default(),
+            None,
+            #[cfg(unix)]
+            None,
+        );
+        page.load_document(
+            "https://example.test/form".into(),
+            "<input id=p aria-label=Reference pattern='[A-Z]{3}' value=abc>",
+            None,
+            None,
+            HistoryUpdate::Push,
+            &BTreeMap::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let initial = page.observation(ProjectionProfile::Full);
+        let node = initial
+            .nodes
+            .iter()
+            .find(|n| n.name == "Reference")
+            .unwrap();
+        assert!(node.validation.as_ref().unwrap().pattern_mismatch);
+        let reference = node.semantic_ref;
+        page.evaluate("Object.defineProperty(p,'validity',{get(){throw Error('authored getter')}});p.value='ABC';'ok'").unwrap();
+        let recovered = page.observation(ProjectionProfile::Full);
+        let state = recovered
+            .nodes
+            .iter()
+            .find(|n| n.semantic_ref == reference)
+            .unwrap()
+            .validation
+            .as_ref()
+            .unwrap();
+        assert!(state.valid && !state.pattern_mismatch);
+        page.evaluate("p.pattern='[0-9]+';'ok'").unwrap();
+        let changed = page.observation(ProjectionProfile::Full);
+        let state = changed
+            .nodes
+            .iter()
+            .find(|n| n.semantic_ref == reference)
+            .unwrap()
+            .validation
+            .as_ref()
+            .unwrap();
+        assert!(state.pattern_mismatch && !state.valid);
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn oil_observations_expose_live_native_validation_without_error_text() {
+        let mut page = PageState::new(
+            PageId(1),
+            None,
+            BrowserConfig::default(),
+            ContextOptions::default(),
+            None,
+            #[cfg(unix)]
+            None,
+        );
+        page.load_document("https://example.test/form".into(),
+            "<form id=f><input id=email aria-label=Email type=email required><input id=hidden aria-label=Hidden required style='display:none'><input id=radio aria-label=Radio type=radio name=g required disabled></form>",
+            None, None, HistoryUpdate::Push, &BTreeMap::new(), Vec::new()).unwrap();
+        let initial = page.observation(ProjectionProfile::Full);
+        let email = initial.nodes.iter().find(|n| n.name == "Email").unwrap();
+        let email_ref = email.semantic_ref;
+        assert!(email.validation.as_ref().unwrap().value_missing);
+        let radio = initial
+            .nodes
+            .iter()
+            .find(|n| n.name == "Radio")
+            .unwrap()
+            .validation
+            .as_ref()
+            .unwrap();
+        assert!(radio.value_missing && !radio.will_validate && !radio.valid);
+        assert!(
+            initial
+                .nodes
+                .iter()
+                .find(|n| n.name == "Hidden")
+                .unwrap()
+                .validation
+                .as_ref()
+                .unwrap()
+                .value_missing
+        );
+        page.evaluate(
+            "Object.defineProperty(email,'validity',{get(){throw Error('must not call page getter')}});email.setCustomValidity('private-token-should-not-escape'); f.reportValidity(); 'ok'",
+        )
+        .unwrap();
+        let reported = page.observation(ProjectionProfile::Full);
+        let email = reported
+            .nodes
+            .iter()
+            .find(|n| n.semantic_ref == email_ref)
+            .unwrap();
+        assert!(email.validation.as_ref().unwrap().custom_error);
+        assert!(email.states.contains(&oryn_common::v3::NodeState::Focused));
+        assert!(
+            !serde_json::to_string(&reported)
+                .unwrap()
+                .contains("private-token")
+        );
+        page.semantic_graph.take_changes();
+        // PageState::evaluate records a snapshot and consumes graph deltas.
+        // Inspect the native checkpoint boundary before that consumer runs.
+        page.executable
+            .as_mut()
+            .unwrap()
+            .evaluate("email.setCustomValidity('');email.value='user@example.test';'ok'")
+            .unwrap();
+        page.sync_executable_semantics();
+        let recovered = page.observation(ProjectionProfile::Full);
+        let state = recovered
+            .nodes
+            .iter()
+            .find(|n| n.semantic_ref == email_ref)
+            .unwrap()
+            .validation
+            .as_ref()
+            .unwrap();
+        assert!(state.valid && !state.value_missing && !state.custom_error);
+        let delta = page.semantic_graph.take_changes();
+        assert!(
+            delta
+                .upserted
+                .iter()
+                .any(|n| n.semantic_ref == email_ref
+                    && n.validation.as_ref().is_some_and(|v| v.valid))
+        );
+        let revision = page.semantic_graph.semantic_revision();
+        page.sync_executable_semantics();
+        assert_eq!(revision, page.semantic_graph.semantic_revision());
+        page.evaluate("email.remove();'ok'").unwrap();
+        assert!(
+            !page
+                .observation(ProjectionProfile::Full)
+                .nodes
+                .iter()
+                .any(|n| n.semantic_ref == email_ref)
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn spatial_resolution_flushes_geometry_after_author_callback() {
+        use oryn_common::agent::Target;
+        let mut page = PageState::new(
+            PageId(1),
+            None,
+            BrowserConfig::default(),
+            ContextOptions::default(),
+            None,
+            #[cfg(unix)]
+            None,
+        );
+        page.load_document(
+            "https://example.test/products".into(),
+            "<body><main id=products></main>",
+            None,
+            None,
+            HistoryUpdate::Push,
+            &BTreeMap::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        // Reproduce a callback publishing DOM after the preceding layout pass.
+        page.executable.as_mut().unwrap().evaluate("document.getElementById('products').innerHTML='<section><h2>Laptop</h2><button id=buy>Buy</button></section>'; 'ok'").unwrap();
+        page.sync_executable_semantics();
+        let resolution = page
+            .resolve_semantic(
+                &Target::Near {
+                    target: Box::new(Target::Text { text: "Buy".into() }),
+                    anchor: Box::new(Target::Text {
+                        text: "Laptop".into(),
+                    }),
+                },
+                SemanticAction::Click,
+            )
+            .unwrap();
+        assert!(resolution.selected.is_some());
     }
 
     #[cfg(feature = "v8-host")]

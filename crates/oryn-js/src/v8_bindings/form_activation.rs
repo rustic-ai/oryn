@@ -207,6 +207,33 @@ mod tests {
     }
 
     #[test]
+    fn email_submission_blocks_invalid_values_and_allows_recovery() {
+        run(r#"
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const f=document.createElement('form'),e=document.createElement('input');
+            e.type='email';f.append(e);document.body.append(f);
+            let submits=0,invalid=0;
+            f.onsubmit=event=>{event.preventDefault();submits++};
+            e.oninvalid=()=>invalid++;
+            e.value='not-an-email';f.requestSubmit();
+            check(submits===0&&invalid===1,'invalid email submitted');
+            e.value='a+b@example.test';f.requestSubmit();
+            check(submits===1&&invalid===1,'valid recovery');
+            e.value='bad';e.readOnly=true;f.requestSubmit();
+            check(submits===2&&invalid===1,'readonly barred');
+            e.readOnly=false;e.disabled=true;f.requestSubmit();
+            check(submits===3&&invalid===1,'disabled barred');
+            e.disabled=false;e.value='a@b,c@d';e.setAttribute('multiple','');
+            f.requestSubmit();check(submits===4,'multiple addresses');
+            e.value='a@b,';f.requestSubmit();check(submits===4&&invalid===2,'empty list entry');
+            e.value='';f.requestSubmit();check(submits===5,'optional empty');
+            e.required=true;f.requestSubmit();check(submits===5&&invalid===3,'required empty');
+            e.type='hidden';f.requestSubmit();check(submits===6,'hidden barred');
+            'ok'
+        "#);
+    }
+
+    #[test]
     fn form_validation_snapshots_owned_controls_before_invalid_events() {
         run(r#"
             const check=(v,m)=>{if(!v)throw Error(m)};

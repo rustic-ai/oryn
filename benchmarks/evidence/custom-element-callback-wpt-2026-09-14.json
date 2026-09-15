@@ -1,0 +1,2889 @@
+{
+  "assertions": [
+    {
+      "classification": "core",
+      "dependencies": [
+        "/common/gc.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "custom-elements/CustomElementRegistry-constructor-and-callbacks-are-held-strongly.html|window|:aeff3f35ef9f40d9bdf4f59830f7acd6",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 173,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "1195531b585b493e9311f84a13b8dcd4"
+          }
+        ],
+        "id": "e4df1a6e3d0344069b437eac806e061b",
+        "ports": [
+          60076,
+          60077,
+          60079,
+          60081,
+          60083,
+          60086,
+          60087
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 259,
+          "teardown_ms": 858
+        },
+        "tls": {
+          "ca_sha256": "5e4b47faa3a1fae688d31f28a7036937fe7a09da2cd2f50dde98a4dd3afea729",
+          "certificate_sha256": "26d937fed52a81bebd34b77d1d22af5311c04c0c2924104f31eb5e4862ffd248"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "custom-elements/CustomElementRegistry-constructor-and-callbacks-are-held-strongly.html|window|",
+      "path": "custom-elements/CustomElementRegistry-constructor-and-callbacks-are-held-strongly.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60076/custom-elements/CustomElementRegistry-constructor-and-callbacks-are-held-strongly.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 2849,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60076/custom-elements/CustomElementRegistry-constructor-and-callbacks-are-held-strongly.html"
+          },
+          "page_id": "1",
+          "sequence": 10
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 2849,
+          "response_sha256": "31581a4e3ef836077401c3e30943488764e5e883457bd80803d3c7fae5f5718f",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60076/custom-elements/CustomElementRegistry-constructor-and-callbacks-are-held-strongly.html",
+          "worker_pid": 52944
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60076/custom-elements/CustomElementRegistry-constructor-and-callbacks-are-held-strongly.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60076/resources/testharness.js",
+          "worker_pid": 52944
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60076/custom-elements/CustomElementRegistry-constructor-and-callbacks-are-held-strongly.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60076/resources/testharnessreport.js",
+          "worker_pid": 52944
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60076/custom-elements/CustomElementRegistry-constructor-and-callbacks-are-held-strongly.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1604,
+          "response_sha256": "186144288438fb6d520defdc16a6a86fff193184a30fe04e901fe93febe3f8c4",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60076/common/gc.js",
+          "worker_pid": 52944
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "constructor",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "attributeChangedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "adoptedCallback",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 52944,
+          "rss_bytes": 48939008
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/custom-elements/resources/custom-elements-helpers.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "custom-elements/adopted-callback.html|window|:1020f66a5ed84040a2e9953b244475b1",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 350,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "d3ae887a1b34420a9ab34cc0e9227925"
+          }
+        ],
+        "id": "573568e0c61543c3bcd6b16ad901af7a",
+        "ports": [
+          60078,
+          60082,
+          60085,
+          60088,
+          60089,
+          60091,
+          60093
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 257,
+          "teardown_ms": 699
+        },
+        "tls": {
+          "ca_sha256": "5e4b47faa3a1fae688d31f28a7036937fe7a09da2cd2f50dde98a4dd3afea729",
+          "certificate_sha256": "26d937fed52a81bebd34b77d1d22af5311c04c0c2924104f31eb5e4862ffd248"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "custom-elements/adopted-callback.html|window|",
+      "path": "custom-elements/adopted-callback.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60078/custom-elements/adopted-callback.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 7678,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60078/custom-elements/adopted-callback.html"
+          },
+          "page_id": "3",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 11,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 7678,
+          "response_sha256": "56f8ca456c4203b82aa87e3f13b91b40f62ec5266e018d0a86b4fb932af247bc",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60078/custom-elements/adopted-callback.html",
+          "worker_pid": 52942
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60078/custom-elements/adopted-callback.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60078/resources/testharness.js",
+          "worker_pid": 52942
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60078/custom-elements/adopted-callback.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60078/resources/testharnessreport.js",
+          "worker_pid": 52942
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:60078/custom-elements/adopted-callback.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 9697,
+          "response_sha256": "dcf1ab8b58516ea42ab12d507ac259ecae375975a03c4755f5c0272370b3c76b",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60078/custom-elements/resources/custom-elements-helpers.js",
+          "worker_pid": 52942
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Inserting a custom element into the owner document must not enqueue and invoke adoptedCallback",
+            "status": 0
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting a custom element into the document of the template elements must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving a custom element from the owner document into the document of the template elements must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting an ancestor of custom element into the document of the template elements must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving an ancestor of custom element from the owner document into the document of the template elements must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting a custom element into a shadow tree in the document of the template elements must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting the shadow host of a custom element into the document of the template elements must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving the shadow host of a custom element from the owner document into the document of the template elements must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving the shadow host's shadow of a custom element from the owner document into the document of the template elements must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Moving the <template>'s content of a custom element from the owner document into the document of the template elements must enqueue and invoke adoptedCallback",
+            "status": 0
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child] length 3, got [] length 0",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to the document of the template elements must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting a custom element into a new document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving a custom element from the owner document into a new document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting an ancestor of custom element into a new document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving an ancestor of custom element from the owner document into a new document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting a custom element into a shadow tree in a new document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting the shadow host of a custom element into a new document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving the shadow host of a custom element from the owner document into a new document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving the shadow host's shadow of a custom element from the owner document into a new document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 1 child, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Moving the <template>'s content of a custom element from the owner document into a new document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child] length 3, got [] length 0",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to a new document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting a custom element into a cloned document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving a custom element from the owner document into a cloned document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting an ancestor of custom element into a cloned document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving an ancestor of custom element from the owner document into a cloned document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting a custom element into a shadow tree in a cloned document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting the shadow host of a custom element into a cloned document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving the shadow host of a custom element from the owner document into a cloned document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving the shadow host's shadow of a custom element from the owner document into a cloned document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 1 child, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Moving the <template>'s content of a custom element from the owner document into a cloned document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child] length 3, got [] length 0",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to a cloned document must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 2 children, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting a custom element into a document created by createHTMLDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 2 children, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving a custom element from the owner document into a document created by createHTMLDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 2 children, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting an ancestor of custom element into a document created by createHTMLDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 2 children, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving an ancestor of custom element from the owner document into a document created by createHTMLDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 2 children, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting a custom element into a shadow tree in a document created by createHTMLDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 2 children, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting the shadow host of a custom element into a document created by createHTMLDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 2 children, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving the shadow host of a custom element from the owner document into a document created by createHTMLDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 2 children, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving the shadow host's shadow of a custom element from the owner document into a document created by createHTMLDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 1 child, Document node with 2 children, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Moving the <template>'s content of a custom element from the owner document into a document created by createHTMLDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 2 children] length 3, got [] length 0",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to a document created by createHTMLDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting a custom element into an HTML document created by createDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving a custom element from the owner document into an HTML document created by createDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting an ancestor of custom element into an HTML document created by createDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving an ancestor of custom element from the owner document into an HTML document created by createDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting a custom element into a shadow tree in an HTML document created by createDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Inserting the shadow host of a custom element into an HTML document created by createDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving the shadow host of a custom element from the owner document into an HTML document created by createDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [\"disconnected\", \"connected\"] length 2",
+            "name": "Moving the shadow host's shadow of a custom element from the owner document into an HTML document created by createDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 1 child, Document node with 1 child, \"connected\"] length 4, got [\"connected\"] length 1",
+            "name": "Moving the <template>'s content of a custom element from the owner document into an HTML document created by createDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child] length 3, got [] length 0",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to an HTML document created by createDocument must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [] length 0",
+            "name": "Inserting a custom element into the document of an iframe must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [] length 0",
+            "name": "Moving a custom element from the owner document into the document of an iframe must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [] length 0",
+            "name": "Inserting an ancestor of custom element into the document of an iframe must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [] length 0",
+            "name": "Moving an ancestor of custom element from the owner document into the document of an iframe must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [] length 0",
+            "name": "Inserting a custom element into a shadow tree in the document of an iframe must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 4, got [] length 0",
+            "name": "Inserting the shadow host of a custom element into the document of an iframe must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [] length 0",
+            "name": "Moving the shadow host of a custom element from the owner document into the document of an iframe must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", \"adopted\", Document node with 2 children, Document node with 1 child, \"connected\"] length 5, got [] length 0",
+            "name": "Moving the shadow host's shadow of a custom element from the owner document into the document of an iframe must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 1 child, Document node with 1 child, \"connected\"] length 4, got [] length 0",
+            "name": "Moving the <template>'s content of a custom element from the owner document into the document of an iframe must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"adopted\", Document node with 2 children, Document node with 1 child] length 3, got [] length 0",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to the document of an iframe must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting a custom element into an HTML document fetched by XHR must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Moving a custom element from the owner document into an HTML document fetched by XHR must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting an ancestor of custom element into an HTML document fetched by XHR must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Moving an ancestor of custom element from the owner document into an HTML document fetched by XHR must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting a custom element into a shadow tree in an HTML document fetched by XHR must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting the shadow host of a custom element into an HTML document fetched by XHR must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Moving the shadow host of a custom element from the owner document into an HTML document fetched by XHR must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Moving the shadow host's shadow of a custom element from the owner document into an HTML document fetched by XHR must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Moving the <template>'s content of a custom element from the owner document into an HTML document fetched by XHR must enqueue and invoke adoptedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to an HTML document fetched by XHR must enqueue and invoke adoptedCallback",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 52942,
+          "rss_bytes": 56868864
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/custom-elements/resources/custom-elements-helpers.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "custom-elements/attribute-changed-callback.html|window|:7fe52a76191548c4a679e95472cbc921",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 104,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "26da6ee9472747cba3fed7f097fc5b79"
+          }
+        ],
+        "id": "f19443c12d94474f8a8fb9a400da4e0b",
+        "ports": [
+          60080,
+          60084,
+          60090,
+          60094,
+          60097,
+          60099,
+          60101
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 256,
+          "teardown_ms": 926
+        },
+        "tls": {
+          "ca_sha256": "5e4b47faa3a1fae688d31f28a7036937fe7a09da2cd2f50dde98a4dd3afea729",
+          "certificate_sha256": "26d937fed52a81bebd34b77d1d22af5311c04c0c2924104f31eb5e4862ffd248"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "custom-elements/attribute-changed-callback.html|window|",
+      "path": "custom-elements/attribute-changed-callback.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60080/custom-elements/attribute-changed-callback.html"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 13522,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60080/custom-elements/attribute-changed-callback.html"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 10,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 4,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 13522,
+          "response_sha256": "d8e17848b1d19b96b3d6414d78432d108b323566ae6810ec8b678bf9460153de",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60080/custom-elements/attribute-changed-callback.html",
+          "worker_pid": 52943
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60080/custom-elements/attribute-changed-callback.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60080/resources/testharness.js",
+          "worker_pid": 52943
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60080/custom-elements/attribute-changed-callback.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60080/resources/testharnessreport.js",
+          "worker_pid": 52943
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:60080/custom-elements/attribute-changed-callback.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 9697,
+          "response_sha256": "dcf1ab8b58516ea42ab12d507ac259ecae375975a03c4755f5c0272370b3c76b",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60080/custom-elements/resources/custom-elements-helpers.js",
+          "worker_pid": 52943
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "setAttribute and removeAttribute must enqueue and invoke attributeChangedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNS and removeAttributeNS must enqueue and invoke attributeChangedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNode and removeAttributeNode must enqueue and invoke attributeChangedCallback for an HTML attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setAttributeNode and removeAttributeNS must enqueue and invoke attributeChangedCallback for an SVG attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "toggleAttribute must enqueue and invoke attributeChangedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Mutating attributeChangedCallback after calling customElements.define must not affect the callback being invoked",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "attributedChangedCallback must not be invoked when the observed attributes does not contain the attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Mutating observedAttributes after calling customElements.define must not affect the set of attributes for which attributedChangedCallback is invoked",
+            "status": 0
+          },
+          {
+            "message": "observedAttributes requires a sequence",
+            "name": "attributedChangedCallback must be enqueued for attributes specified in a non-Array iterable observedAttributes",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "attributedChangedCallback must be enqueued for style attribute change by mutating inline style declaration",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "attributedChangedCallback must not be enqueued when mutating inline style declaration if the style attribute is not observed",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Upgrading a parser created element must enqueue and invoke attributeChangedCallback for an HTML attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Upgrading a cloned element must enqueue and invoke attributeChangedCallback for an HTML attribute",
+            "status": 0
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 52943,
+          "rss_bytes": 35061760
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/custom-elements/resources/custom-elements-helpers.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "custom-elements/connected-callbacks-html-fragment-parsing.html|window|:777a2e7857c847d592bbd29a542c4444",
+        "page_id": 4,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 124,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "18309b1cfcfc4587a24e83375e62cb0f"
+          }
+        ],
+        "id": "48354a5550cc4dd58cce39a91cfa7f3e",
+        "ports": [
+          60092,
+          60095,
+          60096,
+          60098,
+          60100,
+          60102,
+          60103
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 259,
+          "teardown_ms": 878
+        },
+        "tls": {
+          "ca_sha256": "5e4b47faa3a1fae688d31f28a7036937fe7a09da2cd2f50dde98a4dd3afea729",
+          "certificate_sha256": "26d937fed52a81bebd34b77d1d22af5311c04c0c2924104f31eb5e4862ffd248"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "custom-elements/connected-callbacks-html-fragment-parsing.html|window|",
+      "path": "custom-elements/connected-callbacks-html-fragment-parsing.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60092/custom-elements/connected-callbacks-html-fragment-parsing.html"
+          },
+          "page_id": "4",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1914,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60092/custom-elements/connected-callbacks-html-fragment-parsing.html"
+          },
+          "page_id": "4",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 12,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1914,
+          "response_sha256": "14915becb82407d98cf15c4b4a7884726f83e8043f30ecd6933a43df6c744ad8",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60092/custom-elements/connected-callbacks-html-fragment-parsing.html",
+          "worker_pid": 52941
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60092/custom-elements/connected-callbacks-html-fragment-parsing.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60092/resources/testharness.js",
+          "worker_pid": 52941
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60092/custom-elements/connected-callbacks-html-fragment-parsing.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60092/resources/testharnessreport.js",
+          "worker_pid": 52941
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:60092/custom-elements/connected-callbacks-html-fragment-parsing.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 9697,
+          "response_sha256": "dcf1ab8b58516ea42ab12d507ac259ecae375975a03c4755f5c0272370b3c76b",
+          "sequence": 3,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60092/custom-elements/resources/custom-elements-helpers.js",
+          "worker_pid": 52941
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "assert_equals: expected 1 but got 2",
+            "name": "Inserting a custom element into the document using HTML fragment parsing must enqueue a custom element upgrade reaction, not synchronously invoke its constructor",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected 1 but got 2",
+            "name": "Inserting a custom element into the document of the template elements using HTML fragment parsing must enqueue a custom element upgrade reaction, not synchronously invoke its constructor",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected 1 but got 2",
+            "name": "Inserting a custom element into a new document using HTML fragment parsing must enqueue a custom element upgrade reaction, not synchronously invoke its constructor",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected 1 but got 2",
+            "name": "Inserting a custom element into a cloned document using HTML fragment parsing must enqueue a custom element upgrade reaction, not synchronously invoke its constructor",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected 1 but got 2",
+            "name": "Inserting a custom element into a document created by createHTMLDocument using HTML fragment parsing must enqueue a custom element upgrade reaction, not synchronously invoke its constructor",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected 1 but got 2",
+            "name": "Inserting a custom element into an HTML document created by createDocument using HTML fragment parsing must enqueue a custom element upgrade reaction, not synchronously invoke its constructor",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected 1 but got 2",
+            "name": "Inserting a custom element into the document of an iframe using HTML fragment parsing must enqueue a custom element upgrade reaction, not synchronously invoke its constructor",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting a custom element into an HTML document fetched by XHR using HTML fragment parsing must enqueue a custom element upgrade reaction, not synchronously invoke its constructor",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 52941,
+          "rss_bytes": 37748736
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "custom-elements/connected-callbacks-template.html|window|:7bff156423e44105a33a8c49779e92b1",
+        "page_id": 5,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 88,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "bae21dc316ee49f58eb00e74d04ac3d9"
+          }
+        ],
+        "id": "6035af6faa564207a927f4ca8997b85d",
+        "ports": [
+          60117,
+          60118,
+          60119,
+          60120,
+          60121,
+          60122,
+          60123
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 254,
+          "teardown_ms": 907
+        },
+        "tls": {
+          "ca_sha256": "5e4b47faa3a1fae688d31f28a7036937fe7a09da2cd2f50dde98a4dd3afea729",
+          "certificate_sha256": "26d937fed52a81bebd34b77d1d22af5311c04c0c2924104f31eb5e4862ffd248"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "custom-elements/connected-callbacks-template.html|window|",
+      "path": "custom-elements/connected-callbacks-template.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60117/custom-elements/connected-callbacks-template.html"
+          },
+          "page_id": "5",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1191,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60117/custom-elements/connected-callbacks-template.html"
+          },
+          "page_id": "5",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 17,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1191,
+          "response_sha256": "ddb66a71eb1c596b29712b1e983270506ff7fcd96f7f99c4b63868a48cadeb27",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60117/custom-elements/connected-callbacks-template.html",
+          "worker_pid": 52968
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:60117/custom-elements/connected-callbacks-template.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60117/resources/testharness.js",
+          "worker_pid": 52968
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60117/custom-elements/connected-callbacks-template.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60117/resources/testharnessreport.js",
+          "worker_pid": 52968
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Nested custom element connectedCallback insertion involving a template DocumentFragment",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 52968,
+          "rss_bytes": 33488896
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/custom-elements/resources/custom-elements-helpers.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "custom-elements/connected-callbacks.html|window|:b579b2941cef4fd088e72574eac10ed8",
+        "page_id": 6,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 245,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "c1501619ca58437e9816b5f64b9232a9"
+          }
+        ],
+        "id": "5c307bebe4f6404c8c73a9bef2371394",
+        "ports": [
+          60124,
+          60125,
+          60126,
+          60127,
+          60128,
+          60130,
+          60132
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 249,
+          "teardown_ms": 809
+        },
+        "tls": {
+          "ca_sha256": "5e4b47faa3a1fae688d31f28a7036937fe7a09da2cd2f50dde98a4dd3afea729",
+          "certificate_sha256": "26d937fed52a81bebd34b77d1d22af5311c04c0c2924104f31eb5e4862ffd248"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "custom-elements/connected-callbacks.html|window|",
+      "path": "custom-elements/connected-callbacks.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60124/custom-elements/connected-callbacks.html"
+          },
+          "page_id": "6",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 3752,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60124/custom-elements/connected-callbacks.html"
+          },
+          "page_id": "6",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 18,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 3752,
+          "response_sha256": "430a06f2b7dad4f74c5501d66af808f9d9f8ab05e8c636997122e2d91b18bb64",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60124/custom-elements/connected-callbacks.html",
+          "worker_pid": 52967
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60124/custom-elements/connected-callbacks.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60124/resources/testharness.js",
+          "worker_pid": 52967
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60124/custom-elements/connected-callbacks.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60124/resources/testharnessreport.js",
+          "worker_pid": 52967
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:60124/custom-elements/connected-callbacks.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 9697,
+          "response_sha256": "dcf1ab8b58516ea42ab12d507ac259ecae375975a03c4755f5c0272370b3c76b",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60124/custom-elements/resources/custom-elements-helpers.js",
+          "worker_pid": 52967
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Inserting a custom element into the document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting an ancestor of custom element into the document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a shadow tree in the document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting the shadow host of a custom element into the document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to the document must not enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into the document of the template elements must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting an ancestor of custom element into the document of the template elements must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a shadow tree in the document of the template elements must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting the shadow host of a custom element into the document of the template elements must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to the document of the template elements must not enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a new document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting an ancestor of custom element into a new document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a shadow tree in a new document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting the shadow host of a custom element into a new document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to a new document must not enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a cloned document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting an ancestor of custom element into a cloned document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a shadow tree in a cloned document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting the shadow host of a custom element into a cloned document must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to a cloned document must not enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a document created by createHTMLDocument must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting an ancestor of custom element into a document created by createHTMLDocument must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a shadow tree in a document created by createHTMLDocument must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting the shadow host of a custom element into a document created by createHTMLDocument must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to a document created by createHTMLDocument must not enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into an HTML document created by createDocument must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting an ancestor of custom element into an HTML document created by createDocument must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a shadow tree in an HTML document created by createDocument must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting the shadow host of a custom element into an HTML document created by createDocument must enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to an HTML document created by createDocument must not enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"connected\", Element node <my-custom-element></my-custom-element>] length 2, got [] length 0",
+            "name": "Inserting a custom element into the document of an iframe must enqueue and invoke connectedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"connected\", Element node <my-custom-element></my-custom-element>] length 2, got [] length 0",
+            "name": "Inserting an ancestor of custom element into the document of an iframe must enqueue and invoke connectedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"connected\", Element node <my-custom-element></my-custom-element>] length 2, got [] length 0",
+            "name": "Inserting a custom element into a shadow tree in the document of an iframe must enqueue and invoke connectedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"connected\", Element node <my-custom-element></my-custom-element>] length 2, got [] length 0",
+            "name": "Inserting the shadow host of a custom element into the document of an iframe must enqueue and invoke connectedCallback",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to the document of an iframe must not enqueue and invoke connectedCallback",
+            "status": 0
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting a custom element into an HTML document fetched by XHR must enqueue and invoke connectedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting an ancestor of custom element into an HTML document fetched by XHR must enqueue and invoke connectedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting a custom element into a shadow tree in an HTML document fetched by XHR must enqueue and invoke connectedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting the shadow host of a custom element into an HTML document fetched by XHR must enqueue and invoke connectedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Inserting a custom element into a detached shadow tree that belongs to an HTML document fetched by XHR must not enqueue and invoke connectedCallback",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 52967,
+          "rss_bytes": 47464448
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [
+        "harness_timeout"
+      ],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "custom-elements/cross-realm-callback-report-exception.html|window|:5617142d4caa4fb7a1e8388e53070759",
+        "page_id": 7,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 10111,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "harness",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "4e72e753cdb246b9aa1323012083deeb"
+          }
+        ],
+        "id": "82b8ec38bdd2442aaa60d15b510cf50f",
+        "ports": [
+          60129,
+          60131,
+          60133,
+          60134,
+          60135,
+          60136,
+          60137
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 249,
+          "teardown_ms": 539
+        },
+        "tls": {
+          "ca_sha256": "5e4b47faa3a1fae688d31f28a7036937fe7a09da2cd2f50dde98a4dd3afea729",
+          "certificate_sha256": "26d937fed52a81bebd34b77d1d22af5311c04c0c2924104f31eb5e4862ffd248"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "custom-elements/cross-realm-callback-report-exception.html|window|",
+      "path": "custom-elements/cross-realm-callback-report-exception.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60129/custom-elements/cross-realm-callback-report-exception.html"
+          },
+          "page_id": "7",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 2876,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60129/custom-elements/cross-realm-callback-report-exception.html"
+          },
+          "page_id": "7",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 19,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 2876,
+          "response_sha256": "e1355745743a6e2b983e309b0d6e47d705b663e7f079759d9a3aaf2277a5b69f",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60129/custom-elements/cross-realm-callback-report-exception.html",
+          "worker_pid": 52964
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60129/custom-elements/cross-realm-callback-report-exception.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60129/resources/testharness.js",
+          "worker_pid": 52964
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60129/custom-elements/cross-realm-callback-report-exception.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60129/resources/testharnessreport.js",
+          "worker_pid": 52964
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 2,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": []
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 52964,
+          "rss_bytes": 51888128
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/custom-elements/resources/custom-elements-helpers.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "custom-elements/disconnected-callbacks.html|window|:ebc6d01a65da46819be2123056658845",
+        "page_id": 8,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 244,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "c39711ae19c74659ac64115182978ff4"
+          }
+        ],
+        "id": "176439767a8a42bbaf82add0e4d8b6d7",
+        "ports": [
+          60138,
+          60139,
+          60140,
+          60141,
+          60142,
+          60143,
+          60144
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 246,
+          "teardown_ms": 254
+        },
+        "tls": {
+          "ca_sha256": "5e4b47faa3a1fae688d31f28a7036937fe7a09da2cd2f50dde98a4dd3afea729",
+          "certificate_sha256": "26d937fed52a81bebd34b77d1d22af5311c04c0c2924104f31eb5e4862ffd248"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "custom-elements/disconnected-callbacks.html|window|",
+      "path": "custom-elements/disconnected-callbacks.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60138/custom-elements/disconnected-callbacks.html"
+          },
+          "page_id": "8",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 4033,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60138/custom-elements/disconnected-callbacks.html"
+          },
+          "page_id": "8",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 20,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 4033,
+          "response_sha256": "9047764906fb3b8a7ad9e52c28ab4793d2d90a6e424c81597cd69830acb9a699",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60138/custom-elements/disconnected-callbacks.html",
+          "worker_pid": 52963
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60138/custom-elements/disconnected-callbacks.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60138/resources/testharness.js",
+          "worker_pid": 52963
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60138/custom-elements/disconnected-callbacks.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60138/resources/testharnessreport.js",
+          "worker_pid": 52963
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:60138/custom-elements/disconnected-callbacks.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 9697,
+          "response_sha256": "dcf1ab8b58516ea42ab12d507ac259ecae375975a03c4755f5c0272370b3c76b",
+          "sequence": 3,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60138/custom-elements/resources/custom-elements-helpers.js",
+          "worker_pid": 52963
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Removing a custom element from the document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing an ancestor of custom element from the document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a shadow tree in the document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing the shadow host of a custom element from athe document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a detached shadow tree that belongs to the document must not enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from the document of the template elements must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing an ancestor of custom element from the document of the template elements must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a shadow tree in the document of the template elements must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing the shadow host of a custom element from athe document of the template elements must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a detached shadow tree that belongs to the document of the template elements must not enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a new document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing an ancestor of custom element from a new document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a shadow tree in a new document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing the shadow host of a custom element from aa new document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a detached shadow tree that belongs to a new document must not enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a cloned document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing an ancestor of custom element from a cloned document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a shadow tree in a cloned document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing the shadow host of a custom element from aa cloned document must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a detached shadow tree that belongs to a cloned document must not enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a document created by createHTMLDocument must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing an ancestor of custom element from a document created by createHTMLDocument must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a shadow tree in a document created by createHTMLDocument must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing the shadow host of a custom element from aa document created by createHTMLDocument must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a detached shadow tree that belongs to a document created by createHTMLDocument must not enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from an HTML document created by createDocument must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing an ancestor of custom element from an HTML document created by createDocument must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a shadow tree in an HTML document created by createDocument must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing the shadow host of a custom element from aan HTML document created by createDocument must enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a detached shadow tree that belongs to an HTML document created by createDocument must not enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", Element node <my-custom-element></my-custom-element>] length 2, got [] length 0",
+            "name": "Removing a custom element from the document of an iframe must enqueue and invoke disconnectedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", Element node <my-custom-element></my-custom-element>] length 2, got [] length 0",
+            "name": "Removing an ancestor of custom element from the document of an iframe must enqueue and invoke disconnectedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", Element node <my-custom-element></my-custom-element>] length 2, got [] length 0",
+            "name": "Removing a custom element from a shadow tree in the document of an iframe must enqueue and invoke disconnectedCallback",
+            "status": 1
+          },
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"disconnected\", Element node <my-custom-element></my-custom-element>] length 2, got [] length 0",
+            "name": "Removing the shadow host of a custom element from athe document of an iframe must enqueue and invoke disconnectedCallback",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Removing a custom element from a detached shadow tree that belongs to the document of an iframe must not enqueue and invoke disconnectedCallback",
+            "status": 0
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Removing a custom element from an HTML document fetched by XHR must enqueue and invoke disconnectedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Removing an ancestor of custom element from an HTML document fetched by XHR must enqueue and invoke disconnectedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Removing a custom element from a shadow tree in an HTML document fetched by XHR must enqueue and invoke disconnectedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Removing the shadow host of a custom element from aan HTML document fetched by XHR must enqueue and invoke disconnectedCallback",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"TypeError: xhr.overrideMimeType is not a function\"",
+            "name": "Removing a custom element from a detached shadow tree that belongs to an HTML document fetched by XHR must not enqueue and invoke disconnectedCallback",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 52963,
+          "rss_bytes": 47382528
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/custom-elements/resources/custom-elements-helpers.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "diagnostics": [
+        "native script realm failed: JavaScript execution failed: stale or unknown node NodeId { slot: 41, generation: 0 }"
+      ],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": false,
+        "error": "native script realm failed: JavaScript execution failed: stale or unknown node NodeId { slot: 41, generation: 0 }",
+        "id": "custom-elements/enqueue-custom-element-callback-reactions-inside-another-callback.html|window|:78d9dd001cc542bcaca4bd76f7396d55",
+        "page_id": 9,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 112,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": [
+          "completion_not_object"
+        ]
+      },
+      "failure_domain": "runtime",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "78b5ee4fa7cc457b96143d704f3e6054"
+          }
+        ],
+        "id": "782d1a39c9884630928c0bc43f5f8785",
+        "ports": [
+          60157,
+          60158,
+          60159,
+          60160,
+          60161,
+          60162,
+          60163
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 251,
+          "teardown_ms": 948
+        },
+        "tls": {
+          "ca_sha256": "5e4b47faa3a1fae688d31f28a7036937fe7a09da2cd2f50dde98a4dd3afea729",
+          "certificate_sha256": "26d937fed52a81bebd34b77d1d22af5311c04c0c2924104f31eb5e4862ffd248"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "custom-elements/enqueue-custom-element-callback-reactions-inside-another-callback.html|window|",
+      "path": "custom-elements/enqueue-custom-element-callback-reactions-inside-another-callback.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60157/custom-elements/enqueue-custom-element-callback-reactions-inside-another-callback.html"
+          },
+          "page_id": "9",
+          "sequence": 1
+        }
+      ],
+      "raw_completion": null,
+      "resource_audit": {
+        "complete": true,
+        "context_id": 24,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 9502,
+          "response_sha256": "2352c249ebe1a0d2a3ba32ce1860a3583d81d24927ffa7714f959f17cf5f9481",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60157/custom-elements/enqueue-custom-element-callback-reactions-inside-another-callback.html",
+          "worker_pid": 52986
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60157/custom-elements/enqueue-custom-element-callback-reactions-inside-another-callback.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60157/resources/testharness.js",
+          "worker_pid": 52986
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:60157/custom-elements/enqueue-custom-element-callback-reactions-inside-another-callback.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60157/resources/testharnessreport.js",
+          "worker_pid": 52986
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:60157/custom-elements/enqueue-custom-element-callback-reactions-inside-another-callback.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 9697,
+          "response_sha256": "dcf1ab8b58516ea42ab12d507ac259ecae375975a03c4755f5c0272370b3c76b",
+          "sequence": 3,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60157/custom-elements/resources/custom-elements-helpers.js",
+          "worker_pid": 52986
+        }
+      ],
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 52986,
+          "rss_bytes": 38928384
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "6eda61813b6f604e9b4171ef57629a4996141f95c338db08ba5b2136c31bd043",
+    "size_bytes": 7225888
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/common/gc.js": {
+      "mime": "text/javascript",
+      "sha256": "186144288438fb6d520defdc16a6a86fff193184a30fe04e901fe93febe3f8c4",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/custom-elements/resources/custom-elements-helpers.js": {
+      "mime": "text/javascript",
+      "sha256": "dcf1ab8b58516ea42ab12d507ac259ecae375975a03c4755f5c0272370b3c76b",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/common/gc.js": {
+      "mime": "text/javascript",
+      "sha256": "186144288438fb6d520defdc16a6a86fff193184a30fe04e901fe93febe3f8c4",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/custom-elements/resources/custom-elements-helpers.js": {
+      "mime": "text/javascript",
+      "sha256": "dcf1ab8b58516ea42ab12d507ac259ecae375975a03c4755f5c0272370b3c76b",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 14.145,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "bb14dea308da39c6495d47fa050014fb60aee980e4cd59e58c678593b3c45684",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "d18aef7ed5e2f58380aed844aa3d8f23bc703f52c42d336900c3a0c658ab4cef",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "1ad38cd9c644b51b1a4133dcd46ac24b9b1e6c4ab70394c0c76177d3ec05a3b2",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "1496e28f721c5fa0f169ca6182758c285715a45762057eac135ce9bd68d02f07",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "ad016794b2bb8275c70b33b88ae08d45c8433c8ce176e23476eb0704318ad8c6",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "179bcb4522c62a9ce6562c1569b57463285dfdba6c68e49e58b8c85e953446cc",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "b0aaaa0007a05c7ddb817310ad3c455cb6511387cbc7f7bddce9098a438e6df4",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "ae75828b38b44dc9cde738f8d2073a4489762a62a114a768932aed481e630cbd",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "bb14dea308da39c6495d47fa050014fb60aee980e4cd59e58c678593b3c45684",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "d18aef7ed5e2f58380aed844aa3d8f23bc703f52c42d336900c3a0c658ab4cef",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "1ad38cd9c644b51b1a4133dcd46ac24b9b1e6c4ab70394c0c76177d3ec05a3b2",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "1496e28f721c5fa0f169ca6182758c285715a45762057eac135ce9bd68d02f07",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "ad016794b2bb8275c70b33b88ae08d45c8433c8ce176e23476eb0704318ad8c6",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "179bcb4522c62a9ce6562c1569b57463285dfdba6c68e49e58b8c85e953446cc",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "b0aaaa0007a05c7ddb817310ad3c455cb6511387cbc7f7bddce9098a438e6df4",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "ae75828b38b44dc9cde738f8d2073a4489762a62a114a768932aed481e630cbd",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": "48800c51ca053a4bb26f314614767b68c2a781f5cb3bd80c3e307e2c4c5710a9",
+  "jobs": 4,
+  "outcome": {
+    "attempted": 9,
+    "environment_blocked": 0,
+    "required_finished": 9,
+    "required_passed": 2,
+    "required_total": 9,
+    "status": "failed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "f4fbe63f52fa98d326392eebe2404b5361b28c3a6b1c28cfce03ed8e0e9c5ad0",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "24866d345ba3e5b70af0f4c4b75a91e443bdfc173ba0fc35965f09c5cb59f1a9",
+    "worker_binary_sha256": "c6227a91af0a38aad49e9655ec5447749febbf2a7b820bc4b3e4f8f1f434b3de",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "4bd9d6b4b8bef615699efd3f85324574db5274d5",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [
+      "form-associated/"
+    ],
+    "filter": "callback",
+    "global": "window",
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 30,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "82a3562c783a4dad6794e435e16e33991e87c153e3c1a299f30823b110195d9d",
+    "untracked_file_count": 277,
+    "untracked_sha256": "5bd7ddf5756464b694e0afea433d4899a6f93b5e9120113a2e5387dc6eea9e79"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

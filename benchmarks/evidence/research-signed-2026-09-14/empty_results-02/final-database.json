@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {
+      "case_id": "fca5abae9e7c2fcc177f1f2fb3ed03f9"
+    }
+  ],
+  "visits": [
+    {
+      "case_id": "fca5abae9e7c2fcc177f1f2fb3ed03f9",
+      "path": "start",
+      "query": "{}",
+      "status": 200,
+      "body_sha256": "2a015cf2cab3612c502a10b2da12f5bbc1da92a493a231dbfd02309b46f0bdd7"
+    },
+    {
+      "case_id": "fca5abae9e7c2fcc177f1f2fb3ed03f9",
+      "path": "search",
+      "query": "{\"q\": [\"absent\"]}",
+      "status": 200,
+      "body_sha256": "212fea3f6eb69d261c00309ecfc2adc66a6f4829799fbf13e8c19f6475f9e339"
+    }
+  ]
+}

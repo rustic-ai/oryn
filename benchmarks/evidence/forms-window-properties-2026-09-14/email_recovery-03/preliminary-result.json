@@ -1,0 +1,11 @@
+{
+  "case": "email_recovery",
+  "sample": 3,
+  "case_id": "ffcee8454268e895b5b52f4441c3f295",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "db83245d86ace68320d33beec2906efff008ecf4201513186347c18c627ba7b8",
+  "elapsed_seconds": 0.325
+}

@@ -1,0 +1,4 @@
+$ nuxt generate
+
+ WARN  "H3Error", "H3Event", "deleteCookie", "getCookie" and "setCookie" are imported from external module "file:///Users/rohit/Work/oryn2/oryn-roadmap-next/benchmarks/app-compatibility/frameworks/node_modules/.pnpm/h3@1.15.11/node_modules/h3/dist/index.mjs" but never used in "../../node_modules/.pnpm/@nuxt+nitro-server@4.5.2_fcffb1086e2666323bab49defb3769b4/node_modules/@nuxt/nitro-server/dist/h3.mjs".
+

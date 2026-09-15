@@ -1,0 +1,12 @@
+{
+  "case": "authorized_document_upload",
+  "sample": 3,
+  "case_id": "a019a17357030a0f094a1c9a1f6b2392",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "cfbc8599cd2f47ca68385078eaca1e9990dcc72de17f42ea60d992f85a838896",
+  "elapsed_seconds": 0.289,
+  "final_oracle_verified": true
+}

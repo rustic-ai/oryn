@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "goal_complete": false,
+  "qualification": "signed dirty-tree diagnostics, not clean-release or independent workflow qualification",
+  "source_tree_sha256": "8b8f94bc83efd3f530674aefa598554ae8cc2e6ed66a036253ea081a27b3b461",
+  "parent_sha256": "4eeaa4e4c58e4d9292ea7d57256b288c4f82a6eddfc06a557cd1ba65f72059f0",
+  "worker_binary_sha256": "32aeae76ce0876ef186ee403f7cd09190097b659acacf9f3e4ece9ec63847788",
+  "worker_code_directory_hash": "66efcdf1c554caea848f183817b2f3b65d9742b0",
+  "worker_unsigned_build_sha256": "72997d66214e05a3e54e402ded21ea676d3e26ca1ae909885dbf63daa6bca6db",
+  "native": {
+    "passed": 525, "failed": 0, "ignored": 6, "elapsed_seconds": 142.04,
+    "binary_sha256": "06ef70bd12fae24e507641f6a890329c989a589d0a6b558c50abc059895d54fa"
+  },
+  "javascript": {
+    "passed": 266, "failed": 0, "ignored": 3, "elapsed_seconds": 3.81,
+    "binary_sha256": "112c6a09c80e23bddeb01809e9d20c3e220d9f6564d6fd8bd0bd2a251f36771f"
+  },
+  "dom_passed": 103,
+  "webidl_passed": 10,
+  "strict_clippy_format_registry_diff_checks": "passed",
+  "signed_sandbox_security_probes": "passed",
+  "oil": {
+    "passed": 12, "total": 12, "timeouts": 0,
+    "task_completion": "not independently verified",
+    "evidence": "oil-queued-upgrades-signed-2026-09-14/summary.json"
+  },
+  "callback_wpt": {
+    "passed_files": 8, "total_files": 9, "environment_blocked": 0,
+    "reported_assertions_passed": 186, "reported_assertions_failed": 0,
+    "elapsed_seconds": 13.0,
+    "evidence": "custom-element-queued-upgrades-wpt-2026-09-14.json",
+    "fragment_parsing": "8/8",
+    "remaining": "cross-realm-callback-report-exception.html: harness timeout, zero reported assertions; retained in file denominator"
+  },
+  "mime_override_wpt": {
+    "passed_files": 8, "total_files": 9, "environment_blocked": 0,
+    "reported_assertions_passed": 48, "reported_assertions_failed": 42,
+    "elapsed_seconds": 4.1,
+    "evidence": "xhr-browser-mime-wpt-2026-09-14.json",
+    "remaining": "42 requests exceed the existing 32-pending-platform-operation admission cap; this is a runtime capacity limitation, not an environmental block",
+    "prior_evidence_correction": "xhr-document-native-2026-09-14.json described all 68 earlier failures as MIME mismatches. Raw xhr-mime-override-wpt-2026-09-14.json shows 26 parsing mismatches plus 42 admission-limit failures. The 26 mismatches are repaired; the 42 admission failures remain. Historical raw results are unchanged."
+  },
+  "direct_native_mime_corpus": {
+    "qualification": "production MIME parser compiled directly in a standalone diagnostic runner; not signed network WPT passes",
+    "runner": "mime-corpus-native-2026-09-14/main.rs",
+    "production_parser_sha256": "83fc4b38ca75cc3a380321f1feec9cff240b061f4e11fe4d2a67d6c1bb1b33ac",
+    "diagnostic_binary_sha256": "62d2457aa67f9f9c615222e66cf024af3634199cccfd3f9612a0a6cb851e610a",
+    "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "handwritten": {"passed":74,"failed":0,"sha256":"016d3dd91b647e03af2a69c7ec241bf787df8bffe7953018fe566e8ec5d7b822"},
+    "generated": {"passed":881,"failed":0,"sha256":"20924495060ac9633f10d57a326b95a5987863f27c5d4765b13b744304b33fed"}
+  },
+  "changes": [
+    "Browser MIME parser preserves parameter case and insertion order, discards invalid parameters, handles quoted values and serializes per the MIME Sniffing Standard",
+    "Native custom-element upgrade reactions share per-element reaction queues with lifecycle callbacks",
+    "Upgrade construction returns the existing wrapper, preserving earlier references, expandos, WeakMap keys and private fields"
+  ],
+  "remaining": [
+    "Bounded asynchronous admission/backpressure instead of immediate failure for bursts beyond 32 host operations; retain active-operation and byte limits",
+    "Cross-realm callback startup and exception reporting, including native initial iframe realms",
+    "Broader custom-element and XHR lifecycle/encoding conformance",
+    "Independent five-family workflow outcome qualification",
+    "Remaining architecture, full Core WPT, performance and clean-release gates"
+  ]
+}

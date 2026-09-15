@@ -38,7 +38,7 @@ runtime="$($parent native --runtime-info --allow-loopback)"
 jq -e '
   .contract_version == 4 and .native_v8 == true and .build_profile == "release" and
   .execution_mode == "sandboxed_worker" and .sandboxed == true and
-  .sandbox_state == "app_sandbox" and .worker_protocol_version == 9 and
+  .sandbox_state == "app_sandbox" and .worker_protocol_version == 10 and
   .worker_team_id == "5HVA9VFF8K" and
   .style_engine_version == "stylo-stylesheets-selectors-0.20+oryn-cascade-v3" and
   .box_engine_version == "taffy-0.14" and

@@ -1,0 +1,102 @@
+{
+  "cases": [
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "scenario": "stale",
+      "reviews": 2
+    }
+  ],
+  "slots": [
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "slot": "early",
+      "available": 0,
+      "version": 2
+    },
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "slot": "late",
+      "available": 0,
+      "version": 2
+    }
+  ],
+  "offers": [
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "offer": "82746bfdcc64ace6ab4893138590d30b",
+      "slot": "early",
+      "version": 1,
+      "zone": "America/New_York",
+      "utc": "2026-11-01T05:30:00+00:00",
+      "local": "2026-11-01T01:30:00-04:00"
+    },
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "offer": "aec8b1aa30ccb725837b2c3ce2666429",
+      "slot": "late",
+      "version": 1,
+      "zone": "America/New_York",
+      "utc": "2026-11-01T06:30:00+00:00",
+      "local": "2026-11-01T01:30:00-05:00"
+    }
+  ],
+  "reservations": [
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "reservation": "bc0439b1707ca5971bd89e057f36ca25",
+      "slot": "late",
+      "offer": "aec8b1aa30ccb725837b2c3ce2666429",
+      "request_key": "7ca4aaf5d6a460f5161bf7e9692beb6a",
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"aec8b1aa30ccb725837b2c3ce2666429\"], \"request_key\": [\"7ca4aaf5d6a460f5161bf7e9692beb6a\"]}",
+      "utc": "2026-11-01T06:30:00+00:00",
+      "local": "2026-11-01T01:30:00-05:00",
+      "zone": "America/New_York"
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "status": 409,
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"82746bfdcc64ace6ab4893138590d30b\"], \"request_key\": [\"85624157b00226c14cac0ad902202aa8\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "status": 303,
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"aec8b1aa30ccb725837b2c3ce2666429\"], \"request_key\": [\"7ca4aaf5d6a460f5161bf7e9692beb6a\"]}",
+      "cookie_valid": 1
+    }
+  ],
+  "views": [
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "path": "availability",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "path": "review",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "path": "availability",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "path": "review",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "path": "confirmation",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "d540d6ce0e4a2b970e026652b22c402a",
+      "path": "confirmation",
+      "cookie_valid": 1
+    }
+  ]
+}

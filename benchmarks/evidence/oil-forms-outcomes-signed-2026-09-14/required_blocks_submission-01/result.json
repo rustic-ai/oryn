@@ -1,0 +1,12 @@
+{
+  "case": "required_blocks_submission",
+  "sample": 1,
+  "case_id": "43a8cfc3c7e9f9675455336524ae9412",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "49ca2ee4da22369f3142b24939eb4458076bca3284a6b5f1b1971486b241bbbd",
+  "elapsed_seconds": 0.161,
+  "final_oracle_verified": true
+}

@@ -1,0 +1,12 @@
+{
+  "case": "dynamic_results",
+  "sample": 2,
+  "case_id": "988349728a4e357ffc27308224b112b9",
+  "base": "http://127.0.0.1:56120/research/988349728a4e357ffc27308224b112b9",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "d9b266997a213fec12193b27aa4385378ae094bda0ac267482dd2b54d48d6ad4",
+  "returncode": 0,
+  "elapsed_seconds": 0.548
+}

@@ -1,0 +1,95 @@
+{
+  "cases": [
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "scenario": "normal",
+      "unit_price": 2500,
+      "blue_stock": 10,
+      "green_stock": 10,
+      "quote_count": 1
+    }
+  ],
+  "carts": [
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "variant": "blue",
+      "quantity": 2
+    }
+  ],
+  "quotes": [
+    {
+      "quote": "a40f2f9e94db6fd2acad346a2c045114",
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "variant": "blue",
+      "quantity": 2,
+      "unit_price": 2500,
+      "total": 5000
+    }
+  ],
+  "orders": [],
+  "requests": [
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "action": "cart",
+      "outcome": 303,
+      "body_sha256": "2e53971dbbf74df23e2c4831018e8c0cf3f2ececc3d3c722587d11ec377adf23",
+      "fields": "{\"quantity\": [\"1\"], \"variant\": [\"blue\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "action": "cart",
+      "outcome": 303,
+      "body_sha256": "ab4f287c4ad60be3a66d9e5834f5a46c124793b9e3c2d5fffcd5b62bc7ca15f6",
+      "fields": "{\"quantity\": [\"2\"], \"variant\": [\"blue\"]}",
+      "cookie_valid": 1
+    }
+  ],
+  "views": [
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "page": "catalog",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "page": "product/desk",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "page": "catalog",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "page": "catalog",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "page": "product/field",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "9d8ca88acda1832d7e1e906df83b6321",
+      "page": "review",
+      "cookie_valid": 1
+    }
+  ]
+}

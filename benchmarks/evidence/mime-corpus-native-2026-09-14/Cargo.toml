@@ -1,0 +1,11 @@
+[package]
+name = "oryn-mime-corpus-check"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+serde_json = "1"
+
+[[bin]]
+name = "oryn-mime-corpus-check"
+path = "main.rs"

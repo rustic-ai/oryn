@@ -46,7 +46,8 @@ select "State" "California"
 type "ZIP Code" "94102"
 
 # Select shipping method
-click "Express Shipping"
+# Target the radio, not both it and its clickable wrapping label.
+click css(input[name="shippingMethod"][value="express"])
 
 # Save address checkbox
 check "Save this address"

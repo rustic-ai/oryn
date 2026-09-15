@@ -1,0 +1,9 @@
+{
+  "case": "popup-pkce",
+  "sample": 1,
+  "passed": true,
+  "errors": [],
+  "returncode": 0,
+  "timed_out": false,
+  "elapsed_seconds": 0.2178197498433292
+}

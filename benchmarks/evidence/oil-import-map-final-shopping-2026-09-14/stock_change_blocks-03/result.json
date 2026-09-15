@@ -1,0 +1,13 @@
+{
+  "case": "stock_change_blocks",
+  "sample": 3,
+  "case_id": "e66427061db71875f275d35c09899272",
+  "base": "http://127.0.0.1:64211/shop/e66427061db71875f275d35c09899272",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "066c24d85987854d1622c772f8fa99187e999ec2aa465b9ca5884755b12ec6c8",
+  "returncode": 0,
+  "elapsed_seconds": 0.624,
+  "final_database_verified": true
+}

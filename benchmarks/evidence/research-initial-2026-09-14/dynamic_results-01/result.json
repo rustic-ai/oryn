@@ -1,0 +1,15 @@
+{
+  "case": "dynamic_results",
+  "sample": 1,
+  "case_id": "88c64a42fa027daba83f6e6ee5001b41",
+  "base": "http://127.0.0.1:55790/research/88c64a42fa027daba83f6e6ee5001b41",
+  "errors": [
+    "extracted facts/tables/source links mismatch"
+  ],
+  "timed_out": false,
+  "passed": false,
+  "task_sha256": "f985dbe72b23f313711939776741e983ad0eb3bbad4cd2068e3366b3d087f129",
+  "returncode": 0,
+  "elapsed_seconds": 0.226,
+  "final_database_verified": true
+}

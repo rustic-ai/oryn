@@ -1,0 +1,12 @@
+observe
+click "Start MFA"
+page wait url "idp/mfa"
+page activate 2
+observe
+type "Verification code" "246810"
+click "Verify code"
+page activate 1
+observe
+wait visible "MFA authenticated"
+extract text --selector "output"
+trace stop

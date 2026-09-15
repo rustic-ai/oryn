@@ -1,0 +1,12 @@
+{
+  "case": "missing_source_recovery",
+  "sample": 2,
+  "case_id": "53ef434fa8c9fa71806e8819cedf13f1",
+  "base": "http://127.0.0.1:58031/research/53ef434fa8c9fa71806e8819cedf13f1",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "13bfaf59b87415142bf7d2aeb6cddc6cb129bb2590d9ba61ad4c521c4146f012",
+  "returncode": 0,
+  "elapsed_seconds": 0.301
+}

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "bundle_id": "ai.rustic.oryn.page-worker",
+  "team_id": "5HVA9VFF8K",
+  "signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+  "protocol_version": 10,
+  "v8_version": "15.0.245.2-rusty",
+  "worker_build_sha256": "3f952c17d7cb5231ce8953ed6e9efcd3ceb6b0aaa9fc2dcfe3591534a88d4561",
+  "worker_build_bytes": 53668656,
+  "entitlement_sha256": "cbb53a56267d47cc0e275b74373577dd1d6220f47d0e6da34599a7e9dc9c2d65",
+  "policy_sha256": "cf812134be488ff73027cffcc4e6d168ae8597f5f7616826bd1c8d45b48b092a",
+  "source_tree_sha256": "aa51dc65b993e9a85442c3ebba4f4947d937c3986ecc0aa460a5307dbfc51855",
+  "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+  "box_engine_version": "taffy-0.14",
+  "inline_engine_version": "parley-0.11.1",
+  "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+  "limits": {
+    "runtime_profile": "full",
+    "v8_heap_bytes": 268435456,
+    "worker_rss_bytes": 536870912,
+    "ipc_frame_bytes": 25165824,
+    "command_wall_ms": 10000,
+    "navigation_wall_ms": 30000,
+    "queue_capacity": 32,
+    "max_layout_nodes": 100000,
+    "max_font_bytes": 8388608,
+    "max_page_font_bytes": 33554432,
+    "max_viewport_css_px": 16384,
+    "max_resource_cache_entries": 256,
+    "max_resource_cache_bytes": 33554432,
+    "max_resource_cache_entry_bytes": 8388608
+  }
+}

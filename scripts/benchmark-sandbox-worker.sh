@@ -205,7 +205,7 @@ jq -n \
         | if $runtime.execution_mode == "sandboxed_worker"
           and $runtime.sandboxed
           and $runtime.native_v8
-          and $runtime.worker_protocol_version == 9
+          and $runtime.worker_protocol_version == 10
           and $worker_rss_bytes <= $runtime.limits.worker_rss_bytes
           and $isolated_page_creation.first_cold_verification_launch_handshake_ms <= 250
           and $isolated_page_creation.warm_actions_per_second >= 300

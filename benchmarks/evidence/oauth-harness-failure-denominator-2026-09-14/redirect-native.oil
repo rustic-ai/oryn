@@ -1,0 +1,10 @@
+observe
+click "Start redirect sign in"
+observe
+wait url "idp/redirect"
+click "Approve redirect"
+observe
+wait url "rp/callback"
+wait visible "Redirect authenticated"
+extract text --selector "output"
+trace stop

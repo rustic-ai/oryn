@@ -1,0 +1,20 @@
+{
+  "schema_version": 5,
+  "pages": 3,
+  "page_handle_creation_ms": 0.105083,
+  "first_cold_verification_launch_handshake_ms": 103.241709,
+  "cached_isolated_launch_ms": [
+    38.688917000000004,
+    33.653625
+  ],
+  "warm_action_count": 1000,
+  "warm_actions_per_second": 125.33946824072568,
+  "worker_lifecycle": "isolated_on_demand",
+  "reset_or_close_ms": [
+    3.716459,
+    2.656667,
+    2.611833
+  ],
+  "recycled_javascript_state_erased": true,
+  "total_observation_bytes": 19680
+}

@@ -1,0 +1,16 @@
+goto "http://127.0.0.1:61336/form/24df672020d5c3c96bb1d98320d620f4"
+observe
+type "Full name" "Zoë Test"
+type "Email address" "zoe@example.test"
+select "Primary role" "developer"
+type "Application note" "R&D + 50% = café 日本語"
+check "Rust"
+check "JavaScript"
+type "Preferred date" "2026-09-30"
+click "Submit application"
+type "Preferred date" "2026-10-01"
+click "Submit application"
+wait visible css(#receipt)
+click "Reload receipt"
+wait visible css(#receipt)
+observe

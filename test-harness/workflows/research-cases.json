@@ -1,0 +1,459 @@
+{
+  "schema_version": 1,
+  "family": "research_extraction",
+  "scope": "controlled versioned outcomes; not full workflow or cross-origin qualification",
+  "cases": [
+    {
+      "id": "search_paginate_compare",
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Search sources\" \"energy\"",
+        "click \"Search reports\"",
+        "click \"Alpha report\"",
+        "wait visible css(#facts)",
+        "extract text --selector \"#facts\"",
+        "extract tables --selector \"#measurements\"",
+        "extract links --selector \"#sources\"",
+        "observe",
+        "click \"Back to results\"",
+        "click \"Next results\"",
+        "click \"Beta report\"",
+        "wait visible css(#facts)",
+        "extract text --selector \"#facts\"",
+        "extract tables --selector \"#measurements\"",
+        "extract links --selector \"#sources\"",
+        "observe"
+      ],
+      "expected": [
+        "Alpha generated 11 MWh in 2025.",
+        [
+          [
+            [
+              "Year",
+              "MWh"
+            ],
+            [
+              "2025",
+              "11"
+            ]
+          ]
+        ],
+        [
+          {
+            "text": "Canonical source",
+            "href": "{base}/article/alpha"
+          }
+        ],
+        "Beta generated 22 MWh in 2025.",
+        [
+          [
+            [
+              "Year",
+              "MWh"
+            ],
+            [
+              "2025",
+              "22"
+            ]
+          ]
+        ],
+        [
+          {
+            "text": "Canonical source",
+            "href": "{base}/article/beta"
+          }
+        ]
+      ],
+      "sources": [
+        "article/alpha",
+        "article/beta"
+      ],
+      "visits": [
+        {
+          "path": "start",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "search",
+          "query": {
+            "q": [
+              "energy"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "article/alpha",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "search",
+          "query": {
+            "q": [
+              "energy"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "search",
+          "query": {
+            "q": [
+              "energy"
+            ],
+            "page": [
+              "2"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "article/beta",
+          "query": {},
+          "status": 200
+        }
+      ],
+      "final": "article/beta",
+      "scenario": "normal"
+    },
+    {
+      "id": "redirected_source",
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Search sources\" \"redirect\"",
+        "click \"Search reports\"",
+        "click \"Archived Alpha report\"",
+        "wait visible css(#facts)",
+        "extract text --selector \"#facts\"",
+        "extract tables --selector \"#measurements\"",
+        "extract links --selector \"#sources\"",
+        "observe"
+      ],
+      "expected": [
+        "Alpha generated 11 MWh in 2025.",
+        [
+          [
+            [
+              "Year",
+              "MWh"
+            ],
+            [
+              "2025",
+              "11"
+            ]
+          ]
+        ],
+        [
+          {
+            "text": "Canonical source",
+            "href": "{base}/article/alpha"
+          }
+        ]
+      ],
+      "sources": [
+        "article/alpha"
+      ],
+      "visits": [
+        {
+          "path": "start",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "search",
+          "query": {
+            "q": [
+              "redirect"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "old-alpha",
+          "query": {},
+          "status": 303
+        },
+        {
+          "path": "article/alpha",
+          "query": {},
+          "status": 200
+        }
+      ],
+      "final": "article/alpha",
+      "scenario": "normal"
+    },
+    {
+      "id": "dynamic_results",
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Search sources\" \"dynamic\"",
+        "click \"Search reports\"",
+        "wait visible css(#ready)",
+        "click \"Alpha report\"",
+        "wait visible css(#facts)",
+        "extract text --selector \"#facts\"",
+        "extract tables --selector \"#measurements\"",
+        "extract links --selector \"#sources\"",
+        "observe"
+      ],
+      "expected": [
+        "Alpha generated 11 MWh in 2025.",
+        [
+          [
+            [
+              "Year",
+              "MWh"
+            ],
+            [
+              "2025",
+              "11"
+            ]
+          ]
+        ],
+        [
+          {
+            "text": "Canonical source",
+            "href": "{base}/article/alpha"
+          }
+        ]
+      ],
+      "sources": [
+        "article/alpha"
+      ],
+      "visits": [
+        {
+          "path": "start",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "search",
+          "query": {
+            "q": [
+              "dynamic"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "api",
+          "query": {
+            "q": [
+              "energy"
+            ],
+            "page": [
+              "1"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "article/alpha",
+          "query": {},
+          "status": 200
+        }
+      ],
+      "final": "article/alpha",
+      "scenario": "normal"
+    },
+    {
+      "id": "empty_results",
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Search sources\" \"absent\"",
+        "click \"Search reports\"",
+        "wait visible css(#empty)",
+        "extract text --selector \"#empty\"",
+        "extract links --selector \"#results\"",
+        "observe"
+      ],
+      "expected": [
+        "No matching sources",
+        []
+      ],
+      "sources": [],
+      "visits": [
+        {
+          "path": "start",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "search",
+          "query": {
+            "q": [
+              "absent"
+            ]
+          },
+          "status": 200
+        }
+      ],
+      "final": "search?q=absent",
+      "scenario": "normal"
+    },
+    {
+      "id": "missing_source_recovery",
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Search sources\" \"missing\"",
+        "click \"Search reports\"",
+        "click \"Unavailable report\"",
+        "wait visible css(#missing)",
+        "extract text --selector \"#missing\"",
+        "click \"Return to results\"",
+        "click \"Alpha report\"",
+        "wait visible css(#facts)",
+        "extract text --selector \"#facts\"",
+        "extract tables --selector \"#measurements\"",
+        "extract links --selector \"#sources\"",
+        "observe"
+      ],
+      "expected": [
+        "Source unavailable",
+        "Alpha generated 11 MWh in 2025.",
+        [
+          [
+            [
+              "Year",
+              "MWh"
+            ],
+            [
+              "2025",
+              "11"
+            ]
+          ]
+        ],
+        [
+          {
+            "text": "Canonical source",
+            "href": "{base}/article/alpha"
+          }
+        ]
+      ],
+      "sources": [
+        "article/alpha"
+      ],
+      "visits": [
+        {
+          "path": "start",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "search",
+          "query": {
+            "q": [
+              "missing"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "gone",
+          "query": {},
+          "status": 404
+        },
+        {
+          "path": "search",
+          "query": {
+            "q": [
+              "missing"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "article/alpha",
+          "query": {},
+          "status": 200
+        }
+      ],
+      "final": "article/alpha",
+      "scenario": "normal"
+    },
+    {
+      "id": "refreshed_results",
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Search sources\" \"refresh\"",
+        "click \"Search reports\"",
+        "click \"Refresh results\"",
+        "wait visible css(#ready)",
+        "extract links --selector \"#results\"",
+        "click \"Beta report\"",
+        "wait visible css(#facts)",
+        "extract text --selector \"#facts\"",
+        "extract tables --selector \"#measurements\"",
+        "extract links --selector \"#sources\"",
+        "observe"
+      ],
+      "expected": [
+        [
+          {
+            "text": "Beta report",
+            "href": "{base}/article/beta"
+          }
+        ],
+        "Beta generated 22 MWh in 2025.",
+        [
+          [
+            [
+              "Year",
+              "MWh"
+            ],
+            [
+              "2025",
+              "22"
+            ]
+          ]
+        ],
+        [
+          {
+            "text": "Canonical source",
+            "href": "{base}/article/beta"
+          }
+        ]
+      ],
+      "sources": [
+        "article/beta"
+      ],
+      "visits": [
+        {
+          "path": "start",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "search",
+          "query": {
+            "q": [
+              "refresh"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "api",
+          "query": {
+            "q": [
+              "energy"
+            ],
+            "page": [
+              "2"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "article/beta",
+          "query": {},
+          "status": 200
+        }
+      ],
+      "final": "article/beta",
+      "scenario": "normal"
+    }
+  ]
+}

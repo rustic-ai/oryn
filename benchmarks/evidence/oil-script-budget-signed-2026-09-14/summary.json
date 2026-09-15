@@ -1,0 +1,127 @@
+{
+  "qualification": "diagnostic smoke, not end-state or release qualification",
+  "parent_sha256": "d736ee7b7b8f36145c1c11b472d0540349a5d3e4c95f85e1520339cda70e5f6f",
+  "worker_sha256": "0366d487667f4c88d5e656a7b4b2755dbd40c76ca56c10ae99c32c6956b12810",
+  "records": [
+    {
+      "task": "01_static.oil",
+      "task_sha256": "a03f83ee1fa373e20db7dd7a68a1f086caf35d8c13b35d9c0d5ca45a496e21a0",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.217,
+      "smoke_pass": true,
+      "task_completion": "not independently verified",
+      "error": ""
+    },
+    {
+      "task": "02_forms.oil",
+      "task_sha256": "3110e7b7d0a30657785a80e896f9ed664e50416cedd954fe4d9d93b6f1da6958",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.363,
+      "smoke_pass": true,
+      "task_completion": "not independently verified",
+      "error": ""
+    },
+    {
+      "task": "03_ecommerce.oil",
+      "task_sha256": "f35cafb78e832a6eb2ee3af514ec655a07857a39488590d3f110c9fab1592482",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_seconds": 0.171,
+      "smoke_pass": false,
+      "task_completion": "not independently verified",
+      "error": "Error: Runtime(UnsupportedGeometry(\"spatial target resolution requires authoritative geometry\"))\n"
+    },
+    {
+      "task": "04_interactivity.oil",
+      "task_sha256": "48eb0bc713de8833052ada96aeaf07bd21aec80ca0263466da865b9a6bd02c55",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_seconds": 1.473,
+      "smoke_pass": false,
+      "task_completion": "not independently verified",
+      "error": "Error: Runtime(Semantic(\"no matching actionable target\"))\n"
+    },
+    {
+      "task": "05_dynamic.oil",
+      "task_sha256": "10e1a36dcca22281949673475551e525508cf5917ce527970fef3012f5cf415f",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 1.227,
+      "smoke_pass": true,
+      "task_completion": "not independently verified",
+      "error": ""
+    },
+    {
+      "task": "06_edge_cases.oil",
+      "task_sha256": "ac5d1f84f7602a0f3932c5e8acf88f817685c0cac31f23a97133331197754894",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.501,
+      "smoke_pass": true,
+      "task_completion": "not independently verified",
+      "error": ""
+    },
+    {
+      "task": "07_intents_builtin.oil",
+      "task_sha256": "3649b99ce99e9995cf6171ea38b760e6ad5af6b51a8efe50706fd31cbc76751c",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 1.618,
+      "smoke_pass": true,
+      "task_completion": "not independently verified",
+      "error": ""
+    },
+    {
+      "task": "08_multipage_flows.oil",
+      "task_sha256": "571ac33e9c3abc49354a83110cb0c72d42a8ed11cb86b3b77d57315a9ee023e1",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 1.658,
+      "smoke_pass": true,
+      "task_completion": "not independently verified",
+      "error": ""
+    },
+    {
+      "task": "09_target_resolution.oil",
+      "task_sha256": "22da23fc21d048d3a35c346c2ebb629a602f689d7b58c083c2fcad83155babc6",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 9.897,
+      "smoke_pass": true,
+      "task_completion": "not independently verified",
+      "error": ""
+    },
+    {
+      "task": "10_react_spa.oil",
+      "task_sha256": "4f73e59b78a62250d2079eca8157d27cef609bd0a56034da6c8316124db6b6c7",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_seconds": 2.365,
+      "smoke_pass": false,
+      "task_completion": "not independently verified",
+      "error": "Error: Runtime(StaleSemanticRef)\n"
+    },
+    {
+      "task": "11_angular_spa.oil",
+      "task_sha256": "6d5a058b88d4afa167a7af23884dc64bf25d702fc4ccc66837a4f54f6ae2979f",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 2.845,
+      "smoke_pass": true,
+      "task_completion": "not independently verified",
+      "error": ""
+    },
+    {
+      "task": "12_popup_detection.oil",
+      "task_sha256": "d67cd2111a7b25e80389a50b6296a1361844c4cb529d83c1beb9cbf58003e985",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.742,
+      "smoke_pass": true,
+      "task_completion": "not independently verified",
+      "error": ""
+    }
+  ]
+}

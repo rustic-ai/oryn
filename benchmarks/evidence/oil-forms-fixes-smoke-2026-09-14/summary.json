@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "passed": 12,
+  "total": 12,
+  "jsonl_frames": 414,
+  "script_exit_code": 0,
+  "qualification": "existing observation/no-unsupported OIL smoke predicate only; not independent task completion",
+  "source_tree_sha256": "cb539bbd1c33811a090989279d738a6506657fabde3f0d9f287fa6959d53c0ca",
+  "parent_sha256": "2d86eaa32940f5393e82f984357d989cb20cbbba3e0d51b54ec6ee155d2fcc2c",
+  "worker_sha256": "754053e3480069fece63b5c1d055aeb7fa02b1eaffcb8bf3800d3ab6d8242c64",
+  "fixture_server_sha256": "c9f6b285599195f5af0c2609846352cb4107d4e453c90f8fcdddbba4f6cf25f1",
+  "fixture_package_lock_sha256": "24dc17633294b176f5bf021ce73056b344f17f10acf382f2bd66f81ca7cbbd61",
+  "command": "scripts/validate-app-controlled-regressions.sh with ORYN_BIN=target/release/oryn and ORYN_PAGE_WORKER=target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker",
+  "tasks": ["01_static", "02_forms", "03_ecommerce", "04_interactivity", "05_dynamic", "06_edge_cases", "07_intents_builtin", "08_multipage_flows", "09_target_resolution", "10_react_spa", "11_angular_spa", "12_popup_detection"]
+}

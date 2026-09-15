@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree native diagnostic, not signed/WPT qualification",
+  "source_tree_sha256": "8f69007ca226beb2ec4e4809b544c3389b58569b76c54d765c893bd6743e841b",
+  "native_test_binary_sha256": "a540e59f0805a826b908894ef6534c4702e41f795d2e3f0250fb5d2a0c5c0280",
+  "changes": [
+    "Preserve text data beneath HTML script/style/xmp/iframe/noembed/noframes/plaintext during serialization, retaining escaping for other parents and SVG",
+    "Flush layout before spatial target resolution instead of checking only for absent layout"
+  ],
+  "specification": "https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments",
+  "focused_tests": [
+    "author_prepares_script_from_unescaped_data_block_inner_html: passed",
+    "spatial_resolution_flushes_geometry_after_author_callback: passed",
+    "serialization_preserves_html_raw_text_and_escapes_other_namespaces: passed"
+  ],
+  "native_suite": {"passed": 504, "failed": 0, "ignored": 6, "test_threads": 1, "elapsed_seconds": 151.22},
+  "dom_suite": {"passed": 103, "failed": 0, "elapsed_seconds": 0.31},
+  "strict_clippy": "passed",
+  "signed_replay": "pending; prior source's 9/12 replay remains immutable",
+  "limitations": ["React automatic startup not verified", "shopping signed retry pending", "scripting-dependent noscript serialization not qualified", "full WPT and five-family qualification remain open"],
+  "goal_complete": false
+}

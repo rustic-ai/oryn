@@ -1,0 +1,12 @@
+goto "http://127.0.0.1:54735/booking/2ce3df9185c20f691cae778fbcf5c7c0/start"
+select "Time zone" "America/Vancouver"
+select "Appointment" "early"
+click "Review appointment"
+wait visible css(#appointment-time)
+extract text --selector "#appointment-time"
+type "Attendee" "Zoë Test"
+type "Email" "zoe@example.test"
+click "Reserve test appointment"
+wait visible css(#conflict)
+observe
+observe

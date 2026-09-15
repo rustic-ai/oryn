@@ -1,0 +1,13 @@
+{
+  "case": "valid_urlencoded",
+  "sample": 1,
+  "case_id": "ccfd63b63a011889d79d28ec48030372",
+  "passed": false,
+  "errors": [
+    "receipt did not survive independent GET reload"
+  ],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "983118d879d9a511d470fc9762089d54ae80960564b6ef0a360b576a47451cb9",
+  "elapsed_seconds": 0.264
+}

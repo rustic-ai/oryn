@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree native diagnostic, not signed/WPT or release qualification",
+  "source_tree_sha256": "aec0e819cb0a19a2570f94e1b5b4d60bb69ad467922ca55462350c2ab2fcdb1f",
+  "native_test_binary_sha256": "7c2ccffd3dc8216c1642556706c4d984354ce2081b5c4920109a0c43945939b5",
+  "changes": [
+    "Preserve CSS IDs inside parenthesized OIL selectors instead of treating them as inline comments",
+    "Replace runtime subject-only selector shortcut with shared DOM arena selector-chain matching",
+    "Support bounded compound negation and substring attributes; preserve quoted attribute whitespace",
+    "Refresh layout at pointer action boundary before interactability checks"
+  ],
+  "focused_regression": {
+    "test": "pointer_target_recovers_after_ancestor_class_timer_removal",
+    "before": "NotInteractable after readiness wait",
+    "after": "passed",
+    "elapsed_seconds": 0.20
+  },
+  "native_suite": {"passed": 497, "failed": 0, "ignored": 6, "elapsed_seconds": 151.79, "test_threads": 1},
+  "dom_suite": {"passed": 102, "failed": 0, "elapsed_seconds": 0.31},
+  "core_suite": {"passed": 29, "failed": 0, "elapsed_seconds": 0.01},
+  "strict_native_clippy": "passed",
+  "format_and_diff_checks": "passed",
+  "signed_workflow_replay": "pending; prior 9/12 result predates these fixes",
+  "performance": "not qualified; additional action-boundary layout work requires measurement",
+  "wpt": "not run for these changes",
+  "remaining": ["React resource budget/loading", "independent five-family task oracles", "remaining architecture and qualification gates"],
+  "goal_complete": false
+}

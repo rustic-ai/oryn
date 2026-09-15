@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree native diagnostic, not WPT or release acceptance",
+  "source_tree_sha256": "7395b34f73d3d3e96665b1aac0e50067c2ba7e1dfbc718701e06ebb92f50a80c",
+  "native_test_binary_sha256": "98cd4f4ea27ec692150c86f9551552159336dbd90afdbf5e1eb0e283cf1689f9",
+  "change": "Expose HTMLScriptElement.text with native child-text getter, replace-all setter, existing script preparation lifecycle and Trusted Types enforcement; preserve existing generated member IDs",
+  "specification": "https://html.spec.whatwg.org/multipage/scripting.html#dom-script-text",
+  "focused_tests": [
+    "script_text_uses_native_children_and_prepares_author_code_once: passed",
+    "script_text_enforces_trusted_script_before_mutating_children: passed"
+  ],
+  "native_suite": {"passed": 506, "failed": 0, "ignored": 6, "test_threads": 1, "elapsed_seconds": 149.21},
+  "webidl_suite": {"passed": 10, "failed": 0},
+  "generated_registry_check": "passed",
+  "strict_clippy": "passed",
+  "format_and_diff_checks": "passed",
+  "limitations": ["Signed OIL replay pending at recording", "Full WPT and five-family qualification remain open"],
+  "goal_complete": false
+}

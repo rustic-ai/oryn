@@ -1,0 +1,9 @@
+{
+  "case": "redirect",
+  "sample": 3,
+  "passed": true,
+  "errors": [],
+  "returncode": 0,
+  "timed_out": false,
+  "elapsed_seconds": 0.18658220791257918
+}

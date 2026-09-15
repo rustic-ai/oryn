@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree signed-worker diagnostic; not release or five-family qualification",
+  "goal_complete": false,
+  "family_qualified": false,
+  "source_sha256": "b287cdce839ee5e1df1ccaa04a63ed08f2df455d04f502eb775f2656d3acf79e",
+  "parent_sha256": "226dabd4ae912b345e8daf20b344f302b58ffd8a44c6ad28ccd40c7c52b9a76a",
+  "signed_worker_sha256": "c678c974db1fd372dc0f58f8d1cfbffd741093561a1d1d3957619de4a987e9d9",
+  "worker_build_sha256": "d669ac4d35043e2edbe511679e9f223ae1c244473c68132af2520e4da33306f1",
+  "code_directory_hash": "90a952de0ece36d1dd475fc3656d7575ee35a263",
+  "signing_scope": "Apple Development signed worker bundle; parent recorded by executable SHA-256",
+  "v8": {
+    "archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "implementation": [
+    "Versioned native OIL product comparison, catalog filtering, variant selection, quantity editing, cart reload, checkout and order reload tasks.",
+    "Controlled SQLite fixture with case-scoped HttpOnly session cookies, transactional orders/inventory and request/view ledgers.",
+    "Deterministic price and stock changes after quote creation exercise HTTP 409 handling and explicit recovery; no real purchases.",
+    "Duplicate checkout returns the existing order and depletes inventory exactly once.",
+    "Runner seals and closes the fixture before independent fresh read-only database connections verify durable outcomes."
+  ],
+  "tests": {
+    "shopping_oracle_passed": 9,
+    "forms_oracle_passed": 10,
+    "resource_warnings_as_errors": "passed",
+    "ruff_and_diff_check": "passed",
+    "signed_worker_signature_designated_requirement_protocol10_sandbox_denials": "passed",
+    "scope": "Oracle tests reject stale quotes, unavailable stock, cross-case cookies, invalid cart data and corrupted outcome evidence; concurrent duplicate requests create one order."
+  },
+  "shopping": {
+    "initial_evidence": "oil-shopping-initial-2026-09-14/summary.json",
+    "initial_passed": 7,
+    "initial_planned": 7,
+    "evidence": "oil-shopping-signed-2026-09-14/summary.json",
+    "contract_version": 1,
+    "cases": 7,
+    "samples_per_case": 3,
+    "jobs": 3,
+    "passed": 21,
+    "planned": 21,
+    "timeouts": 0,
+    "all_final_database_checks_verified": true,
+    "source_matches_signed_build": true,
+    "database_sha256": "8c9659ef75be8803d48b1e9784d1ae7125be2f5c16c86bb1b3f9d893508a915b",
+    "fixture_cleanup": {"returncode": 0, "forced": false},
+    "worker_lifecycle": "isolated_on_demand",
+    "scope": "Seven controlled server-rendered cases, three independent processes concurrently; not framework, pooled-worker isolation or performance qualification."
+  },
+  "forms_regression": {
+    "evidence": "oil-shopping-forms-regression-2026-09-14/summary.json",
+    "contract_version": 5,
+    "passed": 57,
+    "planned": 57,
+    "timeouts": 0,
+    "all_final_oracles_verified": true,
+    "source_matches_signed_build": true,
+    "fixture_cleanup": {"returncode": 0, "forced": false}
+  },
+  "native_regression_scope": "No Rust changes in this increment. Parent and unsigned worker build hashes are unchanged from text-editing-native-2026-09-14.json; its Rust/WPT results are historical, not claimed as rerun here.",
+  "remaining": [
+    "Representative framework applications and durable outcomes for the remaining workflow families.",
+    "Initial iframe realms, per-document broker routing, connected-window placement and worker architecture gates.",
+    "Full Core WPT and clean-source security, lifecycle and performance qualification."
+  ]
+}

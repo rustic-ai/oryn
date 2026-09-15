@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "goal_complete": false,
+  "qualification": "signed dirty-tree diagnostics, not clean-release or independent workflow qualification",
+  "source_tree_sha256": "f24a6027772f5a5908bd033f13ac7d943ea6e0bb9f795b71a70c4d77510f7a99",
+  "parent_sha256": "7ce59fa6ac04097b8ec2d92c5560d90ad510f08ac9c58802f849fdca9b539c6d",
+  "worker_binary_sha256": "0717c3dfc520ca83c817e81464d393e7eca5e9232416fc9fadb4e2e0e45f4fa3",
+  "worker_code_directory_hash": "02b0af24967032687e09de27685253e2b1c2a803",
+  "native": {"passed":523,"failed":0,"ignored":6,"elapsed_seconds":145.04,"binary_sha256":"63b3fcaa6931b259448017ea2a238102798a923969180ed307a61e856c768ef6"},
+  "javascript": {"passed":263,"failed":0,"ignored":3,"elapsed_seconds":3.77,"binary_sha256":"846b8ccf5992459358323e0e8934b9b46fd9d50a81cc7ee2430961cab089ca13"},
+  "dom_passed":103,
+  "webidl_passed":10,
+  "strict_clippy_format_registry_diff_checks":"passed",
+  "signed_sandbox_security_probes":"passed",
+  "oil":{"passed":12,"total":12,"timeouts":0,"task_completion":"not independently verified","evidence":"oil-xhr-document-signed-2026-09-14/summary.json"},
+  "callback_wpt":{"passed_files":7,"total_files":9,"environment_blocked":0,"elapsed_seconds":12.5,"evidence":"custom-element-xhr-document-wpt-2026-09-14.json","adoption":"71/71","connection":"40/40","disconnection":"40/40","attributes":"13/13","remaining":["fragment parsing: 0/8 assertions passed","cross-realm callback exception reporting: no subtests reported"]},
+  "mime_override_wpt":{"passed_files":8,"total_files":9,"environment_blocked":0,"elapsed_seconds":4.1,"evidence":"xhr-mime-override-wpt-2026-09-14.json","remaining":"overridemimetype-blob.html has 68 failed assertions: browser MIME parser/serialization mismatches"},
+  "changes":["Native overrideMimeType with response encoding selection","Cached inert HTML/XML document responses with native document metadata","Generic member-level WebIDL exposure","Signed replay includes clone/import upgrade repair"],
+  "remaining":["Browser MIME parsing/serialization","Fragment reaction timing and cross-realm exceptions","Full XHR document encoding sniffing and metadata semantics","Independent five-family workflow outcome qualification","Remaining architecture, full Core WPT, performance and clean-release gates"]
+}

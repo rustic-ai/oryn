@@ -1,0 +1,15 @@
+{
+  "case": "missing_source_recovery",
+  "sample": 1,
+  "case_id": "a7b46c77e7bd4c8cd06808c085eea5ea",
+  "base": "http://127.0.0.1:55790/research/a7b46c77e7bd4c8cd06808c085eea5ea",
+  "errors": [
+    "extracted facts/tables/source links mismatch"
+  ],
+  "timed_out": false,
+  "passed": false,
+  "task_sha256": "bc83a9d9a91f7f129451dfa5fb18642b1f129b1f0dd7a128d05e2bb97dc0ce3f",
+  "returncode": 0,
+  "elapsed_seconds": 0.279,
+  "final_database_verified": true
+}

@@ -1,0 +1,78 @@
+{
+  "cases": [
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "authenticated": 0,
+      "logins": 1
+    }
+  ],
+  "records": [
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "title": "Approved",
+      "version": 2
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "action": "login",
+      "outcome": 303,
+      "authorized": 0,
+      "body_sha256": "131c955ca748255236d58cab0b91a2bc5f3fc261774179ffd9800431f04d9aa2"
+    },
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "action": "create",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "b47c656716fbdb182cb942d7979538f62791df9ebfdbac491d88048d7282550f"
+    },
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "action": "update",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "40468b727c99b8d95b899b4cef179fe73d5835e666bc7911b90821e14f873063"
+    },
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "action": "logout",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "f28ec59aea99c329867a5deb66c6d582d9c21c128dc431863c70e71dae936678"
+    }
+  ],
+  "views": [
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "6ee314d1f69b5b948bb7501769970584",
+      "page": "login",
+      "authorized": 0
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+goto "http://127.0.0.1:58031/research/c263bcd0eec635fd76a409fbf6a5a95f/start"
+type "Search sources" "absent"
+click "Search reports"
+wait visible css(#empty)
+extract text --selector "#empty"
+extract links --selector "#results"
+observe

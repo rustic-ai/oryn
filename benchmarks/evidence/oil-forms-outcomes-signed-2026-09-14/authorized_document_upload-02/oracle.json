@@ -1,0 +1,102 @@
+{
+  "upload": true,
+  "requests": [
+    {
+      "content_type": "multipart/form-data; boundary=----oryn-TFFy0OIbl7QjJ1r60_cOxLDg",
+      "bytes": 1167,
+      "sha256": "61abc4099092145ae46695aac80db6d460bea4a144816fe6328ceec50bf4e1d6",
+      "fields": [
+        [
+          "name",
+          "Zo\u00eb Test"
+        ],
+        [
+          "email",
+          "zoe@example.test"
+        ],
+        [
+          "role",
+          "developer"
+        ],
+        [
+          "message",
+          "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e"
+        ],
+        [
+          "skill",
+          "rust"
+        ],
+        [
+          "skill",
+          "javascript"
+        ],
+        [
+          "case_id",
+          "bc07851bb5f53716eee7a04b5d7a7a46"
+        ],
+        [
+          "intent",
+          "apply"
+        ]
+      ],
+      "files": [
+        {
+          "name": "document",
+          "filename": "authorized-document.txt",
+          "bytes": 151,
+          "sha256": "f3822a416004d1f9d068de6c1e47423a4720b55aa76fbd9ee6f2f190a9349676"
+        }
+      ],
+      "status": 303
+    }
+  ],
+  "receipts": [
+    {
+      "case_id": "bc07851bb5f53716eee7a04b5d7a7a46",
+      "fields": [
+        [
+          "name",
+          "Zo\u00eb Test"
+        ],
+        [
+          "email",
+          "zoe@example.test"
+        ],
+        [
+          "role",
+          "developer"
+        ],
+        [
+          "message",
+          "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e"
+        ],
+        [
+          "skill",
+          "rust"
+        ],
+        [
+          "skill",
+          "javascript"
+        ],
+        [
+          "case_id",
+          "bc07851bb5f53716eee7a04b5d7a7a46"
+        ],
+        [
+          "intent",
+          "apply"
+        ]
+      ],
+      "files": [
+        {
+          "name": "document",
+          "filename": "authorized-document.txt",
+          "bytes": 151,
+          "sha256": "f3822a416004d1f9d068de6c1e47423a4720b55aa76fbd9ee6f2f190a9349676"
+        }
+      ],
+      "request_sha256": "61abc4099092145ae46695aac80db6d460bea4a144816fe6328ceec50bf4e1d6"
+    }
+  ],
+  "receipt_views": 2
+}

@@ -1,0 +1,37 @@
+{
+  "cases": [
+    {
+      "case_id": "1c8e2b63f78e65441fe3176b507215da"
+    }
+  ],
+  "visits": [
+    {
+      "case_id": "1c8e2b63f78e65441fe3176b507215da",
+      "path": "start",
+      "query": "{}",
+      "status": 200,
+      "body_sha256": "0d42a61ca35fb76dd9d09cc8fc041870a586fb66c66acbed7c3a044024ae771d"
+    },
+    {
+      "case_id": "1c8e2b63f78e65441fe3176b507215da",
+      "path": "search",
+      "query": "{\"q\": [\"redirect\"]}",
+      "status": 200,
+      "body_sha256": "49af4e326951907ccb4b24aedd2f6e26d8b8c7dce6f80b21993161c139b74e2b"
+    },
+    {
+      "case_id": "1c8e2b63f78e65441fe3176b507215da",
+      "path": "old-alpha",
+      "query": "{}",
+      "status": 303,
+      "body_sha256": "ec6285bc8d365b2d069561d1e714cfd4c0596be9409ee0e0189a6e54642b44cf"
+    },
+    {
+      "case_id": "1c8e2b63f78e65441fe3176b507215da",
+      "path": "article/alpha",
+      "query": "{}",
+      "status": 200,
+      "body_sha256": "105f9b74844696a3624a019b89f046f0f5c53cbfb1619b0e4b48f73557ec2620"
+    }
+  ]
+}

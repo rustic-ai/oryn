@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree native diagnostic; not signed or WPT qualification",
+  "source_tree_sha256": "7ec8cce6021b7bd562dfb90f19b5a3434b602ce7be43d7779ba79b6859dfce82",
+  "goal_complete": false,
+  "changes": [
+    "Run the native DOM lifecycle checkpoint after insertion preparation and before post-connection scripts.",
+    "Resolve post-connection scripts and meta processing through active native owner-document state and enter that document's V8 context.",
+    "Do not execute post-connection scripts in documents without a live execution environment."
+  ],
+  "regressions": [
+    {"name": "native_frame_discard_precedes_post_connection_script_execution", "before": "failed: replacement script observed removed frame before native retirement", "after": "passed: retained window is closed and new timer scheduling returns zero during replacement script"},
+    {"name": "inserted_scripts_execute_in_native_owner_document_realm", "before": "failed with borrowed Node.prototype.appendChild methods across parent/child realms", "after": "passed in both directions; global effects remain in the owner document's realm"},
+    {"name": "inserted_scripts_do_not_execute_in_inert_or_retired_documents", "after": "passed"}
+  ],
+  "tests": {
+    "native": {"passed": 559, "failed": 0, "ignored": 6, "elapsed_seconds": 146.51},
+    "javascript": {"passed": 274, "failed": 0, "ignored": 3, "elapsed_seconds": 4.42},
+    "native_strict_clippy": "passed",
+    "formatting": "passed",
+    "diff_check": "passed"
+  },
+  "previous_signed_evidence": "native-realm-coordinator-signed-2026-09-14.json",
+  "remaining": [
+    "Synchronous initial iframe Window/Document creation is not integrated yet.",
+    "Native WindowProxy linking and initial-document navigation reuse remain incomplete.",
+    "Connected popup architecture, per-document routing and complete five-family OIL qualification remain open.",
+    "These changes have no new signed build or upstream WPT qualification."
+  ]
+}

@@ -22,7 +22,8 @@ use crate::{
     security::{NetworkPolicy, PolicyDenied},
 };
 
-const BROKER_PROTOCOL_VERSION: u32 = 4;
+const BROKER_PROTOCOL_VERSION: u32 = 5;
+use crate::worker_route::WorkerRoute;
 const MAX_BROKER_FRAME_BYTES: usize = 24 * 1024 * 1024;
 const MAX_DECODED_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const PERSISTENT_HTTP_CACHE: TableDefinition<&str, &[u8]> = TableDefinition::new("http_cache_v1");
@@ -329,6 +330,30 @@ fn operation_from_response(response: NetworkResponse) -> NetworkOperation {
 }
 
 pub trait NetworkBroker: Send + Sync {
+    fn start_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
+        if route.is_some() {
+            return Err(NetworkError::Transport(
+                "network transport does not accept route authority".into(),
+            ));
+        }
+        self.start_operation(request)
+    }
+    fn cancel_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        request_id: u64,
+    ) -> Result<(), NetworkError> {
+        if route.is_some() {
+            return Err(NetworkError::Transport(
+                "network transport does not accept route authority".into(),
+            ));
+        }
+        self.cancel_operation(request_id)
+    }
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError>;
 
     fn start_stream(&self, request: NetworkRequest) -> Result<NetworkStreamResponse, NetworkError> {
@@ -402,6 +427,20 @@ pub trait NetworkBroker: Send + Sync {
 }
 
 impl NetworkBroker for Box<dyn NetworkBroker> {
+    fn start_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
+        self.as_ref().start_routed(route, request)
+    }
+    fn cancel_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        request_id: u64,
+    ) -> Result<(), NetworkError> {
+        self.as_ref().cancel_routed(route, request_id)
+    }
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         self.as_ref().send(request)
     }
@@ -1028,6 +1067,9 @@ impl Read for PersistentCachingReader {
 }
 
 impl SharedNetworkBroker {
+    pub(crate) fn for_route(self, route: WorkerRoute) -> Self {
+        Self::new(RoutedNetworkBroker { inner: self, route })
+    }
     pub fn new(broker: impl NetworkBroker + 'static) -> Self {
         Self {
             inner: Some(Arc::new(Box::new(broker))),
@@ -1051,6 +1093,36 @@ impl SharedNetworkBroker {
         let mut observation = self.audit.begin(request, self.audit_page_id)?;
         observation.bind_worker(self.audit_worker_pid);
         Some(observation)
+    }
+}
+
+struct RoutedNetworkBroker {
+    inner: SharedNetworkBroker,
+    route: WorkerRoute,
+}
+
+impl NetworkBroker for RoutedNetworkBroker {
+    fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        collect_operation_bounded(
+            self,
+            request,
+            Duration::from_secs(30),
+            MAX_DECODED_RESPONSE_BYTES,
+        )
+    }
+    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        self.inner
+            .inner
+            .as_ref()
+            .expect("live route transport")
+            .start_routed(Some(&self.route), request)
+    }
+    fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.inner
+            .inner
+            .as_ref()
+            .expect("live route transport")
+            .cancel_routed(Some(&self.route), request_id)
     }
 }
 
@@ -1874,13 +1946,18 @@ impl NetworkBroker for RustlsTransport {
 pub struct IpcNetworkBroker {
     writer: Mutex<UnixStream>,
     next_message_id: std::sync::atomic::AtomicU64,
-    pending: Arc<Mutex<BTreeMap<u64, tokio::sync::mpsc::Sender<NetworkEvent>>>>,
-    active_requests: Arc<Mutex<BTreeMap<u64, u64>>>,
+    pending: Arc<Mutex<PendingNetworkReplies>>,
+    active_requests: Arc<Mutex<ActiveNetworkRequests>>,
 }
+
+type PendingNetworkReplies =
+    BTreeMap<u64, (Option<WorkerRoute>, tokio::sync::mpsc::Sender<NetworkEvent>)>;
+type ActiveNetworkRequests = BTreeMap<(Option<WorkerRoute>, u64), u64>;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct BrokerRequestEnvelope {
     protocol_version: u32,
+    route: Option<WorkerRoute>,
     message_id: u64,
     command: BrokerCommand,
 }
@@ -1895,6 +1972,7 @@ enum BrokerCommand {
 #[derive(Debug, Serialize, Deserialize)]
 struct BrokerResponseEnvelope {
     protocol_version: u32,
+    route: Option<WorkerRoute>,
     correlation_id: u64,
     #[serde(default)]
     response: Option<EncodedNetworkResponse>,
@@ -1950,8 +2028,7 @@ struct EncodedNetworkResponse {
 impl IpcNetworkBroker {
     pub fn new(stream: UnixStream) -> Self {
         let reader = stream.try_clone().expect("clone broker IPC stream");
-        let pending: Arc<Mutex<BTreeMap<u64, tokio::sync::mpsc::Sender<NetworkEvent>>>> =
-            Arc::new(Mutex::new(BTreeMap::new()));
+        let pending: Arc<Mutex<PendingNetworkReplies>> = Arc::new(Mutex::new(BTreeMap::new()));
         let reader_pending = pending.clone();
         let active_requests = Arc::new(Mutex::new(BTreeMap::new()));
         let reader_active_requests = active_requests.clone();
@@ -2021,17 +2098,39 @@ impl NetworkBroker for IpcNetworkBroker {
     }
 
     fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+        // Allocate IDs under the same lock that orders frames on the wire.
+        self.start_routed(None, request)
+    }
+
+    fn start_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
+        // Allocate IDs under the same lock that orders frames on the wire.
+        // Otherwise concurrent callers can publish N+1 before N and trip the
+        // parent's replay protection on a legitimate request.
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| NetworkError::Transport("network IPC writer lock poisoned".into()))?;
         let message_id = self
             .next_message_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |id| id.checked_add(1),
+            )
+            .map_err(|_| NetworkError::Transport("network message identifiers exhausted".into()))?;
         let request_id = request.request_id;
         let (sender, events) = tokio::sync::mpsc::channel(8);
         self.pending
             .lock()
             .map_err(|_| NetworkError::Transport("network IPC pending lock poisoned".into()))?
-            .insert(message_id, sender);
+            .insert(message_id, (route.cloned(), sender));
         let envelope = BrokerRequestEnvelope {
             protocol_version: BROKER_PROTOCOL_VERSION,
+            route: route.cloned(),
             message_id,
             command: BrokerCommand::Start {
                 request: EncodedNetworkRequest {
@@ -2050,19 +2149,15 @@ impl NetworkBroker for IpcNetworkBroker {
         self.active_requests
             .lock()
             .map_err(|_| NetworkError::Transport("network IPC active lock poisoned".into()))?
-            .insert(request_id, message_id);
-        let result = self
-            .writer
-            .lock()
-            .map_err(|_| NetworkError::Transport("network IPC writer lock poisoned".into()))
-            .and_then(|mut writer| {
-                serde_json::to_writer(&mut *writer, &envelope)
-                    .map_err(|error| NetworkError::Transport(error.to_string()))?;
-                writer
-                    .write_all(b"\n")
-                    .and_then(|_| writer.flush())
-                    .map_err(|error| NetworkError::Transport(error.to_string()))
-            });
+            .insert((route.cloned(), request_id), message_id);
+        let result = (|| {
+            serde_json::to_writer(&mut *writer, &envelope)
+                .map_err(|error| NetworkError::Transport(error.to_string()))?;
+            writer
+                .write_all(b"\n")
+                .and_then(|_| writer.flush())
+                .map_err(|error| NetworkError::Transport(error.to_string()))
+        })();
         if let Err(error) = result {
             let _ = self
                 .pending
@@ -2071,7 +2166,7 @@ impl NetworkBroker for IpcNetworkBroker {
             let _ = self
                 .active_requests
                 .lock()
-                .map(|mut active| active.remove(&request_id));
+                .map(|mut active| active.remove(&(route.cloned(), request_id)));
             return Err(error);
         }
         Ok(NetworkOperation {
@@ -2082,11 +2177,31 @@ impl NetworkBroker for IpcNetworkBroker {
     }
 
     fn cancel_operation(&self, request_id: u64) -> Result<(), NetworkError> {
+        self.cancel_routed(None, request_id)
+    }
+
+    fn cancel_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        request_id: u64,
+    ) -> Result<(), NetworkError> {
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| NetworkError::Transport("network IPC writer lock poisoned".into()))?;
+        let message_id = self
+            .next_message_id
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |id| id.checked_add(1),
+            )
+            .map_err(|_| NetworkError::Transport("network message identifiers exhausted".into()))?;
         if let Some(message_id) = self
             .active_requests
             .lock()
             .map_err(|_| NetworkError::Transport("network IPC active lock poisoned".into()))?
-            .remove(&request_id)
+            .remove(&(route.cloned(), request_id))
         {
             self.pending
                 .lock()
@@ -2095,15 +2210,10 @@ impl NetworkBroker for IpcNetworkBroker {
         }
         let envelope = BrokerRequestEnvelope {
             protocol_version: BROKER_PROTOCOL_VERSION,
-            message_id: self
-                .next_message_id
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            route: route.cloned(),
+            message_id,
             command: BrokerCommand::Cancel { request_id },
         };
-        let mut writer = self
-            .writer
-            .lock()
-            .map_err(|_| NetworkError::Transport("network IPC writer lock poisoned".into()))?;
         serde_json::to_writer(&mut *writer, &envelope)
             .map_err(|error| NetworkError::Transport(error.to_string()))?;
         writer
@@ -2115,8 +2225,8 @@ impl NetworkBroker for IpcNetworkBroker {
 
 fn broker_response_loop(
     stream: UnixStream,
-    pending: Arc<Mutex<BTreeMap<u64, tokio::sync::mpsc::Sender<NetworkEvent>>>>,
-    active_requests: Arc<Mutex<BTreeMap<u64, u64>>>,
+    pending: Arc<Mutex<PendingNetworkReplies>>,
+    active_requests: Arc<Mutex<ActiveNetworkRequests>>,
 ) {
     let mut reader = BufReader::new(stream);
     loop {
@@ -2137,8 +2247,15 @@ fn broker_response_loop(
             .lock()
             .ok()
             .and_then(|pending| pending.get(&response.correlation_id).cloned());
-        let Some(sender) = sender else { continue };
-        let event = if let Some(error) = response.error {
+        let Some((route, sender)) = sender else {
+            continue;
+        };
+        let event = if response.route != route {
+            NetworkEvent::Failed {
+                request_id: 0,
+                error: "network response route mismatch".into(),
+            }
+        } else if let Some(error) = response.error {
             NetworkEvent::Failed {
                 request_id: 0,
                 error,
@@ -2184,7 +2301,7 @@ fn broker_response_loop(
         }
     }
     if let Ok(mut pending) = pending.lock() {
-        for (_, sender) in std::mem::take(&mut *pending) {
+        for (_, (_, sender)) in std::mem::take(&mut *pending) {
             let _ = sender.blocking_send(NetworkEvent::Failed {
                 request_id: 0,
                 error: "broker IPC closed".into(),
@@ -2247,6 +2364,7 @@ pub fn serve_ipc_broker(
         let response = if line.len() > max_frame_bytes {
             Some(BrokerResponseEnvelope {
                 protocol_version: BROKER_PROTOCOL_VERSION,
+                route: None,
                 correlation_id: 0,
                 response: None,
                 event: None,
@@ -2259,11 +2377,12 @@ pub fn serve_ipc_broker(
                         && envelope.message_id > last_message_id =>
                 {
                     let correlation_id = envelope.message_id;
+                    let route = envelope.route;
                     last_message_id = envelope.message_id;
                     let request = match envelope.command {
                         BrokerCommand::Start { request } => request,
                         BrokerCommand::Cancel { request_id } => {
-                            let _ = broker.cancel_operation(request_id);
+                            let _ = broker.cancel_routed(route.as_ref(), request_id);
                             continue;
                         }
                     };
@@ -2272,16 +2391,19 @@ pub fn serve_ipc_broker(
                         .map_err(|error| error.to_string())
                         .and_then(|body| {
                             broker
-                                .start_operation(NetworkRequest {
-                                    request_id: request.request_id,
-                                    method: request.method,
-                                    url: request.url,
-                                    headers: sanitize_worker_headers(request.headers),
-                                    body,
-                                    credentials: request.credentials,
-                                    security: request.security,
-                                    resolved_addrs: Vec::new(),
-                                })
+                                .start_routed(
+                                    route.as_ref(),
+                                    NetworkRequest {
+                                        request_id: request.request_id,
+                                        method: request.method,
+                                        url: request.url,
+                                        headers: sanitize_worker_headers(request.headers),
+                                        body,
+                                        credentials: request.credentials,
+                                        security: request.security,
+                                        resolved_addrs: Vec::new(),
+                                    },
+                                )
                                 .map_err(|error| error.to_string())
                         });
                     match result {
@@ -2297,6 +2419,7 @@ pub fn serve_ipc_broker(
                                     );
                                     let envelope = BrokerResponseEnvelope {
                                         protocol_version: BROKER_PROTOCOL_VERSION,
+                                        route: route.clone(),
                                         correlation_id,
                                         response: None,
                                         event: Some(event),
@@ -2314,6 +2437,7 @@ pub fn serve_ipc_broker(
                         }
                         Err(error) => Some(BrokerResponseEnvelope {
                             protocol_version: BROKER_PROTOCOL_VERSION,
+                            route,
                             correlation_id,
                             response: None,
                             event: None,
@@ -2323,6 +2447,7 @@ pub fn serve_ipc_broker(
                 }
                 Ok(envelope) => Some(BrokerResponseEnvelope {
                     protocol_version: BROKER_PROTOCOL_VERSION,
+                    route: envelope.route,
                     correlation_id: envelope.message_id,
                     response: None,
                     event: None,
@@ -2334,6 +2459,7 @@ pub fn serve_ipc_broker(
                 }),
                 Err(error) => Some(BrokerResponseEnvelope {
                     protocol_version: BROKER_PROTOCOL_VERSION,
+                    route: None,
                     correlation_id: 0,
                     response: None,
                     event: None,
@@ -2764,6 +2890,123 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_network_frames_keep_monotonic_wire_identifiers() {
+        let (worker, parent) = UnixStream::pair().unwrap();
+        parent
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let server = std::thread::spawn(move || {
+            let mut reader = BufReader::new(parent);
+            for expected in 1..=64 {
+                let mut line = Vec::new();
+                reader.read_until(b'\n', &mut line).unwrap();
+                let frame: BrokerRequestEnvelope = serde_json::from_slice(&line).unwrap();
+                assert_eq!(frame.message_id, expected);
+            }
+        });
+        let broker = Arc::new(IpcNetworkBroker::new(worker));
+        let barrier = Arc::new(std::sync::Barrier::new(32));
+        let callers = (1..=32)
+            .map(|id| {
+                let broker = broker.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let mut request = request("https://example.test/");
+                    request.request_id = id;
+                    let _operation = broker.start_operation(request).unwrap();
+                    broker.cancel_operation(id).unwrap();
+                })
+            })
+            .collect::<Vec<_>>();
+        for caller in callers {
+            caller.join().unwrap();
+        }
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn network_routes_scope_cancellation_and_validate_response_authority() {
+        for wrong_reply in [false, true] {
+            let (worker, parent) = UnixStream::pair().unwrap();
+            parent
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let server = std::thread::spawn(move || {
+                let mut reader = BufReader::new(parent.try_clone().unwrap());
+                let mut frames = Vec::new();
+                for _ in 0..3 {
+                    let mut line = Vec::new();
+                    reader.read_until(b'\n', &mut line).unwrap();
+                    frames.push(serde_json::from_slice::<BrokerRequestEnvelope>(&line).unwrap());
+                }
+                assert_ne!(frames[0].route, frames[1].route);
+                assert_eq!(frames[0].route, frames[2].route);
+                assert!(matches!(
+                    frames[2].command,
+                    BrokerCommand::Cancel { request_id: 5 }
+                ));
+                let response = BrokerResponseEnvelope {
+                    protocol_version: BROKER_PROTOCOL_VERSION,
+                    route: frames[usize::from(!wrong_reply)].route.clone(),
+                    correlation_id: frames[1].message_id,
+                    response: None,
+                    event: Some(EncodedNetworkEvent::Complete { request_id: 5 }),
+                    error: None,
+                };
+                write_broker_response(&Arc::new(Mutex::new(parent)), &response).unwrap();
+            });
+            let broker = SharedNetworkBroker::new(IpcNetworkBroker::new(worker));
+            let first = broker
+                .clone()
+                .for_route(WorkerRoute::issue(1, 1, 0).unwrap());
+            let second = broker.for_route(WorkerRoute::issue(1, 2, 0).unwrap());
+            let mut req = request("https://example.test/");
+            req.request_id = 5;
+            let mut old = first.start_operation(req.clone()).unwrap();
+            let mut live = second.start_operation(req).unwrap();
+            first.cancel_operation(5).unwrap();
+            assert!(old.events.blocking_recv().is_none());
+            let event = live.events.blocking_recv().unwrap();
+            if wrong_reply {
+                assert!(matches!(event, NetworkEvent::Failed { .. }));
+            } else {
+                assert!(matches!(event, NetworkEvent::Complete { request_id: 5 }));
+            }
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn exhausted_network_identifiers_never_wrap_or_publish_frames() {
+        let (worker, mut parent) = UnixStream::pair().unwrap();
+        parent.set_nonblocking(true).unwrap();
+        let broker = IpcNetworkBroker::new(worker);
+        broker
+            .next_message_id
+            .store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
+        assert!(
+            broker
+                .start_operation(request("https://example.test/"))
+                .is_err()
+        );
+        assert!(broker.cancel_operation(1).is_err());
+        assert_eq!(
+            broker
+                .next_message_id
+                .load(std::sync::atomic::Ordering::Relaxed),
+            u64::MAX
+        );
+        assert!(broker.pending.lock().unwrap().is_empty());
+        assert!(broker.active_requests.lock().unwrap().is_empty());
+        let mut byte = [0];
+        assert_eq!(
+            parent.read(&mut byte).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
     fn worker_broker_forwards_explicit_operation_cancellation() {
         struct CancelRecording {
             cancelled: Arc<Mutex<Vec<u64>>>,
@@ -3081,6 +3324,7 @@ mod tests {
         let envelope = BrokerRequestEnvelope {
             protocol_version: BROKER_PROTOCOL_VERSION,
             message_id: 1,
+            route: None,
             command: BrokerCommand::Start {
                 request: EncodedNetworkRequest {
                     request_id: 7,

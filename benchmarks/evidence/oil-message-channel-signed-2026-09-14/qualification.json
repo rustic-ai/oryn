@@ -1,0 +1,15 @@
+{
+  "qualification": "dirty-source signed diagnostic smoke; not independent task-outcome or release acceptance",
+  "source_tree_sha256": "8c72b171d35667b0ef38f6aa942da8ff55c43e81535651a50ec1b08f7751a4c4",
+  "worker_sha256": "c12172ec302994779cd17ebe783708b7e4890f0f175c67a1a4536d2518b64db5",
+  "worker_code_directory_hash": "768babcfcda0241757984389bae127b0d8473764",
+  "signed_build_probes": "passed",
+  "smoke_passed": 11,
+  "smoke_total": 12,
+  "timeouts": 0,
+  "remaining_failure": "10_react_spa.oil: StaleSemanticRef",
+  "react_diagnosis": "Light DOM now renders; upgraded custom-element instances have no shadow roots. The current connection bridge skips descendants already upgraded before subtree insertion.",
+  "wpt_message_channel_window_files": {"passed": 5, "total": 14, "environment_blocked": 0},
+  "wpt_channel_transfer_window_files": {"passed": 10, "total": 11, "environment_blocked": 0},
+  "goal_complete": false
+}

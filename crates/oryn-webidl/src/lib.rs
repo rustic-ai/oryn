@@ -350,6 +350,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub unscopable: bool,\n\
              pub unforgeable: bool,\n\
              pub replaceable: bool,\n\
+             pub exposed: &'static [&'static str],\n\
              pub put_forwards: Option<&'static str>,\n\
          }\n\
          #[derive(Debug, Clone, Copy, PartialEq, Eq)]\n\
@@ -475,8 +476,13 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
                 || has_extended_attribute(attributes, "Unforgeable");
             let replaceable = has_extended_attribute(attributes, "Replaceable");
             let put_forwards = extended_attribute_value(attributes, "PutForwards");
+            let exposed = if has_extended_attribute(attributes, "Exposed") {
+                exposure_set(attributes)
+            } else {
+                Vec::new()
+            };
             output.push_str(&format!(
-                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, put_forwards: {put_forwards:?} }},",
+                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, exposed: &{exposed:?}, put_forwards: {put_forwards:?} }},",
                 token = ((interface_index as u32) << 16) | member_index as u32,
             ));
         }

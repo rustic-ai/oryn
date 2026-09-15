@@ -73,6 +73,13 @@ pub fn parse(input: &str) -> ParsedDocument {
     parser.finish()
 }
 
+/// Parse a detached document with the HTML scripting flag disabled.
+pub fn parse_inert(input: &str) -> ParsedDocument {
+    let mut options = ParseOpts::default();
+    options.tree_builder.scripting_enabled = false;
+    parse_document(OrynTreeSink::new_html_document(), options).one(input)
+}
+
 /// Parse a decoded navigation body through the incremental production driver.
 /// Chunk boundaries are kept on UTF-8 scalar boundaries, as they are after the
 /// network decoder has completed each incremental decode step.
@@ -353,6 +360,7 @@ impl OrynTreeSink {
             content_type: content_type.into(),
             is_html: false,
             quirks: false,
+            ..crate::DocumentMetadata::default()
         }));
         sink
     }
@@ -506,6 +514,23 @@ impl TreeSink for OrynTreeSink {
         if is_template {
             dom.template_content(element).expect("new template");
         }
+        // Parser attributes describe one initial state, not a sequence of
+        // script mutations. Range defaults must see min/max/step together.
+        if dom.is_element(element, "http://www.w3.org/1999/xhtml", "input")
+            && dom
+                .attribute_in_null_namespace(element, "type")
+                .ok()
+                .flatten()
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("range"))
+        {
+            let value = dom
+                .attribute_in_null_namespace(element, "value")
+                .expect("new input")
+                .unwrap_or("")
+                .to_owned();
+            dom.reset_control_value(element, value)
+                .expect("new range input");
+        }
         if let Ok(node) = dom.arena().get(element)
             && let NodeKind::Element { name } = &node.kind
             && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
@@ -601,7 +626,7 @@ impl TreeSink for OrynTreeSink {
             ScriptScheduling::Module
         } else if !matches!(
             script_type,
-            "" | "text/javascript" | "application/javascript" | "text/babel"
+            "" | "text/javascript" | "application/javascript"
         ) {
             ScriptScheduling::Data
         } else if node_record.attributes.contains_null("async") {

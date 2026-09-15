@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-source signed diagnostic; not full family or release qualification",
+  "goal_complete": false,
+  "source_tree_sha256": "bf2e6c63b9eddcb83d5a5a1803e13654974aa61a517ab4abbceb1224bd108351",
+  "parent_sha256": "7a91af0aeec28fdacfea3e6c473701c2ad64a964b47b725d73342729a641e9e8",
+  "worker_sha256": "8fc7aba8cac6c4f4ae79f0a85925757d73900ccebdd220f94e2e02a2c5995610",
+  "worker_code_directory_hash": "f5fbfa9b17a7bd5a99e8c973daf818d60783450a",
+  "post_run_source_parent_worker_hashes_unchanged": true,
+  "signing": {"worker": "Apple Development: Rohit Rai (HH58U486S8)", "team": "5HVA9VFF8K", "hardened_runtime": true, "designated_requirement_valid": true, "protocol": 10},
+  "sandbox_probes": {"filesystem_read_denied": true, "listener_denied": true, "outgoing_connection_denied": true, "secret_environment_absent": true},
+  "native_evidence": "parser-frame-load-retirement-native-2026-09-14.json",
+  "signed_cli_tests": {"passed": 3, "failed": 0},
+  "workflows": {
+    "research": {"passed": 18, "planned": 18, "summary": "research-parser-frame-retirement-2026-09-14/summary.json"},
+    "forms": {"passed": 57, "planned": 57, "summary": "forms-parser-frame-retirement-2026-09-14/summary.json"},
+    "shopping": {"passed": 21, "planned": 21, "summary": "shopping-parser-frame-retirement-2026-09-14/summary.json"},
+    "booking": {"passed": 18, "planned": 18, "summary": "booking-parser-frame-retirement-2026-09-14/summary.json"},
+    "frameworks": {"passed": 24, "planned": 24, "summary": "framework-parser-frame-retirement-2026-09-14/summary.json"},
+    "all_source_matches_signed_build": true,
+    "all_persisted_workflow_oracles_verified": true,
+    "all_fixtures_cleanly_closed": true,
+    "auth_mechanics_rerun": false
+  },
+  "wpt": {
+    "before": "window-document-accessor-signed-2026-09-14.json",
+    "after": "parser-frame-retirement-window-wpt-2026-09-14.json",
+    "files_passed": 1,
+    "files_attempted": 3,
+    "environment_blocked": 0,
+    "window_properties_before": "Runtime failure: unknown JavaScript realm 2; no completed assertion result",
+    "window_properties_after": {"complete": true, "passed": 61, "failed": 120},
+    "document_unforgeable_assertion": "passed",
+    "remaining_initial_iframe_failure": "Cannot read properties of null (reading document)",
+    "note": "The newly observable assertions are not a full-WPT percentage or 61 demonstrated semantic fixes."
+  },
+  "remaining": ["Synchronous initial iframe creation", "Native WindowProxy and complete Window/document lifetime", "Per-document broker routing", "Persisted authenticated SaaS workflows", "Broader WPT and clean-source security/performance qualification", "Historical intermittent booking timeout remains unresolved"]
+}

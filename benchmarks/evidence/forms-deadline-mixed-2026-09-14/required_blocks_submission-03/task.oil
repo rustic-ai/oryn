@@ -1,0 +1,4 @@
+goto "http://127.0.0.1:54908/form/d57faf3d5189ca7e714ebf6a56c2f3ce"
+observe
+click "Submit application"
+observe

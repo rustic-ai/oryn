@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "qualification": "local-diagnostic-only",
+  "base_commit": "c3543ed",
+  "source_tree_sha256": "ee6a423d3ac89377e71a26f4970a7008c3a1635a313a1003bcb64ef6789f1595",
+  "native_test_binary_sha256": "02b1e6276d705a0ed3111a9288d51c0fed5be80c478f8c225cc1555c9f6d7ab1",
+  "changes": [
+    "Parent context-service dispatch is bounded at 64 operations including response writing; worker-side pending limit remains 32.",
+    "Over-budget context peers are disconnected without creating another dispatch thread; RAII releases capacity on exit and thread creation errors are handled.",
+    "Network message allocation and publication share the writer lock, preserving monotonic wire order under concurrent start/cancel calls.",
+    "Context, network, worker message and worker session identifiers reject exhaustion instead of wrapping or saturating reuse."
+  ],
+  "native_suite": {
+    "features": ["v8-host", "v8-sandbox", "in-process-probe", "core-full"],
+    "test_threads": 1,
+    "passed": 480,
+    "failed": 0,
+    "ignored": 6,
+    "elapsed_seconds": 139.52,
+    "loopback_access": true
+  },
+  "regressions": [
+    "parent_dispatch_limit_releases_capacity_on_every_drop",
+    "raw_context_peer_cannot_bypass_parent_dispatch_limit",
+    "context_message_exhaustion_rejects_before_writing",
+    "concurrent_network_frames_keep_monotonic_wire_identifiers",
+    "exhausted_network_identifiers_never_wrap_or_publish_frames",
+    "session_identifier_exhaustion_never_reuses_authority"
+  ],
+  "clippy": "native V8 library passes with warnings denied",
+  "formatting": "passed",
+  "diff_check": "passed",
+  "earlier_attempt": "The restricted network suite passed 22 tests and failed its HTTP/2 listener fixture with PermissionDenied. The same 23-test suite passed with loopback permission; the final full suite also passed with that permission.",
+  "signed_qualification": "not run for this source",
+  "wpt_qualification": "not run for this source",
+  "protocol_version": 9,
+  "p0_complete": false,
+  "remaining": [
+    "Parent-issued per-environment credentials, explicit authenticated wire targets and process-session ownership (R6).",
+    "Synchronous initial iframe environments, native custom-element adoption reactions and remaining document/agent lifecycle semantics (R4-R5).",
+    "Pinned official wptrunner product and protocol contracts (W0).",
+    "Remaining R0-R2 exit gates and clean signed security/WPT qualification."
+  ]
+}

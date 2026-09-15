@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree native diagnostic; not signed or WPT qualification",
+  "source_tree_sha256": "61691865f45a6f999adc9f6c7fb98f143b7caacba2c5b60fc15d7c7c5d8821af",
+  "goal_complete": false,
+  "changes": [
+    "The native realm factory retains newly created contexts in an isolate-owned pending registry until the driver adopts them.",
+    "Driver creation transfers ownership immediately; callback creation transfers at page checkpoints, activation or removal.",
+    "Adoption reads the context's final native binding state and is idempotent; it does not revive retired execution environments.",
+    "Callback-created contexts participate in realm enumeration, activation and normal retirement, including timer cancellation."
+  ],
+  "tests": {
+    "native": {"passed": 555, "failed": 0, "ignored": 6, "elapsed_seconds": 142.48},
+    "native_strict_clippy": "passed",
+    "formatting": "passed",
+    "diff_check": "passed",
+    "extended_regression": "host::raw_v8::native_context_tests::native_realm_factory_runs_inside_callback_with_document_and_origin_identity",
+    "verified": [
+      "Same-turn native Document access and distinct child intrinsics.",
+      "Opaque-origin access denial.",
+      "Exactly-once adoption of callback-created contexts and final binding states.",
+      "Environment retired before adoption remains retired afterward.",
+      "Adopted child activation and native Document access.",
+      "Ordinary removal cancels the adopted child's scheduled timer.",
+      "Removal also handles a callback-created context before an explicit adoption checkpoint.",
+      "Retained Document wrappers remain usable after retirement and garbage collection."
+    ]
+  },
+  "remaining": [
+    "Connect iframe insertion to synchronous initial about:blank context creation.",
+    "Replace provisional JavaScript frame proxies with native WindowProxy linking and navigation identity handling.",
+    "Apply initial-document policy/bootstrap and verify sandbox, nested insertion, same-turn removal and navigation behavior.",
+    "Complete connected-window architecture and the full five-family OIL readiness gates."
+  ],
+  "previous_signed_evidence": "native-frame-discard-2026-09-14.json"
+}

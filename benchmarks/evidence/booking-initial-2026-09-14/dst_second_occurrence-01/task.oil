@@ -1,0 +1,14 @@
+goto "http://127.0.0.1:53208/booking/fceb198d8dad5106b8880b4842e5ff1c/start"
+select "Time zone" "America/New_York"
+select "Appointment" "late"
+click "Review appointment"
+wait visible css(#appointment-time)
+extract text --selector "#appointment-time"
+type "Attendee" "Zoë Test"
+type "Email" "zoe@example.test"
+click "Reserve test appointment"
+wait visible css(#reservation)
+click "Reload reservation"
+wait visible css(#reservation)
+extract text --selector "#appointment-time"
+observe

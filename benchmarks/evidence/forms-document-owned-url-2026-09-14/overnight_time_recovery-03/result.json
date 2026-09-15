@@ -1,0 +1,12 @@
+{
+  "case": "overnight_time_recovery",
+  "sample": 3,
+  "case_id": "c40f72adbd07a1b7b1e27c8a0ec87ed4",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "b55e2e739db0f44d7652fe2f886c0110c2946d68c6a477c308c2f834cebe39ab",
+  "elapsed_seconds": 0.324,
+  "final_oracle_verified": true
+}

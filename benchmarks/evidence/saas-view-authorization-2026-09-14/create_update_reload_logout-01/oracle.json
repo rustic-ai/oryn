@@ -1,0 +1,78 @@
+{
+  "cases": [
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "authenticated": 0,
+      "logins": 1
+    }
+  ],
+  "records": [
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "title": "Approved",
+      "version": 2
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "action": "login",
+      "outcome": 303,
+      "authorized": 0,
+      "body_sha256": "131c955ca748255236d58cab0b91a2bc5f3fc261774179ffd9800431f04d9aa2"
+    },
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "action": "create",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "765d82d28a9160447370f0a1a54ecca0c26038f6406f203e6dabd153e6b9447a"
+    },
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "action": "update",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "43bf997045c4fbd3aba944e20042885b83f218589c2ddbb31b25a53e980a6d0e"
+    },
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "action": "logout",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "108976c8c7575761ceebed37ef23da09a06d4a125e0784251c4e1c12ccf807af"
+    }
+  ],
+  "views": [
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "537bc65ef05ca30bcea82298c2e33b94",
+      "page": "login",
+      "authorized": 0
+    }
+  ]
+}

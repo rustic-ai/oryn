@@ -1,0 +1,2223 @@
+{
+  "assertions": [
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/close-method.window.js|window|:56889816af744f0085e1cd6f6dcd19a2",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 108,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "a3ddb2c1f6c44b34a4a09b1eba7a298a"
+          }
+        ],
+        "id": "efcf0c11c66d4b72acb26f663fcb92ee",
+        "ports": [
+          51901,
+          51905,
+          51906,
+          51907,
+          51909,
+          51910,
+          51911
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 259,
+          "teardown_ms": 924
+        },
+        "tls": {
+          "ca_sha256": "9709f33664c8c8e95de075a4b1b52ca026315931d9b24910585272b09e0b4363",
+          "certificate_sha256": "f24e0192dda94b58fc87608d438cd04cdb0c93a629fc6f5cec6e05c5e93d7f74"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/close-method.window.js|window|",
+      "path": "html/browsers/the-window-object/close-method.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:51901/html/browsers/the-window-object/close-method.window.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 244,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:51901/html/browsers/the-window-object/close-method.window.html"
+          },
+          "page_id": "3",
+          "sequence": 9
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 11,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 4,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 244,
+          "response_sha256": "4732636f2af30bbd55918504db0ac2e5b38c1927ea54326f2e42c5ee652109a0",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51901/html/browsers/the-window-object/close-method.window.html",
+          "worker_pid": 8975
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:51901/html/browsers/the-window-object/close-method.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51901/resources/testharness.js",
+          "worker_pid": 8975
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51901/html/browsers/the-window-object/close-method.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51901/resources/testharnessreport.js",
+          "worker_pid": 8975
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51901/html/browsers/the-window-object/close-method.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1374,
+          "response_sha256": "10e82789d8881960b9c9ad9cff331fdc6cdb9de29d6bc3f58a95c6c5d93b6200",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51901/html/browsers/the-window-object/close-method.window.js",
+          "worker_pid": 8975
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "assert_equals: expected (object) object \"[object Window]\" but got (undefined) undefined",
+            "name": "window.close() queues a task to discard, but window.closed knows immediately",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected (object) object \"[object Window]\" but got (undefined) undefined",
+            "name": "window.close() affects name targeting immediately",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 8975,
+          "rss_bytes": 34979840
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/common/get-host-info.sub.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/closed-attribute.window.js|window|:3fa98b9ace2240d9b40823aad16010ee",
+        "page_id": 4,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 169,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "7e069d7bda4f4b6d931e41b4615a70c4"
+          }
+        ],
+        "id": "76e31e47f66243548c29e186d91551ee",
+        "ports": [
+          51902,
+          51903,
+          51904,
+          51908,
+          51912,
+          51915,
+          51916
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 259,
+          "teardown_ms": 872
+        },
+        "tls": {
+          "ca_sha256": "9709f33664c8c8e95de075a4b1b52ca026315931d9b24910585272b09e0b4363",
+          "certificate_sha256": "f24e0192dda94b58fc87608d438cd04cdb0c93a629fc6f5cec6e05c5e93d7f74"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/closed-attribute.window.js|window|",
+      "path": "html/browsers/the-window-object/closed-attribute.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:51902/html/browsers/the-window-object/closed-attribute.window.html"
+          },
+          "page_id": "4",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 300,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:51902/html/browsers/the-window-object/closed-attribute.window.html"
+          },
+          "page_id": "4",
+          "sequence": 14
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 12,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 300,
+          "response_sha256": "91fc6106a40f4e0085268c4d6b6941774eb5b02488c9d9a8dde28760e206e882",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51902/html/browsers/the-window-object/closed-attribute.window.html",
+          "worker_pid": 8974
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:51902/html/browsers/the-window-object/closed-attribute.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51902/resources/testharness.js",
+          "worker_pid": 8974
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51902/html/browsers/the-window-object/closed-attribute.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51902/resources/testharnessreport.js",
+          "worker_pid": 8974
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51902/html/browsers/the-window-object/closed-attribute.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 2978,
+          "response_sha256": "94e231e231d8cf482a90393358deef4ef802a015c237ee523839d8392f92f66e",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51902/common/get-host-info.sub.js",
+          "worker_pid": 8974
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:51902/html/browsers/the-window-object/closed-attribute.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 2342,
+          "response_sha256": "09ba3220840a5149e3a04dc5e44961d2d0b5f5280c159c05e1f2b886f8a9e4c8",
+          "sequence": 4,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51902/html/browsers/the-window-object/closed-attribute.window.js",
+          "worker_pid": 8974
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51902/html/browsers/the-window-object/closed-attribute.window.html",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": "a618d7dc22ed39b4eb131476b474bc205355e5220efa04397c1a41f6f99835a6",
+          "request_id": 5,
+          "response_bytes": 418,
+          "response_sha256": "17c790776c6a8d5a91e4cb15bc5f1b3aa341c3477086f1d50f066390fcd26e4b",
+          "sequence": 5,
+          "started_ms": 82,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://127.0.0.1:51902/html/browsers/the-window-object/support/closed.html",
+          "worker_pid": 8974
+        },
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 9,
+          "query_sha256": "7b93052d024d09af35208b583c1136e284418b1e36c513a96482a6a88153075f",
+          "request_id": 1,
+          "response_bytes": 418,
+          "response_sha256": "17c790776c6a8d5a91e4cb15bc5f1b3aa341c3477086f1d50f066390fcd26e4b",
+          "sequence": 6,
+          "started_ms": 87,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://127.0.0.1:51902/html/browsers/the-window-object/support/closed.html",
+          "worker_pid": 8991
+        },
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 10,
+          "query_sha256": "e7563661948c49ed9fc76b31d232ec4165d02042dd30e78388df6e71c4a7ae69",
+          "request_id": 1,
+          "response_bytes": 418,
+          "response_sha256": "17c790776c6a8d5a91e4cb15bc5f1b3aa341c3477086f1d50f066390fcd26e4b",
+          "sequence": 7,
+          "started_ms": 90,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://127.0.0.1:51902/html/browsers/the-window-object/support/closed.html",
+          "worker_pid": 8992
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51902/html/browsers/the-window-object/closed-attribute.window.html",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": "95b3b9bc54575143642575ef3fe7efbc88f009875681308234f73ffece14ce5b",
+          "request_id": 6,
+          "response_bytes": 418,
+          "response_sha256": "17c790776c6a8d5a91e4cb15bc5f1b3aa341c3477086f1d50f066390fcd26e4b",
+          "sequence": 8,
+          "started_ms": 92,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://127.0.0.1:51902/html/browsers/the-window-object/support/closed.html",
+          "worker_pid": 8974
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot read properties of null (reading 'closed')",
+            "name": "closed and same-origin nested browsing context",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "closed/close() and same-origin auxiliary browsing context",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "closed and cross-origin nested browsing context",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "closed/close() and cross-origin auxiliary browsing context",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "closed and cross-site nested browsing context",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "closed/close() and cross-site auxiliary browsing context",
+            "status": 0
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 8974,
+          "rss_bytes": 40599552
+        },
+        {
+          "pid": 8991,
+          "rss_bytes": null
+        },
+        {
+          "pid": 8992,
+          "rss_bytes": null
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [
+        "harness_timeout"
+      ],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/open-close/close_beforeunload.html|window|:3629b4ea448a46afa073f8d111250f6a",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 10090,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "harness",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "e2a0cd187b13455591010bbfde8d7fb3"
+          }
+        ],
+        "id": "9cac01fd7207424e8ad655c29ec40fcc",
+        "ports": [
+          51913,
+          51914,
+          51918,
+          51920,
+          51921,
+          51927,
+          51928
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 258,
+          "teardown_ms": 588
+        },
+        "tls": {
+          "ca_sha256": "9709f33664c8c8e95de075a4b1b52ca026315931d9b24910585272b09e0b4363",
+          "certificate_sha256": "f24e0192dda94b58fc87608d438cd04cdb0c93a629fc6f5cec6e05c5e93d7f74"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/open-close/close_beforeunload.html|window|",
+      "path": "html/browsers/the-window-object/open-close/close_beforeunload.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:51913/html/browsers/the-window-object/open-close/close_beforeunload.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 436,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:51913/html/browsers/the-window-object/open-close/close_beforeunload.html"
+          },
+          "page_id": "1",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 436,
+          "response_sha256": "90e0fbc327e14cf62f26b6f6883b79a14ee6764b2a7321f2b43aad0336d6f2e0",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51913/html/browsers/the-window-object/open-close/close_beforeunload.html",
+          "worker_pid": 8976
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:51913/html/browsers/the-window-object/open-close/close_beforeunload.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51913/resources/testharness.js",
+          "worker_pid": 8976
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51913/html/browsers/the-window-object/open-close/close_beforeunload.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51913/resources/testharnessreport.js",
+          "worker_pid": 8976
+        },
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 145,
+          "response_sha256": "237e05a5ead2a4acaf3c55c85739440c12a9523de357fb65dc9be84f55577b58",
+          "sequence": 3,
+          "started_ms": 80,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51913/html/browsers/the-window-object/open-close/close_beforeunload-1.html",
+          "worker_pid": 8990
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 2,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Test timed out",
+            "name": "Running beforeunload handler in window.close()",
+            "status": 2
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 8976,
+          "rss_bytes": 48300032
+        },
+        {
+          "pid": 8990,
+          "rss_bytes": null
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/open-close/close_noopener_beforeunload.html|window|:82d8c015b14e469eb76cd65f62891f0c",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 99,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "a115819502c044a59a90455eb83d9760"
+          }
+        ],
+        "id": "2a8cac1760ef4086b62b8eb8e49b3cd9",
+        "ports": [
+          51917,
+          51919,
+          51922,
+          51923,
+          51924,
+          51925,
+          51926
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 257,
+          "teardown_ms": 938
+        },
+        "tls": {
+          "ca_sha256": "9709f33664c8c8e95de075a4b1b52ca026315931d9b24910585272b09e0b4363",
+          "certificate_sha256": "f24e0192dda94b58fc87608d438cd04cdb0c93a629fc6f5cec6e05c5e93d7f74"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/open-close/close_noopener_beforeunload.html|window|",
+      "path": "html/browsers/the-window-object/open-close/close_noopener_beforeunload.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:51917/html/browsers/the-window-object/open-close/close_noopener_beforeunload.html"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1296,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:51917/html/browsers/the-window-object/open-close/close_noopener_beforeunload.html"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 10,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1296,
+          "response_sha256": "df2416b87fcb403f4ea1c7baf9a7c1d449910b7de5e6e485a2da787e0fbb0ed6",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51917/html/browsers/the-window-object/open-close/close_noopener_beforeunload.html",
+          "worker_pid": 8977
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:51917/html/browsers/the-window-object/open-close/close_noopener_beforeunload.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51917/resources/testharness.js",
+          "worker_pid": 8977
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51917/html/browsers/the-window-object/open-close/close_noopener_beforeunload.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51917/resources/testharnessreport.js",
+          "worker_pid": 8977
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "BroadcastChannel is not defined",
+            "name": "closing noopener window with 2 entries",
+            "status": 1
+          },
+          {
+            "message": "BroadcastChannel is not defined",
+            "name": "closing noopener window with 1 entry",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 8977,
+          "rss_bytes": 34373632
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [
+        "harness_timeout"
+      ],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/open-close/close_pagehide.html|window|:3bda8d418e304a36a9e1cfbe4eb09f15",
+        "page_id": 12,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 10075,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "harness",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "ba35d05d8f354af0847990b7741d27c8"
+          }
+        ],
+        "id": "865fb3eeb2034202b5bdf50fc119b304",
+        "ports": [
+          51943,
+          51944,
+          51945,
+          51946,
+          51947,
+          51948,
+          51949
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 256,
+          "teardown_ms": 80
+        },
+        "tls": {
+          "ca_sha256": "9709f33664c8c8e95de075a4b1b52ca026315931d9b24910585272b09e0b4363",
+          "certificate_sha256": "f24e0192dda94b58fc87608d438cd04cdb0c93a629fc6f5cec6e05c5e93d7f74"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/open-close/close_pagehide.html|window|",
+      "path": "html/browsers/the-window-object/open-close/close_pagehide.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:51943/html/browsers/the-window-object/open-close/close_pagehide.html"
+          },
+          "page_id": "12",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 428,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:51943/html/browsers/the-window-object/open-close/close_pagehide.html"
+          },
+          "page_id": "12",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 17,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 428,
+          "response_sha256": "0078ba2fbb00fbe451f9f71ea74289a06e519ec3cfa7cd9282aba6ca1af7eb2f",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51943/html/browsers/the-window-object/open-close/close_pagehide.html",
+          "worker_pid": 8996
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:51943/html/browsers/the-window-object/open-close/close_pagehide.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51943/resources/testharness.js",
+          "worker_pid": 8996
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51943/html/browsers/the-window-object/open-close/close_pagehide.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51943/resources/testharnessreport.js",
+          "worker_pid": 8996
+        },
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 14,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 141,
+          "response_sha256": "6ca166ffaf7d4efc04aa5ae3ca72a500db586c8038d5a3b69647fa2cb18f0531",
+          "sequence": 3,
+          "started_ms": 76,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51943/html/browsers/the-window-object/open-close/close_pagehide-1.html",
+          "worker_pid": 9017
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 2,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Test timed out",
+            "name": "Running pagehide handler in window.close()",
+            "status": 2
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 8996,
+          "rss_bytes": 48758784
+        },
+        {
+          "pid": 9017,
+          "rss_bytes": null
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/open-close/close_script_defer.html|window|:36e50a1a78b648e99593d6161de611e8",
+        "page_id": 11,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 105,
+        "teardown_ms": 19,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "a2984a77b72b4157b3a36158a187689b"
+          }
+        ],
+        "id": "a1a6edd48ff2400c9ae024446c4e8a47",
+        "ports": [
+          51950,
+          51951,
+          51952,
+          51953,
+          51954,
+          51955,
+          51956
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 253,
+          "teardown_ms": 902
+        },
+        "tls": {
+          "ca_sha256": "9709f33664c8c8e95de075a4b1b52ca026315931d9b24910585272b09e0b4363",
+          "certificate_sha256": "f24e0192dda94b58fc87608d438cd04cdb0c93a629fc6f5cec6e05c5e93d7f74"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/open-close/close_script_defer.html|window|",
+      "path": "html/browsers/the-window-object/open-close/close_script_defer.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:51950/html/browsers/the-window-object/open-close/close_script_defer.html"
+          },
+          "page_id": "11",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 543,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:51950/html/browsers/the-window-object/open-close/close_script_defer.html"
+          },
+          "page_id": "11",
+          "sequence": 8
+        },
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:51950/html/browsers/the-window-object/open-close/close_script_defer-1.html"
+          },
+          "page_id": "15",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 16,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:51950/html/browsers/the-window-object/open-close/close_script_defer-1.html"
+          },
+          "page_id": "15",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 16,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 543,
+          "response_sha256": "7194f1cdac21ddcae85e049fa1e5c137730eb374d306b89abf55008d6ed6999b",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51950/html/browsers/the-window-object/open-close/close_script_defer.html",
+          "worker_pid": 8997
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:51950/html/browsers/the-window-object/open-close/close_script_defer.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51950/resources/testharness.js",
+          "worker_pid": 8997
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51950/html/browsers/the-window-object/open-close/close_script_defer.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51950/resources/testharnessreport.js",
+          "worker_pid": 8997
+        },
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 15,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 16,
+          "response_sha256": "335fca8574f060eea24ebcdae6b78f32414f5de03da1084fd0e73d710768e3a9",
+          "sequence": 3,
+          "started_ms": 80,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51950/html/browsers/the-window-object/open-close/close_script_defer-1.html",
+          "worker_pid": 9018
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot read properties of undefined (reading 'open')",
+            "name": "Running defer script in window.close()",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 8997,
+          "rss_bytes": 34160640
+        },
+        {
+          "pid": 9018,
+          "rss_bytes": 31637504
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [
+        "harness_timeout"
+      ],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/open-close/close_unload.html|window|:9d22b44cf3144d0cbef2ecc5b5a9e0be",
+        "page_id": 13,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 10083,
+        "teardown_ms": 14,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "harness",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "550beb3453ef42c29a84c66c0724768d"
+          }
+        ],
+        "id": "a18b5eff0ca840d48dd8f119c98d6feb",
+        "ports": [
+          51957,
+          51958,
+          51959,
+          51960,
+          51961,
+          51962,
+          51963
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 250,
+          "teardown_ms": 552
+        },
+        "tls": {
+          "ca_sha256": "9709f33664c8c8e95de075a4b1b52ca026315931d9b24910585272b09e0b4363",
+          "certificate_sha256": "f24e0192dda94b58fc87608d438cd04cdb0c93a629fc6f5cec6e05c5e93d7f74"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/open-close/close_unload.html|window|",
+      "path": "html/browsers/the-window-object/open-close/close_unload.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:51957/html/browsers/the-window-object/open-close/close_unload.html"
+          },
+          "page_id": "13",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 424,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:51957/html/browsers/the-window-object/open-close/close_unload.html"
+          },
+          "page_id": "13",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 18,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 424,
+          "response_sha256": "659653028fd107e0f7690c5bc0d1403e9856b0f31d10cdb66915de89a98d8513",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51957/html/browsers/the-window-object/open-close/close_unload.html",
+          "worker_pid": 8993
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:51957/html/browsers/the-window-object/open-close/close_unload.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51957/resources/testharness.js",
+          "worker_pid": 8993
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51957/html/browsers/the-window-object/open-close/close_unload.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51957/resources/testharnessreport.js",
+          "worker_pid": 8993
+        },
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 16,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 139,
+          "response_sha256": "070d70cf5709b7f53adbd72d7e15e7001bda0eb719e176e14f9d61b1bfeb8976",
+          "sequence": 3,
+          "started_ms": 79,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51957/html/browsers/the-window-object/open-close/close_unload-1.html",
+          "worker_pid": 9027
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 2,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Test timed out",
+            "name": "Running unload handler in window.close()",
+            "status": 2
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 8993,
+          "rss_bytes": 48283648
+        },
+        {
+          "pid": 9027,
+          "rss_bytes": null
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/open-close/closed-after-close.html|window|:218c536c56fc451b998d0ac6ef73ac0c",
+        "page_id": 17,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 90,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "298b7536684a49c8a5e1732e3ce4b327"
+          }
+        ],
+        "id": "e93a195caf334c31813a95e42b93b7c6",
+        "ports": [
+          51976,
+          51977,
+          51978,
+          51979,
+          51980,
+          51981,
+          51982
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 250,
+          "teardown_ms": 942
+        },
+        "tls": {
+          "ca_sha256": "9709f33664c8c8e95de075a4b1b52ca026315931d9b24910585272b09e0b4363",
+          "certificate_sha256": "f24e0192dda94b58fc87608d438cd04cdb0c93a629fc6f5cec6e05c5e93d7f74"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/open-close/closed-after-close.html|window|",
+      "path": "html/browsers/the-window-object/open-close/closed-after-close.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:51976/html/browsers/the-window-object/open-close/closed-after-close.html"
+          },
+          "page_id": "17",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 568,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:51976/html/browsers/the-window-object/open-close/closed-after-close.html"
+          },
+          "page_id": "17",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 20,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 17,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 568,
+          "response_sha256": "5375a3ba8406eecc6ed7871e106206abd438894b77a2878d6697cb299f5c25f3",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51976/html/browsers/the-window-object/open-close/closed-after-close.html",
+          "worker_pid": 9028
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:51976/html/browsers/the-window-object/open-close/closed-after-close.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 17,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51976/resources/testharness.js",
+          "worker_pid": 9028
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51976/html/browsers/the-window-object/open-close/closed-after-close.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 17,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51976/resources/testharnessreport.js",
+          "worker_pid": 9028
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot read properties of undefined (reading 'body')",
+            "name": "window.closed behavior after calling window.close().",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 9028,
+          "rss_bytes": 34553856
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/open-close/script-closable.html|window|:f9218e97fc684c059fb5f193857dfb6d",
+        "page_id": 19,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 91,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "1466bd31e6f847c49c31f6c16cd0ca44"
+          }
+        ],
+        "id": "9735c571de964f0e937484da8779a09c",
+        "ports": [
+          51987,
+          51988,
+          51989,
+          51990,
+          51991,
+          51992,
+          51993
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 251,
+          "teardown_ms": 955
+        },
+        "tls": {
+          "ca_sha256": "9709f33664c8c8e95de075a4b1b52ca026315931d9b24910585272b09e0b4363",
+          "certificate_sha256": "f24e0192dda94b58fc87608d438cd04cdb0c93a629fc6f5cec6e05c5e93d7f74"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/open-close/script-closable.html|window|",
+      "path": "html/browsers/the-window-object/open-close/script-closable.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:51987/html/browsers/the-window-object/open-close/script-closable.html"
+          },
+          "page_id": "19",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 2768,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:51987/html/browsers/the-window-object/open-close/script-closable.html"
+          },
+          "page_id": "19",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 22,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 19,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 2768,
+          "response_sha256": "9dd3cd9d7d9e7d8006248cebaabc533131f44040ba662061a2e22f0ea489e37a",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51987/html/browsers/the-window-object/open-close/script-closable.html",
+          "worker_pid": 9240
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:51987/html/browsers/the-window-object/open-close/script-closable.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 19,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51987/resources/testharness.js",
+          "worker_pid": 9240
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:51987/html/browsers/the-window-object/open-close/script-closable.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 19,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:51987/resources/testharnessreport.js",
+          "worker_pid": 9240
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"ReferenceError: BroadcastChannel is not defined\"",
+            "name": "Window created by form with opener is script-closable",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"ReferenceError: BroadcastChannel is not defined\"",
+            "name": "Window created by form with noopener is script-closable",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"ReferenceError: BroadcastChannel is not defined\"",
+            "name": "Window created by link with opener is script-closable",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"ReferenceError: BroadcastChannel is not defined\"",
+            "name": "Window created by link with noopener is script-closable",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"ReferenceError: BroadcastChannel is not defined\"",
+            "name": "Window created by script with opener is script-closable",
+            "status": 1
+          },
+          {
+            "message": "promise_test: Unhandled rejection with value: object \"ReferenceError: BroadcastChannel is not defined\"",
+            "name": "Window created by script with noopener is script-closable",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 9240,
+          "rss_bytes": 35045376
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "93bb3c721e86aeb051c1a51d31887025c66508ffb574871a5f82fa15686330ae",
+    "size_bytes": 7259376
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/common/get-host-info.sub.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "693cd5d4b9e713170f96ffc95341507dc420f2cd8a22095b5100dce59d4fffea",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/common/get-host-info.sub.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "693cd5d4b9e713170f96ffc95341507dc420f2cd8a22095b5100dce59d4fffea",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 13.631,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "f06d5f993fa22a9d15b07ab267443be795fd79a8a6f8b67c4e1409d064f06332",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "693cd5d4b9e713170f96ffc95341507dc420f2cd8a22095b5100dce59d4fffea",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "8211f3aae3fb3829bcdf244fc6f7846bea0221452c07218a2256ddc588623825",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "8cb858b18358025181f17e4f2ac3f27438568fd86b0bb366f6b0b9758af402eb",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "c8791fa0ffe79305c10f88a8837b4e5c5246e09ae4dfb805e0ddb50474ca60f9",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "7b32098505304b3ffba772235ab692c0b913511610cb85c1c7c2a5e8d5ed8d1c",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "750ed2806acf53216e62e9986cf2d270a49a87777dfbc35851ac1c4e82b56377",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "b8b04c5f7aeb7a5497d6483d1fb0c53a93bb4fd2d2ad550a4ffc6b36d62860be",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "f06d5f993fa22a9d15b07ab267443be795fd79a8a6f8b67c4e1409d064f06332",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "693cd5d4b9e713170f96ffc95341507dc420f2cd8a22095b5100dce59d4fffea",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "8211f3aae3fb3829bcdf244fc6f7846bea0221452c07218a2256ddc588623825",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "8cb858b18358025181f17e4f2ac3f27438568fd86b0bb366f6b0b9758af402eb",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "c8791fa0ffe79305c10f88a8837b4e5c5246e09ae4dfb805e0ddb50474ca60f9",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "7b32098505304b3ffba772235ab692c0b913511610cb85c1c7c2a5e8d5ed8d1c",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "750ed2806acf53216e62e9986cf2d270a49a87777dfbc35851ac1c4e82b56377",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "b8b04c5f7aeb7a5497d6483d1fb0c53a93bb4fd2d2ad550a4ffc6b36d62860be",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": "515b53ebfb4ee3d6f2210f2a2c4b9c9a7d315a19487aa21265a5d0334c43610f",
+  "jobs": 4,
+  "outcome": {
+    "attempted": 9,
+    "environment_blocked": 0,
+    "required_finished": 9,
+    "required_passed": 0,
+    "required_total": 9,
+    "status": "failed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "a4cb9cc4669b61722f8ff0949ac1f70404c5a4545754fdd4f2ec9a23e90136ad",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "d7b8200f463c98f55936cc1776dc4fe80ce942bf68821f66098663fe576cb903",
+    "worker_binary_sha256": "da9099d3db354e7c9d19074fb717f9f88714e32546c5a5f4824ec78cea7d24ed",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "ab7bacce66eac5fba1a44439d55f37007513f839",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": null,
+    "global": "window",
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 30,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "a7b4bd4c821f7c4dcb0c1e0ec84cd63fff039471c1f110be2356aaa1fee43808",
+    "untracked_file_count": 7914,
+    "untracked_sha256": "f0b1de4507e2b6f8b1b3e1ad28aff0c2436e777860aa02337b52604b2955e284"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

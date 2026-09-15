@@ -1,0 +1,16 @@
+{
+  "case": "required_recovery",
+  "sample": 1,
+  "case_id": "5a4df43b4307338f99c95e2056c3c92f",
+  "passed": false,
+  "errors": [
+    "OIL process failed or timed out",
+    "missing or failed OIL outputs",
+    "expected 1 POST/receipt, got 0/0",
+    "final browser location does not match expected outcome"
+  ],
+  "timed_out": false,
+  "returncode": 1,
+  "task_sha256": "6431af5c393bd8568f65a9b9d450b3193142757bfc0369b367dee5a79e2500d2",
+  "elapsed_seconds": 0.172
+}

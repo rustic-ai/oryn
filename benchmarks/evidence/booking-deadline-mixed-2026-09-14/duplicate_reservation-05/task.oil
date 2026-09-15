@@ -1,0 +1,16 @@
+goto "http://127.0.0.1:54735/booking/272c9dbb9dd992d694b59da99fe837d6/start"
+select "Time zone" "UTC"
+select "Appointment" "late"
+click "Review appointment"
+wait visible css(#appointment-time)
+extract text --selector "#appointment-time"
+type "Attendee" "Zoë Test"
+type "Email" "zoe@example.test"
+click "Reserve test appointment"
+wait visible css(#reservation)
+click "Repeat reservation request"
+wait visible css(#reservation)
+click "Reload reservation"
+wait visible css(#reservation)
+extract text --selector "#appointment-time"
+observe

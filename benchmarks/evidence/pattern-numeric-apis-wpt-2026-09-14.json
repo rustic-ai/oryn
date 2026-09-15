@@ -1,0 +1,3466 @@
+{
+  "assertions": [
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/datetime-local-valueasdate.html|window|:0f94b15ae77b4241a1985445897724c4",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 103,
+        "teardown_ms": 55,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "1c529273b8fb457b8f7e1532c142b925"
+          }
+        ],
+        "id": "3a962fee5dd14ff09e786b1c63d3a861",
+        "ports": [
+          58405,
+          58408,
+          58412,
+          58415,
+          58418,
+          58421,
+          58422
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 268,
+          "teardown_ms": 924
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/datetime-local-valueasdate.html|window|",
+      "path": "html/semantics/forms/the-input-element/datetime-local-valueasdate.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58405/html/semantics/forms/the-input-element/datetime-local-valueasdate.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 776,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58405/html/semantics/forms/the-input-element/datetime-local-valueasdate.html"
+          },
+          "page_id": "1",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 776,
+          "response_sha256": "f2074ef7ce2c143174ad5f1d5df29facf80d75cfbffefc19951da554e00482e4",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58405/html/semantics/forms/the-input-element/datetime-local-valueasdate.html",
+          "worker_pid": 70381
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:58405/html/semantics/forms/the-input-element/datetime-local-valueasdate.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 15,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58405/resources/testharness.js",
+          "worker_pid": 70381
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58405/html/semantics/forms/the-input-element/datetime-local-valueasdate.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 59,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58405/resources/testharnessreport.js",
+          "worker_pid": 70381
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "valueAsDate does not apply to datetime-local inputs",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70381,
+          "rss_bytes": 35569664
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-stepdown-02.html|window|:992cb888dc164483874688895d5a45c6",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 102,
+        "teardown_ms": 56,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "d044b5f8f4824cd88080648b922d9cba"
+          }
+        ],
+        "id": "e5aa8bfb15414fb3ac5da0913798d84d",
+        "ports": [
+          58406,
+          58407,
+          58409,
+          58411,
+          58414,
+          58416,
+          58419
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 270,
+          "teardown_ms": 864
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-stepdown-02.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-stepdown-02.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58406/html/semantics/forms/the-input-element/input-stepdown-02.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1571,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58406/html/semantics/forms/the-input-element/input-stepdown-02.html"
+          },
+          "page_id": "3",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 11,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1571,
+          "response_sha256": "23b40376c789c8be53b53f84edb70b051a36ad3b96fc2416f38a5c0210d9be1a",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58406/html/semantics/forms/the-input-element/input-stepdown-02.html",
+          "worker_pid": 70378
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:58406/html/semantics/forms/the-input-element/input-stepdown-02.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58406/resources/testharness.js",
+          "worker_pid": 70378
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58406/html/semantics/forms/the-input-element/input-stepdown-02.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58406/resources/testharnessreport.js",
+          "worker_pid": 70378
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "stepDown() on input with no initial or min values",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "stepDown() on input with no initial value and positive min value",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "stepDown() on input with no initial value and negative min value",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "stepDown() on input with initial value equal to min value",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "stepDown() on input with initial value less than min value",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "stepDown() on input with initial value greater than min value",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70378,
+          "rss_bytes": 34832384
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-stepdown-weekmonth.html|window|:76b0f6d020264d938f8e9ad937f7250d",
+        "page_id": 4,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 100,
+        "teardown_ms": 57,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "88f21760d0a0471784f8a1da00bf028e"
+          }
+        ],
+        "id": "06431a3b4c87470db0e2d0ef4e8015e1",
+        "ports": [
+          58410,
+          58413,
+          58417,
+          58423,
+          58426,
+          58428,
+          58430
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 268,
+          "teardown_ms": 878
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-stepdown-weekmonth.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-stepdown-weekmonth.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58410/html/semantics/forms/the-input-element/input-stepdown-weekmonth.html"
+          },
+          "page_id": "4",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 806,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58410/html/semantics/forms/the-input-element/input-stepdown-weekmonth.html"
+          },
+          "page_id": "4",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 12,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 806,
+          "response_sha256": "fae632fcdd574e4fa1c9a798b55704b22f28febcee7d90da6537121d547c16e3",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58410/html/semantics/forms/the-input-element/input-stepdown-weekmonth.html",
+          "worker_pid": 70377
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:58410/html/semantics/forms/the-input-element/input-stepdown-weekmonth.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58410/resources/testharness.js",
+          "worker_pid": 70377
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:58410/html/semantics/forms/the-input-element/input-stepdown-weekmonth.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58410/resources/testharnessreport.js",
+          "worker_pid": 70377
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Calling stepDown() on input - month - where value < min should not modify value.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepDown() on input - week - where value < min should not modify value.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70377,
+          "rss_bytes": 35143680
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-stepdown.html|window|:5812dbe1b08d4f60bbde7da84aaa06b8",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 103,
+        "teardown_ms": 55,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "75552a038f24451c928e4f724f9be3be"
+          }
+        ],
+        "id": "213c51c5f9304652a71038db76e9fe4e",
+        "ports": [
+          58420,
+          58424,
+          58425,
+          58427,
+          58429,
+          58431,
+          58432
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 269,
+          "teardown_ms": 889
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-stepdown.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-stepdown.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58420/html/semantics/forms/the-input-element/input-stepdown.html"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1629,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58420/html/semantics/forms/the-input-element/input-stepdown.html"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 10,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1629,
+          "response_sha256": "876c888917d58bf20e591ed3567c87a9b3ca572d13e35a219d5f5f5c43cd3e0b",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58420/html/semantics/forms/the-input-element/input-stepdown.html",
+          "worker_pid": 70384
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:58420/html/semantics/forms/the-input-element/input-stepdown.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58420/resources/testharness.js",
+          "worker_pid": 70384
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:58420/html/semantics/forms/the-input-element/input-stepdown.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 59,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58420/resources/testharnessreport.js",
+          "worker_pid": 70384
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Forms",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepDown() on input - number - where value < min should not modify value.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepDown() on input - date - where value < min should not modify value.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepDown() on input - datetime-local - where value < min should not modify value.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepDown() on input - time - where value < min should not modify value.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70384,
+          "rss_bytes": 35274752
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-stepup.html|window|:5cd33691fe814482b04b8cd1a3f12e0c",
+        "page_id": 5,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 101,
+        "teardown_ms": 40,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "6959ed4b98d64151a06661e5d088aa9b"
+          }
+        ],
+        "id": "fbedf9c31e0f4052bf341d583ac949af",
+        "ports": [
+          58475,
+          58476,
+          58477,
+          58478,
+          58479,
+          58480,
+          58481
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 263,
+          "teardown_ms": 874
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-stepup.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-stepup.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58475/html/semantics/forms/the-input-element/input-stepup.html"
+          },
+          "page_id": "5",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 5135,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58475/html/semantics/forms/the-input-element/input-stepup.html"
+          },
+          "page_id": "5",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 17,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 5135,
+          "response_sha256": "7aa1ee4766e6375691e7181d5d33c9bdeade25542be10cdc57d9986b61afc1ed",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58475/html/semantics/forms/the-input-element/input-stepup.html",
+          "worker_pid": 70423
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:58475/html/semantics/forms/the-input-element/input-stepup.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58475/resources/testharness.js",
+          "worker_pid": 70423
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58475/html/semantics/forms/the-input-element/input-stepup.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58475/resources/testharnessreport.js",
+          "worker_pid": 70423
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=button should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=checkbox should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=color should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=email should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=file should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=hidden should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=image should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=password should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=radio should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=reset should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=search should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=submit should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=tel should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=text should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp on input type=url should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling stepUp when the step attribute is \"any\" should throw a DOMException",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=date with no step attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=date with step=0",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=date with step=-2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=date with step=bogus",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=date with step=2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=datetime-local with no step attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=datetime-local with step=0",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=datetime-local with step=-2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=datetime-local with step=bogus",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=datetime-local with step=2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=month with no step attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=month with step=0",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=month with step=-2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=month with step=bogus",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=month with step=2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=number with no step attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=number with step=0",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=number with step=-2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=number with step=bogus",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=number with step=2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=range with no step attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=range with step=0",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=range with step=-2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=range with step=bogus",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=range with step=2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=time with no step attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=time with step=0",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=time with step=-2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=time with step=bogus",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=time with step=2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=week with no step attribute",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=week with step=0",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=week with step=-2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=week with step=bogus",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Step delta from stepUp on input type=week with step=2",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "stepUp should do nothing if the input minimum is larger than the input maximum",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "stepUp should clamp to the input maximum",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70423,
+          "rss_bytes": 38060032
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-valueasdate-invalidstateerr.html|window|:bb0be210224b4a09b2f88386037a21da",
+        "page_id": 6,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 96,
+        "teardown_ms": 37,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "7aeb785e47a0490a9d0a2955bc8ae164"
+          }
+        ],
+        "id": "a1bde9c4116f4a55a742af4334f678a0",
+        "ports": [
+          58482,
+          58483,
+          58484,
+          58485,
+          58486,
+          58487,
+          58488
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 257,
+          "teardown_ms": 921
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-valueasdate-invalidstateerr.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-valueasdate-invalidstateerr.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58482/html/semantics/forms/the-input-element/input-valueasdate-invalidstateerr.html"
+          },
+          "page_id": "6",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 891,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58482/html/semantics/forms/the-input-element/input-valueasdate-invalidstateerr.html"
+          },
+          "page_id": "6",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 18,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 891,
+          "response_sha256": "83ecdf29fd9526ac4817ec5d3ef8866e7b14329dc12123f69b1639f844e22bb2",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58482/html/semantics/forms/the-input-element/input-valueasdate-invalidstateerr.html",
+          "worker_pid": 70422
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:58482/html/semantics/forms/the-input-element/input-valueasdate-invalidstateerr.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58482/resources/testharness.js",
+          "worker_pid": 70422
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58482/html/semantics/forms/the-input-element/input-valueasdate-invalidstateerr.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58482/resources/testharnessreport.js",
+          "worker_pid": 70422
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Forms",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70422,
+          "rss_bytes": 35815424
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-valueasdate-stepping.html|window|:57d2052e316f4823a344245f36f92f63",
+        "page_id": 7,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 97,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "586ba8ce70c8453bba6b0231645a3797"
+          }
+        ],
+        "id": "1aaf1b6bca2b421db7b2a39e37c71638",
+        "ports": [
+          58490,
+          58491,
+          58492,
+          58493,
+          58494,
+          58495,
+          58496
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 266,
+          "teardown_ms": 921
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-valueasdate-stepping.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-valueasdate-stepping.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58490/html/semantics/forms/the-input-element/input-valueasdate-stepping.html"
+          },
+          "page_id": "7",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 3083,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58490/html/semantics/forms/the-input-element/input-valueasdate-stepping.html"
+          },
+          "page_id": "7",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 19,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 3083,
+          "response_sha256": "fa75db68bf9b29fc424b9c6bcd35d9c59832500fc46b1fe982ad123006c7a2b6",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58490/html/semantics/forms/the-input-element/input-valueasdate-stepping.html",
+          "worker_pid": 70421
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:58490/html/semantics/forms/the-input-element/input-valueasdate-stepping.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58490/resources/testharness.js",
+          "worker_pid": 70421
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58490/html/semantics/forms/the-input-element/input-valueasdate-stepping.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58490/resources/testharnessreport.js",
+          "worker_pid": 70421
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "date should step correctly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "time should step correctly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "month should step correctly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "week should step correctly",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70421,
+          "rss_bytes": 35848192
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-valueasdate-typeerror.html|window|:5c2bfe1578d9404c8b928a9f8624ef2f",
+        "page_id": 8,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 92,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "2fb0b9289d0742ba9d7384a87018b0d9"
+          }
+        ],
+        "id": "ef334a877469420fa79d986f8641cf4b",
+        "ports": [
+          58498,
+          58499,
+          58500,
+          58501,
+          58502,
+          58503,
+          58504
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 273,
+          "teardown_ms": 944
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-valueasdate-typeerror.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-valueasdate-typeerror.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58498/html/semantics/forms/the-input-element/input-valueasdate-typeerror.html"
+          },
+          "page_id": "8",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 972,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58498/html/semantics/forms/the-input-element/input-valueasdate-typeerror.html"
+          },
+          "page_id": "8",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 20,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 972,
+          "response_sha256": "275533c0bcf42eeba39c25acb462aff3fad9021cf4101b2fe1ad2c1f0a6fc396",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58498/html/semantics/forms/the-input-element/input-valueasdate-typeerror.html",
+          "worker_pid": 70420
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:58498/html/semantics/forms/the-input-element/input-valueasdate-typeerror.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58498/resources/testharness.js",
+          "worker_pid": 70420
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58498/html/semantics/forms/the-input-element/input-valueasdate-typeerror.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58498/resources/testharnessreport.js",
+          "worker_pid": 70420
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "valueAsDate setter with non-Date object (input type date)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate setter with non-Date object (input type time)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate setter with non-Date object (input type week)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate setter with non-Date object (input type month)",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70420,
+          "rss_bytes": 35045376
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-valueasdate.html|window|:2bb200434cb94bb5a6ac4afa1a558746",
+        "page_id": 9,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 97,
+        "teardown_ms": 20,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "48aca714a95249bfbd3aa2d4103feb7d"
+          }
+        ],
+        "id": "32c14d01c7874941a6390251cd81e598",
+        "ports": [
+          58552,
+          58553,
+          58554,
+          58555,
+          58556,
+          58557,
+          58558
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 286,
+          "teardown_ms": 940
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-valueasdate.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-valueasdate.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58552/html/semantics/forms/the-input-element/input-valueasdate.html"
+          },
+          "page_id": "9",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 3605,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58552/html/semantics/forms/the-input-element/input-valueasdate.html"
+          },
+          "page_id": "9",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 25,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 3605,
+          "response_sha256": "33134f65e68dd4143dcb9949fbcd29b305bf7325d7ce920d23a457e8a554d505",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58552/html/semantics/forms/the-input-element/input-valueasdate.html",
+          "worker_pid": 70480
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:58552/html/semantics/forms/the-input-element/input-valueasdate.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58552/resources/testharness.js",
+          "worker_pid": 70480
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58552/html/semantics/forms/the-input-element/input-valueasdate.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58552/resources/testharnessreport.js",
+          "worker_pid": 70480
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "valueAsDate getter on type date (with value: \"\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type date (with value: \"0000-12-10\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type date (with value: \"2019-00-12\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type date (with value: \"2019-12-00\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type date (with value: \"2019-13-10\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type date (with value: \"2019-02-29\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type date (with value: \"2019-12-10\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type date (with value: \"2016-02-29\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate setter on type date (new Date(\"2019-12-10T00:00:00.000Z\"))",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate setter on type date (new Date(\"2016-02-29T00:00:00.000Z\"))",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type month (with value: \"\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type month (with value: \"0000-12\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type month (with value: \"2019-00\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type month (with value: \"2019-12\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate setter on type month (new Date(\"2019-12-01T00:00:00.000Z\"))",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type week (with value: \"\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type week (with value: \"0000-W50\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type week (with value: \"2019-W00\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type week (with value: \"2019-W60\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type week (with value: \"2019-W50\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate setter on type week (new Date(\"2019-12-09T00:00:00.000Z\"))",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type time (with value: \"\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type time (with value: \"24:00\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type time (with value: \"00:60\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type time (with value: \"00:00\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type time (with value: \"12:00\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate getter on type time (with value: \"23:59\")",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate setter on type time (new Date(\"1970-01-01T00:00:00.000Z\"))",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate setter on type time (new Date(\"1970-01-01T12:00:00.000Z\"))",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsDate setter on type time (new Date(\"1970-01-01T23:59:00.000Z\"))",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70480,
+          "rss_bytes": 38879232
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-valueasnumber-invalidstateerr.html|window|:44f029a9335541d98af37f0258435a4a",
+        "page_id": 11,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 97,
+        "teardown_ms": 28,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "f9f0c63667254329aa197a776c2943ad"
+          }
+        ],
+        "id": "3055942c41964038802c61c20e3ae384",
+        "ports": [
+          58561,
+          58563,
+          58564,
+          58565,
+          58567,
+          58569,
+          58573
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 269,
+          "teardown_ms": 922
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-valueasnumber-invalidstateerr.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-valueasnumber-invalidstateerr.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58561/html/semantics/forms/the-input-element/input-valueasnumber-invalidstateerr.html"
+          },
+          "page_id": "11",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 775,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58561/html/semantics/forms/the-input-element/input-valueasnumber-invalidstateerr.html"
+          },
+          "page_id": "11",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 27,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 775,
+          "response_sha256": "b6efaaf56c1d7a7fdfb805446c7b1797a71c7ecfec09b3169aa657b09ea80bd8",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58561/html/semantics/forms/the-input-element/input-valueasnumber-invalidstateerr.html",
+          "worker_pid": 70476
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:58561/html/semantics/forms/the-input-element/input-valueasnumber-invalidstateerr.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58561/resources/testharness.js",
+          "worker_pid": 70476
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58561/html/semantics/forms/the-input-element/input-valueasnumber-invalidstateerr.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58561/resources/testharnessreport.js",
+          "worker_pid": 70476
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Forms",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70476,
+          "rss_bytes": 35340288
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-valueasnumber-stepping.html|window|:9c2f39dd84ce4e489629dce665d0ab63",
+        "page_id": 10,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 100,
+        "teardown_ms": 31,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "286ebd4e87b6482296062cf801abc5d7"
+          }
+        ],
+        "id": "e1695c9335994615819171d805814b37",
+        "ports": [
+          58560,
+          58562,
+          58566,
+          58568,
+          58570,
+          58571,
+          58572
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 261,
+          "teardown_ms": 920
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-valueasnumber-stepping.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-valueasnumber-stepping.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58560/html/semantics/forms/the-input-element/input-valueasnumber-stepping.html"
+          },
+          "page_id": "10",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 3667,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58560/html/semantics/forms/the-input-element/input-valueasnumber-stepping.html"
+          },
+          "page_id": "10",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 26,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 3667,
+          "response_sha256": "2feb7169465bc96663887fe0f3f34b2e80f0fa2140f24b609d523385a70ff64e",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58560/html/semantics/forms/the-input-element/input-valueasnumber-stepping.html",
+          "worker_pid": 70477
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:58560/html/semantics/forms/the-input-element/input-valueasnumber-stepping.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58560/resources/testharness.js",
+          "worker_pid": 70477
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58560/html/semantics/forms/the-input-element/input-valueasnumber-stepping.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58560/resources/testharnessreport.js",
+          "worker_pid": 70477
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "date should step correctly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "time should step correctly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "month should step correctly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "week should step correctly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "datetime-local should step correctly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "range should step correctly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "number should step correctly",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70477,
+          "rss_bytes": 35930112
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-valueasnumber-typeerror.html|window|:f51cd62d827c44769d737272f22769ce",
+        "page_id": 12,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 94,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "1a94955fe5e44bb39ba462e4b042c4aa"
+          }
+        ],
+        "id": "bcfef994d3024c36b0798e4e2b63ec55",
+        "ports": [
+          58575,
+          58576,
+          58577,
+          58578,
+          58579,
+          58580,
+          58581
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 267,
+          "teardown_ms": 920
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-valueasnumber-typeerror.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-valueasnumber-typeerror.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58575/html/semantics/forms/the-input-element/input-valueasnumber-typeerror.html"
+          },
+          "page_id": "12",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1031,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58575/html/semantics/forms/the-input-element/input-valueasnumber-typeerror.html"
+          },
+          "page_id": "12",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 28,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1031,
+          "response_sha256": "e063c64346a13f02ee802257cc2d10a11d46a8cc1dec2943a4d763902ed78f6d",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58575/html/semantics/forms/the-input-element/input-valueasnumber-typeerror.html",
+          "worker_pid": 70475
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 40,
+          "initiator": "http://localhost:58575/html/semantics/forms/the-input-element/input-valueasnumber-typeerror.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58575/resources/testharness.js",
+          "worker_pid": 70475
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58575/html/semantics/forms/the-input-element/input-valueasnumber-typeerror.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 60,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58575/resources/testharnessreport.js",
+          "worker_pid": 70475
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "valueAsNumber = Infinity (input type does apply)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber = -Infinity (input type does apply)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber = Infinity (input type does not apply)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber = -Infinity (input type does not apply)",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70475,
+          "rss_bytes": 35291136
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/input-valueasnumber.html|window|:356d68d5a22a4de09dc257e173e26d82",
+        "page_id": 13,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 96,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "745657b8cea54894964f3b93cc77ff75"
+          }
+        ],
+        "id": "f8387b661a164ce6bb14fdf099642380",
+        "ports": [
+          58631,
+          58632,
+          58633,
+          58634,
+          58635,
+          58636,
+          58637
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 260,
+          "teardown_ms": 913
+        },
+        "tls": {
+          "ca_sha256": "76dd9bfa980eefbdfb4219e46a553e0c691fa9a17063be8132130ceb38107a81",
+          "certificate_sha256": "fef4b76d82349d58200ebe80fb5adb2faf240d04f434e40e7eb6d7d0d57d2669"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/input-valueasnumber.html|window|",
+      "path": "html/semantics/forms/the-input-element/input-valueasnumber.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58631/html/semantics/forms/the-input-element/input-valueasnumber.html"
+          },
+          "page_id": "13",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 4704,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58631/html/semantics/forms/the-input-element/input-valueasnumber.html"
+          },
+          "page_id": "13",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 33,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 4704,
+          "response_sha256": "471af119ecf831164e9ffbafd23e175f45bf5a4bcf2d37edb5dc6eaaa510ec93",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58631/html/semantics/forms/the-input-element/input-valueasnumber.html",
+          "worker_pid": 70522
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:58631/html/semantics/forms/the-input-element/input-valueasnumber.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58631/resources/testharness.js",
+          "worker_pid": 70522
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:58631/html/semantics/forms/the-input-element/input-valueasnumber.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58631/resources/testharnessreport.js",
+          "worker_pid": 70522
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type date (actual value: , expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type date (actual value: 0000-12-10, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type date (actual value: 2019-00-12, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type date (actual value: 2019-12-00, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type date (actual value: 2019-13-10, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type date (actual value: 2019-02-29, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type date (actual value: 2019-12-10, expected valueAsNumber: 1575936000000)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type date (actual value: 2016-02-29, expected valueAsNumber: 1456704000000)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type date (actual valueAsNumber: 0, expected value: 1970-01-01)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type date (actual valueAsNumber: 1575936000000, expected value: 2019-12-10)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type date (actual valueAsNumber: 1456704000000, expected value: 2016-02-29)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type month (actual value: , expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type month (actual value: 0000-12, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type month (actual value: 2019-00, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type month (actual value: 2019-12, expected valueAsNumber: 599)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type month (actual value: 1969-12, expected valueAsNumber: -1)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type month (actual valueAsNumber: 599, expected value: 2019-12)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type month (actual valueAsNumber: -1, expected value: 1969-12)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type week (actual value: , expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type week (actual value: 0000-W50, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type week (actual value: 2019-W00, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type week (actual value: 2019-W60, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type week (actual value: 2019-W50, expected valueAsNumber: 1575849600000)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type week (actual value: 1969-W20, expected valueAsNumber: -20217600000)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type week (actual valueAsNumber: 0, expected value: 1970-W01)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type week (actual valueAsNumber: 1575849600000, expected value: 2019-W50)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type week (actual valueAsNumber: -20217600000, expected value: 1969-W20)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type time (actual value: , expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type time (actual value: 24:00, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type time (actual value: 00:60, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type time (actual value: 00:00, expected valueAsNumber: 0)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type time (actual value: 12:00, expected valueAsNumber: 43200000)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type time (actual value: 23:59, expected valueAsNumber: 86340000)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type time (actual valueAsNumber: 0, expected value: 00:00)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type time (actual valueAsNumber: 43200000, expected value: 12:00)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type time (actual valueAsNumber: 86340000, expected value: 23:59)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type time (actual valueAsNumber: 2.734333707189448e+26, expected value: 10:54:10.944)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type time (actual valueAsNumber: -3600000, expected value: 23:00)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type datetime-local (actual value: , expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type datetime-local (actual value: 2019-12-10T00:00, expected valueAsNumber: 1575936000000)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type datetime-local (actual value: 2019-12-10T12:00, expected valueAsNumber: 1575979200000)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type datetime-local (actual valueAsNumber: 1575936000000, expected value: 2019-12-10T00:00)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type datetime-local (actual valueAsNumber: 1575979200000, expected value: 2019-12-10T12:00)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type datetime-local (actual valueAsNumber: -86400000, expected value: 1969-12-31T00:00)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type datetime-local (actual valueAsNumber: 2.734333707189448e+26, expected value: )",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type number (actual value: , expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type number (actual value: 123, expected valueAsNumber: 123)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type number (actual value: 123.456, expected valueAsNumber: 123.456)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type number (actual value: 1e3, expected valueAsNumber: 1000)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type number (actual value: 1e, expected valueAsNumber: NaN)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type number (actual value: -123, expected valueAsNumber: -123)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type number (actual valueAsNumber: 123, expected value: 123)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type number (actual valueAsNumber: 123.456, expected value: 123.456)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type number (actual valueAsNumber: 1000, expected value: 1000)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type number (actual valueAsNumber: -123, expected value: -123)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type range (actual value: , expected valueAsNumber: 50)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type range (actual value: 0, expected valueAsNumber: 0)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type range (actual value: 50, expected valueAsNumber: 50)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type range (actual value: 100, expected valueAsNumber: 100)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type range (actual value: -10, expected valueAsNumber: 0)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber getter on type range (actual value: 110, expected valueAsNumber: 100)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type range (actual valueAsNumber: 0, expected value: 0)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type range (actual valueAsNumber: 50, expected value: 50)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "valueAsNumber setter on type range (actual valueAsNumber: 100, expected value: 100)",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 70522,
+          "rss_bytes": 38813696
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "6872f4a045c524645a196b00482b6b42842170df62db62946c954ef4c5615573",
+    "size_bytes": 7259392
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 7.061,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "a63068af280a1d6149d73300d369dcd67ea3130a7fb4660bae8fab55e49bb7d3",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "b19ede9bac585c83faf41ce4cbb8f941ee72003cc1dce1c501c171bb6aff36dd",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "03755da90f483aef4b7fdabf081bdd8276cf3f681ba57713e990ff834e2fa36c",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "ec451410a29da270abecf726d75c9b2e2ca8bcaec8e76d12535e0817e98ba86e",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "5a168f21abdf830c94283716926e279881eabb3193508c4d7f8fa16a16da5072",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "3531117cca3cac51d53f467657cdb09173f5956f1e36a7338391cc113cf9a2cf",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "d0cd8b4d8c7600d99cfc1d36bfc9c0ad4ebf0ead5fc11d45a64e9a077b6f9559",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "0dbd9295dfc714935f073db38d153c19b362f71eab433df990f79e727f4c8b34",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "a63068af280a1d6149d73300d369dcd67ea3130a7fb4660bae8fab55e49bb7d3",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "b19ede9bac585c83faf41ce4cbb8f941ee72003cc1dce1c501c171bb6aff36dd",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "03755da90f483aef4b7fdabf081bdd8276cf3f681ba57713e990ff834e2fa36c",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "ec451410a29da270abecf726d75c9b2e2ca8bcaec8e76d12535e0817e98ba86e",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "5a168f21abdf830c94283716926e279881eabb3193508c4d7f8fa16a16da5072",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "3531117cca3cac51d53f467657cdb09173f5956f1e36a7338391cc113cf9a2cf",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "d0cd8b4d8c7600d99cfc1d36bfc9c0ad4ebf0ead5fc11d45a64e9a077b6f9559",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "0dbd9295dfc714935f073db38d153c19b362f71eab433df990f79e727f4c8b34",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": "ff4f13d270febbd99704457dd8b542727b518cbb8bd66a8b9853d043377f2b4a",
+  "jobs": 4,
+  "outcome": {
+    "attempted": 13,
+    "environment_blocked": 0,
+    "required_finished": 13,
+    "required_passed": 13,
+    "required_total": 13,
+    "status": "passed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "b176398c0198ba4b00420444aa8b1481550045554b00197ffdcb337e961a5a13",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "5deb69f1a9c5bfba3ca2357d6035bf9115fa0a8cec9d994670cfe6fbc44b02a3",
+    "worker_binary_sha256": "a222e9166bc5661fb05941dcdc7e4aae68855fe8b91aaea7bd46093b804330ce",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "3d86c142345844557853dec679f0c5bdb64c7a6a",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": null,
+    "global": "window",
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 30,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "7a62c2e089ae280e1e43b5bc211af61dff011971ae38a0eebcc0c7f51050d130",
+    "untracked_file_count": 2708,
+    "untracked_sha256": "d3652da31380b30924425bab66cf97df5dff20ae50243270fbe9c69fb0f8114c"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

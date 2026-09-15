@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree native diagnostic; five-use-case readiness not achieved",
+  "source_tree_sha256": "2032dd61a9ebe21de8ec43f2a250b82847c7d530b5ddf0e45a8c2a9ee447ef52",
+  "native_test_binary_sha256": "3ff583ce0a3953e15f910aea16d1cd1c631d6e05249fafc6aa5cd01df12b1394",
+  "discovery": {
+    "fixture_setup": "Initially failed before browser launch: Express missing. Restored package-lock.json dependencies with npm ci --ignore-scripts.",
+    "signed_browser_source": "f23777798c3578b44813c8ca28805afd5d26ef2ae219cd2ce6b6c01c8058a391",
+    "controlled_corpus": "01_static passed the legacy smoke predicate; 02_forms failed at modal dismissal; remaining files not run",
+    "failure": "target is hidden (semantic node 12)",
+    "regression_before_fix": "dismiss_visible_modal_after_native_form_submission failed; modal display was flex but Close remained hidden in semantic projection",
+    "root_causes": ["ancestor attribute mutations did not refresh descendant semantic state/action availability", "geometry visibility transitions did not update compact membership", "dismiss fallback admitted hidden clickable nodes"]
+  },
+  "targeted_regression": {"passed": 1, "failed": 0, "elapsed_seconds": 0.27},
+  "full_native_suite": {"features": ["v8-host", "v8-sandbox", "in-process-probe", "core-full"], "passed": 493, "failed": 0, "ignored": 6, "test_threads": 1, "elapsed_seconds": 142.11},
+  "strict_v8_library_and_test_clippy": "passed",
+  "signed_requalification": {
+    "result": "signature, designated requirement, sandbox-denial, DOM-mutation and authorized-network probes passed",
+    "parent_sha256": "6a975e1196c49d94abb8f13b59e95dded1cba193c0aead93e35dc0dba76833d3",
+    "unsigned_worker_sha256": "37be0501172fd6e213782c5d44668286fc3ec32d9c1740bf68963e8b7aa137d3",
+    "signed_worker_sha256": "d1941e52e0c4706603a12a48965fb2c7ed06dc8234d51d9639518091e73e1799",
+    "code_directory_hash": "9abb5758640c1e2c87d77f7ea8b855cee8593220",
+    "worker_protocol_version": 10,
+    "controlled_replay": "02_forms.oil now exits successfully on the signed worker; not independent end-state qualification of all forms"
+  },
+  "controlled_corpus": {
+    "summary": "oil-controlled-2026-09-14/summary.json",
+    "summary_sha256": "3470a2ce954f9bda1ac10c5a9f26ad3095d5ae141a58cbea9bf463a41bf73416",
+    "smoke_passed": 6,
+    "total": 12,
+    "timeouts": 0,
+    "remaining": "3 reported stale-reference errors (first investigated is missing text target), 2 Babel loading errors, 1 ambiguous target",
+    "task_end_states": "not independently verified"
+  },
+  "wpt": "not run for changed source",
+  "goal_complete": false
+}

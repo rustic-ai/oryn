@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree signed diagnostic; not release or five-family qualification",
+  "goal_complete": false,
+  "source_tree_sha256": "381b6971f209542362c1b5fc3b1a464624ca5375f56e8f4818870cace8f0f80f",
+  "parent_sha256": "93bb3c721e86aeb051c1a51d31887025c66508ffb574871a5f82fa15686330ae",
+  "worker_sha256": "da9099d3db354e7c9d19074fb717f9f88714e32546c5a5f4824ec78cea7d24ed",
+  "worker_code_directory_hash": "ab7bacce66eac5fba1a44439d55f37007513f839",
+  "identity_details": "oauth-native-realm-coordinator-2026-09-14/summary.json",
+  "changes": [
+    "Qualifies the accumulated scope-based realm factory and callback-created realm coordinator on a signed worker.",
+    "Frame linking resolves top-level ancestry from native frame lifetimes rather than evaluating the parent's author-modifiable top property.",
+    "A native regression replaces the actual parent Window's top with a throwing getter and verifies no getter execution and correct nested-frame ancestry."
+  ],
+  "tests": {
+    "native": {"passed": 556, "failed": 0, "ignored": 6, "elapsed_seconds": 151.05},
+    "native_strict_clippy": "passed",
+    "formatting": "passed",
+    "diff_check": "passed",
+    "fixture_locks": "passed",
+    "outcome_validators": {"passed": 26, "failed": 0},
+    "signed_cli": {"passed": 3, "failed": 0},
+    "signed_build_and_sandbox_probes": "passed"
+  },
+  "wpt": {
+    "result": "native-realm-coordinator-close-wpt-2026-09-14.json",
+    "baseline": "native-frame-discard-close-wpt-2026-09-14.json",
+    "files_passed": 0,
+    "files_attempted": 9,
+    "assertions_passed": 5,
+    "assertions_failed": 13,
+    "assertions_timeout": 3,
+    "environment_blocked": 0,
+    "elapsed_seconds": 13.631,
+    "gained": [],
+    "lost": []
+  },
+  "workflows": {
+    "auth": {"passed": 15, "planned": 15, "report": "oauth-native-realm-coordinator-2026-09-14/summary.json", "cleanup": "owned fixture stopped with SIGINT, reaped exit 1, port 3104 has no listener"},
+    "frameworks": {"passed": 24, "planned": 24, "report": "framework-native-realm-coordinator-2026-09-14/summary.json", "artifact_identities_unchanged": true, "fixture_cleanup": true},
+    "forms": {"passed": 57, "planned": 57, "report": "forms-native-realm-coordinator-2026-09-14/summary.json", "all_final_oracles_verified": true, "fixture_exit": 0, "forced_cleanup": false},
+    "shopping": {"passed": 21, "planned": 21, "report": "shopping-native-realm-coordinator-2026-09-14/summary.json", "all_final_databases_verified": true, "fixture_exit": 0, "forced_cleanup": false}
+  },
+  "remaining": [
+    "Synchronous iframe insertion and initial about:blank navigation reuse.",
+    "Native WindowProxy linking: provisional and committed JavaScript proxy factories still exist.",
+    "Connected popup ownership/access, lifecycle callback completion and BroadcastChannel.",
+    "Per-document broker routing, agent placement, full Core WPT, clean-source security/performance and five-family qualification."
+  ]
+}

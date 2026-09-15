@@ -1,0 +1,11 @@
+observe
+click "Sign in with IdP"
+page wait url "idp/authorize"
+page activate 2
+observe
+click "Approve"
+page activate 1
+observe
+wait visible "Authenticated with PKCE"
+extract text --selector "output"
+trace stop

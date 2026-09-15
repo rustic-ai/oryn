@@ -1,0 +1,12 @@
+{
+  "case": "date_range_recovery",
+  "sample": 2,
+  "case_id": "212cb87030195d8f0778a3c9a6b04fc5",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "d140b36f2d05a82012b8a3227d4aab192e39375c9770c508662392b53acb865e",
+  "elapsed_seconds": 0.39,
+  "final_oracle_verified": true
+}

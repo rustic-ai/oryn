@@ -29,8 +29,9 @@ observe
 type css(#search-input) ""
 observe
 
-# Test: Delete a task (button in task-item shadow DOM)
-click "Delete"
+# Test: Delete the newly added task (id 6 in this deterministic fixture).
+# Every task has a Delete button; do not rely on choosing an arbitrary match.
+click css(#delete-6)
 observe
 
 # Test: Extract text content including shadow DOM

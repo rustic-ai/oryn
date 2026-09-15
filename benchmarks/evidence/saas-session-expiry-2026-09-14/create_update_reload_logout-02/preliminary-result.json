@@ -1,0 +1,12 @@
+{
+  "case": "create_update_reload_logout",
+  "sample": 2,
+  "case_id": "5b513994abbead91a75946f15de1d2ff",
+  "base": "http://127.0.0.1:62525/saas/5b513994abbead91a75946f15de1d2ff",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "768688373ae890c07765ad192144da728309dbeaa26765643841b7aa4131f5bc",
+  "returncode": 0,
+  "elapsed_seconds": 0.366
+}

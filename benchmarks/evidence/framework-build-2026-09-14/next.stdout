@@ -1,0 +1,28 @@
+▲ Next.js 16.3.3 (webpack)
+✓ Running next.config.mjs took 7ms
+
+  Running TypeScript ...
+  Finished TypeScript in 1ms ...
+  Creating an optimized production build ...
+✓ Compiled successfully in 491ms
+  Collecting page data using 6 workers ...
+  Generating static pages using 6 workers (0/4) ...
+  Generating static pages using 6 workers (1/4) 
+  Generating static pages using 6 workers (2/4) 
+  Generating static pages using 6 workers (3/4) 
+✓ Generating static pages using 6 workers (4/4) in 161ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+  Exporting using 11 workers (0/4) ...
+  Exporting using 11 workers (1/4) 
+  Exporting using 11 workers (2/4) 
+  Exporting using 11 workers (3/4) 
+✓ Exporting using 11 workers (4/4) in 178ms
+
+Route (pages)
+┌ ○ /
+├ ○ /404
+└ ○ /details
+
+○  (Static)  prerendered as static content
+

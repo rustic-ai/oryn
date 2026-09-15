@@ -1,0 +1,13 @@
+goto "http://127.0.0.1:56134/form/c9a55dbe6f7cd6bb778b9fd8910c07ff"
+observe
+type "Full name" "Zoë Test"
+type "Email address" "zoe@example.test"
+select "Primary role" "developer"
+type "Application note" "R&D + 50% = café 日本語"
+check "Rust"
+check "JavaScript"
+click "Submit application"
+wait visible css(#receipt)
+click "Reload receipt"
+wait visible css(#receipt)
+observe

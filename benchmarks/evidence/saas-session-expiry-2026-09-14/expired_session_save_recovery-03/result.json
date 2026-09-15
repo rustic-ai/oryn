@@ -1,0 +1,13 @@
+{
+  "case": "expired_session_save_recovery",
+  "sample": 3,
+  "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+  "base": "http://127.0.0.1:62525/saas/b2410ea4d4a73dac21efd5470fb26835",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "71a86f4ec1880060cce7b0edd37519d30ac68773cfc744889f9bf25f5ea8e6f5",
+  "returncode": 0,
+  "elapsed_seconds": 0.467,
+  "final_database_verified": true
+}

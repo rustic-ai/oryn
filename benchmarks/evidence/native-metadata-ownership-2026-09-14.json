@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree native diagnostic; not signed or WPT qualification",
+  "source_tree_sha256": "ccbff3bbca0466bb81db6e6831b126108a6d08c89a26c99f7d31acc499f32c93",
+  "goal_complete": false,
+  "change": "Direct metadata preparation resolves the active native owner document and enters its V8 context before changing referrer policy or scheduling refresh navigation.",
+  "tests": {
+    "native": {"passed": 561, "failed": 0, "ignored": 6, "elapsed_seconds": 146.12},
+    "javascript": {"passed": 275, "failed": 0, "ignored": 3, "elapsed_seconds": 4.53},
+    "native_strict_clippy": "passed",
+    "formatting": "passed",
+    "diff_check": "passed"
+  },
+  "regressions": [
+    {"name": "borrowed_meta_setter_updates_only_owner_document_policy", "verified": "Parent policy remains no-referrer while the child becomes unsafe-url after a borrowed metadata content setter.", "fixture_correction": "The direct-load runtime policy field was initially empty despite the test's static-meta assumption. The final test explicitly establishes the parent policy with its normal content setter; preliminary failures are not treated as clean before/after evidence."},
+    {"name": "borrowed_meta_refresh_schedules_owner_document_navigation", "verified": "After running the scheduled timer, the parent has no pending navigation and the child has https://frame.example.test/child/next. This checks scheduling, not a completed network navigation."}
+  ],
+  "previous_signed_evidence": "native-realm-coordinator-signed-2026-09-14.json",
+  "remaining": [
+    "Synchronous initial iframe Window/Document creation and native WindowProxy linking remain incomplete.",
+    "Connected popup ownership and full per-document broker routing remain open.",
+    "Five-family OIL readiness, clean-source security/performance and broader WPT qualification remain incomplete.",
+    "No new signed or upstream WPT qualification is claimed for this revision."
+  ]
+}

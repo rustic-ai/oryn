@@ -1,0 +1,88 @@
+{
+  "cases": [
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "scenario": "normal",
+      "reviews": 1
+    }
+  ],
+  "slots": [
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "slot": "early",
+      "available": 1,
+      "version": 1
+    },
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "slot": "late",
+      "available": 0,
+      "version": 2
+    }
+  ],
+  "offers": [
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "offer": "72e4c233903233e2b59ff75f8caea8f8",
+      "slot": "late",
+      "version": 1,
+      "zone": "UTC",
+      "utc": "2026-11-01T06:30:00+00:00",
+      "local": "2026-11-01T06:30:00+00:00"
+    }
+  ],
+  "reservations": [
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "reservation": "abd31d8850cea339d6b8a41dc4e8612f",
+      "slot": "late",
+      "offer": "72e4c233903233e2b59ff75f8caea8f8",
+      "request_key": "6662979a8bfa679028e46d9f53aff576",
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"72e4c233903233e2b59ff75f8caea8f8\"], \"request_key\": [\"6662979a8bfa679028e46d9f53aff576\"]}",
+      "utc": "2026-11-01T06:30:00+00:00",
+      "local": "2026-11-01T06:30:00+00:00",
+      "zone": "UTC"
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "status": 303,
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"72e4c233903233e2b59ff75f8caea8f8\"], \"request_key\": [\"6662979a8bfa679028e46d9f53aff576\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "status": 303,
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"72e4c233903233e2b59ff75f8caea8f8\"], \"request_key\": [\"6662979a8bfa679028e46d9f53aff576\"]}",
+      "cookie_valid": 1
+    }
+  ],
+  "views": [
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "path": "availability",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "path": "review",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "path": "confirmation",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "path": "confirmation",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "f9b888e6368506c55bd3cc9b1fa7a5a9",
+      "path": "confirmation",
+      "cookie_valid": 1
+    }
+  ]
+}

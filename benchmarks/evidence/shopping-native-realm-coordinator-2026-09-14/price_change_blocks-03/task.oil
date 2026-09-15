@@ -1,0 +1,26 @@
+goto "http://127.0.0.1:52282/shop/737832b2d08c2cc71cffd01b59112ad2/start"
+wait visible css(#search)
+click "Inspect desk set"
+wait visible css(#desk-spec)
+observe
+click "Browse catalog"
+type "Search catalog" "field"
+select "Category" "outdoor"
+click "Filter catalog"
+observe
+click "Inspect field kit"
+wait visible css(#field-spec)
+observe
+select "Variant" "blue"
+click "Add to cart"
+type "Cart quantity" "2"
+click "Update cart"
+click "Reload cart"
+observe
+click "Review checkout"
+type "Recipient" "Zoë Test"
+type "Contact email" "zoe@example.test"
+click "Place test order"
+wait visible css(#conflict)
+observe
+observe

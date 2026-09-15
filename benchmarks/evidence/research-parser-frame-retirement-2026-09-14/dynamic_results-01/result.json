@@ -1,0 +1,13 @@
+{
+  "case": "dynamic_results",
+  "sample": 1,
+  "case_id": "7994074d2e341dc520fe3e16043b50f2",
+  "base": "http://127.0.0.1:58031/research/7994074d2e341dc520fe3e16043b50f2",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "be588ddab7f30784345612cfab427c6b6893c02c77210efaf6e5dddb036713c6",
+  "returncode": 0,
+  "elapsed_seconds": 0.252,
+  "final_database_verified": true
+}

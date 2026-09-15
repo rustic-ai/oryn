@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/datetime-local-valueasdate.html",
+      "root": "html",
+      "sha256": "f2074ef7ce2c143174ad5f1d5df29facf80d75cfbffefc19951da554e00482e4",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-stepdown-02.html",
+      "root": "html",
+      "sha256": "23b40376c789c8be53b53f84edb70b051a36ad3b96fc2416f38a5c0210d9be1a",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-stepdown-weekmonth.html",
+      "root": "html",
+      "sha256": "fae632fcdd574e4fa1c9a798b55704b22f28febcee7d90da6537121d547c16e3",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-stepdown.html",
+      "root": "html",
+      "sha256": "876c888917d58bf20e591ed3567c87a9b3ca572d13e35a219d5f5f5c43cd3e0b",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-stepup.html",
+      "root": "html",
+      "sha256": "7aa1ee4766e6375691e7181d5d33c9bdeade25542be10cdc57d9986b61afc1ed",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-valueasdate-invalidstateerr.html",
+      "root": "html",
+      "sha256": "83ecdf29fd9526ac4817ec5d3ef8866e7b14329dc12123f69b1639f844e22bb2",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-valueasdate-stepping.html",
+      "root": "html",
+      "sha256": "fa75db68bf9b29fc424b9c6bcd35d9c59832500fc46b1fe982ad123006c7a2b6",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-valueasdate-typeerror.html",
+      "root": "html",
+      "sha256": "275533c0bcf42eeba39c25acb462aff3fad9021cf4101b2fe1ad2c1f0a6fc396",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-valueasdate.html",
+      "root": "html",
+      "sha256": "33134f65e68dd4143dcb9949fbcd29b305bf7325d7ce920d23a457e8a554d505",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-valueasnumber-invalidstateerr.html",
+      "root": "html",
+      "sha256": "b6efaaf56c1d7a7fdfb805446c7b1797a71c7ecfec09b3169aa657b09ea80bd8",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-valueasnumber-stepping.html",
+      "root": "html",
+      "sha256": "2feb7169465bc96663887fe0f3f34b2e80f0fa2140f24b609d523385a70ff64e",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-valueasnumber-typeerror.html",
+      "root": "html",
+      "sha256": "e063c64346a13f02ee802257cc2d10a11d46a8cc1dec2943a4d763902ed78f6d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/input-valueasnumber.html",
+      "root": "html",
+      "sha256": "471af119ecf831164e9ffbafd23e175f45bf5a4bcf2d37edb5dc6eaaa510ec93",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ],
+  "required_execution_total": 13
+}

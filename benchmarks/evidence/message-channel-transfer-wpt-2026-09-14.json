@@ -1,0 +1,2548 @@
+{
+  "assertions": [
+    {
+      "classification": "core",
+      "dependencies": [
+        "/common/gc.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_Blob.any.js|window|:c0e62f3835d84529a9e68a236895d845",
+        "page_id": 4,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 106,
+        "teardown_ms": 44,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "86bda8929b9f4c318a928fcc2c468226"
+          }
+        ],
+        "id": "4a92984656114f309fba8ba9e321ddd3",
+        "ports": [
+          57936,
+          57937,
+          57939,
+          57943,
+          57946,
+          57952,
+          57954
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 256,
+          "teardown_ms": 875
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_Blob.any.js|window|",
+      "path": "webmessaging/Channel_postMessage_Blob.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:57936/webmessaging/Channel_postMessage_Blob.any.html"
+          },
+          "page_id": "4",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 479,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:57936/webmessaging/Channel_postMessage_Blob.any.html"
+          },
+          "page_id": "4",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 12,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 4,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 479,
+          "response_sha256": "ef0ebb2cd60207539da9561266c16ccf33b210eedc01345512d3c3eb1f31f36f",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57936/webmessaging/Channel_postMessage_Blob.any.html",
+          "worker_pid": 43446
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:57936/webmessaging/Channel_postMessage_Blob.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57936/resources/testharness.js",
+          "worker_pid": 43446
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57936/webmessaging/Channel_postMessage_Blob.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 59,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57936/resources/testharnessreport.js",
+          "worker_pid": 43446
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:57936/webmessaging/Channel_postMessage_Blob.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1604,
+          "response_sha256": "186144288438fb6d520defdc16a6a86fff193184a30fe04e901fe93febe3f8c4",
+          "sequence": 3,
+          "started_ms": 64,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57936/common/gc.js",
+          "worker_pid": 43446
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57936/webmessaging/Channel_postMessage_Blob.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 1005,
+          "response_sha256": "2bc57d5ca5095160dea4cf4a6308189a7219a1e33659f7228e31bc35f84d5b00",
+          "sequence": 4,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57936/webmessaging/Channel_postMessage_Blob.any.js",
+          "worker_pid": 43446
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Test Description: Messages can contain Blobs.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43446,
+          "rss_bytes": 39370752
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_DataCloneErr.any.js|window|:6ef481f80c034e4ab65efd7b55cd33ec",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 99,
+        "teardown_ms": 51,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "057e52c9ca0c49b28acef434e54301bc"
+          }
+        ],
+        "id": "b072c20a89f34e6391a63709cc4bd94e",
+        "ports": [
+          57935,
+          57938,
+          57940,
+          57942,
+          57949,
+          57951,
+          57957
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 258,
+          "teardown_ms": 919
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_DataCloneErr.any.js|window|",
+      "path": "webmessaging/Channel_postMessage_DataCloneErr.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:57935/webmessaging/Channel_postMessage_DataCloneErr.any.html"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 479,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:57935/webmessaging/Channel_postMessage_DataCloneErr.any.html"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 10,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 4,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 479,
+          "response_sha256": "fdd50ce8284454ad791fc238d8773650349a98da3bdce9a754761f907d481179",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57935/webmessaging/Channel_postMessage_DataCloneErr.any.html",
+          "worker_pid": 43448
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:57935/webmessaging/Channel_postMessage_DataCloneErr.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57935/resources/testharness.js",
+          "worker_pid": 43448
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57935/webmessaging/Channel_postMessage_DataCloneErr.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57935/resources/testharnessreport.js",
+          "worker_pid": 43448
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57935/webmessaging/Channel_postMessage_DataCloneErr.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 434,
+          "response_sha256": "99ca90ced292d596437cb96cc901b739f1c64602a61b0fe7b4443348f532f26f",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57935/webmessaging/Channel_postMessage_DataCloneErr.any.js",
+          "worker_pid": 43448
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Throw a DataCloneError when a host object (e.g. a DOM node) is used with postMessage.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43448,
+          "rss_bytes": 33832960
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_clone_port.any.js|window|:d61af00129014d54a56cb637b7d17947",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 101,
+        "teardown_ms": 48,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "0d0f17cfef474cea86062c8c0ad18f98"
+          }
+        ],
+        "id": "c050128c0f7943838bf5a2f7bd9b51ae",
+        "ports": [
+          57941,
+          57945,
+          57947,
+          57953,
+          57958,
+          57960,
+          57962
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 257,
+          "teardown_ms": 919
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_clone_port.any.js|window|",
+      "path": "webmessaging/Channel_postMessage_clone_port.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:57941/webmessaging/Channel_postMessage_clone_port.any.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 450,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:57941/webmessaging/Channel_postMessage_clone_port.any.html"
+          },
+          "page_id": "1",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 4,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 450,
+          "response_sha256": "2a67c24fbcf308129b427017ee4534fd36cf9af35f29174d2596102b38f09e16",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57941/webmessaging/Channel_postMessage_clone_port.any.html",
+          "worker_pid": 43449
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:57941/webmessaging/Channel_postMessage_clone_port.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57941/resources/testharness.js",
+          "worker_pid": 43449
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57941/webmessaging/Channel_postMessage_clone_port.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57941/resources/testharnessreport.js",
+          "worker_pid": 43449
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57941/webmessaging/Channel_postMessage_clone_port.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1100,
+          "response_sha256": "4eb7f31d3e99a8dfe97f37b993e5ef7259398ad026d38932f55d689816594148",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57941/webmessaging/Channel_postMessage_clone_port.any.js",
+          "worker_pid": 43449
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Test Description: Test Description: When the user agent is to clone a port original port, with the clone being owned by owner, it must return a new MessagePort object",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Data sent through remote port is received by the new cloned port",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43449,
+          "rss_bytes": 34226176
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_clone_port_error.any.js|window|:b5209edb1fa5454195ca3ebb8dfb061e",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 101,
+        "teardown_ms": 48,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "e926d85278f345d0b0ba61683bea9a89"
+          }
+        ],
+        "id": "847e551bb4fc403d8fa35686c6009247",
+        "ports": [
+          57944,
+          57948,
+          57950,
+          57955,
+          57956,
+          57959,
+          57961
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 257,
+          "teardown_ms": 884
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_clone_port_error.any.js|window|",
+      "path": "webmessaging/Channel_postMessage_clone_port_error.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:57944/webmessaging/Channel_postMessage_clone_port_error.any.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 478,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:57944/webmessaging/Channel_postMessage_clone_port_error.any.html"
+          },
+          "page_id": "3",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 11,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 4,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 478,
+          "response_sha256": "b15ac4abce153cb90516aff0b247492bdf42a63187d9901b236672595a5234ec",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57944/webmessaging/Channel_postMessage_clone_port_error.any.html",
+          "worker_pid": 43447
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:57944/webmessaging/Channel_postMessage_clone_port_error.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 15,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57944/resources/testharness.js",
+          "worker_pid": 43447
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57944/webmessaging/Channel_postMessage_clone_port_error.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 60,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57944/resources/testharnessreport.js",
+          "worker_pid": 43447
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57944/webmessaging/Channel_postMessage_clone_port_error.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 453,
+          "response_sha256": "48957061b1b6810b1c229c92e66b5dcdd829a8904c14b4460abb406dd75360de",
+          "sequence": 3,
+          "started_ms": 64,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57944/webmessaging/Channel_postMessage_clone_port_error.any.js",
+          "worker_pid": 43447
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Test Description: Throw a DataCloneError if transfer array in postMessage contains source port.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43447,
+          "rss_bytes": 34029568
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_event_properties.any.js|window|:0b101d00a7d64ae3b5c359628bbd89f3",
+        "page_id": 6,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 95,
+        "teardown_ms": 30,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "a2aec8fb56cc4a5693fc037fbe51ea3c"
+          }
+        ],
+        "id": "5cc5505b2d514ecc8f586d12cfc98247",
+        "ports": [
+          57976,
+          57977,
+          57978,
+          57979,
+          57980,
+          57981,
+          57982
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 257,
+          "teardown_ms": 915
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_event_properties.any.js|window|",
+      "path": "webmessaging/Channel_postMessage_event_properties.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:57976/webmessaging/Channel_postMessage_event_properties.any.html"
+          },
+          "page_id": "6",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 467,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:57976/webmessaging/Channel_postMessage_event_properties.any.html"
+          },
+          "page_id": "6",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 18,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 467,
+          "response_sha256": "dbe63114e044c93fdd1a235afd4c4490700030348749a386d1085a88014a811d",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57976/webmessaging/Channel_postMessage_event_properties.any.html",
+          "worker_pid": 43465
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:57976/webmessaging/Channel_postMessage_event_properties.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57976/resources/testharness.js",
+          "worker_pid": 43465
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:57976/webmessaging/Channel_postMessage_event_properties.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57976/resources/testharnessreport.js",
+          "worker_pid": 43465
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:57976/webmessaging/Channel_postMessage_event_properties.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 840,
+          "response_sha256": "ca5e2e7f7e2a458342c0639afff82b3ef491a54bbc5e4e3d25cf8d458b5a367d",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57976/webmessaging/Channel_postMessage_event_properties.any.js",
+          "worker_pid": 43465
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Test Description: The postMessage() method - Create an event that uses the MessageEvent interface, with the name message, which does not bubble and is not cancelable.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43465,
+          "rss_bytes": 34078720
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_ports_readonly_array.any.js|window|:cd6ab8bceaea42658d20c1a4afef8794",
+        "page_id": 5,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 96,
+        "teardown_ms": 30,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "7a129bebda6140c9ba816e4d5bfc693c"
+          }
+        ],
+        "id": "57f8624d676c43faad4e95b863c1ea27",
+        "ports": [
+          57983,
+          57984,
+          57985,
+          57986,
+          57987,
+          57988,
+          57989
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 249,
+          "teardown_ms": 930
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_ports_readonly_array.any.js|window|",
+      "path": "webmessaging/Channel_postMessage_ports_readonly_array.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:57983/webmessaging/Channel_postMessage_ports_readonly_array.any.html"
+          },
+          "page_id": "5",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 469,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:57983/webmessaging/Channel_postMessage_ports_readonly_array.any.html"
+          },
+          "page_id": "5",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 17,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 469,
+          "response_sha256": "64669a380a37a47e805b5685f330497bfe973b7a29d421dde76371d47840bb23",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57983/webmessaging/Channel_postMessage_ports_readonly_array.any.html",
+          "worker_pid": 43466
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:57983/webmessaging/Channel_postMessage_ports_readonly_array.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57983/resources/testharness.js",
+          "worker_pid": 43466
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57983/webmessaging/Channel_postMessage_ports_readonly_array.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57983/resources/testharnessreport.js",
+          "worker_pid": 43466
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57983/webmessaging/Channel_postMessage_ports_readonly_array.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 862,
+          "response_sha256": "23f1acd23eec27489fc70c4e39b61e693d5626af1a73db3954c100b6c56cd8a9",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57983/webmessaging/Channel_postMessage_ports_readonly_array.any.js",
+          "worker_pid": 43466
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Test Description: The postMessage() method - Make new ports into a read only array.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43466,
+          "rss_bytes": 34062336
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_target_source.any.js|window|:4e8715f630f84d3ca786fa4b9d8d2309",
+        "page_id": 7,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 97,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "14fc0012ad0647e79c34c88d98ffb08d"
+          }
+        ],
+        "id": "b2e18574bb534f02b22d70f1f8327b27",
+        "ports": [
+          57990,
+          57991,
+          57992,
+          57993,
+          57994,
+          57995,
+          57997
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 254,
+          "teardown_ms": 940
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_target_source.any.js|window|",
+      "path": "webmessaging/Channel_postMessage_target_source.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:57990/webmessaging/Channel_postMessage_target_source.any.html"
+          },
+          "page_id": "7",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 468,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:57990/webmessaging/Channel_postMessage_target_source.any.html"
+          },
+          "page_id": "7",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 19,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 468,
+          "response_sha256": "b5785fcb687af65b573034052c79a200b8c6eeada305545e228726ac2b7d26fc",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57990/webmessaging/Channel_postMessage_target_source.any.html",
+          "worker_pid": 43464
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:57990/webmessaging/Channel_postMessage_target_source.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57990/resources/testharness.js",
+          "worker_pid": 43464
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:57990/webmessaging/Channel_postMessage_target_source.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57990/resources/testharnessreport.js",
+          "worker_pid": 43464
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57990/webmessaging/Channel_postMessage_target_source.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 699,
+          "response_sha256": "4b13d1047dda63a3cafbd5df5a50917c70333d9a807f8138ffcfd6d1bd59ff7d",
+          "sequence": 3,
+          "started_ms": 64,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57990/webmessaging/Channel_postMessage_target_source.any.js",
+          "worker_pid": 43464
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Test Description: The postMessage() method - Let target port be the port with which source port is entangled, if any.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43464,
+          "rss_bytes": 34095104
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/common/get-host-info.sub.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.js|window|:f2f53cd58b884fb28b8d705e8b6ea163",
+        "page_id": 8,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 125,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "84ad5d8692524868b4e44be620828de7"
+          }
+        ],
+        "id": "78c1e042ffd740ea812775f5864e5bfd",
+        "ports": [
+          57996,
+          57998,
+          57999,
+          58000,
+          58001,
+          58002,
+          58003
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 254,
+          "teardown_ms": 408
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.js|window|",
+      "path": "webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:57996/webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.html"
+          },
+          "page_id": "8",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 317,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:57996/webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.html"
+          },
+          "page_id": "8",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 20,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 317,
+          "response_sha256": "4dfd283286d2d259ff51e9a6ec4b36e3cc98c63e3c5f07aaeed4d2c2a9a816e7",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57996/webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.html",
+          "worker_pid": 43463
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:57996/webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57996/resources/testharness.js",
+          "worker_pid": 43463
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:57996/webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57996/resources/testharnessreport.js",
+          "worker_pid": 43463
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57996/webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 2978,
+          "response_sha256": "c05043f6526a197fc0d9e64a62360b5670433f95d977b108375c0b9aa75baa4f",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57996/common/get-host-info.sub.js",
+          "worker_pid": 43463
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57996/webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 1174,
+          "response_sha256": "078797d8b766bfc74b67b6438e64a818c5ccc6e57c4dd47bcebce94b638151ac",
+          "sequence": 4,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57996/webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.js",
+          "worker_pid": 43463
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57996/webmessaging/Channel_postMessage_transfer_xsite_incoming_messages.window.html",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 5,
+          "response_bytes": 1458,
+          "response_sha256": "d9fdd19dc50441d3b0ebcb2d89abf2e85313dad0c8ba41c28d10a1dc7f621fe0",
+          "sequence": 5,
+          "started_ms": 74,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://127.0.0.1:57996/webmessaging/support/ChildWindowPostMessage.htm",
+          "worker_pid": 43463
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot read properties of null (reading 'postMessage')",
+            "name": "Tasks enqueued on the port-message-queue of an enabled port,\n  are transferred along with the port, when the transfer happens in the same task\n  during which postMessage is called",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43463,
+          "rss_bytes": 37060608
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_with_transfer_entangled.any.js|window|:1db6eb6db8144cd4b26dabf42a6ca4b5",
+        "page_id": 9,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 90,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "b9541bc7d8964a15abf14846ada36af9"
+          }
+        ],
+        "id": "d58588e3fc7b498d9f569e6185f49086",
+        "ports": [
+          58016,
+          58017,
+          58018,
+          58019,
+          58020,
+          58021,
+          58022
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 252,
+          "teardown_ms": 427
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_with_transfer_entangled.any.js|window|",
+      "path": "webmessaging/Channel_postMessage_with_transfer_entangled.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58016/webmessaging/Channel_postMessage_with_transfer_entangled.any.html"
+          },
+          "page_id": "9",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 421,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58016/webmessaging/Channel_postMessage_with_transfer_entangled.any.html"
+          },
+          "page_id": "9",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 25,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 421,
+          "response_sha256": "dda88c11bfc40054688d3b3dbb26c0d951154d460fbaac1b0400b0e07821064d",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58016/webmessaging/Channel_postMessage_with_transfer_entangled.any.html",
+          "worker_pid": 43484
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:58016/webmessaging/Channel_postMessage_with_transfer_entangled.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58016/resources/testharness.js",
+          "worker_pid": 43484
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58016/webmessaging/Channel_postMessage_with_transfer_entangled.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58016/resources/testharnessreport.js",
+          "worker_pid": 43484
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58016/webmessaging/Channel_postMessage_with_transfer_entangled.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1233,
+          "response_sha256": "704df18065c92845990a4cea51bef35178ce3f4ad8ab052b9dfde310cb416656",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58016/webmessaging/Channel_postMessage_with_transfer_entangled.any.js",
+          "worker_pid": 43484
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "An entangled port transferred to the same origin receives messages in order",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43484,
+          "rss_bytes": 33554432
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_with_transfer_incoming_messages.any.js|window|:bab16450b3ec4729b0bdbc0fa2c89efc",
+        "page_id": 10,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 93,
+        "teardown_ms": 30,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "ac259249bf60402fa40403ce96f70579"
+          }
+        ],
+        "id": "c602ce5592ea4419a7ae5bfa3f86b8eb",
+        "ports": [
+          58026,
+          58027,
+          58028,
+          58029,
+          58030,
+          58031,
+          58032
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 255,
+          "teardown_ms": 942
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_with_transfer_incoming_messages.any.js|window|",
+      "path": "webmessaging/Channel_postMessage_with_transfer_incoming_messages.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58026/webmessaging/Channel_postMessage_with_transfer_incoming_messages.any.html"
+          },
+          "page_id": "10",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 429,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58026/webmessaging/Channel_postMessage_with_transfer_incoming_messages.any.html"
+          },
+          "page_id": "10",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 27,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 429,
+          "response_sha256": "b49bb2671c83865862ee5ad6b2b1f3ad0d2afa79cd8226ced86b12712d3fd26c",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58026/webmessaging/Channel_postMessage_with_transfer_incoming_messages.any.html",
+          "worker_pid": 43489
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:58026/webmessaging/Channel_postMessage_with_transfer_incoming_messages.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58026/resources/testharness.js",
+          "worker_pid": 43489
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58026/webmessaging/Channel_postMessage_with_transfer_incoming_messages.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58026/resources/testharnessreport.js",
+          "worker_pid": 43489
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:58026/webmessaging/Channel_postMessage_with_transfer_incoming_messages.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1195,
+          "response_sha256": "1af68294a3b07701795f6363d546da52616fb99decf7925ef247425c06349bb8",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58026/webmessaging/Channel_postMessage_with_transfer_incoming_messages.any.js",
+          "worker_pid": 43489
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "When transferring a non-enabled port mutiple times,\n    incoming messages sent at various transfer steps are received in order upon enablement.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43489,
+          "rss_bytes": 33652736
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "webmessaging/Channel_postMessage_with_transfer_outgoing_messages.any.js|window|:4e194731109c43bfb3450605ca18ef75",
+        "page_id": 11,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 94,
+        "teardown_ms": 25,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "8b27199034a641ec9326f8eb6601361e"
+          }
+        ],
+        "id": "25214b845b1341309ec769a24098fc09",
+        "ports": [
+          58033,
+          58034,
+          58035,
+          58036,
+          58037,
+          58038,
+          58039
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 245,
+          "teardown_ms": 948
+        },
+        "tls": {
+          "ca_sha256": "61869ce795d12cbd830090bf6a3f62c23e74735e88838a76303a62240192c6c9",
+          "certificate_sha256": "7144fca674f6f9d3940e66fddaea4b2cae21ff366b0e133fad2fb9db06f03848"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "webmessaging/Channel_postMessage_with_transfer_outgoing_messages.any.js|window|",
+      "path": "webmessaging/Channel_postMessage_with_transfer_outgoing_messages.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:58033/webmessaging/Channel_postMessage_with_transfer_outgoing_messages.any.html"
+          },
+          "page_id": "11",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 429,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:58033/webmessaging/Channel_postMessage_with_transfer_outgoing_messages.any.html"
+          },
+          "page_id": "11",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 28,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 429,
+          "response_sha256": "7b95d008082fd87cc799a3c939bdb3ab4719870afc8311c60b2f0694c948fe16",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58033/webmessaging/Channel_postMessage_with_transfer_outgoing_messages.any.html",
+          "worker_pid": 43483
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:58033/webmessaging/Channel_postMessage_with_transfer_outgoing_messages.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58033/resources/testharness.js",
+          "worker_pid": 43483
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:58033/webmessaging/Channel_postMessage_with_transfer_outgoing_messages.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58033/resources/testharnessreport.js",
+          "worker_pid": 43483
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:58033/webmessaging/Channel_postMessage_with_transfer_outgoing_messages.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1112,
+          "response_sha256": "aabdad5314fb58fb9b4a9e6e71c306c74a82bdf9277b3ea8d1fdab139a22e5f2",
+          "sequence": 3,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:58033/webmessaging/Channel_postMessage_with_transfer_outgoing_messages.any.js",
+          "worker_pid": 43483
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "When transferring a port,\n    outgoing messages sent at each transfer step are received in order by the entangled port.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 43483,
+          "rss_bytes": 33652736
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "6a36d4b93184fafe20f0142c9f07c7baa164c7c84b3ff5b5161cdc8aacb41c80",
+    "size_bytes": 7225888
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/common/gc.js": {
+      "mime": "text/javascript",
+      "sha256": "186144288438fb6d520defdc16a6a86fff193184a30fe04e901fe93febe3f8c4",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/common/get-host-info.sub.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "5fa65617b060693162bf65c415d08fda26c59fca02ab62b4dfe6e60e7c6ce133",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/common/gc.js": {
+      "mime": "text/javascript",
+      "sha256": "186144288438fb6d520defdc16a6a86fff193184a30fe04e901fe93febe3f8c4",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/common/get-host-info.sub.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "5fa65617b060693162bf65c415d08fda26c59fca02ab62b4dfe6e60e7c6ce133",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 6.042,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "f4e8440017c2bca7e8e8e48b85d3a9a8409b5cf84671902cdacd3bcbcb100046",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "5fa65617b060693162bf65c415d08fda26c59fca02ab62b4dfe6e60e7c6ce133",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "6b31aa9dbbc8a9d954d56380e52712b4c3515aa1489289a60aa86764a1a9a820",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "2aa6b564f77cda40a9fc827353a13160670287a950dc3a05f2906608a0f9400b",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "04ea9ba4e4720652672284367e89b3a93952a0fe0969a9518fb704c78a6d5191",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "8f83e9e12c3a30404c141c89ed22632c0bdf71a4c62620ebef5cd4367ba2e1f5",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "8487595a6f59bc921f58520d59bd35f2e2fd59d84c0744403ef41e4fb2cfc2fe",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "3a7eea5b4e040119b301dea4c924625af61abdf4d9c1360f16dc1de60152c5ad",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "f4e8440017c2bca7e8e8e48b85d3a9a8409b5cf84671902cdacd3bcbcb100046",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "5fa65617b060693162bf65c415d08fda26c59fca02ab62b4dfe6e60e7c6ce133",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "6b31aa9dbbc8a9d954d56380e52712b4c3515aa1489289a60aa86764a1a9a820",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "2aa6b564f77cda40a9fc827353a13160670287a950dc3a05f2906608a0f9400b",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "04ea9ba4e4720652672284367e89b3a93952a0fe0969a9518fb704c78a6d5191",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "8f83e9e12c3a30404c141c89ed22632c0bdf71a4c62620ebef5cd4367ba2e1f5",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "8487595a6f59bc921f58520d59bd35f2e2fd59d84c0744403ef41e4fb2cfc2fe",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "3a7eea5b4e040119b301dea4c924625af61abdf4d9c1360f16dc1de60152c5ad",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": "71f707565221ef259e37a9981ba558c787f59f850936b0adfd6553ab8918ff03",
+  "jobs": 4,
+  "outcome": {
+    "attempted": 11,
+    "environment_blocked": 0,
+    "required_finished": 11,
+    "required_passed": 10,
+    "required_total": 11,
+    "status": "failed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "4c627669e92c2949e4f38f6a9511e73062707745c4219330fa0848c7d3bb2d41",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "24866d345ba3e5b70af0f4c4b75a91e443bdfc173ba0fc35965f09c5cb59f1a9",
+    "worker_binary_sha256": "c12172ec302994779cd17ebe783708b7e4890f0f175c67a1a4536d2518b64db5",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "768babcfcda0241757984389bae127b0d8473764",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": "webmessaging/Channel_",
+    "global": "window",
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 30,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "7f7d530182528424d9f876f77e6d0cbd891dae2ab764ff98a21df6d18c6d65b3",
+    "untracked_file_count": 274,
+    "untracked_sha256": "906fbee93a4489c88635c8905439207b21760cd1c07c3fa1616c913cdf95fff4"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

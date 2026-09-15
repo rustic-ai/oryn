@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "goal_complete": false,
+  "family_qualified": false,
+  "qualification": "signed-worker dirty-tree diagnostics; shared validation foundation, not complete constraint validation or five-family qualification",
+  "source_tree_sha256": "35b860f0d0acc9e1be7e8217097caf6052fed951ebb6ff16a46a625773611647",
+  "parent_sha256": "4e6d41ed515092ee4ecd4483af85787fa0444f5d4765d9b84dadc72c7d78dbc3",
+  "worker_binary_sha256": "20c94a4fb014dd8afc988021b0223022ea9879d230d581f19b289a02b1b20938",
+  "worker_code_directory_hash": "2679a7a117af8cec1c124d6b4635870d7b450656",
+  "worker_unsigned_build_sha256": "d414671c9bd83d3e91833e74a99a0cc1402804e40e38ba6fe7fe23baf60dd991",
+  "native": {"passed": 528, "failed": 0, "ignored": 6, "elapsed_seconds": 150.63, "binary_sha256": "79e80007cf6007936ca1a98fd0a276f635e21b8ff879250d1cde6c96bdc85ba1", "timing_caveat": "overlapped release compilation; not performance qualification"},
+  "javascript": {"passed": 272, "failed": 0, "ignored": 3, "elapsed_seconds": 4.24, "binary_sha256": "8f667afa5182efb8e9615685d32615e5ccc1f7ce2955d95f3297999e86030bc6"},
+  "dom_passed": 106,
+  "core_parser_passed": 31,
+  "cli_passed": 4,
+  "webidl_passed": 10,
+  "oracle_unit_tests_passed": 8,
+  "strict_native_clippy_format_registry_diff_ruff": "passed",
+  "signed_worker_signature_and_sandbox_probes": "passed; protocol 10, filesystem read/listener/outgoing connection/environment-secret probes denied",
+  "implementation": [
+    "Native constraint truth shared by submission, control validity APIs, selector matching and computed style",
+    "Live owner-traced ValidityState for input and textarea, including custom errors, required values and email/URL type mismatch",
+    "Form and fieldset validity aggregation, form-owner association and covered candidate eligibility rules",
+    "Email/URL sanitization with multiple reflection and attribute transitions",
+    "Dirty value flag separates script/user edits from sanitization and is preserved by clone and cleared by reset"
+  ],
+  "targeted_wpt": {
+    "prior_source": "cb539bbd1c33811a090989279d738a6506657fabde3f0d9f287fa6959d53c0ca",
+    "prior_assertions_passed": 8,
+    "prior_assertions_failed": 21,
+    "current_assertions_passed": 29,
+    "current_assertions_failed": 0,
+    "passed_files": 3,
+    "total_files": 3,
+    "environment_blocked": 0,
+    "evidence": ["shared-validation-requestsubmit-wpt-2026-09-14.json", "shared-validation-type-mismatch-wpt-2026-09-14.json", "shared-validation-email-wpt-2026-09-14.json"],
+    "per_file_assertions": {"requestsubmit": 10, "typeMismatch": 11, "email": 8}
+  },
+  "broader_constraints_wpt": {
+    "qualification": "new 28-file diagnostic, no equivalent pre-change run",
+    "passed_files": 8,
+    "total_files": 28,
+    "passed_assertions": 566,
+    "failed_assertions": 354,
+    "environment_blocked": 0,
+    "elapsed_seconds": 9.6,
+    "evidence": "shared-validation-constraints-wpt-2026-09-14.json",
+    "remaining": [
+      "reportValidity API/interactive reporting: 130 failed assertions in its dedicated file",
+      "Missing validity surfaces on additional control interfaces",
+      "Disabled/readonly/type-specific candidate and valueMissing rules",
+      "Pattern constraints and bounded regular-expression execution",
+      "Number/date/time range and step algorithms and value sanitization",
+      "User editing, length constraints and textarea default-value semantics; maxlength emoji failure needs editing/automation path investigation"
+    ],
+    "code_audit_caveat": "Pattern, length, range, step and badInput flags still have unimplemented algorithms. Passing selected files that expect false does not qualify those algorithms."
+  },
+  "oil_outcomes": {"passed": 21, "total": 21, "samples_per_scenario": 3, "concurrent_parents": 3, "timeouts": 0, "final_oracles_verified": true, "source_matches_signed_worker_manifest": true, "fixture_cleanup": "clean, not forced", "evidence": "oil-shared-validation-signed-2026-09-14/summary.json"},
+  "oil_smoke": {"passed": 12, "total": 12, "qualification": "observation/no-unsupported smoke, not independent task completion", "evidence": "oil-shared-validation-smoke-2026-09-14/summary.json"},
+  "remaining_goal": ["Complete relevant constraint algorithms and interactive reporting", "Multi-step and representative framework form outcomes", "Independent outcome/persistence qualification for the other four OIL workflow families", "Remaining architecture, full Core WPT and clean-source security/performance release gates"]
+}

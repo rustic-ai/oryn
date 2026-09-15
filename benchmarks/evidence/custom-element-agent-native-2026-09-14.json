@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "goal_complete": false,
+  "qualification": "dirty-tree diagnostics; current native repair and earlier signed run have distinct source identities",
+  "current_native": {
+    "source_tree_sha256": "137b1c980d10460ff38cb614ccc8e6bac38f55dabca87dd6ddda1ec461f4227b",
+    "binary_sha256": "1f1b4b7875afabb2cd1acee088752b47434c7cefb2c42adcedfc910072d0fdb3",
+    "passed": 523, "failed": 0, "ignored": 6, "elapsed_seconds": 141.56,
+    "focused_custom_element_tests": 12,
+    "strict_clippy": "passed", "format_diff_checks": "passed",
+    "signed_replay": "pending after clone/import repair"
+  },
+  "signed_checkpoint": {
+    "source_tree_sha256": "a1b866f976faa26a31d2d66e0e1a1b628edcdb8e424dfac1d61fe80464641653",
+    "worker_binary_sha256": "f8e6d16e587b5301ad8bf181cc04eee6d28e4c72672ac4ad5990ddd2e292e61a",
+    "worker_code_directory_hash": "6a4d809a865256dd29a8e8e5aa28b8ef6fa3afed",
+    "native_passed": 522, "native_failed": 0, "native_ignored": 6,
+    "signing_sandbox_probes": "passed",
+    "oil_passed": 12, "oil_total": 12, "oil_timeouts": 0,
+    "oil_evidence": "oil-custom-agent-signed-2026-09-14/summary.json",
+    "task_completion": "not independently verified",
+    "react_observations_with_host_css_in_names": 0,
+    "react_observation_delete_counts": [5,6,4,2,6,1,6,5],
+    "wpt_evidence": "custom-element-agent-callback-wpt-2026-09-14.json",
+    "wpt_passed_files": 3, "wpt_total_files": 9, "environment_blocked": 0,
+    "wpt_adoption": {"passed":61,"total":71},
+    "wpt_connection": {"passed":35,"total":40},
+    "wpt_disconnection": {"passed":35,"total":40},
+    "wpt_nested_callbacks": {"passed":8,"total":8},
+    "wpt_attributes": {"passed":12,"total":13,"regression":"Detached cloning lacked explicit upgrade after allocation records stopped masquerading as insertions; repaired and native-tested in current source, not yet signed"}
+  },
+  "changes": [
+    "Reaction checkpoints cover defining realms sharing the same native DOM, without crossing unrelated arenas",
+    "Adopted custom elements retain their definitions and cannot be re-upgraded by a destination registry",
+    "Allocation notifications no longer trigger connection reactions before adoption",
+    "Automatic upgrade uses the owning document registry; explicit registry.upgrade supports inert roots",
+    "Clone and import operations explicitly upgrade their resulting subtree using the owning document registry"
+  ],
+  "remaining": [
+    "Signed replay of the final clone/import repair",
+    "XHR overrideMimeType/document support needed by remaining adoption/connection variants",
+    "Fragment upgrade timing and cross-realm exception reporting",
+    "Broader registry WebIDL, constructor, lifetime and GC conformance",
+    "Independent workflow end-state/persistence/recovery/concurrency qualification for all five families",
+    "Remaining architecture, full Core WPT, performance and clean release gates"
+  ]
+}

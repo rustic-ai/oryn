@@ -1,0 +1,15 @@
+observe
+type "Search" "oryn"
+select "Category" "tools"
+type "Delivery date" "2026-08-27"
+click "Attach fixture file"
+click "Load chunk"
+click "Open modal"
+observe
+click "Close modal"
+click "Next page"
+click "Buy"
+click "Add item"
+extract text --selector "#items"
+extract text --selector "#app-surface-summary"
+trace stop

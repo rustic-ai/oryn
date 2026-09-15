@@ -54,7 +54,7 @@ observe
 # 3. Submit via Enter or button click
 # Note: The search input has aria-label="Search" but so does the button
 # Use the input placeholder text for targeting
-type "products, articles" "wireless mouse"
+type "Search for products, articles..." "wireless mouse"
 submit
 
 # Wait for results (500ms delay in search)

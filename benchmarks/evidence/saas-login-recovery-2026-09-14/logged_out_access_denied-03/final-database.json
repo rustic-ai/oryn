@@ -1,0 +1,83 @@
+{
+  "cases": [
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "authenticated": 0,
+      "logins": 1
+    }
+  ],
+  "records": [
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "title": "Approved",
+      "version": 2
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "action": "login",
+      "outcome": 303,
+      "authorized": 0,
+      "body_sha256": "131c955ca748255236d58cab0b91a2bc5f3fc261774179ffd9800431f04d9aa2"
+    },
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "action": "create",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "965b13a72a5f11670c598070f26e2cf7ae1dfbb4367b936fa25bb85605d1307e"
+    },
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "action": "update",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "7dcc77a0861b6b1d951d40da09e098f538b8df230c2111735e638a8e2db99f78"
+    },
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "action": "logout",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "f7f3ab8040aa85a7e2b2ab6dbe4eef0229d6a3cefd7b2834e4b22be917cb54c7"
+    }
+  ],
+  "views": [
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "8430881343a90765e72462e58769ed7a",
+      "page": "records",
+      "authorized": 0
+    }
+  ]
+}

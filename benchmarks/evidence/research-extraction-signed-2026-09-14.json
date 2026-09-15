@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree signed diagnostic; controlled outcomes, not full workflow or release qualification",
+  "goal_complete": false,
+  "family_qualified": false,
+  "source_tree_sha256": "8b5973b10563254e5f87f375e0e5195f1d7d7dd3bc836534dec6fb749db39dac",
+  "parent_sha256": "7a91af0aeec28fdacfea3e6c473701c2ad64a964b47b725d73342729a641e9e8",
+  "worker_sha256": "a16470dc768613d8a870b00250504d7252f6dcb827d270e81c1fd7c8124fad05",
+  "worker_code_directory_hash": "4081e2523f14f23d9bd5075799ae067b5e8b8227",
+  "post_run_source_parent_worker_identities_unchanged": true,
+  "implementation": [
+    "All extraction kinds resolve selectors within the current Document tree, not the allocation arena.",
+    "Links, images and tables honor requested subtree scope and deduplicate overlapping scopes in current DOM order.",
+    "Detached and separate-document nodes are excluded; text/HTML selector roots use the same document boundary.",
+    "Table traversal preserves sibling order and excludes nested-table rows from the outer table's row list."
+  ],
+  "before": {
+    "native_regressions": "Two new tests failed before the fix: links included out-of-scope content and detached/other-document links.",
+    "research_evidence": "research-initial-2026-09-14/summary.json",
+    "research_passed": 1,
+    "research_planned": 6,
+    "qualification": "preceding signed binary, explicitly source-mismatched diagnostic; preserved unchanged",
+    "failure": "Five tasks completed but returned the navigation link outside the requested canonical-source section."
+  },
+  "tests": {
+    "native": {"passed": 565, "failed": 0, "ignored": 6, "elapsed_seconds": 157.24},
+    "extraction_regressions": {"passed": 3, "failed": 0},
+    "outcome_validators": {"passed": 37, "failed": 0},
+    "signed_cli": {"passed": 3, "failed": 0},
+    "strict_native_clippy": "passed",
+    "formatting_and_diff_check": "passed",
+    "research_python_ruff": "passed",
+    "fixture_locks": "passed",
+    "signed_sandbox_probes": "passed; filesystem read, listener, outgoing connection and secret environment denied/absent"
+  },
+  "workflows": {
+    "research": {"passed": 18, "planned": 18, "evidence": "research-signed-2026-09-14/summary.json"},
+    "forms": {"passed": 57, "planned": 57, "evidence": "forms-research-candidate-2026-09-14/summary.json"},
+    "shopping": {"passed": 21, "planned": 21, "evidence": "shopping-research-candidate-2026-09-14/summary.json"},
+    "booking": {"passed": 18, "planned": 18, "evidence": "booking-research-candidate-2026-09-14/summary.json"},
+    "framework": {"passed": 24, "planned": 24, "evidence": "framework-research-candidate-2026-09-14/summary.json"},
+    "auth_mechanics": {"passed": 15, "planned": 15, "evidence": "oauth-research-candidate-2026-09-14/summary.json"},
+    "all_source_matches_signed_build": true,
+    "all_research_forms_shopping_booking_final_oracles_verified": true,
+    "controlled_fixture_cleanup_passed": true,
+    "auth_fixture_cleanup": {"method": "Ctrl-C to owned PTY session 78162 after validators completed", "process_exit_code": 1, "process_reaped": true},
+    "concurrency_scope": "Suites launched concurrently with three jobs each; not a measured simultaneous-page-readiness or performance acceptance result."
+  },
+  "wpt": {
+    "evidence": "research-candidate-close-wpt-2026-09-14.json",
+    "files_passed": 0,
+    "files_planned": 9,
+    "assertions_passed": 5,
+    "assertions_failed": 13,
+    "assertions_timed_out": 3,
+    "environment_blocked": 0,
+    "elapsed_seconds": 15.091,
+    "gained_passes": [],
+    "lost_passes": []
+  },
+  "remaining": [
+    "Broader research, cross-origin frame behavior and persisted authenticated SaaS outcomes remain unqualified.",
+    "Synchronous initial iframe realms, native WindowProxy, connected-window ownership and complete per-document broker/agent routing remain open.",
+    "The original booking timeout remains unresolved; absence of recurrence is not a fix.",
+    "Full WPT, clean-source security and performance gates remain incomplete."
+  ]
+}

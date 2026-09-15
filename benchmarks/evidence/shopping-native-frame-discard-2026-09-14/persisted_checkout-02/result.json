@@ -1,0 +1,13 @@
+{
+  "case": "persisted_checkout",
+  "sample": 2,
+  "case_id": "56d440a27c6dcb7e074253890c83c3fd",
+  "base": "http://127.0.0.1:51026/shop/56d440a27c6dcb7e074253890c83c3fd",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "9958b5bd06ada0d0691f202788007658da08ecda80cc78d2178b7366d04fe2ca",
+  "returncode": 0,
+  "elapsed_seconds": 0.644,
+  "final_database_verified": true
+}

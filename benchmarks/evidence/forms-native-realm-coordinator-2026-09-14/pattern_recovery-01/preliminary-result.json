@@ -1,0 +1,11 @@
+{
+  "case": "pattern_recovery",
+  "sample": 1,
+  "case_id": "d2bfc3186e69a49dc477b4292673cde9",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "19231b4a830f25bb616cf670de2ec5c4185f62c30e35720c45c4fa90319d270d",
+  "elapsed_seconds": 0.34
+}

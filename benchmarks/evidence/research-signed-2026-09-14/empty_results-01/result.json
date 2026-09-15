@@ -1,0 +1,13 @@
+{
+  "case": "empty_results",
+  "sample": 1,
+  "case_id": "092c15dadb2d53b821bdb7bdaee5302b",
+  "base": "http://127.0.0.1:56120/research/092c15dadb2d53b821bdb7bdaee5302b",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "feb4dbe04a77a9dbbb4e3e49ce3190e3c897b1da7f87ebd75cb71f0d0fd8eea2",
+  "returncode": 0,
+  "elapsed_seconds": 0.342,
+  "final_database_verified": true
+}

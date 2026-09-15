@@ -1,0 +1,11 @@
+{
+  "case": "cancel_recovery",
+  "sample": 3,
+  "case_id": "129d4d4f39504abce75489840a656763",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "b954067d24b4a71053e6723a87e0707e75e998c069d32fc2e15aeb51fa58ff69",
+  "elapsed_seconds": 0.282
+}

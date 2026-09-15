@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "qualification": "signed-diagnostic-only; dirty source, not release qualification",
+  "base_commit": "c3543ed",
+  "source_tree_sha256": "3b8425d6b5d51b70a4b0906f6b26171730c42166b2b8be664ccae6a56fc41bcb",
+  "native_test_binary_sha256": "f7e19ba1f78e1e8357bb2fd4bca0a27100688e770ddf4d9180ef98bffd6af81c",
+  "changes": [
+    "Native timer-task nesting implements the greater-than-five, minimum-four-millisecond clamp.",
+    "Microtask checkpoints do not inherit timer-task nesting; scope cleanup restores nesting on errors.",
+    "Intervals reinitialize after callback and microtask completion, retaining their public handle but allocating a fresh scheduler handle.",
+    "Cancellation removes the current scheduler handle and prevents reinitialization, including cancellation from callback microtasks."
+  ],
+  "specification": "https://html.spec.whatwg.org/multipage/timers-and-user-prompts.html#timer-initialisation-steps",
+  "native_suite": {
+    "features": ["v8-host", "v8-sandbox", "in-process-probe", "core-full"],
+    "test_threads": 1,
+    "passed": 483,
+    "failed": 0,
+    "ignored": 6,
+    "elapsed_seconds": 142.52,
+    "loopback_access": true
+  },
+  "regressions": [
+    "timer_nesting_clamps_callbacks_but_not_their_microtasks",
+    "interval_reinitialization_keeps_public_handle_and_obeys_microtask_cancel",
+    "interval_cancellation_removes_the_reinitialized_scheduler_handle"
+  ],
+  "clippy": "native V8 library passes with warnings denied",
+  "formatting": "passed",
+  "diff_check": "passed",
+  "protocol_version": 9,
+  "signed_build": {
+    "parent_sha256": "74bb1f6d5dda3d14a0d535e49a6b6bcb9683f0c5c5299e871f4334345991cd14",
+    "unsigned_worker_sha256": "cab78de5ccb0e438262635f2cc5f2db08d6e34ff591248def04bb6f0d01eb064",
+    "signed_worker_sha256": "981be3a63ab065c3dc91216d62ac24088f6b6e789ddb94863c4ac5082e93fb80",
+    "code_directory_hash": "da72542bc1f4f49d76bc0d1687ca814d3a0ba93e",
+    "signing_certificate_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "v8_bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "signature_and_designated_requirement": "passed",
+    "sandbox_probes": "filesystem, listener, outgoing connection and secret environment access all denied",
+    "authorized_parent_broker_probe": "passed"
+  },
+  "signed_timer_wpt": {
+    "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "result_path": "benchmarks/evidence/browser-timer-task-lifecycle-wpt-2026-09-13.json",
+    "result_sha256": "6dbe4a12b9d3e594748831d0b66f7869286a4b9624fac539081362da0e6c1ca4",
+    "parent_mode": "persistent",
+    "jobs": 1,
+    "elapsed_seconds": 39.241,
+    "files_passed": 10,
+    "files_total": 13,
+    "reported_subtests_passed": 14,
+    "reported_subtests_total": 15,
+    "subtest_denominator_note": "The two timeout files report no subtests; file totals remain authoritative.",
+    "environment_blocked": 0,
+    "microtask_nesting_timing_test": "passed",
+    "remaining_failures": [
+      "setinterval-cross-realm-callback-report-exception.html: harness timeout",
+      "settimeout-cross-realm-callback-report-exception.html: harness timeout",
+      "settimeout-detached-iframe.html: null initial contentWindow"
+    ]
+  },
+  "p0_complete": false,
+  "remaining": [
+    "Authenticated per-environment routing and process-session ownership (R6).",
+    "Synchronous initial iframe environments and native custom-element adoption reactions (R4-R5).",
+    "Pinned official wptrunner product and protocol contracts (W0).",
+    "Remaining package exits and clean signed release qualification."
+  ]
+}

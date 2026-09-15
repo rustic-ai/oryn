@@ -1,0 +1,12 @@
+{
+  "case": "minlength_recovery",
+  "sample": 3,
+  "case_id": "94c01bf74a445cc2033bc629d66f80cd",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "a68f39c1136777c3cf51f43e98e55643a650e0895c84377e260dedcb240777e4",
+  "elapsed_seconds": 0.325,
+  "final_oracle_verified": true
+}

@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree signed diagnostic; not release or five-family qualification",
+  "goal_complete": false,
+  "source_tree_sha256": "fd74209a3dec7d3b26d953525c6a5dccbd8152d2c8a0110f7c362a80891bf3e4",
+  "parent_sha256": "93bb3c721e86aeb051c1a51d31887025c66508ffb574871a5f82fa15686330ae",
+  "worker_sha256": "d8677a25aec2821b10984b1661557f35d9eb7cc664ee991864f364737b4d5e42",
+  "worker_code_directory_hash": "42fe5e0143a5a5b5d0b508db030981dac6940ef8",
+  "identity_details": "oauth-native-frame-discard-2026-09-14/summary.json",
+  "changes": [
+    "Native frame connection generations replace the JavaScript element.remove override, including ancestor removal and ordinary reparenting; moveBefore preserves the context.",
+    "Native mutation checkpoints close retained frame handles and retire execution services before author reactions. Driver checkpoints release discarded realms.",
+    "Dynamic frames and frame document/window lookups route by native ownerDocument rather than wrapper realm.",
+    "innerHTML prepares connected frame subtrees while keeping inserted scripts inert.",
+    "Nested srcdoc/about:blank inherits native origin identity; sandboxed frames receive separate opaque origins."
+  ],
+  "tests": {
+    "native": {"passed": 554, "failed": 0, "ignored": 6, "elapsed_seconds": 148.77},
+    "javascript": {"passed": 274, "failed": 0, "ignored": 3},
+    "dom": {"passed": 115, "failed": 0},
+    "focused_frame_discard": {"passed": 5, "failed": 0},
+    "outcome_validators": {"passed": 26, "failed": 0},
+    "signed_cli": {"passed": 3, "failed": 0},
+    "native_strict_clippy": "passed",
+    "formatting": "passed",
+    "diff_check": "passed",
+    "fixture_locks": "passed",
+    "signed_build_and_sandbox_probes": "passed"
+  },
+  "wpt": {
+    "result": "native-frame-discard-close-wpt-2026-09-14.json",
+    "baseline": "oauth-close-wpt-final-2026-09-14.json",
+    "inventory": "oauth-close-wpt-selection-2026-09-14.inventory.json",
+    "files_passed": 0,
+    "files_attempted": 9,
+    "assertions_passed": 5,
+    "assertions_failed": 13,
+    "assertions_timeout": 3,
+    "environment_blocked": 0,
+    "elapsed_seconds": 15.083,
+    "gained": ["closed and cross-origin nested browsing context", "closed and cross-site nested browsing context"],
+    "lost": []
+  },
+  "workflows": {
+    "auth": {"passed": 15, "planned": 15, "report": "oauth-native-frame-discard-2026-09-14/summary.json", "cleanup": "owned fixture stopped with SIGINT, reaped exit 1, port 3104 has no listener"},
+    "frameworks": {"passed": 24, "planned": 24, "report": "framework-native-frame-discard-2026-09-14/summary.json", "artifact_identities_unchanged": true, "fixture_cleanup": true},
+    "forms": {"passed": 57, "planned": 57, "report": "forms-native-frame-discard-2026-09-14/summary.json", "all_final_oracles_verified": true, "fixture_exit": 0, "forced_cleanup": false},
+    "shopping": {"passed": 21, "planned": 21, "report": "shopping-native-frame-discard-2026-09-14/summary.json", "all_final_databases_verified": true, "fixture_exit": 0, "forced_cleanup": false}
+  },
+  "remaining": [
+    "Synchronous initial iframe Window/Document creation and native WindowProxy ownership remain incomplete.",
+    "Connected popup opener/document access and lifecycle callback completion remain incomplete.",
+    "BroadcastChannel is unavailable in the selected closability tests.",
+    "Per-document broker routing, agent placement, full Core WPT, clean-source security/performance and five-family qualification remain open."
+  ]
+}

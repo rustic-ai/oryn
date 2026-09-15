@@ -1,0 +1,51 @@
+{
+  "cases": [
+    {
+      "case_id": "50305492213843e6bf99e3b6dc002310"
+    }
+  ],
+  "visits": [
+    {
+      "case_id": "50305492213843e6bf99e3b6dc002310",
+      "path": "start",
+      "query": "{}",
+      "status": 200,
+      "body_sha256": "519359c17380fff94958ff0671aca3f4bfd9093c436de9a03dc97af0b547c635"
+    },
+    {
+      "case_id": "50305492213843e6bf99e3b6dc002310",
+      "path": "search",
+      "query": "{\"q\": [\"energy\"]}",
+      "status": 200,
+      "body_sha256": "cf128a9da3e9737ef4c2cd45bdd8c7c28d07e8b3105743eb9075202d3329e0d0"
+    },
+    {
+      "case_id": "50305492213843e6bf99e3b6dc002310",
+      "path": "article/alpha",
+      "query": "{}",
+      "status": 200,
+      "body_sha256": "bdf8ef468ccbab76c9ab467a6903c64da10f049ebb064f95325588d6f40ed54e"
+    },
+    {
+      "case_id": "50305492213843e6bf99e3b6dc002310",
+      "path": "search",
+      "query": "{\"q\": [\"energy\"]}",
+      "status": 200,
+      "body_sha256": "cf128a9da3e9737ef4c2cd45bdd8c7c28d07e8b3105743eb9075202d3329e0d0"
+    },
+    {
+      "case_id": "50305492213843e6bf99e3b6dc002310",
+      "path": "search",
+      "query": "{\"page\": [\"2\"], \"q\": [\"energy\"]}",
+      "status": 200,
+      "body_sha256": "4ce6053259a7628c44b76b20316907102738143abc43314ed76be2e343f38086"
+    },
+    {
+      "case_id": "50305492213843e6bf99e3b6dc002310",
+      "path": "article/beta",
+      "query": "{}",
+      "status": 200,
+      "body_sha256": "cd754163b9307909ee85b60efefc0612c8113d824157b5f285193189ba9064d2"
+    }
+  ]
+}

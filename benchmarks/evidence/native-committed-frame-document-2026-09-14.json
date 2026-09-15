@@ -1,0 +1,18 @@
+{
+  "scope": "native committed iframe contentDocument identity",
+  "source_tree_sha256": "9593f4cd22351900a1d02e30b2af62045d90a43e828f1d667687d368d34b13a9",
+  "source_tree_clean": false,
+  "regression": "frame_content_document_uses_native_committed_window",
+  "before": "forged|1",
+  "after": "native child|0",
+  "frame_tests": {"passed": 54, "failed": 0, "seconds": 3.40},
+  "full_native_tests": {"passed": 575, "failed": 0, "ignored": 6, "seconds": 148.30},
+  "strict_native_clippy": "passed",
+  "formatting": "passed",
+  "signed_qualification": "pending",
+  "limitations": [
+    "Public WindowProxy factories remain JavaScript-based",
+    "Synchronous initial iframe creation remains incomplete",
+    "Not full WPT or five-family OIL qualification"
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "cases": [
+    {
+      "case_id": "5fd924d6b9a25700418cb3e7016562a6",
+      "scenario": "normal",
+      "reviews": 1
+    }
+  ],
+  "slots": [
+    {
+      "case_id": "5fd924d6b9a25700418cb3e7016562a6",
+      "slot": "early",
+      "available": 1,
+      "version": 1
+    },
+    {
+      "case_id": "5fd924d6b9a25700418cb3e7016562a6",
+      "slot": "late",
+      "available": 0,
+      "version": 2
+    }
+  ],
+  "offers": [
+    {
+      "case_id": "5fd924d6b9a25700418cb3e7016562a6",
+      "offer": "3d387dd3de78449345549b54a3f889fb",
+      "slot": "late",
+      "version": 1,
+      "zone": "America/New_York",
+      "utc": "2026-11-01T06:30:00+00:00",
+      "local": "2026-11-01T01:30:00-05:00"
+    }
+  ],
+  "reservations": [
+    {
+      "case_id": "5fd924d6b9a25700418cb3e7016562a6",
+      "reservation": "59d97d94ca679b40c419c90e5d8ba038",
+      "slot": "late",
+      "offer": "3d387dd3de78449345549b54a3f889fb",
+      "request_key": "a4327ae60eadbbceb66cf5b0bb89f64f",
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"3d387dd3de78449345549b54a3f889fb\"], \"request_key\": [\"a4327ae60eadbbceb66cf5b0bb89f64f\"]}",
+      "utc": "2026-11-01T06:30:00+00:00",
+      "local": "2026-11-01T01:30:00-05:00",
+      "zone": "America/New_York"
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "5fd924d6b9a25700418cb3e7016562a6",
+      "status": 303,
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"3d387dd3de78449345549b54a3f889fb\"], \"request_key\": [\"a4327ae60eadbbceb66cf5b0bb89f64f\"]}",
+      "cookie_valid": 1
+    }
+  ],
+  "views": [
+    {
+      "case_id": "5fd924d6b9a25700418cb3e7016562a6",
+      "path": "availability",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "5fd924d6b9a25700418cb3e7016562a6",
+      "path": "review",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "5fd924d6b9a25700418cb3e7016562a6",
+      "path": "confirmation",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "5fd924d6b9a25700418cb3e7016562a6",
+      "path": "confirmation",
+      "cookie_valid": 1
+    }
+  ]
+}

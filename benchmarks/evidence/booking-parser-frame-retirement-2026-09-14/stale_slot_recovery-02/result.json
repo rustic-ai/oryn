@@ -1,0 +1,13 @@
+{
+  "case": "stale_slot_recovery",
+  "sample": 2,
+  "case_id": "c963883d3c3d3ce14d93009dbfff8cae",
+  "base": "http://127.0.0.1:58602/booking/c963883d3c3d3ce14d93009dbfff8cae",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "db393a9864d134fe08f6e3cef3411d1dbb6c1c5dead3ef378789cd204e8f529f",
+  "returncode": 0,
+  "elapsed_seconds": 0.459,
+  "final_database_verified": true
+}

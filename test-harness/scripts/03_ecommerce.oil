@@ -11,7 +11,8 @@ observe
 select "Filter by Category:" "Electronics"
 wait visible "Laptop"
 observe
-click "Add to Cart"
+# Electronics contains multiple products; select the intended product explicitly.
+click "Add to Cart" near "Laptop"
 
 # Step 3: Navigate to cart (using goto for reliable page transition)
 goto "http://localhost:3000/shop/cart.html"

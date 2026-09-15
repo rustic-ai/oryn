@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree signed diagnostic; not full WPT or release qualification",
+  "goal_complete": false,
+  "source_tree_sha256": "d195ffcc809df3b0945089687ad938abc22c6dc1cb09c3665a83a2146dc27a86",
+  "native_test_binary_sha256": "5c112818db85198ae712f6f2a16d93fb01e473d71f3412c0ca8080a8afa7fa99",
+  "native_suite": {"passed": 519, "failed": 0, "ignored": 6, "elapsed_seconds": 151.63, "test_threads": 1},
+  "dom_suite": {"passed": 103, "failed": 0},
+  "strict_clippy": "passed",
+  "format_registry_diff_checks": "passed",
+  "signed_build_sandbox_probes": "passed",
+  "worker_binary_sha256": "66df1e9892f8dd6d5cc9fef0db3445a8a8afc1e509eb423ecc93454a25633b16",
+  "worker_code_directory_hash": "4602b53b1d53b2f81855653ee83f5f320568e4ea",
+  "changes": [
+    "Explicit and implicit adoption publish ownership changes for affected descendants, shadow trees, attributes and template contents",
+    "Per-element reaction queues support nested DOM operations with bounded nesting and shared callback budget",
+    "Observed attributes use native iterable DOMString sequence conversion shared with MutationObserver",
+    "React OIL fixture explicitly deletes its newly created task instead of choosing among six identically named buttons"
+  ],
+  "oil": {
+    "passed": 12, "total": 12, "timeouts": 0,
+    "evidence": "oil-custom-adoption-signed-2026-09-14/summary.json",
+    "task_completion": "not independently verified",
+    "react_observation_delete_button_counts": [5,6,4,2,6,1,6,5],
+    "react_observation_contains_new_task": [false,true,true,false,true,true,true,false],
+    "react_observation_scope": "Derived from the eight raw browser observations; verifies visible add/filter/search/delete progression, not server persistence or independent application-state oracle"
+  },
+  "selected_wpt": {
+    "passed_files": 3, "total_files": 9, "environment_blocked": 0,
+    "elapsed_seconds": 12.5,
+    "evidence": "custom-element-callback-adoption-wpt-2026-09-14.json",
+    "adoption_assertions": {"passed":51,"failed":20,"previous_passed":2,"total":71},
+    "attribute_assertions": {"passed":13,"failed":0,"previous_passed":12,"total":13}
+  },
+  "remaining": [
+    "Cross-realm ownership/reaction dispatch and stale-node failure in upstream nested-callback case remain unresolved",
+    "Fragment parser upgrade timing and XHR document variants remain unresolved",
+    "Complete CustomElementRegistry constructor/WebIDL/retirement/GC qualification remains open",
+    "Semantic generic names currently include shadow style text and need canonical visible-text filtering",
+    "Five workflow families still require independent end-state, persistence, recovery and concurrency verification",
+    "Remaining architecture gates, full Core WPT, performance acceptance and clean release qualification remain open"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "case": "search_paginate_compare",
+  "sample": 1,
+  "case_id": "50305492213843e6bf99e3b6dc002310",
+  "base": "http://127.0.0.1:55790/research/50305492213843e6bf99e3b6dc002310",
+  "errors": [
+    "extracted facts/tables/source links mismatch"
+  ],
+  "timed_out": false,
+  "passed": false,
+  "task_sha256": "29930f5ff0342d484562ea8a27dff3675b01299682dad8b8bac19a21b2828d0d",
+  "returncode": 0,
+  "elapsed_seconds": 0.339,
+  "final_database_verified": true
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "qualification": "signed timing diagnostic; not a conformance pass",
+  "fixture": "initial-frame-timing-2026-09-14.html",
+  "worker_sha256": "678c44830392e274f82530c968878c4416d3712cc4a750b3ac690915ee6fb98c",
+  "signed_source_tree_sha256": "4b41f5e9cf03a53791c66c04b301ea407c31564eec639f13402a687e9805c18a",
+  "current_tree_note": "An additional child-eval regression test exists since this candidate was signed; runtime implementation is unchanged by that test.",
+  "initial_probe": "Dereferencing initial.eval threw before frameTiming was defined. The second probe captures null safely.",
+  "result": {"beforeWindow": false, "beforeEval": null, "beforeDocument": false, "afterEval": "function", "afterDocument": true, "sameHandle": false},
+  "conclusion": "A parser-following script sees no srcdoc child Window at all, whereas post-load evaluation sees the child document and eval. The passing post-load tests do not qualify synchronous initial child creation.",
+  "remaining": "Create the initial Window/document at iframe insertion, retain native browsing-context identity through navigation, and integrate document reuse/policy/task lifetime. Do not merely defer parent scripts or expose eval on a facade.",
+  "goal_complete": false
+}

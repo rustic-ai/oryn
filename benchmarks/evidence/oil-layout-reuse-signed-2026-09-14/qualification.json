@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-source signed diagnostic, not release or five-family task qualification",
+  "signed_source_tree_sha256": "66317df66fc4963fd1e69ff4f00c2d4272185cafb818e04b7974d9eafc014745",
+  "parent_sha256": "5bdd6cb3e0702a31a8f5a3902ffff322eb8924892f8947e849ebc1c7c3695edd",
+  "signed_worker_sha256": "5d91c3477e1376842fb7297c69321ba61d2110a1a04a32b97c4317055a0471b6",
+  "worker_code_directory_hash": "020470a53f28346a51817f3433596042338be15b",
+  "native_suite": {
+    "source_tree_sha256": "85a15f5aa2c394e01534b0218957499ed5f4c4a20df6bcb175d18ec14f5163a8",
+    "test_binary_sha256": "a68a15be07ab70f8b6e2eb6fe8feba41ac8e1588a50ff1221f1c4676f4ce775c",
+    "passed": 498, "failed": 0, "ignored": 6, "elapsed_seconds": 143.91,
+    "subsequent_changes": "test-only removal of redundant clone calls; strict Clippy then passed"
+  },
+  "signed_build_probes": "passed: signature/designated requirement, sandbox denial, mutation, authorized network",
+  "controlled_smoke": {"passed": 10, "failed": 2, "timeouts": 0, "task_completion": "not independently verified"},
+  "benchmark": {
+    "harness_sha256": "2d7351f49eac4bf82d9fcfd35a0555fbee8729df37f2349291aacf875c781b81",
+    "harness_provenance": "unchanged executable from preceding diagnostic; signed worker replaced to measure worker implementation change",
+    "runs": 3, "pages_per_run": 3, "actions_per_run": 1000,
+    "warm_actions_per_second": [125.33946824072568, 124.46985372038291, 126.313293124128],
+    "previous_single_run_actions_per_second": 74.86433319676284,
+    "acceptance": "not met; below 300 actions/sec; full 30-sample, RSS, concurrency and churn qualification remains"
+  },
+  "wpt": "not replayed for this source",
+  "goal_complete": false
+}

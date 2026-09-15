@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree native diagnostic; React workflow success not yet established",
+  "source_tree_sha256": "a2117aab396d5b39a338e75bf56bfab737c02a4db58cddd6bdb63084dac33022",
+  "native_test_binary_sha256": "732be3584eccc472c7efadc5f83fec74df30caca126befb1cab8ef750a6f5a86",
+  "specification": "https://html.spec.whatwg.org/multipage/scripting.html",
+  "changes": [
+    "Removed native Babel.transform invocation and text/babel classic-script classification from parser and dynamic insertion paths",
+    "Unrecognized dynamic script types no longer acquire already-started state; author preparation and reinsertion can execute a real classic script once",
+    "React fixtures now use explicit React 18.3.1 and Babel 7.28.3 versions, matching the existing resource baseline instead of an unversioned Babel URL that resolves to 8.0.5"
+  ],
+  "focused_regression": "author_data_scripts_are_inert_until_author_prepares_javascript: passed; parser and dynamic data blocks inert, author-prepared JavaScript runs once",
+  "dom_suite": {"passed": 101, "failed": 0, "ignored": 0, "elapsed_seconds": 0.30},
+  "full_native_suite": {"features": ["v8-host", "v8-sandbox", "in-process-probe", "core-full"], "passed": 496, "failed": 0, "ignored": 6, "test_threads": 1, "elapsed_seconds": 144.96},
+  "strict_v8_library_and_test_clippy": "passed",
+  "signed_requalification": "not run for this source",
+  "wpt": "not run for this source",
+  "goal_complete": false
+}

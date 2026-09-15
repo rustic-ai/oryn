@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree signed-worker diagnostic; not release or five-family qualification",
+  "goal_complete": false,
+  "family_qualified": false,
+  "source_sha256": "596c071e6bd27af307ed97af24445896b5e3857bfbc748ca5c1cae9ea7e093ec",
+  "parent_sha256": "226dabd4ae912b345e8daf20b344f302b58ffd8a44c6ad28ccd40c7c52b9a76a",
+  "signed_worker_sha256": "04818482398d80d03e54369f1232bd520adfa34a3866181fef3c22bf58fb932b",
+  "worker_build_sha256": "410b0286255e27dfd6f7e64f65829d2a481f5bf1442f8f4e82a2a64c1014a008",
+  "code_directory_hash": "5b10785d89d4fba699aeeb502e560dcf34039ab1",
+  "signing_scope": "Apple Development signed worker bundle; parent recorded by executable SHA-256",
+  "v8": {
+    "archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "implementation": [
+    "Native parser-driven import-map registration after CSP authorization; normalized exact, prefix and scoped resolution stored per V8 context.",
+    "Existing and already-resolved mappings survive later map merges. Null/invalid entries and prefix traversal reject resolution.",
+    "Mapped resources share canonical module identity. Speculative loading no longer installs global aliases for equal relative paths in different directories or rejects roots for unused failed dynamic imports.",
+    "HTML event-handler imports use their realm's native document base; rejected dynamic imports carry native exception objects instead of strings.",
+    "Registered nonempty integrity entries explicitly reject until fetch-time SRI is integrated. This does not qualify dynamically inserted maps or integrity support generally.",
+    "Restored the missing locked-corpus build entrypoint, with per-framework logs, immutable served snapshots and before/after fixture-lock checks.",
+    "Added an all-framework OIL runner with exact state/action predicates, diagnostic traces, per-case deadlines and unchanged-artifact checks."
+  ],
+  "standard_reference": "https://html.spec.whatwg.org/multipage/webappapis.html#import-maps",
+  "resource_limits": {
+    "single_map_bytes": 1048576,
+    "merged_map_bytes": 1048576,
+    "merged_entries": 4096,
+    "resolved_records": 8192,
+    "resolved_record_string_bytes": 1048576,
+    "scope": "Per realm; not agent-wide memory qualification."
+  },
+  "tests": {
+    "native": {"passed": 548, "failed": 0, "ignored": 6, "elapsed_seconds": 150.77, "binary_sha256": "322dbf29b8236c912b3c9764a1f1c9bbc2c8a95f145e8a9c64e7244d887d6dca"},
+    "javascript": {"passed": 274, "failed": 0, "ignored": 3, "elapsed_seconds": 7.41, "binary_sha256": "9fdf63e9cf3f29690dd9c0dc881010cd6dde5b7fff843712c6ad2cc005e6959b", "scope": "Run after the public native base-URL helper change; later changes were confined to oryn-native and its tests."},
+    "oracle_and_framework_harness_passed": 23,
+    "resource_warnings_as_errors": "passed",
+    "strict_native_clippy_rustfmt_ruff_diff": "passed",
+    "signed_worker_signature_designated_requirement_protocol10_sandbox_denials": "passed"
+  },
+  "frameworks": {
+    "build_evidence": "framework-build-2026-09-14/build.json",
+    "build_manifest_sha256": "567768f168d4ca6f6062f9a86889076ac371593b5409f6ca003bc136c5389942",
+    "builds_passed": 8,
+    "node_version": "v24.19.0",
+    "pnpm_version": "11.19.0",
+    "evidence": "framework-import-map-final-2026-09-14/summary.json",
+    "names": ["angular", "next", "nuxt", "preact", "react", "svelte", "sveltekit", "vue"],
+    "samples_per_framework": 3,
+    "jobs": 3,
+    "passed": 24,
+    "planned": 24,
+    "timeouts": 0,
+    "source_matches_signed_build": true,
+    "fixture_cleanup": true,
+    "artifact_identities_unchanged": true,
+    "scope": "Declared framework-owned action/state outcomes and absence of script/console errors, not full routing/storage or persisted application workflows. Build identifiers prevent a byte-identical-build claim."
+  },
+  "persisted_regressions": {
+    "shopping": {"evidence": "oil-import-map-final-shopping-2026-09-14/summary.json", "passed": 21, "planned": 21, "all_final_database_checks_verified": true, "database_sha256": "ecb8c50f04395f4e040ee01391506e569da8d726de314bff838c63bb8b418268"},
+    "forms": {"evidence": "oil-import-map-final-forms-2026-09-14/summary.json", "passed": 57, "planned": 57, "all_final_oracles_verified": true},
+    "source_matches_signed_build": true,
+    "timeouts": 0,
+    "both_fixture_cleanups": {"returncode": 0, "forced": false}
+  },
+  "wpt": {
+    "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "parent_mode": "persistent",
+    "worker_lifecycle": "isolated_prewarmed",
+    "jobs_per_run": 4,
+    "import_maps": {
+      "initial_evidence": "import-maps-family-wpt-2026-09-14.json",
+      "initial_cases_passed": 18,
+      "evidence": "import-maps-final-family-wpt-2026-09-14.json",
+      "cases_passed": 19,
+      "cases_total": 57,
+      "assertions_passed": 38,
+      "assertions_failed": 28,
+      "assertions_timed_out": 14,
+      "assertions_not_run": 6,
+      "assertion_gains": 5,
+      "lost_passes": 1,
+      "lost_pass": "no-referencing-script-integrity-valid.html: valid integrity imports are now rejected instead of bypassing the map. Positive SRI support remains missing.",
+      "environment_blocks": 0,
+      "elapsed_seconds": 135.18,
+      "scope": "Entire inventoried import-map group including variants. Failed cases with no assertion results remain in the 57-case denominator; not a full-WPT baseline."
+    },
+    "constraints_regression": {"evidence": "import-maps-constraints-regression-wpt-2026-09-14.json", "files_passed": 28, "files_total": 28, "assertions_passed": 920, "nonpassing_assertions": 0, "environment_blocks": 0, "elapsed_seconds": 11.537}
+  },
+  "oauth_next_track_probe": {
+    "evidence": "oauth-framework-candidate-probe-2026-09-14",
+    "status": "failed",
+    "legacy_cases_attempted": 1,
+    "legacy_cases_not_run": 4,
+    "reported_error": "worker closed its response stream",
+    "isolation": "Streaming replay reaches the child authorization page; Approve has no successful action frame and emits worker-closed error. Later parent observation reads Authenticated with PKCE. This is a failed workflow despite the final text.",
+    "root_cause_status": "Suspected close-versus-in-flight-action lifecycle handling; a native fault is not established by a process-closed error alone.",
+    "harness_gap": "Noninteractive stdin mode prints the action error but exits zero; the --file runner correctly fails. Do not use process exit alone as success.",
+    "fixture_port_3104_free_after": true
+  },
+  "remaining": [
+    "Repair OAuth child self-close/in-flight action handling and qualify all five controlled authentication cases with complete failure accounting.",
+    "Dynamic import-map preparation/Already Started and error events, import.meta.resolve, document.write/frame helper readiness, positive SRI and full module evaluation semantics remain incomplete.",
+    "Persisted authenticated SaaS, research/extraction and booking workflows; broader framework routing/storage outcomes.",
+    "Connected-window/worker architecture, full Core WPT and clean-source security/lifecycle/performance qualification."
+  ]
+}

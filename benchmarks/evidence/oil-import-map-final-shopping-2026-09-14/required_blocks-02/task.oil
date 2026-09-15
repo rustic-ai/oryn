@@ -1,0 +1,22 @@
+goto "http://127.0.0.1:64211/shop/a79b42d90d4ea404af218a6cffaef1cb/start"
+wait visible css(#search)
+click "Inspect desk set"
+wait visible css(#desk-spec)
+observe
+click "Browse catalog"
+type "Search catalog" "field"
+select "Category" "outdoor"
+click "Filter catalog"
+observe
+click "Inspect field kit"
+wait visible css(#field-spec)
+observe
+select "Variant" "blue"
+click "Add to cart"
+type "Cart quantity" "2"
+click "Update cart"
+click "Reload cart"
+observe
+click "Review checkout"
+click "Place test order"
+observe

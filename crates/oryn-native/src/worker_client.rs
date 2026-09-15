@@ -462,6 +462,7 @@ impl NetworkBroker for PageNetworkBroker {
 
 #[derive(Clone)]
 struct BoundWorkerRoute {
+    identity: crate::worker_route::WorkerRoute,
     network: PageNetworkBroker,
     context: Arc<ParentContextService>,
 }
@@ -480,7 +481,24 @@ struct WorkerBrokerRouter {
 }
 
 impl WorkerBrokerRouter {
+    fn authorized(
+        &self,
+        identity: Option<&crate::worker_route::WorkerRoute>,
+    ) -> Result<BoundWorkerRoute, RuntimeError> {
+        let route = self.current()?;
+        if identity != Some(&route.identity) {
+            return Err(RuntimeError::ProtocolViolation(
+                "missing or stale broker route authority".into(),
+            ));
+        }
+        Ok(route)
+    }
     fn bind(&self, route: BoundWorkerRoute) -> Result<(), RuntimeError> {
+        if route.identity.environment != route.network.page_id.0 {
+            return Err(RuntimeError::ProtocolViolation(
+                "broker route environment does not match its page owner".into(),
+            ));
+        }
         let mut current = self
             .route
             .lock()
@@ -554,6 +572,26 @@ impl WorkerBrokerRouter {
 }
 
 impl NetworkBroker for WorkerBrokerRouter {
+    fn start_routed(
+        &self,
+        identity: Option<&crate::worker_route::WorkerRoute>,
+        request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
+        self.authorized(identity)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?
+            .network
+            .start_operation(request)
+    }
+    fn cancel_routed(
+        &self,
+        identity: Option<&crate::worker_route::WorkerRoute>,
+        request_id: u64,
+    ) -> Result<(), NetworkError> {
+        self.authorized(identity)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?
+            .network
+            .cancel_operation(request_id)
+    }
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         self.current()
             .map_err(|error| NetworkError::Transport(error.to_string()))?
@@ -577,6 +615,20 @@ impl NetworkBroker for WorkerBrokerRouter {
 }
 
 impl NetworkBroker for Arc<WorkerBrokerRouter> {
+    fn start_routed(
+        &self,
+        route: Option<&crate::worker_route::WorkerRoute>,
+        request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
+        NetworkBroker::start_routed(&**self, route, request)
+    }
+    fn cancel_routed(
+        &self,
+        route: Option<&crate::worker_route::WorkerRoute>,
+        request_id: u64,
+    ) -> Result<(), NetworkError> {
+        NetworkBroker::cancel_routed(&**self, route, request_id)
+    }
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         NetworkBroker::send(&**self, request)
     }
@@ -591,6 +643,19 @@ impl NetworkBroker for Arc<WorkerBrokerRouter> {
 }
 
 impl ContextTransport for WorkerBrokerRouter {
+    fn request_routed(
+        &self,
+        identity: Option<&crate::worker_route::WorkerRoute>,
+        request: ContextServiceRequest,
+    ) -> Result<ContextServiceResponse, RuntimeError> {
+        let route = self.authorized(identity)?;
+        let _admission = route
+            .network
+            .authority
+            .admit(None)
+            .map_err(|error| RuntimeError::ContextService(error.to_string()))?;
+        ContextTransport::request(&*route.context, request)
+    }
     fn request(
         &self,
         request: ContextServiceRequest,
@@ -611,6 +676,12 @@ const EXPECTED_BUNDLE_ID: &str = "ai.rustic.oryn.page-worker";
 const EXPECTED_TEAM_ID: &str = "5HVA9VFF8K";
 const EXPECTED_SIGNING_CERT_SHA1: &str = "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90";
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+
+fn allocate_session_id(counter: &AtomicU64) -> Result<u64, RuntimeError> {
+    counter
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        .map_err(|_| RuntimeError::ProtocolViolation("worker session identifiers exhausted".into()))
+}
 static WORKER_VERIFICATION_CACHE: OnceLock<Mutex<HashMap<WorkerFileIdentity, WorkerVerification>>> =
     OnceLock::new();
 
@@ -680,6 +751,7 @@ struct WorkerManifest {
 }
 
 pub struct WorkerClient {
+    route_identity: crate::worker_route::WorkerRoute,
     child: Child,
     input: ChildStdin,
     output: ChildStdout,
@@ -764,6 +836,74 @@ fn request_timeout(request: &WorkerRequest, limits: &WorkerLimits) -> Duration {
     }
 }
 
+/// Fixed labels only: request payloads may contain credentials and must never
+/// be included in timeout diagnostics, even for initialization or OIL batches.
+fn request_diagnostic_label(request: &WorkerRequest) -> &'static str {
+    match request {
+        WorkerRequest::Initialize { .. } => "initialize",
+        WorkerRequest::Ping => "ping",
+        WorkerRequest::Goto { .. } => "goto",
+        WorkerRequest::GotoResource { .. } => "goto_resource",
+        WorkerRequest::Back => "back",
+        WorkerRequest::Forward => "forward",
+        WorkerRequest::Refresh => "refresh",
+        WorkerRequest::LoadHtml { .. } => "load_html",
+        WorkerRequest::Evaluate { .. } => "evaluate",
+        WorkerRequest::Oil { .. } => "oil",
+        WorkerRequest::Reset { .. } => "reset",
+        WorkerRequest::Close => "close",
+        WorkerRequest::Exit => "exit",
+        WorkerRequest::WaitFor { .. } => "wait_for",
+        WorkerRequest::Execute { .. } => "execute",
+        WorkerRequest::ExecuteBatch { .. } => "execute_batch",
+        WorkerRequest::SetFiles { .. } => "set_files",
+        _ => "query_or_update",
+    }
+}
+
+fn contextualize_worker_deadline(
+    error: RuntimeError,
+    phase: &'static str,
+    command: &'static str,
+    message_id: u64,
+) -> RuntimeError {
+    match error {
+        RuntimeError::WorkerLimitExceeded { resource } if resource.contains("wall time") => {
+            RuntimeError::WorkerLimitExceeded {
+                resource: format!(
+                    "{resource} (phase={phase}, command={command}, message_id={message_id})"
+                ),
+            }
+        }
+        error => error,
+    }
+}
+
+/// Extract one newline-delimited frame, checking its size before returning it.
+/// The delimiter is part of the wire frame, as in the worker-side reader.
+/// Coalesced frames are checked separately rather than charging later frames to
+/// the first one. Rejected input remains untouched until the process is killed.
+fn take_response_frame(
+    buffer: &mut Vec<u8>,
+    limit: usize,
+) -> Result<Option<Vec<u8>>, RuntimeError> {
+    if let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
+        if newline >= limit {
+            return Err(RuntimeError::WorkerLimitExceeded {
+                resource: "IPC frame".into(),
+            });
+        }
+        return Ok(Some(buffer.drain(..=newline).collect()));
+    }
+    // Even one more delimiter would exceed the limit at this point.
+    if buffer.len() >= limit {
+        return Err(RuntimeError::WorkerLimitExceeded {
+            resource: "IPC frame".into(),
+        });
+    }
+    Ok(None)
+}
+
 impl WorkerClient {
     pub(crate) fn process_id(&self) -> u32 {
         self.child.id()
@@ -776,6 +916,12 @@ impl WorkerClient {
         opener_page_id: Option<PageId>,
         context_owner: BrowserContext,
     ) -> Result<Self, RuntimeError> {
+        let session_id = allocate_session_id(&NEXT_SESSION_ID)?;
+        let route_identity = crate::worker_route::WorkerRoute::issue(
+            session_id,
+            page_id.0,
+            config.document_generation_base,
+        )?;
         let worker_path = discover_worker()?;
         let verification = if requires_trusted_worker() {
             Some(verify_worker(&worker_path)?)
@@ -867,6 +1013,7 @@ impl WorkerClient {
         };
         let router = Arc::new(WorkerBrokerRouter::default());
         router.bind(BoundWorkerRoute {
+            identity: route_identity.clone(),
             network: broker_network,
             context: Arc::new(ParentContextService::new_with_network(
                 context_owner,
@@ -901,10 +1048,10 @@ impl WorkerClient {
         let output = child.stdout.take().ok_or_else(|| {
             RuntimeError::SandboxUnavailable("worker stdout was not created".into())
         })?;
-        let session_id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed);
         let limits = WorkerLimits::from(config);
         let nonce = handshake_nonce(session_id);
         let mut client = Self {
+            route_identity,
             child,
             input,
             output,
@@ -1052,7 +1199,13 @@ impl WorkerClient {
                 "worker identity changed during reset".into(),
             ));
         }
-        self.session_id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed);
+        self.session_id = match allocate_session_id(&NEXT_SESSION_ID) {
+            Ok(id) => id,
+            Err(error) => {
+                self.kill();
+                return Err(error);
+            }
+        };
         self.next_message_id = 1;
         Ok(())
     }
@@ -1065,6 +1218,11 @@ impl WorkerClient {
         opener_page_id: Option<PageId>,
         context_owner: BrowserContext,
     ) -> Result<(), RuntimeError> {
+        let identity = crate::worker_route::WorkerRoute::issue(
+            self.session_id,
+            page_id.0,
+            config.document_generation_base,
+        )?;
         let parent_network = context_owner.shared_network_broker().ok_or_else(|| {
             RuntimeError::SandboxUnavailable("parent network broker is unavailable".into())
         })?;
@@ -1072,6 +1230,7 @@ impl WorkerClient {
             .for_worker(self.child.id())
             .for_page(page_id.0);
         self.router.bind(BoundWorkerRoute {
+            identity: identity.clone(),
             network: PageNetworkBroker {
                 authority: Arc::new(RouteAuthority::default()),
                 inner: parent_network.clone().for_page(page_id.0),
@@ -1084,6 +1243,7 @@ impl WorkerClient {
                 Some(parent_network),
             )),
         })?;
+        self.route_identity = identity;
         let nonce = handshake_nonce(self.session_id);
         let result = self.request_with_timeout(
             WorkerRequest::Initialize {
@@ -1166,27 +1326,62 @@ impl WorkerClient {
         request: WorkerRequest,
         timeout: Duration,
     ) -> Result<WorkerResponse, RuntimeError> {
+        let result = self.exchange_with_timeout(request, timeout);
+        // Enforce retirement here, not only in WorkerPage. Initialization,
+        // reset, and direct callers must also discard malformed or failed
+        // transports, including JSON parse errors and unexpected EOF.
+        if matches!(
+            &result,
+            Err(RuntimeError::ProtocolViolation(_)
+                | RuntimeError::WorkerCrashed(_)
+                | RuntimeError::WorkerLimitExceeded { .. })
+        ) {
+            self.kill();
+        }
+        result
+    }
+
+    fn exchange_with_timeout(
+        &mut self,
+        request: WorkerRequest,
+        timeout: Duration,
+    ) -> Result<WorkerResponse, RuntimeError> {
+        let command = request_diagnostic_label(&request);
         let message_id = self.next_message_id;
-        self.next_message_id += 1;
+        self.next_message_id = match self.next_message_id.checked_add(1) {
+            Some(id) => id,
+            None => {
+                self.kill();
+                return Err(RuntimeError::ProtocolViolation(
+                    "worker message identifiers exhausted".into(),
+                ));
+            }
+        };
         let envelope = HostEnvelope {
             protocol_version: WORKER_PROTOCOL_VERSION,
+            route: Some(self.route_identity.clone()),
             session_id: self.session_id,
             message_id,
             command: request,
         };
         let encoded = serde_json::to_vec(&envelope)
             .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
-        if encoded.len() > self.limits.ipc_frame_bytes {
+        if encoded.len() >= self.limits.ipc_frame_bytes {
             return Err(RuntimeError::WorkerLimitExceeded {
                 resource: "IPC frame".into(),
             });
         }
-        self.write_frame(&encoded, timeout)?;
+        self.write_frame(&encoded, timeout).map_err(|error| {
+            contextualize_worker_deadline(error, "ipc_write", command, message_id)
+        })?;
 
-        let response = self.read_frame(timeout)?;
+        let response = self.read_frame(timeout).map_err(|error| {
+            contextualize_worker_deadline(error, "ipc_response", command, message_id)
+        })?;
         let response: WorkerEnvelope = serde_json::from_slice(&response)
             .map_err(|error| RuntimeError::ProtocolViolation(error.to_string()))?;
         if response.protocol_version != WORKER_PROTOCOL_VERSION
+            || response.route.as_ref() != Some(&self.route_identity)
             || response.session_id != self.session_id
             || response.correlation_id != message_id
             || response.message_id != message_id
@@ -1197,10 +1392,20 @@ impl WorkerClient {
             ));
         }
         match response.response {
-            WorkerResponse::Error { error } => Err(*error),
+            WorkerResponse::Error { error } => Err(contextualize_worker_deadline(
+                *error,
+                "worker_execution",
+                command,
+                message_id,
+            )),
             WorkerResponse::LimitExceeded { resource } => {
                 self.kill();
-                Err(RuntimeError::WorkerLimitExceeded { resource })
+                Err(contextualize_worker_deadline(
+                    RuntimeError::WorkerLimitExceeded { resource },
+                    "worker_execution",
+                    command,
+                    message_id,
+                ))
             }
             response => Ok(response),
         }
@@ -1280,14 +1485,10 @@ impl WorkerClient {
     fn read_frame(&mut self, timeout: Duration) -> Result<Vec<u8>, RuntimeError> {
         let started = Instant::now();
         loop {
-            if let Some(newline) = self.response_buffer.iter().position(|byte| *byte == b'\n') {
-                return Ok(self.response_buffer.drain(..=newline).collect());
-            }
-            if self.response_buffer.len() > self.limits.ipc_frame_bytes {
-                self.kill();
-                return Err(RuntimeError::WorkerLimitExceeded {
-                    resource: "IPC frame".into(),
-                });
+            if let Some(frame) =
+                take_response_frame(&mut self.response_buffer, self.limits.ipc_frame_bytes)?
+            {
+                return Ok(frame);
             }
             if let Some(status) = self
                 .child
@@ -1842,6 +2043,177 @@ pub fn resident_bytes(pid: u32) -> Result<usize, RuntimeError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn deadline_context_never_formats_request_payloads() {
+        for (request, expected) in [
+            (
+                WorkerRequest::Goto {
+                    url: "https://private.invalid/?token=secret".into(),
+                },
+                "goto",
+            ),
+            (
+                WorkerRequest::LoadHtml {
+                    url: "private-url".into(),
+                    html: "private-html".into(),
+                },
+                "load_html",
+            ),
+            (
+                WorkerRequest::Evaluate {
+                    source: "private-script".into(),
+                },
+                "evaluate",
+            ),
+            (
+                WorkerRequest::Oil {
+                    input: "private-oil".into(),
+                },
+                "oil",
+            ),
+            (
+                WorkerRequest::Reset {
+                    nonce: "private-nonce".into(),
+                },
+                "reset",
+            ),
+        ] {
+            let command = request_diagnostic_label(&request);
+            assert_eq!(command, expected);
+            for phase in ["ipc_write", "ipc_response", "worker_execution"] {
+                let error = contextualize_worker_deadline(
+                    RuntimeError::WorkerLimitExceeded {
+                        resource: "wall time".into(),
+                    },
+                    phase,
+                    command,
+                    7,
+                );
+                let RuntimeError::WorkerLimitExceeded { resource } = error else {
+                    panic!("deadline must preserve the error category");
+                };
+                assert_eq!(
+                    resource,
+                    format!("wall time (phase={phase}, command={expected}, message_id=7)")
+                );
+            }
+        }
+        let error = contextualize_worker_deadline(
+            RuntimeError::WorkerLimitExceeded {
+                resource: "RSS".into(),
+            },
+            "ipc_response",
+            "ping",
+            7,
+        );
+        assert!(
+            matches!(error, RuntimeError::WorkerLimitExceeded { resource } if resource == "RSS")
+        );
+    }
+
+    #[test]
+    fn malformed_or_closed_response_retires_process_without_page_wrapper() {
+        // A deliberately unauthenticated test peer, constructed directly so
+        // this exercises transport retirement independently of WorkerPage.
+        for script in [
+            "IFS= read -r request; printf 'not-json\\n'; IFS= read -r request",
+            "IFS= read -r request; printf '%0600d\\n' 0; IFS= read -r request",
+            "IFS= read -r request; exec 1>&-; IFS= read -r request",
+            "IFS= read -r request; IFS= read -r request",
+        ] {
+            let mut child = Command::new("/bin/sh")
+                .args(["-c", script])
+                .env_clear()
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let input = child.stdin.take().unwrap();
+            let output = child.stdout.take().unwrap();
+            let rss_monitor = RssMonitor::start(child.id()).unwrap();
+            let mut client = WorkerClient {
+                route_identity: crate::worker_route::WorkerRoute::issue(1, 1, 0).unwrap(),
+                child,
+                input,
+                output,
+                response_buffer: Vec::new(),
+                session_id: 1,
+                next_message_id: 1,
+                limits: WorkerLimits {
+                    ipc_frame_bytes: 512,
+                    ..WorkerLimits::default()
+                },
+                runtime: crate::runtime_build_info(),
+                binary_sha256: String::new(),
+                verification: None,
+                router: Arc::new(WorkerBrokerRouter::default()),
+                leases: 0,
+                rss_monitor,
+                code_directory_hash: None,
+            };
+            let error = client
+                .request_with_timeout(WorkerRequest::Ping, Duration::from_secs(2))
+                .unwrap_err();
+            if script == "IFS= read -r request; IFS= read -r request" {
+                assert!(
+                    matches!(&error, RuntimeError::WorkerLimitExceeded { resource }
+                    if resource == "wall time (phase=ipc_response, command=ping, message_id=1)")
+                );
+            }
+            assert!(matches!(
+                error,
+                RuntimeError::ProtocolViolation(_)
+                    | RuntimeError::WorkerLimitExceeded { .. }
+                    | RuntimeError::WorkerCrashed(_)
+            ));
+            assert!(
+                client.child.try_wait().unwrap().is_some(),
+                "failed peer must be reaped before returning"
+            );
+            assert!(client.rss_monitor.stop.load(Ordering::Acquire));
+        }
+    }
+
+    #[test]
+    fn terminated_response_cannot_bypass_frame_limit() {
+        for bytes in [b"12345\n".as_slice(), b"123456789\n"] {
+            let mut buffer = bytes.to_vec();
+            assert!(matches!(
+                super::take_response_frame(&mut buffer, 5),
+                Err(crate::RuntimeError::WorkerLimitExceeded { .. })
+            ));
+            assert_eq!(buffer, bytes, "reject before draining attacker input");
+        }
+    }
+
+    #[test]
+    fn response_frame_limit_includes_delimiter_and_preserves_coalesced_frames() {
+        let mut buffer = b"1234\n12\n".to_vec();
+        assert_eq!(
+            super::take_response_frame(&mut buffer, 5).unwrap(),
+            Some(b"1234\n".to_vec())
+        );
+        assert_eq!(
+            super::take_response_frame(&mut buffer, 5).unwrap(),
+            Some(b"12\n".to_vec())
+        );
+        assert!(buffer.is_empty());
+        buffer.extend_from_slice(b"1234");
+        assert_eq!(super::take_response_frame(&mut buffer, 5).unwrap(), None);
+        buffer.push(b'5');
+        assert!(super::take_response_frame(&mut buffer, 5).is_err());
+        assert!(super::take_response_frame(&mut Vec::new(), 0).is_err());
+    }
+
+    #[test]
+    fn session_identifier_exhaustion_never_reuses_authority() {
+        let counter = std::sync::atomic::AtomicU64::new(u64::MAX - 1);
+        assert_eq!(super::allocate_session_id(&counter).unwrap(), u64::MAX - 1);
+        assert!(super::allocate_session_id(&counter).is_err());
+        assert!(super::allocate_session_id(&counter).is_err());
+        assert_eq!(counter.load(std::sync::atomic::Ordering::Relaxed), u64::MAX);
+    }
+
     use std::sync::{Arc, Mutex};
 
     use crate::Browser;
@@ -2044,6 +2416,7 @@ mod tests {
             requests: Arc::new(Mutex::new(Vec::new())),
         });
         BoundWorkerRoute {
+            identity: crate::worker_route::WorkerRoute::issue(1, page.page_id().0, 0).unwrap(),
             context: Arc::new(ParentContextService::new_with_network(
                 context.clone(),
                 page.page_id(),
@@ -2056,6 +2429,83 @@ mod tests {
                 page_id: page.page_id(),
             },
         }
+    }
+
+    #[test]
+    fn broker_route_rejects_missing_forged_and_stale_authority() {
+        let router = WorkerBrokerRouter::default();
+        let mut misbound = fixture_worker_route();
+        misbound.identity.environment = u64::MAX;
+        assert!(router.bind(misbound).is_err());
+        let route = fixture_worker_route();
+        let identity = route.identity.clone();
+        router.bind(route).unwrap();
+        assert!(router.authorized(Some(&identity)).is_ok());
+        assert!(router.authorized(None).is_err());
+        let forged = crate::worker_route::WorkerRoute::issue(
+            identity.process_session,
+            identity.environment,
+            identity.generation,
+        )
+        .unwrap();
+        assert!(router.authorized(Some(&forged)).is_err());
+        for field in 0..3 {
+            let mut changed = identity.clone();
+            match field {
+                0 => changed.process_session += 1,
+                1 => changed.environment += 1,
+                _ => changed.generation += 1,
+            }
+            assert!(router.authorized(Some(&changed)).is_err());
+        }
+        router.unbind().unwrap();
+        router.bind(fixture_worker_route()).unwrap();
+        assert!(router.authorized(Some(&identity)).is_err());
+    }
+
+    #[test]
+    fn context_wire_keeps_old_clients_bound_to_revoked_authority() {
+        use crate::context_service::{IpcContextClient, SharedContextClient};
+        let router = Arc::new(WorkerBrokerRouter::default());
+        let old_route = fixture_worker_route();
+        let old_identity = old_route.identity.clone();
+        let old_page = old_route.network.page_id;
+        router.bind(old_route).unwrap();
+        let (worker, parent) = UnixStream::pair().unwrap();
+        let server_router = router.clone();
+        let server = std::thread::spawn(move || serve_context_transport(parent, server_router));
+        let unbound = SharedContextClient::new(IpcContextClient::new(worker));
+        let old_client = unbound.for_route(old_identity);
+        assert!(
+            old_client
+                .request(ContextServiceRequest::GetReferrerPolicy { page_id: old_page })
+                .is_ok()
+        );
+        assert!(
+            unbound
+                .request(ContextServiceRequest::GetReferrerPolicy { page_id: old_page })
+                .is_err()
+        );
+        router.unbind().unwrap();
+        let replacement = fixture_worker_route();
+        let new_page = replacement.network.page_id;
+        let new_client = unbound.for_route(replacement.identity.clone());
+        router.bind(replacement).unwrap();
+        // Even supplying the new page ID cannot upgrade a retained old client.
+        assert!(
+            old_client
+                .request(ContextServiceRequest::GetReferrerPolicy { page_id: new_page })
+                .is_err()
+        );
+        assert!(
+            new_client
+                .request(ContextServiceRequest::GetReferrerPolicy { page_id: new_page })
+                .is_ok()
+        );
+        drop(old_client);
+        drop(new_client);
+        drop(unbound);
+        server.join().unwrap().unwrap();
     }
 
     #[test]
@@ -2128,6 +2578,7 @@ mod tests {
         let router = WorkerBrokerRouter::default();
         router
             .bind(BoundWorkerRoute {
+                identity: crate::worker_route::WorkerRoute::issue(1, page.page_id().0, 0).unwrap(),
                 network: PageNetworkBroker {
                     authority: Arc::new(RouteAuthority::default()),
                     inner: network,

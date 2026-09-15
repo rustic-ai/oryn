@@ -1,0 +1,5569 @@
+{
+  "assertions": [
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-after-receive.any.js|window|:f3e726b2c91f426fb87b8965773607c5",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 292,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "6e952c900abb4d2a83b5a45a9ca68061"
+          }
+        ],
+        "id": "f44b8b466bdd42b7ac0ea50f47e96da8",
+        "ports": [
+          49364,
+          49365,
+          49366,
+          49367,
+          49369,
+          49370,
+          49372
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 275,
+          "teardown_ms": 756
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-after-receive.any.js|window|",
+      "path": "xhr/abort-after-receive.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49364/xhr/abort-after-receive.any.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 481,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49364/xhr/abort-after-receive.any.html"
+          },
+          "page_id": "3",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 11,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 481,
+          "response_sha256": "f9d65c9910dd2e6f83668dfaf6d16123c59f6f01ce79c0ce625e94f34c60661e",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49364/xhr/abort-after-receive.any.html",
+          "worker_pid": 6667
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:49364/xhr/abort-after-receive.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49364/resources/testharness.js",
+          "worker_pid": 6667
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49364/xhr/abort-after-receive.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49364/resources/testharnessreport.js",
+          "worker_pid": 6667
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49364/xhr/abort-after-receive.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 951,
+          "response_sha256": "a9b12d0f292f0091472180ffe555e6c1ba39f4931b12605ff379d6d9fc54c282",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49364/xhr/abort-after-receive.any.js",
+          "worker_pid": 6667
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49364/",
+          "method": "GET",
+          "mime": "application/xml",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 127,
+          "response_sha256": "3c19d24a7cafa80ab8eb06e008e63fd0263d829db2becf00c42dd8bec3516569",
+          "sequence": 4,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49364/xhr/resources/well-formed.xml",
+          "worker_pid": 6667
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: abort() after successful receive should not fire \"abort\" event",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6667,
+          "rss_bytes": 36175872
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js",
+        "/xhr/resources/xmlhttprequest-event-order.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-after-send.any.js|window|:d1bf37886884405fab998fcdd94eff21",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 105,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "harness",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "d5f3ad8fca644905be71269f6400609a"
+          }
+        ],
+        "id": "1c45698e965140b0b9cc0defbe809d4f",
+        "ports": [
+          49368,
+          49371,
+          49375,
+          49377,
+          49379,
+          49380,
+          49383
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 268,
+          "teardown_ms": 916
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-after-send.any.js|window|",
+      "path": "xhr/abort-after-send.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49368/xhr/abort-after-send.any.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 499,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49368/xhr/abort-after-send.any.html"
+          },
+          "page_id": "1",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 499,
+          "response_sha256": "e1bfa44960e6a89f62f2b05f7ba3e1baf9933a75d1a0d3c7583bfdb8212035c4",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49368/xhr/abort-after-send.any.html",
+          "worker_pid": 6669
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49368/xhr/abort-after-send.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49368/resources/testharness.js",
+          "worker_pid": 6669
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49368/xhr/abort-after-send.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49368/resources/testharnessreport.js",
+          "worker_pid": 6669
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49368/xhr/abort-after-send.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 2927,
+          "response_sha256": "2c8e2374f5ff03df0af1f6babf812a0fa7c44c48541cffceea2ae70855c9d782",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49368/xhr/resources/xmlhttprequest-event-order.js",
+          "worker_pid": 6669
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49368/xhr/abort-after-send.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 1191,
+          "response_sha256": "a15805c4e0bb83cb1de8a2bfdfe6a8ac050891d8f16e1c170dc9a8b700368a0e",
+          "sequence": 4,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49368/xhr/abort-after-send.any.js",
+          "worker_pid": 6669
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 0,
+          "initiator": "http://localhost:49368/",
+          "method": "GET",
+          "mime": null,
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 5,
+          "started_ms": 73,
+          "status": null,
+          "terminal": "cancelled",
+          "url": "http://localhost:49368/xhr/resources/well-formed.xml",
+          "worker_pid": 6669
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 1,
+        "harnessMessage": "Uncaught ReferenceError: XMLHttpRequestUpload is not defined",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "assert_true: expected true got false",
+            "name": "XMLHttpRequest: abort() after send()",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6669,
+          "rss_bytes": 34570240
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-after-stop.window.js|window|:d0d076e4e0b140e9884a9d6b26698051",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 100,
+        "teardown_ms": 2029,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "cfda0615765e42c781a1a61dd676482f"
+          }
+        ],
+        "id": "8b1055f8bffe41a6b9a2659956b633da",
+        "ports": [
+          49373,
+          49374,
+          49376,
+          49378,
+          49381,
+          49384,
+          49386
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 273,
+          "teardown_ms": 938
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-after-stop.window.js|window|",
+      "path": "xhr/abort-after-stop.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49373/xhr/abort-after-stop.window.html"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 301,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49373/xhr/abort-after-stop.window.html"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": false,
+        "context_id": 10,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": false,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 301,
+          "response_sha256": "b59df94b5d2408fcd843267f904722780d5a29de0a65f781ad4bccaa6f45e809",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49373/xhr/abort-after-stop.window.html",
+          "worker_pid": 6668
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49373/xhr/abort-after-stop.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49373/resources/testharness.js",
+          "worker_pid": 6668
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49373/xhr/abort-after-stop.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49373/resources/testharnessreport.js",
+          "worker_pid": 6668
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49373/xhr/abort-after-stop.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 738,
+          "response_sha256": "39c94042b9ac1986a561528b04b8b5530d639950e3b0ddbfa31badc2d3df6d7f",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49373/xhr/abort-after-stop.window.js",
+          "worker_pid": 6668
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": null,
+          "initiator": "http://localhost:49373/",
+          "method": "GET",
+          "mime": null,
+          "page_id": 2,
+          "query_sha256": "4390d0fb784053b7b94b6113f84714284c31afdacf4a9fd6415012c417a3cbf8",
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 4,
+          "started_ms": 70,
+          "status": null,
+          "terminal": null,
+          "url": "http://localhost:49373/xhr/resources/delay.py",
+          "worker_pid": 6668
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "window.stop is not a function",
+            "name": "XMLHttpRequest: abort event should fire when stop() method is used",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6668,
+          "rss_bytes": 34062336
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-after-timeout.any.js|window|:78e70f868937484596928c115cb95017",
+        "page_id": 4,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 582,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "cb89488173764263a25b7b0d93baf2f3"
+          }
+        ],
+        "id": "d7902c57e22947a8aebea4ad2c85d57a",
+        "ports": [
+          49382,
+          49385,
+          49387,
+          49388,
+          49389,
+          49390,
+          49391
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 273,
+          "teardown_ms": 981
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-after-timeout.any.js|window|",
+      "path": "xhr/abort-after-timeout.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49382/xhr/abort-after-timeout.any.html"
+          },
+          "page_id": "4",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 472,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49382/xhr/abort-after-timeout.any.html"
+          },
+          "page_id": "4",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 12,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 472,
+          "response_sha256": "51ea1a2d3b5162546ed19639040d5ea5b42e10233ecdd5f6a3fa1c13106772f0",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49382/xhr/abort-after-timeout.any.html",
+          "worker_pid": 6666
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49382/xhr/abort-after-timeout.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49382/resources/testharness.js",
+          "worker_pid": 6666
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49382/xhr/abort-after-timeout.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49382/resources/testharnessreport.js",
+          "worker_pid": 6666
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49382/xhr/abort-after-timeout.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1313,
+          "response_sha256": "9647348a25f003761f88d5564969ffb51721a71ddc3eafcc1a31703aa45343b7",
+          "sequence": 3,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49382/xhr/abort-after-timeout.any.js",
+          "worker_pid": 6666
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 100,
+          "initiator": "http://localhost:49382/",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": "79f1a9762d46ebf4df7c0c40ae7c6cfb35214f86f1aed0c777dd0318b3f004d2",
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 4,
+          "started_ms": 66,
+          "status": 200,
+          "terminal": "cancelled",
+          "url": "http://localhost:49382/common/blank.html",
+          "worker_pid": 6666
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: abort() after a timeout should not fire \"abort\" event",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6666,
+          "rss_bytes": 37011456
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-during-done.window.js|window|:0d89a4e8da3e40729ee12e57b5f35e38",
+        "page_id": 5,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 99,
+        "teardown_ms": 19,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "b133b1490e614d2ebaf9cc707517d6e0"
+          }
+        ],
+        "id": "23cbbdfd87294008a41d363d94efa417",
+        "ports": [
+          49407,
+          49408,
+          49409,
+          49410,
+          49411,
+          49412,
+          49413
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 255,
+          "teardown_ms": 911
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-during-done.window.js|window|",
+      "path": "xhr/abort-during-done.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49407/xhr/abort-during-done.window.html"
+          },
+          "page_id": "5",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "capability": "xhr.synchronous_main_thread",
+            "kind": "policy_denied"
+          },
+          "page_id": "5",
+          "sequence": 2
+        },
+        {
+          "event": {
+            "capability": "xhr.synchronous_main_thread",
+            "kind": "policy_denied"
+          },
+          "page_id": "5",
+          "sequence": 3
+        },
+        {
+          "event": {
+            "bytes": 271,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49407/xhr/abort-during-done.window.html"
+          },
+          "page_id": "5",
+          "sequence": 9
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 16,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 271,
+          "response_sha256": "37533f4b17679b237c6de66274ca3bc4c9c6dcf8d510245561ff3d76c33e6cdb",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49407/xhr/abort-during-done.window.html",
+          "worker_pid": 6684
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49407/xhr/abort-during-done.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49407/resources/testharness.js",
+          "worker_pid": 6684
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49407/xhr/abort-during-done.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49407/resources/testharnessreport.js",
+          "worker_pid": 6684
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49407/xhr/abort-during-done.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 3277,
+          "response_sha256": "9f9835160c6731222ebb59ab85c4d215ac28edaf4703dadd541cc8d47dfda45d",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49407/xhr/abort-during-done.window.js",
+          "worker_pid": 6684
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49407/",
+          "method": "GET",
+          "mime": "application/xml",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 127,
+          "response_sha256": "3c19d24a7cafa80ab8eb06e008e63fd0263d829db2becf00c42dd8bec3516569",
+          "sequence": 4,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49407/xhr/resources/well-formed.xml",
+          "worker_pid": 6684
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "synchronous main-thread XHR is unsupported",
+            "name": "XMLHttpRequest: abort() during DONE (sync)",
+            "status": 1
+          },
+          {
+            "message": "synchronous main-thread XHR is unsupported",
+            "name": "XMLHttpRequest: abort() during DONE (sync aborted in readystatechange)",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected 0 but got 200",
+            "name": "XMLHttpRequest: abort() during DONE (async)",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6684,
+          "rss_bytes": 34455552
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-during-headers-received.window.js|window|:91b9664d29f9411291e759e6f7ea6025",
+        "page_id": 6,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 98,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "aa0ebfb48e544ef59348d7735c9e362d"
+          }
+        ],
+        "id": "ae489de9f60d447291901f9436b3a884",
+        "ports": [
+          49414,
+          49415,
+          49416,
+          49417,
+          49418,
+          49419,
+          49420
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 254,
+          "teardown_ms": 925
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-during-headers-received.window.js|window|",
+      "path": "xhr/abort-during-headers-received.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49414/xhr/abort-during-headers-received.window.html"
+          },
+          "page_id": "6",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 295,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49414/xhr/abort-during-headers-received.window.html"
+          },
+          "page_id": "6",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 17,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 295,
+          "response_sha256": "c80d946dde02c2cff9d7a0483153baf7aca87c4f78fd0882235863cd1773e4a3",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49414/xhr/abort-during-headers-received.window.html",
+          "worker_pid": 6683
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49414/xhr/abort-during-headers-received.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49414/resources/testharness.js",
+          "worker_pid": 6683
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49414/xhr/abort-during-headers-received.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49414/resources/testharnessreport.js",
+          "worker_pid": 6683
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49414/xhr/abort-during-headers-received.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1695,
+          "response_sha256": "269678439a8cb8d2f0f12383afb5716980c70c15cbd1db510d344ab7fd37d55d",
+          "sequence": 3,
+          "started_ms": 60,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49414/xhr/abort-during-headers-received.window.js",
+          "worker_pid": 6683
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 4,
+          "initiator": "http://localhost:49414/",
+          "method": "GET",
+          "mime": "application/xml",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 127,
+          "response_sha256": "3c19d24a7cafa80ab8eb06e008e63fd0263d829db2becf00c42dd8bec3516569",
+          "sequence": 4,
+          "started_ms": 66,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49414/xhr/resources/well-formed.xml",
+          "worker_pid": 6683
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "assert_equals: expected (string) \"OK\" but got (undefined) undefined",
+            "name": "XMLHttpRequest: abort() during HEADERS_RECEIVED",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6683,
+          "rss_bytes": 34111488
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-during-loading.window.js|window|:fe922e654b954b038784819740adab41",
+        "page_id": 7,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 97,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "66fb1480e3c9469aa71f61cd13a19538"
+          }
+        ],
+        "id": "bfe43a6bff394db98802a75f90cd13ae",
+        "ports": [
+          49427,
+          49428,
+          49429,
+          49430,
+          49431,
+          49432,
+          49433
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 255,
+          "teardown_ms": 949
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-during-loading.window.js|window|",
+      "path": "xhr/abort-during-loading.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49427/xhr/abort-during-loading.window.html"
+          },
+          "page_id": "7",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 277,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49427/xhr/abort-during-loading.window.html"
+          },
+          "page_id": "7",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 20,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 277,
+          "response_sha256": "b07d0dd3ce523acd33d1e77b4f210bca997383eea7392b3c593bc225061be548",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49427/xhr/abort-during-loading.window.html",
+          "worker_pid": 6692
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49427/xhr/abort-during-loading.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49427/resources/testharness.js",
+          "worker_pid": 6692
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49427/xhr/abort-during-loading.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49427/resources/testharnessreport.js",
+          "worker_pid": 6692
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49427/xhr/abort-during-loading.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1689,
+          "response_sha256": "419b430fe14f6346fc066e2c27299f76802c0f5beb5cfac187e0f7515ed4ef9c",
+          "sequence": 3,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49427/xhr/abort-during-loading.window.js",
+          "worker_pid": 6692
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49427/",
+          "method": "GET",
+          "mime": "application/xml",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 127,
+          "response_sha256": "3c19d24a7cafa80ab8eb06e008e63fd0263d829db2becf00c42dd8bec3516569",
+          "sequence": 4,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49427/xhr/resources/well-formed.xml",
+          "worker_pid": 6692
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "assert_equals: expected (string) \"OK\" but got (undefined) undefined",
+            "name": "XMLHttpRequest: abort() during LOADING",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6692,
+          "rss_bytes": 34652160
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [
+        "harness_timeout"
+      ],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-during-navigation.window.js|window|:8a89dc73a7614c66b21dfc632066f905",
+        "page_id": 8,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 10088,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "harness",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "d1029caf9e234f4aacc16486051c3dd6"
+          }
+        ],
+        "id": "d82264db659446b0816c8452adf3e7cb",
+        "ports": [
+          49437,
+          49438,
+          49439,
+          49440,
+          49441,
+          49442,
+          49443
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 257,
+          "teardown_ms": 1047
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-during-navigation.window.js|window|",
+      "path": "xhr/abort-during-navigation.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49437/xhr/abort-during-navigation.window.html"
+          },
+          "page_id": "8",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 296,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49437/xhr/abort-during-navigation.window.html"
+          },
+          "page_id": "8",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 23,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 296,
+          "response_sha256": "367240f6221c0955da2bd21d2a90187ac4db6f25f5aaec08aa6764db9167a898",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49437/xhr/abort-during-navigation.window.html",
+          "worker_pid": 6703
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49437/xhr/abort-during-navigation.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49437/resources/testharness.js",
+          "worker_pid": 6703
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49437/xhr/abort-during-navigation.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49437/resources/testharnessreport.js",
+          "worker_pid": 6703
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49437/xhr/abort-during-navigation.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1139,
+          "response_sha256": "b50dde293c7bc1bf10049f40abec9ef651376363bca617b6c9f32b192cd7bd9f",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49437/xhr/abort-during-navigation.window.js",
+          "worker_pid": 6703
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49437/xhr/abort-during-navigation.window.html",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 893,
+          "response_sha256": "a99a66802939bfa6bf67640e093a37ff4fd8d8704bd6acb510c2656b1653f7a7",
+          "sequence": 4,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49437/xhr/resources/abort-during-navigation-iframe.html",
+          "worker_pid": 6703
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 2,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Test timed out",
+            "name": "XHR should not fire abort or error events when cancelled by navigation",
+            "status": 2
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6703,
+          "rss_bytes": 46628864
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-during-open.any.js|window|:a2d430dbe3d041fd9c560540b5dbb448",
+        "page_id": 9,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 95,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "615e15bbc90240cfb44f0c55c6cc7d19"
+          }
+        ],
+        "id": "de09bab3a1334759aef23de06fd981a6",
+        "ports": [
+          49444,
+          49445,
+          49446,
+          49447,
+          49448,
+          49449,
+          49450
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 251,
+          "teardown_ms": 925
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-during-open.any.js|window|",
+      "path": "xhr/abort-during-open.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49444/xhr/abort-during-open.any.html"
+          },
+          "page_id": "9",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 386,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49444/xhr/abort-during-open.any.html"
+          },
+          "page_id": "9",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 24,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 386,
+          "response_sha256": "ebb28b1dbce25af7d15eb872d986a073de3d7b5e12180fe19db21ad3e3b5c0d4",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49444/xhr/abort-during-open.any.html",
+          "worker_pid": 6699
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49444/xhr/abort-during-open.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49444/resources/testharness.js",
+          "worker_pid": 6699
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49444/xhr/abort-during-open.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49444/resources/testharnessreport.js",
+          "worker_pid": 6699
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49444/xhr/abort-during-open.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 544,
+          "response_sha256": "3bde4861d7f16be275e7e976d22ba7337f2cd0fd1fb339b1a827775c60aa95d0",
+          "sequence": 3,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49444/xhr/abort-during-open.any.js",
+          "worker_pid": 6699
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "assert_equals: expected (string) \"\" but got (undefined) undefined",
+            "name": "XMLHttpRequest: abort() during OPEN",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6699,
+          "rss_bytes": 34406400
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-during-readystatechange.any.js|window|:01c8a5dfc09a45539d0448dab080b33e",
+        "page_id": 10,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 96,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "1cc1fa8f8abb4c5db281a36f330287d0"
+          }
+        ],
+        "id": "3490a0ca6a354525aee8011c7fc3ef3a",
+        "ports": [
+          49457,
+          49458,
+          49459,
+          49460,
+          49461,
+          49462,
+          49463
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 266,
+          "teardown_ms": 921
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-during-readystatechange.any.js|window|",
+      "path": "xhr/abort-during-readystatechange.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49457/xhr/abort-during-readystatechange.any.html"
+          },
+          "page_id": "10",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 398,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49457/xhr/abort-during-readystatechange.any.html"
+          },
+          "page_id": "10",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 26,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 398,
+          "response_sha256": "b1b057d1ba8a91732abe37c76514f04f2cbf1a4527a8acfe40640bdb7c8c7104",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49457/xhr/abort-during-readystatechange.any.html",
+          "worker_pid": 6711
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:49457/xhr/abort-during-readystatechange.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49457/resources/testharness.js",
+          "worker_pid": 6711
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49457/xhr/abort-during-readystatechange.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49457/resources/testharnessreport.js",
+          "worker_pid": 6711
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49457/xhr/abort-during-readystatechange.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 662,
+          "response_sha256": "3a01cdc95f3d926ad2c2fc7196c66e42a8f129bf66adee7ccd0999ecbd73beec",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49457/xhr/abort-during-readystatechange.any.js",
+          "worker_pid": 6711
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 1,
+          "initiator": "http://localhost:49457/",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 4,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "cancelled",
+          "url": "http://localhost:49457/common/blank.html",
+          "worker_pid": 6711
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "abort-during-readystatechange",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6711,
+          "rss_bytes": 34013184
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-during-unsent.any.js|window|:9685e8f33c4a43d9a36235f04b05c929",
+        "page_id": 11,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 99,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "388db802bf2340c199ad8790369f596d"
+          }
+        ],
+        "id": "c565f274b4114d75a714742d8f2c4937",
+        "ports": [
+          49464,
+          49465,
+          49466,
+          49467,
+          49468,
+          49469,
+          49470
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 256,
+          "teardown_ms": 937
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-during-unsent.any.js|window|",
+      "path": "xhr/abort-during-unsent.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49464/xhr/abort-during-unsent.any.html"
+          },
+          "page_id": "11",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 440,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49464/xhr/abort-during-unsent.any.html"
+          },
+          "page_id": "11",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 28,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 440,
+          "response_sha256": "667d012568baf35a181f14447c171ded45314c8501895d8ee1565cd6ecb909a5",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49464/xhr/abort-during-unsent.any.html",
+          "worker_pid": 6736
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49464/xhr/abort-during-unsent.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49464/resources/testharness.js",
+          "worker_pid": 6736
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49464/xhr/abort-during-unsent.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49464/resources/testharnessreport.js",
+          "worker_pid": 6736
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49464/xhr/abort-during-unsent.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 599,
+          "response_sha256": "e98667f2458bc92da16db45b0c75452ecb9072eae94b10e1650137259e1d1591",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49464/xhr/abort-during-unsent.any.js",
+          "worker_pid": 6736
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "assert_equals: expected (string) \"\" but got (undefined) undefined",
+            "name": "XMLHttpRequest: abort() during UNSENT",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6736,
+          "rss_bytes": 34226176
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js",
+        "/xhr/resources/xmlhttprequest-event-order.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-during-upload.any.js|window|:7ed0abac8fab4356aef60f1578caad56",
+        "page_id": 12,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 110,
+        "teardown_ms": 983,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "harness",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "189bb3285e2e4277b158296ee548083b"
+          }
+        ],
+        "id": "4bcd6cea4b384a9bbfa4fe2344fa291a",
+        "ports": [
+          49504,
+          49505,
+          49506,
+          49507,
+          49508,
+          49509,
+          49510
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 260,
+          "teardown_ms": 478
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-during-upload.any.js|window|",
+      "path": "xhr/abort-during-upload.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49504/xhr/abort-during-upload.any.html"
+          },
+          "page_id": "12",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 508,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49504/xhr/abort-during-upload.any.html"
+          },
+          "page_id": "12",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 30,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 508,
+          "response_sha256": "66d15fe70ee2f0397934bfbf8c2c7e55154faa81bacffe614aaec00e0f8da1aa",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49504/xhr/abort-during-upload.any.html",
+          "worker_pid": 6740
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49504/xhr/abort-during-upload.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49504/resources/testharness.js",
+          "worker_pid": 6740
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49504/xhr/abort-during-upload.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49504/resources/testharnessreport.js",
+          "worker_pid": 6740
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49504/xhr/abort-during-upload.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 2927,
+          "response_sha256": "2c8e2374f5ff03df0af1f6babf812a0fa7c44c48541cffceea2ae70855c9d782",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49504/xhr/resources/xmlhttprequest-event-order.js",
+          "worker_pid": 6740
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49504/xhr/abort-during-upload.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 752,
+          "response_sha256": "0ed0038f8c2f9641b894efcc0b8719f6d16a51ebf6865f86cdd30077e165612c",
+          "sequence": 4,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49504/xhr/abort-during-upload.any.js",
+          "worker_pid": 6740
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 0,
+          "initiator": "http://localhost:49504/",
+          "method": "POST",
+          "mime": "text/plain",
+          "page_id": 12,
+          "query_sha256": "4183684babe54504d52d7486d6c69da7e72c38f47c34bfe421376b7a71d93afe",
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 5,
+          "started_ms": 74,
+          "status": 200,
+          "terminal": "cancelled",
+          "url": "http://localhost:49504/xhr/resources/delay.py",
+          "worker_pid": 6740
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 1,
+        "harnessMessage": "Uncaught ReferenceError: XMLHttpRequestUpload is not defined",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "\nExpected more events: loadstart(0,0,false), upload.loadstart(0,9999,true), 4, upload.abort(0,0,false), upload.loadend(0,0,false), abort(0,0,false), loadend(0,0,false)",
+            "name": "XMLHttpRequest: abort() while sending data",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6740,
+          "rss_bytes": 35045376
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-event-abort.any.js|window|:0c938e19f7414a06b0e59726ef2b8e3d",
+        "page_id": 13,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 102,
+        "teardown_ms": 19,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "ac51c52cd523414c995d6b502be13341"
+          }
+        ],
+        "id": "41abb8cfdcb74ac190467a2309af1371",
+        "ports": [
+          49562,
+          49563,
+          49564,
+          49565,
+          49566,
+          49567,
+          49568
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 297,
+          "teardown_ms": 934
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-event-abort.any.js|window|",
+      "path": "xhr/abort-event-abort.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49562/xhr/abort-event-abort.any.html"
+          },
+          "page_id": "13",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 503,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49562/xhr/abort-event-abort.any.html"
+          },
+          "page_id": "13",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 31,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 503,
+          "response_sha256": "dab91fdf7e877a17f04a89d6189ca4e09a29007d8d3783a23310ae395275c718",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49562/xhr/abort-event-abort.any.html",
+          "worker_pid": 6691
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49562/xhr/abort-event-abort.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49562/resources/testharness.js",
+          "worker_pid": 6691
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49562/xhr/abort-event-abort.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49562/resources/testharnessreport.js",
+          "worker_pid": 6691
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49562/xhr/abort-event-abort.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1176,
+          "response_sha256": "18b7f04c9fcdde74bc4f3902ecd7e9bab74f0a03036779578044798b6a529174",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49562/xhr/abort-event-abort.any.js",
+          "worker_pid": 6691
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49562/",
+          "method": "GET",
+          "mime": "text/plain",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 4,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49562/xhr/resources/content.py",
+          "worker_pid": 6691
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: The abort() method: do not fire abort event in OPENED state when send() flag is unset.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6691,
+          "rss_bytes": 33980416
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-event-listeners.any.js|window|:3065378a38dc437c80742baa3b3d55ff",
+        "page_id": 14,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 94,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "24046fb3a39b49eea58113e4373421c6"
+          }
+        ],
+        "id": "d5aa7b8bb2e4444e937ec9040c18dc0c",
+        "ports": [
+          49583,
+          49584,
+          49585,
+          49586,
+          49587,
+          49588,
+          49589
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 277,
+          "teardown_ms": 931
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-event-listeners.any.js|window|",
+      "path": "xhr/abort-event-listeners.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49583/xhr/abort-event-listeners.any.html"
+          },
+          "page_id": "14",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 461,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49583/xhr/abort-event-listeners.any.html"
+          },
+          "page_id": "14",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 33,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 14,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 461,
+          "response_sha256": "cccebf484f89c155ecd868c54623efbdb11d5d58a5ae3dcaf88595044e5fbb1a",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49583/xhr/abort-event-listeners.any.html",
+          "worker_pid": 6775
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49583/xhr/abort-event-listeners.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 14,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49583/resources/testharness.js",
+          "worker_pid": 6775
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49583/xhr/abort-event-listeners.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 14,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49583/resources/testharnessreport.js",
+          "worker_pid": 6775
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49583/xhr/abort-event-listeners.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 14,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 436,
+          "response_sha256": "ff9101976eca0a5364d9c952167573d4576e587224336704dae8e3f671dc11da",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49583/xhr/abort-event-listeners.any.js",
+          "worker_pid": 6775
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 0,
+          "initiator": "http://localhost:49583/",
+          "method": "GET",
+          "mime": null,
+          "page_id": 14,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 4,
+          "started_ms": 67,
+          "status": null,
+          "terminal": "cancelled",
+          "url": "http://localhost:49583/xhr/resources/well-formed.xml",
+          "worker_pid": 6775
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: abort() should not reset event listeners",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6775,
+          "rss_bytes": 33947648
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-event-loadend.any.js|window|:c98eab2ac78041b0bccbed3bf4195138",
+        "page_id": 15,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 107,
+        "teardown_ms": 20,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "8c14b156e55b4fe3a7a32ad56c868ac2"
+          }
+        ],
+        "id": "080ac241b9904914a742b4eaaeb5ade8",
+        "ports": [
+          49622,
+          49623,
+          49624,
+          49625,
+          49626,
+          49627,
+          49628
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 277,
+          "teardown_ms": 925
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-event-loadend.any.js|window|",
+      "path": "xhr/abort-event-loadend.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49622/xhr/abort-event-loadend.any.html"
+          },
+          "page_id": "15",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 474,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49622/xhr/abort-event-loadend.any.html"
+          },
+          "page_id": "15",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 36,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 15,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 474,
+          "response_sha256": "42ef9a4873b5b8a4dd550a08fe09e6d2067434947ca07a937ecd17cc7bedd926",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49622/xhr/abort-event-loadend.any.html",
+          "worker_pid": 6778
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49622/xhr/abort-event-loadend.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 15,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 15,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49622/resources/testharness.js",
+          "worker_pid": 6778
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49622/xhr/abort-event-loadend.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 15,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 60,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49622/resources/testharnessreport.js",
+          "worker_pid": 6778
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49622/xhr/abort-event-loadend.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 15,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 848,
+          "response_sha256": "01157e239eaa7069d7c4bf37f8a455cec191e6a18521c7e274689b312c75eef4",
+          "sequence": 3,
+          "started_ms": 65,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49622/xhr/abort-event-loadend.any.js",
+          "worker_pid": 6778
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "ProgressEvent is not defined",
+            "name": "XMLHttpRequest: The abort() method: Fire a progress event named loadend",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6778,
+          "rss_bytes": 34357248
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js",
+        "/xhr/resources/xmlhttprequest-event-order.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-event-order.htm|window|:59e0039695fd45478a4aa44ac69f23d4",
+        "page_id": 16,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 104,
+        "teardown_ms": 20,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "harness",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "ca8f1187406e414d84744086dacdf56d"
+          }
+        ],
+        "id": "cfaef445c0ec491cb51433ca89cf24b0",
+        "ports": [
+          49635,
+          49636,
+          49637,
+          49638,
+          49639,
+          49640,
+          49641
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 270,
+          "teardown_ms": 943
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-event-order.htm|window|",
+      "path": "xhr/abort-event-order.htm",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49635/xhr/abort-event-order.htm"
+          },
+          "page_id": "16",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1956,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49635/xhr/abort-event-order.htm"
+          },
+          "page_id": "16",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 37,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 16,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1956,
+          "response_sha256": "9ffa27ce122c220ab97d947943acba56e05d0b2f6853a524b46a2a3c42dddc44",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49635/xhr/abort-event-order.htm",
+          "worker_pid": 6777
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:49635/xhr/abort-event-order.htm",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 16,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 15,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49635/resources/testharness.js",
+          "worker_pid": 6777
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49635/xhr/abort-event-order.htm",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 16,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 59,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49635/resources/testharnessreport.js",
+          "worker_pid": 6777
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49635/xhr/abort-event-order.htm",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 16,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 2927,
+          "response_sha256": "2c8e2374f5ff03df0af1f6babf812a0fa7c44c48541cffceea2ae70855c9d782",
+          "sequence": 3,
+          "started_ms": 64,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49635/xhr/resources/xmlhttprequest-event-order.js",
+          "worker_pid": 6777
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 1,
+        "harnessMessage": "Uncaught ReferenceError: XMLHttpRequestUpload is not defined",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "\nExpected more events: loadstart(0,0,false), 4, upload.abort(0,0,false), upload.loadend(0,0,false), abort(0,0,false), loadend(0,0,false)",
+            "name": "XMLHttpRequest: The abort() method: abort and loadend events",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6777,
+          "rss_bytes": 34652160
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-progress-events.any.js|window|:b0cf9de3d3a441d4bc3869d99f4ad29a",
+        "page_id": 17,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 282,
+        "teardown_ms": 20,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "12d227e5213a453a85c6a830689b7e09"
+          }
+        ],
+        "id": "5d9ab8a06726445c83de7759a494e552",
+        "ports": [
+          49650,
+          49651,
+          49652,
+          49653,
+          49654,
+          49655,
+          49656
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 270,
+          "teardown_ms": 761
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-progress-events.any.js|window|",
+      "path": "xhr/abort-progress-events.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49650/xhr/abort-progress-events.any.html"
+          },
+          "page_id": "17",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 462,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49650/xhr/abort-progress-events.any.html"
+          },
+          "page_id": "17",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 40,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 17,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 462,
+          "response_sha256": "b35eb5ee7d8b0b88d9308e4745b809facd7d339e42c41d46d294a6c5c91840c5",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49650/xhr/abort-progress-events.any.html",
+          "worker_pid": 6803
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49650/xhr/abort-progress-events.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 17,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49650/resources/testharness.js",
+          "worker_pid": 6803
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49650/xhr/abort-progress-events.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 17,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49650/resources/testharnessreport.js",
+          "worker_pid": 6803
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49650/xhr/abort-progress-events.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 17,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 2259,
+          "response_sha256": "8f2e784f9a35b6e63a531c12843d65f9b972c6e18e4eee718d510955cf7bf63e",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49650/xhr/abort-progress-events.any.js",
+          "worker_pid": 6803
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 0,
+          "initiator": "http://localhost:49650/",
+          "method": "GET",
+          "mime": null,
+          "page_id": 17,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 4,
+          "started_ms": 68,
+          "status": null,
+          "terminal": "cancelled",
+          "url": "http://localhost:49650/xhr/resources/pass.txt",
+          "worker_pid": 6803
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49650/",
+          "method": "GET",
+          "mime": "text/plain",
+          "page_id": 17,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 5,
+          "response_sha256": "c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431",
+          "sequence": 5,
+          "started_ms": 69,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49650/xhr/resources/pass.txt",
+          "worker_pid": 6803
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Events must not fire when state is UNSENT after abort()",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling open/abort in readystatechange should not crash",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6803,
+          "rss_bytes": 36487168
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-upload-event-abort.any.js|window|:a4aa394bd10d45c9b2bea2223cda8ba5",
+        "page_id": 18,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 105,
+        "teardown_ms": 19,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "2f74cbff23dd4f54b66624ff7b6e2fa4"
+          }
+        ],
+        "id": "ccf81998fd3b46b588b984fd0cf97b4a",
+        "ports": [
+          49691,
+          49692,
+          49693,
+          49694,
+          49695,
+          49696,
+          49697
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 292,
+          "teardown_ms": 914
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-upload-event-abort.any.js|window|",
+      "path": "xhr/abort-upload-event-abort.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49691/xhr/abort-upload-event-abort.any.html"
+          },
+          "page_id": "18",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 393,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49691/xhr/abort-upload-event-abort.any.html"
+          },
+          "page_id": "18",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 42,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 18,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 393,
+          "response_sha256": "705d091ba10fc2de97e5580e3aeac26e65160e6e6f6dbedb1e7bc72ad71c45de",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49691/xhr/abort-upload-event-abort.any.html",
+          "worker_pid": 6804
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49691/xhr/abort-upload-event-abort.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 18,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49691/resources/testharness.js",
+          "worker_pid": 6804
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49691/xhr/abort-upload-event-abort.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 18,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 60,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49691/resources/testharnessreport.js",
+          "worker_pid": 6804
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49691/xhr/abort-upload-event-abort.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 18,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 964,
+          "response_sha256": "453c5cb685fbc6c857149daf4162df4b12247715248b12eeea0ecf91ddb8a894",
+          "sequence": 3,
+          "started_ms": 65,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49691/xhr/abort-upload-event-abort.any.js",
+          "worker_pid": 6804
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot set properties of undefined (setting 'onabort')",
+            "name": "XMLHttpRequest: The abort() method: Fire a progress event named abort on the XMLHttpRequestUpload object",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6804,
+          "rss_bytes": 34258944
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-upload-event-loadend.any.js|window|:e2cb992e74b9427ea1b0c25e05341291",
+        "page_id": 19,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 102,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "cf4ac46094b34031ba52e23e37fe5f4e"
+          }
+        ],
+        "id": "6581fcda3fee4b19807fed8e16c8efa0",
+        "ports": [
+          49701,
+          49702,
+          49703,
+          49704,
+          49705,
+          49706,
+          49707
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 289,
+          "teardown_ms": 926
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-upload-event-loadend.any.js|window|",
+      "path": "xhr/abort-upload-event-loadend.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49701/xhr/abort-upload-event-loadend.any.html"
+          },
+          "page_id": "19",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 395,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49701/xhr/abort-upload-event-loadend.any.html"
+          },
+          "page_id": "19",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 43,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 19,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 395,
+          "response_sha256": "0e8cedf7c03815354dd4fe3bcda778e9d52f72e4c1f348ff5af9452cd628385a",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49701/xhr/abort-upload-event-loadend.any.html",
+          "worker_pid": 6800
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:49701/xhr/abort-upload-event-loadend.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 19,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 15,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49701/resources/testharness.js",
+          "worker_pid": 6800
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49701/xhr/abort-upload-event-loadend.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 19,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 59,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49701/resources/testharnessreport.js",
+          "worker_pid": 6800
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49701/xhr/abort-upload-event-loadend.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 19,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 971,
+          "response_sha256": "e3c1ca4511f2ea6d3857ccac93bcea5256da9fa07208c5579171e438a3fef512",
+          "sequence": 3,
+          "started_ms": 64,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49701/xhr/abort-upload-event-loadend.any.js",
+          "worker_pid": 6800
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot set properties of undefined (setting 'onloadend')",
+            "name": "XMLHttpRequest: The abort() method: Fire a progress event named loadend on the XMLHttpRequestUpload object",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6800,
+          "rss_bytes": 34226176
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/abort-with-error.any.js|window|:e920143b3c404f60aeb97a023be4b528",
+        "page_id": 20,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 98,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "d77f569f8b914c8fa452556b8965a51d"
+          }
+        ],
+        "id": "75e1f941adae40e1bb37a3e2ef8751dc",
+        "ports": [
+          49709,
+          49710,
+          49711,
+          49712,
+          49713,
+          49714,
+          49715
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 281,
+          "teardown_ms": 941
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/abort-with-error.any.js|window|",
+      "path": "xhr/abort-with-error.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49709/xhr/abort-with-error.any.html"
+          },
+          "page_id": "20",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 464,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49709/xhr/abort-with-error.any.html"
+          },
+          "page_id": "20",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 46,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 20,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 464,
+          "response_sha256": "a0c98643df90ed55ca1df89b3bdcc9f330ff690a21c6aeb0c9cc999e77b41ea6",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49709/xhr/abort-with-error.any.html",
+          "worker_pid": 6833
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49709/xhr/abort-with-error.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 20,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49709/resources/testharness.js",
+          "worker_pid": 6833
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49709/xhr/abort-with-error.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 20,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49709/resources/testharnessreport.js",
+          "worker_pid": 6833
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49709/xhr/abort-with-error.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 20,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 380,
+          "response_sha256": "fe319fcfd28ffe3c64f165d110bc1d784987089f952239d59386b820ecd05943",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49709/xhr/abort-with-error.any.js",
+          "worker_pid": 6833
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 0,
+          "initiator": "http://localhost:49709/",
+          "method": "GET",
+          "mime": null,
+          "page_id": 20,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 4,
+          "started_ms": 67,
+          "status": null,
+          "terminal": "failed",
+          "url": "invalid-protocol:[redacted]",
+          "worker_pid": 6833
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: abort() still works when error thrown internally",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6833,
+          "rss_bytes": 33619968
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/event-abort.any.js|window|:7052c5096f20449bab0d8933186cc8f7",
+        "page_id": 21,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 101,
+        "teardown_ms": 19,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "49263510f119456a8aa21175db238ee4"
+          }
+        ],
+        "id": "ac1a53310a1546e29b224719ca9c5c76",
+        "ports": [
+          49728,
+          49729,
+          49730,
+          49731,
+          49732,
+          49733,
+          49734
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 277,
+          "teardown_ms": 916
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/event-abort.any.js|window|",
+      "path": "xhr/event-abort.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49728/xhr/event-abort.any.html"
+          },
+          "page_id": "21",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 422,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49728/xhr/event-abort.any.html"
+          },
+          "page_id": "21",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 48,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 21,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 422,
+          "response_sha256": "c7ce627dc3561fec0bf9e4cad9bd5bb1ea0241f04015b71b1f7b0db4c83cd50d",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49728/xhr/event-abort.any.html",
+          "worker_pid": 6836
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:49728/xhr/event-abort.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 21,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49728/resources/testharness.js",
+          "worker_pid": 6836
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49728/xhr/event-abort.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 21,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49728/resources/testharnessreport.js",
+          "worker_pid": 6836
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49728/xhr/event-abort.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 21,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 387,
+          "response_sha256": "9ae03495a6e80acf820cf66cee2ac32904cddcc6e95e1cbe1518d63941b54919",
+          "sequence": 3,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49728/xhr/event-abort.any.js",
+          "worker_pid": 6836
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 0,
+          "initiator": "http://localhost:49728/",
+          "method": "GET",
+          "mime": null,
+          "page_id": 21,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 4,
+          "started_ms": 68,
+          "status": null,
+          "terminal": "cancelled",
+          "url": "http://localhost:49728/xhr/resources/well-formed.xml",
+          "worker_pid": 6836
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "XMLHttpRequest: abort event",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6836,
+          "rss_bytes": 34193408
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/open-after-abort.htm|window|:b3975e96c55347bea3ad595f4cba7792",
+        "page_id": 22,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 96,
+        "teardown_ms": 19,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "9ff40ee02eef41418202d36fd8ef67f1"
+          }
+        ],
+        "id": "454fe5581d354d43900475584c2e6227",
+        "ports": [
+          49735,
+          49736,
+          49737,
+          49738,
+          49739,
+          49740,
+          49741
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 269,
+          "teardown_ms": 931
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/open-after-abort.htm|window|",
+      "path": "xhr/open-after-abort.htm",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49735/xhr/open-after-abort.htm"
+          },
+          "page_id": "22",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 2695,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49735/xhr/open-after-abort.htm"
+          },
+          "page_id": "22",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 49,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 22,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 2695,
+          "response_sha256": "f3be620499de5acd510d737cfcb48194b7598920bd4115db205de27f6ca5dff0",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49735/xhr/open-after-abort.htm",
+          "worker_pid": 6832
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49735/xhr/open-after-abort.htm",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 22,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49735/resources/testharness.js",
+          "worker_pid": 6832
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:49735/xhr/open-after-abort.htm",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 22,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49735/resources/testharnessreport.js",
+          "worker_pid": 6832
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 0,
+          "initiator": "http://localhost:49735/",
+          "method": "GET",
+          "mime": null,
+          "page_id": 22,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 3,
+          "started_ms": 63,
+          "status": null,
+          "terminal": "cancelled",
+          "url": "http://localhost:49735/xhr/resources/well-formed.xml",
+          "worker_pid": 6832
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "assert_array_equals: lengths differ, expected array [\"readystatechange\", 0, 1, \"readystatechange\", 2, 4] length 6, got [\"readystatechange\", 0, 1] length 3",
+            "name": "XMLHttpRequest: open() after abort()",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6832,
+          "rss_bytes": 34816000
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/open-during-abort-event.htm|window|:a18793e651d14515a514242b9c1c4e19",
+        "page_id": 23,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 93,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "0600e16ddcd84c6c95138eee754ff4a4"
+          }
+        ],
+        "id": "2fc345569da44850b84d5d72422fa35c",
+        "ports": [
+          49742,
+          49743,
+          49744,
+          49745,
+          49746,
+          49747,
+          49748
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 267,
+          "teardown_ms": 925
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/open-during-abort-event.htm|window|",
+      "path": "xhr/open-during-abort-event.htm",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49742/xhr/open-during-abort-event.htm"
+          },
+          "page_id": "23",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1646,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49742/xhr/open-during-abort-event.htm"
+          },
+          "page_id": "23",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 52,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 23,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1646,
+          "response_sha256": "ce14c2f881e07eaa45270ada1f551036c20564e24205070218e6e17f3fbf7e9e",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49742/xhr/open-during-abort-event.htm",
+          "worker_pid": 6849
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49742/xhr/open-during-abort-event.htm",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 23,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49742/resources/testharness.js",
+          "worker_pid": 6849
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49742/xhr/open-during-abort-event.htm",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 23,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49742/resources/testharnessreport.js",
+          "worker_pid": 6849
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot set properties of undefined (setting 'onloadstart')",
+            "name": "XMLHttpRequest: open() during abort event - abort() called from upload.onloadstart",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6849,
+          "rss_bytes": 33734656
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/open-during-abort-processing.htm|window|:ab23f9125b254d00b9e1ecef4fe5cc50",
+        "page_id": 24,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 98,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "5abb4a2e7a854623b04bd490b352723e"
+          }
+        ],
+        "id": "c9fbb08e25bb47289626da7cd99eb681",
+        "ports": [
+          49757,
+          49758,
+          49759,
+          49760,
+          49761,
+          49762,
+          49763
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 272,
+          "teardown_ms": 936
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/open-during-abort-processing.htm|window|",
+      "path": "xhr/open-during-abort-processing.htm",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49757/xhr/open-during-abort-processing.htm"
+          },
+          "page_id": "24",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1874,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49757/xhr/open-during-abort-processing.htm"
+          },
+          "page_id": "24",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 54,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 24,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1874,
+          "response_sha256": "1196f0c10a136b13e0c54339911a53e94d9ffd23292f554d17d223e1ec35920e",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49757/xhr/open-during-abort-processing.htm",
+          "worker_pid": 6850
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49757/xhr/open-during-abort-processing.htm",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 24,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49757/resources/testharness.js",
+          "worker_pid": 6850
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49757/xhr/open-during-abort-processing.htm",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 24,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49757/resources/testharnessreport.js",
+          "worker_pid": 6850
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot set properties of undefined (setting 'onabort')",
+            "name": "XMLHttpRequest: open() during abort processing - abort() called from onloadstart",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6850,
+          "rss_bytes": 33554432
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "xhr/open-during-abort.htm|window|:db3a441a0ca54e0cb20e0e52a140df0c",
+        "page_id": 25,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 96,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "485a7e808f8f4c0681cc38201c5ecdcb"
+          }
+        ],
+        "id": "e0d46eedb7174653acbf27a54e03ab96",
+        "ports": [
+          49764,
+          49765,
+          49766,
+          49767,
+          49768,
+          49769,
+          49770
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 264,
+          "teardown_ms": 927
+        },
+        "tls": {
+          "ca_sha256": "87402e4f72d4ed2c748b496a01d234a7b6f22c1f09b06b23730c6a3544450abd",
+          "certificate_sha256": "64a8822062dc9e9c9e25e831931ab2556750bdf0eaaf618ac958f14039e925f8"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "xhr/open-during-abort.htm|window|",
+      "path": "xhr/open-during-abort.htm",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:49764/xhr/open-during-abort.htm"
+          },
+          "page_id": "25",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1000,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:49764/xhr/open-during-abort.htm"
+          },
+          "page_id": "25",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 55,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 25,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1000,
+          "response_sha256": "48e07c86a8e5672ff6b1d530b248e57d3238fec936cbfd1b369c39140adc93f2",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49764/xhr/open-during-abort.htm",
+          "worker_pid": 6848
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 37,
+          "initiator": "http://localhost:49764/xhr/open-during-abort.htm",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 25,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49764/resources/testharness.js",
+          "worker_pid": 6848
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:49764/xhr/open-during-abort.htm",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 25,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:49764/resources/testharnessreport.js",
+          "worker_pid": 6848
+        },
+        {
+          "destination": "Fetch",
+          "elapsed_ms": 1,
+          "initiator": "http://localhost:49764/",
+          "method": "GET",
+          "mime": null,
+          "page_id": 25,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 3,
+          "started_ms": 62,
+          "status": null,
+          "terminal": "cancelled",
+          "url": "http://localhost:49764/xhr/resources/well-formed.xml",
+          "worker_pid": 6848
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "assert_array_equals: lengths differ, expected array [1, 4, 1] length 3, got [1] length 1",
+            "name": "XMLHttpRequest: open() during abort()",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 6848,
+          "rss_bytes": 33849344
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "ed6db2b1c9e385364abc384bd7413873ee0451d340a93d60efab71a3d36a36c9",
+    "size_bytes": 7225920
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/xhr/resources/xmlhttprequest-event-order.js": {
+      "mime": "text/javascript",
+      "sha256": "2c8e2374f5ff03df0af1f6babf812a0fa7c44c48541cffceea2ae70855c9d782",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/xhr/resources/xmlhttprequest-event-order.js": {
+      "mime": "text/javascript",
+      "sha256": "2c8e2374f5ff03df0af1f6babf812a0fa7c44c48541cffceea2ae70855c9d782",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 15.66,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "97c011b809ef677b30a42e60ce637cdaeb277fb428b179d2c930cb71fe9f9787",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "3d9676d239d31ea4c610c562acbf886252d52c52b064922ff885db922802504c",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "e9a660dcb232c775b72ed9ba2738298db127a8fac7cca7f25ab6a8ab2b5d082a",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "b321b009e9582cf7ad93747dbb1c722f97bde14543895d50e28907bd52861d77",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "cde0d323175e7716feca9edaf12d8452ffc04cb8a10edcd6da171a9f9a00f39e",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "c5cdd9cd935b93c2f01fa6a1e6e1ad358f5e7c26ef85da1129ac4d1c34559f07",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "16bc306b9f4f13cd07abc3ad66fdc17d211bd3bd74ef341fbe9d5567a4cf58ff",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "40b0863d03459431d2b60461a1bac1e381b798ce142bec48723d662696f02116",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "97c011b809ef677b30a42e60ce637cdaeb277fb428b179d2c930cb71fe9f9787",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "3d9676d239d31ea4c610c562acbf886252d52c52b064922ff885db922802504c",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "e9a660dcb232c775b72ed9ba2738298db127a8fac7cca7f25ab6a8ab2b5d082a",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "b321b009e9582cf7ad93747dbb1c722f97bde14543895d50e28907bd52861d77",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "cde0d323175e7716feca9edaf12d8452ffc04cb8a10edcd6da171a9f9a00f39e",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "c5cdd9cd935b93c2f01fa6a1e6e1ad358f5e7c26ef85da1129ac4d1c34559f07",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "16bc306b9f4f13cd07abc3ad66fdc17d211bd3bd74ef341fbe9d5567a4cf58ff",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "40b0863d03459431d2b60461a1bac1e381b798ce142bec48723d662696f02116",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": "f8a4878b8266e1eadb8b92f37ede7089399dd1705d0b3019a0470bebecb009f8",
+  "jobs": 4,
+  "outcome": {
+    "attempted": 25,
+    "environment_blocked": 0,
+    "required_finished": 25,
+    "required_passed": 8,
+    "required_total": 25,
+    "status": "failed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "e4eb69e5d8535a2a80acc75aa2135ac8906589607f383c7c7d1d3d904f0047ef",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "aa1f103dfa520a2bd9e3e4b2eff87ea6c2a13f772161cb942280552f9e89d117",
+    "worker_binary_sha256": "7aeb7580ae27dfa4f5ff897fade106d7b74a44c00721e94b990fc32028efd292",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "2c31393d06fea6e3a68adeec334edc84cd6e6df2",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": "abort",
+    "global": "window",
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 30,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "562f68287977e572022d797b5561c71bf89ba02968bfc90335119c46ad1709c1",
+    "untracked_file_count": 428,
+    "untracked_sha256": "c7ffb839c1295071d0318a8eda2b1ca5798152d6c2ea0e37369c5b3a893f092b"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

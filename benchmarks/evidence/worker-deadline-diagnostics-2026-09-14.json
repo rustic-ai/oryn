@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree signed diagnostic; not full workflow, WPT, performance or release qualification",
+  "goal_complete": false,
+  "source_tree_sha256": "f99e6613e8824906d298bb77dabc92415b85cc15d72e14d1ca8af85080868e2c",
+  "parent_sha256": "d88e8195d76a76fec231598b5c131d215f3939321d0cf52a0b6ac559898b1100",
+  "worker_sha256": "1a233a29beb55862ca0465a6def76dec111259384b57260ddf902e4a37ed6505",
+  "worker_code_directory_hash": "03338f3f264524d45991842418410da8ffec6a95",
+  "post_run_source_parent_worker_identities_unchanged": true,
+  "change": "Worker deadlines preserve their error category and limits while adding fixed, payload-free command labels, message identifiers and IPC-write/IPC-response/worker-execution phase context.",
+  "tests": {
+    "native": {"passed": 562, "failed": 0, "ignored": 6, "elapsed_seconds": 154.47},
+    "worker_client": {"passed": 20, "failed": 0},
+    "outcome_validators": {"passed": 33, "failed": 0},
+    "wpt_evidence_validators": {"passed": 6, "failed": 0},
+    "signed_cli": {"passed": 3, "failed": 0},
+    "strict_native_clippy": "passed",
+    "formatting": "passed",
+    "fixture_locks": "passed",
+    "signed_sandbox_probes": "passed: filesystem read, listener, outgoing connection and secret environment all denied/absent"
+  },
+  "mixed_workload": {
+    "scope": "concurrently launched controlled suites; configured job caps are not a measured simultaneous-readiness count; auth was not rerun on this candidate",
+    "booking": {"passed": 48, "planned": 48, "jobs": 4, "evidence": "booking-deadline-mixed-2026-09-14/summary.json"},
+    "forms": {"passed": 57, "planned": 57, "jobs": 3, "evidence": "forms-deadline-mixed-2026-09-14/summary.json"},
+    "shopping": {"passed": 21, "planned": 21, "jobs": 3, "evidence": "shopping-deadline-mixed-2026-09-14/summary.json"},
+    "framework": {"passed": 24, "planned": 24, "jobs": 3, "evidence": "framework-deadline-mixed-2026-09-14/summary.json"},
+    "all_source_matches_signed_build": true,
+    "all_fixture_cleanup_passed": true,
+    "all_booking_forms_shopping_final_oracles_verified": true
+  },
+  "wpt": {
+    "evidence": "worker-deadline-close-wpt-2026-09-14.json",
+    "files_passed": 0,
+    "files_planned": 9,
+    "assertions_passed": 5,
+    "assertions_failed": 13,
+    "assertions_timed_out": 3,
+    "environment_blocked": 0,
+    "elapsed_seconds": 14.125,
+    "gained_passes": [],
+    "lost_passes": []
+  },
+  "original_timeout": {
+    "status": "open; not reproduced, not fixed",
+    "evidence": "booking-timeout-investigation-2026-09-14.md",
+    "original_candidate_booking_passed": 35,
+    "original_candidate_booking_planned": 36,
+    "note": "The new candidate's 48 passing attempts do not replace the original failure or identify its cause. No deadlines were increased."
+  },
+  "remaining": [
+    "Research/extraction and persisted SaaS outcome corpora",
+    "Synchronous initial iframe realms and native WindowProxy/connected-window ownership",
+    "Complete per-document broker routing and agent placement/lifecycles",
+    "Broader WPT, clean-source security and performance qualification"
+  ]
+}

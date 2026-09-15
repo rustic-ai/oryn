@@ -1,0 +1,12 @@
+{
+  "case": "cancel_blocks_submission",
+  "sample": 3,
+  "case_id": "48c63b548f0e96a500c5374098832130",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "654ab7683821a9712c81f1f0a3268d5afc209dc80a2b7cc86a2cff4439f19c4a",
+  "elapsed_seconds": 0.219,
+  "final_oracle_verified": true
+}

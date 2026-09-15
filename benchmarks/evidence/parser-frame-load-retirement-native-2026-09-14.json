@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree native diagnostic; signed verification pending",
+  "goal_complete": false,
+  "source_tree_sha256": "bf2e6c63b9eddcb83d5a5a1803e13654974aa61a517ab4abbceb1224bd108351",
+  "regression": {
+    "test": "initial_frame_loads_skip_parser_removed_siblings",
+    "before": "Two parser-created external iframes, followed by parent-script removal of the second, fail startup with Execution(unknown JavaScript realm 2).",
+    "fix": "Check native realm execution liveness before initial frame load processing and before dispatching pending document loads.",
+    "after_cases": ["Parser removes second frame", "Parser removes both frames", "First frame load handler removes second frame"],
+    "assertions": ["Startup completes", "Only surviving frame receives load", "Removed Window remains closed", "Remaining iframe count matches removals"]
+  },
+  "verification": {
+    "native": {"passed": 568, "failed": 0, "ignored": 6, "elapsed_seconds": 158.91},
+    "strict_native_clippy": "passed",
+    "formatting": "passed",
+    "diff_check": "passed",
+    "oil_outcome_validator_tests": {"passed": 37, "failed": 0}
+  },
+  "before_signed_wpt": "window-document-accessor-signed-2026-09-14.json",
+  "remaining": ["Signed WPT rerun", "Signed OIL workflow regression checks", "Synchronous initial iframe creation", "Native WindowProxy and complete Window/document lifetime", "Per-document broker routing", "Persisted authenticated SaaS outcomes", "Full goal qualification"]
+}

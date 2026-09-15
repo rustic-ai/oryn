@@ -37,6 +37,7 @@ pub fn normalize(input: &str) -> String {
 fn split_comment(line: &str) -> (&str, Option<&str>) {
     let mut in_quote = None;
     let mut escaped = false;
+    let mut paren_depth = 0_u32;
 
     for (idx, c) in line.char_indices() {
         if escaped {
@@ -55,7 +56,11 @@ fn split_comment(line: &str) -> (&str, Option<&str>) {
             }
         } else if c == '"' || c == '\'' {
             in_quote = Some(c);
-        } else if c == '#' {
+        } else if c == '(' {
+            paren_depth = paren_depth.saturating_add(1);
+        } else if c == ')' {
+            paren_depth = paren_depth.saturating_sub(1);
+        } else if c == '#' && paren_depth == 0 {
             if idx > 0 {
                 let prev_char = line[..idx].chars().last().unwrap();
                 if prev_char.is_whitespace() {
@@ -611,6 +616,14 @@ fn should_not_quote_value(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selector_hash_is_not_an_inline_comment() {
+        assert_eq!(
+            normalize("wait visible css(#container:not(.disabled) #target) # ready"),
+            "wait visible css(\"#container:not(.disabled) #target\") # ready"
+        );
+    }
 
     #[test]
     fn test_auto_quote_click() {

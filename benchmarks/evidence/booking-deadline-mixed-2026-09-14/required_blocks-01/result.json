@@ -1,0 +1,13 @@
+{
+  "case": "required_blocks",
+  "sample": 1,
+  "case_id": "cd8b913d91de2dccdc8a06034ef25c8d",
+  "base": "http://127.0.0.1:54735/booking/cd8b913d91de2dccdc8a06034ef25c8d",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "0b90e253b51f714088eb5b935d01f676a52d15559c05242d522638b0773b46f1",
+  "returncode": 0,
+  "elapsed_seconds": 0.272,
+  "final_database_verified": true
+}

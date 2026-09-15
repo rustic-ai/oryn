@@ -1,0 +1,7 @@
+{
+  "supersedes_interpretation_of": "cli-regression.json",
+  "status": "invalid_setup",
+  "valid_cli_tests": 0,
+  "reason": "Both attempts overlapped bundle replacement/signing and failed signature validation before executing OIL. The initial batch passed=true field is a false positive and must not be counted.",
+  "valid_rerun": "cli-signed-regression.json"
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree native regression verification; signed replay pending",
+  "goal_complete": false,
+  "source_tree_sha256": "33b7bb48bf823a5c1273a3086f937626ea7fdcf71dc1ae8404b5eb9b9674aa34",
+  "native_test_binary_sha256": "325afc9c75d3f02887499da415c9122b9e7336e221d55eb39267feef98a4d43f",
+  "native_suite": {"passed": 520, "failed": 0, "ignored": 6, "elapsed_seconds": 141.62, "test_threads": 1},
+  "semantic_regressions": {"passed": 17, "failed": 0},
+  "strict_clippy": "passed",
+  "format_diff_checks": "passed",
+  "changes": [
+    "Accessible text traversal excludes HTML script/style/template and SVG script/style source, including inside shadow roots",
+    "Live-region compatibility names and caption/legend/figcaption labels use accessible traversal instead of raw textContent",
+    "Regression preserves slotted rendered labels and proves underlying DOM source text remains intact"
+  ],
+  "signed_qualification": "Existing signed source d195ffcc809df3b0945089687ad938abc22c6dc1cb09c3665a83a2146dc27a86 predates this change; its 12/12 OIL smoke result must not be attributed to the current source",
+  "remaining": [
+    "Signed OIL replay for this source",
+    "Computed-style and full accessibility/text extraction conformance",
+    "Cross-realm callback and fragment-parsing failures",
+    "Independent five-family workflow outcomes, recovery and concurrency verification",
+    "Remaining architecture gates and clean release qualification"
+  ]
+}

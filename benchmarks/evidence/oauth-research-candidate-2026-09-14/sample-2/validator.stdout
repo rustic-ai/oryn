@@ -1,0 +1,6 @@
+application compatibility OAuth passed: popup-pkce (native)
+application compatibility OAuth passed: redirect (native)
+application compatibility OAuth passed: mfa-handoff (native)
+application compatibility OAuth passed: popup-close-recovery (native)
+application compatibility OAuth passed: existing-session-sso (native)
+application compatibility OAuth corpus passed in domain mode: native

@@ -1,0 +1,108 @@
+{
+  "cases": [
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "authenticated": 0,
+      "logins": 2
+    }
+  ],
+  "records": [
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "title": "Approved",
+      "version": 2
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "action": "login",
+      "outcome": 303,
+      "authorized": 0,
+      "body_sha256": "131c955ca748255236d58cab0b91a2bc5f3fc261774179ffd9800431f04d9aa2"
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "action": "create",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "a5d66afe1739d2ec4694f07e1f30faa61320c2e34b575bd0d8ba6b1cc9c155c6"
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "action": "update",
+      "outcome": 401,
+      "authorized": 0,
+      "body_sha256": "2c0b1acc0de73569e071b09d88d037d0ef124ab6d7c6776d1c382a09e6824da9"
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "action": "login",
+      "outcome": 303,
+      "authorized": 0,
+      "body_sha256": "131c955ca748255236d58cab0b91a2bc5f3fc261774179ffd9800431f04d9aa2"
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "action": "update",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "e0462afc88695b5dad53c28bff3cfa50577559cbf8a57da083acb2fdedea44a6"
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "action": "logout",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "dccc8889d8c39bccfa5147d4e957fdedacca17dd0f74dfa07319b990c9035238"
+    }
+  ],
+  "views": [
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "page": "login",
+      "authorized": 0
+    }
+  ],
+  "expirations": [
+    {
+      "case_id": "b2410ea4d4a73dac21efd5470fb26835",
+      "reason": "after_create"
+    }
+  ]
+}

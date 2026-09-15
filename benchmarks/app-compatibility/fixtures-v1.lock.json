@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "locked": true,
+  "hash_algorithm": "sha256",
+  "source_set": "Each app's non-generated files, excluding node_modules, dist, out, build, .next, .nuxt, .output, .angular, .svelte-kit, and ssr-dist; hashes include sorted relative paths and file hashes.",
+  "frameworks": {
+    "angular": {"version": "22.1.4", "source_hash": "683a931f5bf44e216d19c579609f69e68bf9603a82708c300d407f6ae2b5ad93"},
+    "next": {"version": "16.3.3", "source_hash": "36b74452d7a315b2d028f243700d93e14c35d9bb9b68e428d376d1a1fe56446b"},
+    "nuxt": {"version": "4.5.2", "source_hash": "518afb6deae6ae1d86cb59f997d3b4d48d8de856d00b23639aaf7b830159b8aa"},
+    "preact": {"version": "10.29.8", "source_hash": "74167b8c68abda01610d11e3107addf420ddca7810a2080a47e40f24d0bae302"},
+    "react": {"version": "19.2.8", "source_hash": "b3782925dda6efe98119c991e560184a4086423e01aa2d247752c69946ec978d"},
+    "svelte": {"version": "5.56.10", "source_hash": "ed5c7892423badc39fdf3845172a37c4912bd395bc813202eb7ccccd8698f79e"},
+    "sveltekit": {"version": "2.70.3", "source_hash": "aa2fb4cf4eca730a9e69acc0334083c3a5afb760ff98a57920f67559cca1beaf"},
+    "vue": {"version": "3.5.42", "source_hash": "0347e57448ea9fb1fba0966f60ada6a518a1b71871111b9266ca4c76e273be87"}
+  },
+  "workspace": {
+    "package_json": "500dd115581a67aec9ec0505da3fc43f303e5a51c9d4b463f1aed1d0f7782e67",
+    "pnpm_lock": "3315518c1023c4c3c1592a2ad866772296c2bbc91d53d088da6a0e156b607829",
+    "pnpm_workspace": "27a7020578f8d4ae59af2256299ea669f815013f33443d3982cf4089e0e87f11",
+    "react_surface_oil": "9b0b9f81da081864b221bb9f40166484eb834f97cec1a399a7dab1e6f28ba743"
+  },
+  "oauth": {
+    "server": "61ddda6fe82646517141b5ef6653a23c30bdd0e9523d8ef13ee71d4efe6af246",
+    "existing_session_sso": "fb3bc7dc3c4b734bd44e4f5ca4cc923ecd4d0e789e5d13cf99b4864903b4cc44",
+    "mfa_handoff": "cd33d2f5ce13b81f0ac5534cf60e595c51ec903b2283573bae19daab0b372076",
+    "popup_close_recovery": "8c7b78f3816e0ad75b13399c7349bf313f64159f20bb7de409821074deabc0a2",
+    "popup_pkce": "007f29d3d0efc84e0332b3e99ea4aa6596bdc056bf1a9f2a2b5857c8679eb4df",
+    "redirect": "3bc15f932894829932e126ffa9116b5cd34514733cbf59e3a9c8740cfbb73748"
+  },
+  "harness": {
+    "chromium": "3cfd501541b4e2cf1b696721df18acc438d8c5693b8228553aaf5d264d8261a0",
+    "controlled_regression_validator": "f0ea5e14c537db68d8e0e4279d0050b7c72c560a6b8b3ad2ba29718db3844726",
+    "framework_validator": "dc48523ce7f1d8142a3e972ff46f170915abf28f08c7feff4b3cd3ceaac99079",
+    "limitations_validator": "105c8176f717a7bf41b524254b38ebc3ad299c0870cc92e742e65b5991df639f",
+    "oauth_validator": "6789d18eb3beb63c3a0cc691590b4515c73e8bd258d9b0113388291f82de18e7",
+    "wpt_manifest": "75157c982149030def24585e5297e65bdb1c9226670f240e7db9531fdcf0e1a2",
+    "wpt_validator": "e62c0d04be76e173e94da43e349407217d371a095de4c7aaaac2c407bc7e5468"
+  },
+  "app_compatibility_manifest": "f248364efd5f9baee4fdb5beb98c87e1780fcdbeae96bb9353bdf6d8b0b0902a"
+}

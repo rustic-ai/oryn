@@ -1,0 +1,12 @@
+{
+  "case": "overnight_time_blocks",
+  "sample": 2,
+  "case_id": "250bd179eb30dd2f9343b8b805c6bac9",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "ce0b89d3f7013ba2391a585aa2087c1fb8f70efbfdb6fe3e5389b07224be6791",
+  "elapsed_seconds": 0.275,
+  "final_oracle_verified": true
+}

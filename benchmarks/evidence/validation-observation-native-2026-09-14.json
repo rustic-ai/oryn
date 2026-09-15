@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "goal_complete": false,
+  "family_qualified": false,
+  "qualification": "signed-worker dirty-tree diagnostics; not full conformance or release qualification",
+  "source_tree_sha256": "c7b56b85ac80d8054b258de2aba8d7c27e42bb35a2f4248d4aadbcfb5de0d735",
+  "parent_sha256": "c8e082104dce73a82ca4f6c44ae82608eb40fa25eac6c345cd604f7a6d50a6d1",
+  "worker_binary_sha256": "8a7ac414f20f0b01f837b9d9d897fdc6c6541a7e8f309339b10ffe89fef7134e",
+  "worker_code_directory_hash": "d0ed49ad7d9d578dbb331e7f08e8b4a56a2ea8c6",
+  "worker_unsigned_build_sha256": "e0529b2d1995c04cd9ef84e7755f1e42d2006a70301e10e68afd5965d5bf5ca2",
+  "native": {"passed": 531, "failed": 0, "ignored": 6, "elapsed_seconds": 160.32, "binary_sha256": "bec112f1911c1eea31b14ec062657f8941ed0148e3630afca48baabe625718a9", "timing_caveat": "overlapped builds; not performance evidence"},
+  "common_contract_tests": {"passed": 80, "failed": 0},
+  "strict_native_clippy_format_diff": "passed",
+  "signature_and_sandbox_probes": "passed; protocol 10 and filesystem, listener, outgoing connection, environment-secret denials verified",
+  "oil_smoke": {"passed": 12, "total": 12, "script_returncode": 0, "qualification": "observation/no-unsupported smoke only", "evidence_directory": "oil-validation-observation-smoke-2026-09-14/"},
+  "implementation": [
+    "Optional native validation record on semantic nodes: will_validate, valid, value_missing, type_mismatch, custom_error",
+    "Native live DOM authority, independent of page getters and authored attributes",
+    "No custom error text or control values in validation records",
+    "Native focus state and validation changes flow into semantic upserts and flattened v4/v6 node wrappers",
+    "Mutation-cursor caching for unchanged checkpoints; mutation and graph reset invalidate the cache",
+    "Legacy/non-native adapters omit validation rather than inventing evidence"
+  ],
+  "regression_scope": ["required controls", "disabled-radio eligibility versus flags", "hidden invalid controls in full observation", "custom-error text non-disclosure", "hostile validity getter", "native focus", "recovery full observation and pre-snapshot delta", "unchanged checkpoint revision", "removed control retirement", "optional-field serialization roundtrip"],
+  "constraints_wpt": {
+    "evidence": "validation-observation-constraints-wpt-2026-09-14.json",
+    "baseline_evidence": "interactive-validation-constraints-wpt-2026-09-14.json",
+    "passed_files": 11,
+    "total_files": 28,
+    "passed_assertions": 690,
+    "failed_assertions": 230,
+    "previous_passes_regressed_or_missing": 0,
+    "comparison_key": "all 690 previous passing path/name pairs",
+    "environment_blocked": 0,
+    "runner_elapsed_seconds": 11.564,
+    "progress_elapsed_seconds": 9.7
+  },
+  "oil_outcomes": {
+    "evidence": "oil-validation-observation-signed-2026-09-14/summary.json",
+    "passed": 21, "planned": 21, "samples_per_case": 3, "jobs": 3,
+    "all_final_oracles_verified": true, "source_matches_signed_build": true,
+    "fixture_cleanup_returncode": 0, "fixture_cleanup_forced": false,
+    "signed_output_check": "required_blocks_submission-01/stdout.jsonl final observation exposes Full name will_validate=true, valid=false, value_missing=true and focused; final-oracle.json has zero requests and zero receipts"
+  },
+  "intermediate_test_failure": {
+    "source_tree_sha256": "39ca102be9273de6edfabe638f7755b691796843905a83684827c98323f888e9",
+    "native_passed": 530, "native_failed": 1, "native_ignored": 6,
+    "elapsed_seconds": 155.97,
+    "binary_sha256": "35ca9764051fdc934be87798e5a929b532ec09dbf9dd739741a60927dbfd746f",
+    "cause": "New regression inspected graph pending deltas after PageState::evaluate had consumed them into record_snapshot",
+    "resolution": "Assert at executable checkpoint before snapshot consumption; targeted and full rerun pass. Intermediate build stopped before signing; no qualification from it"
+  },
+  "remaining": ["Validation-report cancellation/history distinct from live invalid state", "Pattern, range, step, editing length and bad-input constraints", "Cross-document and lifecycle qualification of reporting", "Representative multi-step/framework OIL outcomes for all five families", "Remaining architecture, full Core WPT, clean-tree security and performance gates"]
+}

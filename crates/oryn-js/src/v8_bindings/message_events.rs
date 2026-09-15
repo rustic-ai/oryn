@@ -48,7 +48,7 @@ fn is_port(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> bool {
     same_wrapper
         && matches!(
             state.platform_objects.borrow().get(&id),
-            Some(PlatformObjectRecord::MessagePort)
+            Some(PlatformObjectRecord::MessagePort(_) | PlatformObjectRecord::DetachedMessagePort)
         )
 }
 
@@ -272,6 +272,35 @@ fn install_fields(
     };
     object.set_internal_field(2, fields.into());
     object.set_internal_field(3, brand.into());
+}
+
+pub(super) fn delivery<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    data: v8::Local<'s, v8::Value>,
+    transferred: &[v8::Local<'s, v8::Object>],
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let object =
+        create_event_object_with_interface(scope, state, "MessageEvent", "message", false, false)?;
+    initialize_empty(scope, state, object).ok_or(V8BindingError::Allocation("message payload"))?;
+    let fields = object
+        .get_internal_field(scope, 2)
+        .and_then(|value| v8::Local::<v8::Value>::try_from(value).ok())
+        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
+        .ok_or(V8BindingError::Allocation("message fields"))?;
+    fields.set_index(scope, 0, data);
+    let values = transferred
+        .iter()
+        .map(|port| (*port).into())
+        .collect::<Vec<_>>();
+    let ports = v8::Array::new_with_elements(scope, &values);
+    ports.set_integrity_level(scope, v8::IntegrityLevel::Frozen);
+    fields.set_index(scope, 4, ports.into());
+    let id = event_id(scope, object)?;
+    if let Some(record) = state.events.borrow_mut().get_mut(&id) {
+        record.is_trusted = true;
+    }
+    Ok(object)
 }
 
 pub(super) fn initialize_empty(

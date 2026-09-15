@@ -1,4 +1,4 @@
-//! Live, owner-traced validation state. Select is the first integrated control.
+//! Live, owner-traced validation state and constraint-validation algorithms.
 use super::*;
 
 pub(super) fn convert_submitter<'s>(
@@ -51,33 +51,19 @@ pub(super) fn submitter<'s>(
 }
 
 pub(super) fn is_submit_button(dom: &DomRuntime, button: NodeId) -> Result<bool, DomError> {
-    if !dom.is_element(button, "http://www.w3.org/1999/xhtml", "input")
-        && !dom.is_element(button, "http://www.w3.org/1999/xhtml", "button")
-    {
-        return Ok(false);
-    }
-    let kind = dom
-        .attribute_in_null_namespace(button, "type")?
-        .unwrap_or("");
-    Ok(
-        if dom.is_element(button, "http://www.w3.org/1999/xhtml", "input") {
-            kind.eq_ignore_ascii_case("submit") || kind.eq_ignore_ascii_case("image")
-        } else if dom.is_element(button, "http://www.w3.org/1999/xhtml", "button") {
-            kind.eq_ignore_ascii_case("submit")
-                || (!kind.eq_ignore_ascii_case("button")
-                    && !kind.eq_ignore_ascii_case("reset")
-                    && dom
-                        .attribute_in_null_namespace(button, "command")?
-                        .is_none()
-                    && dom
-                        .attribute_in_null_namespace(button, "commandfor")?
-                        .is_none()
-                    && !dom.parent(button)?.is_some_and(|parent| {
-                        dom.is_element(parent, "http://www.w3.org/1999/xhtml", "select")
-                    }))
-        } else {
-            false
-        },
+    dom.is_submit_button(button)
+}
+
+pub(super) fn is_control_interface(interface: &str) -> bool {
+    matches!(
+        interface,
+        "HTMLInputElement"
+            | "HTMLTextAreaElement"
+            | "HTMLSelectElement"
+            | "HTMLButtonElement"
+            | "HTMLFieldSetElement"
+            | "HTMLOutputElement"
+            | "HTMLObjectElement"
     )
 }
 
@@ -133,7 +119,7 @@ pub(super) fn request_submit(
         return Ok(false);
     }
     let result = (|| -> Result<bool, V8BindingError> {
-        if !skip_validation && !check_form(scope, state, form)? {
+        if !skip_validation && !validate_form(scope, state, form, true)? {
             return Ok(false);
         }
         let event =
@@ -162,15 +148,81 @@ pub(super) fn check_form(
     state: &Rc<V8BindingState>,
     form: NodeId,
 ) -> Result<bool, V8BindingError> {
-    let invalid = form_invalid_controls(&state.dom.borrow(), form)?;
+    validate_form(scope, state, form, false)
+}
+
+pub(super) fn validate_form(
+    scope: &mut v8::PinScope<'_, '_>,
+    state: &Rc<V8BindingState>,
+    form: NodeId,
+    report: bool,
+) -> Result<bool, V8BindingError> {
+    let invalid = state.dom.borrow().invalid_form_controls(form)?;
     let valid = invalid.is_empty();
+    let mut unhandled = Vec::new();
     for node in invalid {
-        let event = create_event_object(scope, state, "invalid", false, true)?;
-        let id = event_id(scope, event)?;
-        state.events.borrow_mut().get_mut(&id).unwrap().is_trusted = true;
-        dispatch_event(scope, state, node, event)?;
+        if fire_invalid(scope, state, node)? {
+            unhandled.push(node);
+        }
+    }
+    if report {
+        report_controls(scope, state, &unhandled)?;
     }
     Ok(valid)
+}
+
+pub(super) fn validate_control(
+    scope: &mut v8::PinScope<'_, '_>,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    report: bool,
+) -> Result<bool, V8BindingError> {
+    let invalid = {
+        let dom = state.dom.borrow();
+        dom.control_will_validate(node)? && !dom.control_validity(node)?
+    };
+    if invalid && fire_invalid(scope, state, node)? && report {
+        report_controls(scope, state, &[node])?;
+    }
+    Ok(!invalid)
+}
+
+fn fire_invalid(
+    scope: &mut v8::PinScope<'_, '_>,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+) -> Result<bool, V8BindingError> {
+    let event = create_event_object(scope, state, "invalid", false, true)?;
+    let id = event_id(scope, event)?;
+    state.events.borrow_mut().get_mut(&id).unwrap().is_trusted = true;
+    dispatch_event(scope, state, node, event)
+}
+
+fn report_controls(
+    scope: &mut v8::PinScope<'_, '_>,
+    state: &Rc<V8BindingState>,
+    controls: &[NodeId],
+) -> Result<(), V8BindingError> {
+    // Headless reporting brings the first available unhandled control into
+    // focus; its live validationMessage describes the problem. Do not select
+    // a new invalid control introduced by a callback, or report canceled ones.
+    for &node in controls {
+        let available = {
+            let dom = state.dom.borrow();
+            dom.is_connected(node)?
+                && dom.control_will_validate(node)?
+                && !dom.control_validity(node)?
+                && !dom.is_inert(node)?
+        };
+        if !available || css_suppresses_focus(state, node)? {
+            continue;
+        }
+        focus_html_element(scope, state, node, false)?;
+        // Focus handlers may intentionally move focus elsewhere. Do not
+        // override that decision by attempting the next invalid control.
+        break;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -342,16 +394,27 @@ pub(super) fn attribute<'s>(
     }
     let node = argument_node(scope, state, owner.into())?;
     let dom = state.dom.borrow();
-    if !dom.is_element(node, "http://www.w3.org/1999/xhtml", "select") {
+    if ![
+        "select", "input", "textarea", "button", "fieldset", "output", "object",
+    ]
+    .iter()
+    .any(|tag| dom.is_element(node, "http://www.w3.org/1999/xhtml", tag))
+    {
         return Err(invalid());
     }
     let value = match member {
-        "valueMissing" => dom.select_value_missing(node)?,
+        "valueMissing" => dom.control_value_missing(node)?,
         "customError" => !dom.custom_validity_message(node)?.is_empty(),
-        "valid" => dom.select_validity(node)?,
-        // These constraints never apply to select controls.
-        "typeMismatch" | "patternMismatch" | "tooLong" | "tooShort" | "rangeUnderflow"
-        | "rangeOverflow" | "stepMismatch" | "badInput" => false,
+        "valid" => dom.control_validity(node)?,
+        "typeMismatch" => dom.control_type_mismatch(node)?,
+        "rangeUnderflow" => dom.control_numeric_validity(node)?.range_underflow,
+        "rangeOverflow" => dom.control_numeric_validity(node)?.range_overflow,
+        "stepMismatch" => dom.control_numeric_validity(node)?.step_mismatch,
+        "patternMismatch" => dom.control_pattern_mismatch(node)?,
+        // Remaining input constraint algorithms are not implemented yet.
+        "tooLong" => dom.control_length_validity(node)?.1,
+        "tooShort" => dom.control_length_validity(node)?.0,
+        "badInput" => false,
         _ => return Err(invalid()),
     };
     Ok(v8::Boolean::new(scope, value).into())

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree native diagnostic, no new signed qualification",
+  "goal_complete": false,
+  "current_source_tree_sha256": "3a27dde97b69bb4fcfc06ec86e275ac0e46da1ae30560be6ab92965aa853e309",
+  "change": "Extract native frame lifetime registration from the driver into a scope-based helper, deriving owner and environment identities from native context slots. Driver registration uses the same helper.",
+  "checks": {
+    "full_native": {"passed": 570, "failed": 0, "ignored": 6, "elapsed_seconds": 159.54, "scope": "Same runtime implementation; compiled before extending the ownership test to invoke registration from JavaScript"},
+    "frame_tests": {"passed": 53, "failed": 0},
+    "callback_test": {"passed": 1, "failed": 0, "elapsed_seconds": 0.03, "scope": "Extended ownership test registers from an active native callback, preserves caller context, retires on removal and rejects revival"},
+    "strict_native_clippy": "passed"
+  },
+  "preserved_failure_evidence": "A stricter connected-element requirement initially broke two parser-removal regressions. The legacy parser links some already-removed frames before retiring them at its lifecycle checkpoint; that ordering is preserved until insertion-time creation replaces it.",
+  "remaining": ["Insertion-time initial Window/document creation", "Full native WindowProxy linkage", "Window/document reuse and navigation policy", "Per-document broker routing", "Persisted authenticated SaaS workflows", "Signed and full-goal qualification"]
+}

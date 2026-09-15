@@ -1,0 +1,8 @@
+{
+  "qualification": "dirty-source signed diagnostic, not task completion or release acceptance",
+  "source_tree_sha256": "8f69007ca226beb2ec4e4809b544c3389b58569b76c54d765c893bd6743e841b",
+  "worker_sha256": "f2cbdab25c3098b791d5015a781472793d5c4dceb1374df6ea9c76541b549431",
+  "worker_code_directory_hash": "66952e039e84dd3df048da74fcc813e1bf3286cb",
+  "result": {"babel":"object","root":0,"rawMatches":true,"scriptText":["test","",null],"manual":"requested"},
+  "interpretation": "Raw script serialization is repaired. Assigning script.text stores an expando without native text children. Manual Babel.transformScriptTags no longer reports a syntax error, but is diagnostic only; automatic React startup remains failing."
+}

@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree signed-worker diagnostic; not release qualification",
+  "goal_complete": false,
+  "family_qualified": false,
+  "source_sha256": "22f5f7b87d52319f643f692f8d534b05be995fb46636e0c4e0328577991ac72c",
+  "parent_sha256": "db4cc505d25f6d98562629545f49effebf8ec8ef7faa87fd9f9bebddff4a0463",
+  "signed_worker_sha256": "38dc39f40407e64ef6966411a6d406e6c14a64d15a4f2a3fde030ebe753a0294",
+  "worker_build_sha256": "b7b5869db750f3733924aceeea974cc384580fd373bf45f7bea8477b6645cbb9",
+  "code_directory_hash": "d441656e8f3da9073f1ffab6c02d82837f72c7b6",
+  "signing_scope": "Apple Development signed worker bundle; parent recorded by executable SHA-256",
+  "webidl_manifest_sha256": "4098bd4bb1c7c35a73b23c60c4ab0ad8dba0d1c34e668aaa792b89bdfc9e3acb",
+  "v8": {
+    "archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "implementation": [
+    "Native valueAsNumber, valueAsDate, stepUp and stepDown through the ordinary dirty-value, sanitization and mutation journal paths",
+    "UTC calendar conversion, ISO weeks, negative and large time wrapping, Date internal-slot reads without authored method calls",
+    "Bounded exact decimal stepping, min/max snapping, zero/negative/large counts and empty-value initialization",
+    "Web IDL long coercion, nullable object conversion and correct JavaScript TypeError versus DOMException behavior",
+    "Programmatic numeric changes do not emit synthetic user input/change events"
+  ],
+  "standards_and_interoperability": {
+    "html": "https://html.spec.whatwg.org/multipage/input.html#dom-input-stepup",
+    "nullable_conversion": "https://webidl.spec.whatwg.org/#js-nullable-type",
+    "chromium_reference": "https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/core/html/forms/input_type.cc",
+    "stepping_note": "Uses browser-compatible empty-value initialization, effective signed count direction and snapping that consumes the first step. These choices follow Blink ApplyStep and the pinned empty-value WPT rather than claiming literal agreement with all current HTML algorithm wording. No Chromium implementation code copied."
+  },
+  "tests": {
+    "native": {
+      "passed": 534, "failed": 0, "ignored": 6,
+      "elapsed_seconds": 149.56,
+      "binary_sha256": "ad91b62574d6dd8da9ddba18873c6aa6fc8d6f1356808ec5917d168b1c8eec54",
+      "features": "v8-host,v8-sandbox,in-process-probe,core-full"
+    },
+    "javascript": {
+      "passed": 272, "failed": 0, "ignored": 3,
+      "elapsed_seconds": 4.26,
+      "binary_sha256": "8778c3c97cbb190473a2b4347cfc85e1c2d3a09886f893eedb086c2a65a4412f",
+      "features": "v8-host,v8-sandbox"
+    },
+    "dom_passed": 112,
+    "common_passed": 80,
+    "parser_passed": 31,
+    "webidl_passed": 10,
+    "independent_oracle_passed": 10,
+    "strict_native_clippy": "passed",
+    "rustfmt_generated_registry_ruff_diff_check": "passed",
+    "signed_worker_signature_designated_requirement_protocol10_sandbox_denials": "passed",
+    "timing_scope": "Regression execution timings, with overlapping builds; not performance qualification"
+  },
+  "wpt": {
+    "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "parent_mode": "persistent",
+    "worker_lifecycle": "isolated_prewarmed",
+    "jobs_per_run": 4,
+    "api_selection": {
+      "inventory": "numeric-api-selection-2026-09-14.inventory.json",
+      "evidence": "numeric-apis-wpt-2026-09-14.json",
+      "files_passed": 13, "files_total": 13,
+      "assertions_passed": 182, "assertions_failed": 0,
+      "environment_blocks": 0, "runner_elapsed_seconds": 8.056,
+      "intermediate_passes_retained": 181, "lost_or_missing_passes": 0
+    },
+    "input_selection": {
+      "inventory": "numeric-input-selection-2026-09-14.inventory.json",
+      "evidence": "numeric-apis-inputs-wpt-2026-09-14.json",
+      "baseline": "numeric-calendar-decimal-inputs-wpt-2026-09-14.json",
+      "files_passed": 8, "files_total": 8,
+      "assertions_passed": 150, "assertions_failed": 0,
+      "baseline_passes_retained": 122, "gains": 28, "lost_or_missing_passes": 0,
+      "environment_blocks": 0, "runner_elapsed_seconds": 5.514
+    },
+    "constraint_selection": {
+      "evidence": "numeric-apis-constraints-wpt-2026-09-14.json",
+      "baseline": "numeric-calendar-decimal-constraints-wpt-2026-09-14.json",
+      "files_passed": 20, "files_total": 28,
+      "assertions_passed": 861, "assertions_failed": 59,
+      "baseline_passes_retained": 861, "lost_or_missing_passes": 0,
+      "environment_blocks": 0, "runner_elapsed_seconds": 10.595,
+      "remaining": {"pattern": 54, "textarea_default_value_editing": 4, "emoji_maxlength": 1}
+    }
+  },
+  "oil": {
+    "evidence": "oil-numeric-apis-signed-2026-09-14/summary.json",
+    "contract_version": 3, "cases": 14, "samples_per_case": 3, "jobs": 3,
+    "passed": 42, "planned": 42, "all_final_oracles_verified": true,
+    "source_matches_signed_build": true, "timeouts": 0,
+    "fixture_cleanup": {"returncode": 0, "forced": false},
+    "new_case": "native_numeric_api_adjustment",
+    "new_case_evidence": "oil-numeric-apis-signed-2026-09-14/native_numeric_api_adjustment-01/final-oracle.json",
+    "new_case_expected_fields": {"quantity": "5", "date": "2026-10-02", "time": "23:01"},
+    "new_case_observed": "Exactly one accepted server receipt, viewed twice (initial navigation and reload); all three samples verified",
+    "scope": "OIL clicks the application button; no evaluator substitutes for actions. Server oracle independently checks the exact ordered submitted fields. Version 3 adds a case and an application control; not identical-fixture comparison with version 2."
+  },
+  "smoke": {
+    "evidence_directory": "oil-numeric-apis-smoke-2026-09-14",
+    "passed": 12, "total": 12,
+    "scope": "Observation/error smoke, not independent end-state qualification"
+  },
+  "preserved_intermediate": {
+    "source_sha256": "e29cd73905d6beaafcec440cbf88d1cfc03d6e8e9fd91a18234d60305e00b8b1",
+    "parent_sha256": "6e752e0d32ce5c79a5a35dc2d5a7f5c2fff7616531866d675f860f134dd15ac4",
+    "signed_worker_sha256": "cc61089f29397f38321e49d510decdefddd3add74fd4cb6c7af0006e416e355f",
+    "api_evidence": "numeric-apis-initial-wpt-2026-09-14.json",
+    "api_assertions_passed": 181, "api_assertions_failed": 1,
+    "failure": "input-stepdown-02 expected 7 for an empty number input with min=7; received empty string",
+    "input_evidence": "numeric-apis-initial-inputs-wpt-2026-09-14.json",
+    "additional_red_regression": "After this candidate, adding valueAsDate=undefined reproduced a TypeError in the native API regression before the conversion fix",
+    "resolution": "Corrected, rebuilt, signed and replayed final source; earlier raw WPT evidence retained unchanged"
+  },
+  "remaining_scope": [
+    "Pattern constraints, textarea defaultValue and editing/badInput behavior",
+    "Independent outcomes and representative applications across all five workflow families",
+    "Connected-window, per-environment routing and independent worker-agent architecture",
+    "Full Core WPT and clean-source security, performance and Linux qualification"
+  ]
+}

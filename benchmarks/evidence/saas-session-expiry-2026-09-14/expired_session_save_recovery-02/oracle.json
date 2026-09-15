@@ -1,0 +1,108 @@
+{
+  "cases": [
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "authenticated": 0,
+      "logins": 2
+    }
+  ],
+  "records": [
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "title": "Approved",
+      "version": 2
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "action": "login",
+      "outcome": 303,
+      "authorized": 0,
+      "body_sha256": "131c955ca748255236d58cab0b91a2bc5f3fc261774179ffd9800431f04d9aa2"
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "action": "create",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "c59e65c1da7cb31c5d1afb0556739d2b51a696647bef7e6d5511acac0a3ba68a"
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "action": "update",
+      "outcome": 401,
+      "authorized": 0,
+      "body_sha256": "188b150d5d169590277f469c4924c08626401f18bdab28b46763b3bd83001ecc"
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "action": "login",
+      "outcome": 303,
+      "authorized": 0,
+      "body_sha256": "131c955ca748255236d58cab0b91a2bc5f3fc261774179ffd9800431f04d9aa2"
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "action": "update",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "24799d7893ce86b3b815bcdac99a444f48e5d36ce44f4f1ce0f29d8ad3393628"
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "action": "logout",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "1907fd6218338fc84204f78e0da2f6d1981eff570ecbc72e25621027e2cd7985"
+    }
+  ],
+  "views": [
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "page": "login",
+      "authorized": 0
+    }
+  ],
+  "expirations": [
+    {
+      "case_id": "856e09b8d9f9fabba95fe30843c68e7f",
+      "reason": "after_create"
+    }
+  ]
+}

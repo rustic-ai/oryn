@@ -1,0 +1,16 @@
+{
+  "case": "email_recovery",
+  "sample": 1,
+  "case_id": "c2dc2942b2f37f6f6a22206b9e5dd59e",
+  "passed": false,
+  "errors": [
+    "OIL process failed or timed out",
+    "missing or failed OIL outputs",
+    "expected 1 POST/receipt, got 0/0",
+    "final browser location does not match expected outcome"
+  ],
+  "timed_out": false,
+  "returncode": 1,
+  "task_sha256": "9f0b863f023639547b3e28144f85b866b3d3ae84bb472e7fd1f7d01311a12ddb",
+  "elapsed_seconds": 0.16
+}

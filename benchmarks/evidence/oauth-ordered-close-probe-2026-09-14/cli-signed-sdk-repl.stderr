@@ -1,0 +1,7 @@
+Native document loaded. Enter OIL; type 'exit' or 'quit' to close.
+OIL parse error: Pest error:  --> 1:1
+  |
+1 | invalid-command-for-regression
+  | ^---
+  |
+  = expected oil_input

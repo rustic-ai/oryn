@@ -1,0 +1,9 @@
+{
+  "case": "popup-close-recovery",
+  "sample": 2,
+  "passed": true,
+  "errors": [],
+  "returncode": 0,
+  "timed_out": false,
+  "elapsed_seconds": 0.1914868331514299
+}

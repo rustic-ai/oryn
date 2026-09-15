@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree local diagnostic, not release qualification",
+  "base_commit": "c3543ed",
+  "source_tree_sha256": "09bcaab42b3a465f6cad0a3b923b81b2e99ac6be9e5048dbce0ea9b4bddfc8a4",
+  "native_test_binary_sha256": "5dd58355dad3e1dba366ad5f4678a7762517191f9ee5c6c15f92c82318cfa2ca",
+  "worker_protocol_version": 10,
+  "context_protocol_version": 11,
+  "network_protocol_version": 5,
+  "native_suite": {
+    "features": ["v8-host", "v8-sandbox", "in-process-probe", "core-full"],
+    "test_threads": 1,
+    "passed": 489,
+    "failed": 0,
+    "ignored": 6,
+    "elapsed_seconds": 141.12
+  },
+  "strict_v8_library_clippy": "passed",
+  "format_and_diff_checks": "passed",
+  "linux": {
+    "command": "cargo check --locked --release -p oryn-native --no-default-features",
+    "result": "passed",
+    "elapsed_seconds": 4.15,
+    "source_archive_sha256": "76946998933ca1945db7b0f71ffb8efed611d53c1b1e82ea77bb5b6eb4b82f60",
+    "scope": "ARM64 isolated release compilation only; no pool or V8 qualification"
+  },
+  "initial_failed_run": "browser-v10-routing-initial-2026-09-13.json",
+  "harness_tooling_tests": {"run": 140, "skipped": 22, "failed": 0},
+  "signed_qualification": {
+    "result": "signature, designated requirement, sandbox-denial, DOM-mutation and authorized-network probes passed",
+    "parent_sha256": "f76e43a0106e1c6a285d701515a4b7a887fedad8b08298fe2a475d3976e90cf0",
+    "unsigned_worker_sha256": "17aee263c892577c5b28bdf4a8933228e9692cedba5af108edb6d1b5c075b28a",
+    "signed_worker_sha256": "b8470e36cb331cc1fbd83813722ceeddcd3eba826c7b937f6d9e68279b33986c",
+    "code_directory_hash": "0f9e6906c7a1b935ac3331e5f5bd5fa074f56d16",
+    "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "v8_bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "recycled_smoke": {
+    "pages": 3,
+    "warm_action_count": 100,
+    "javascript_marker_erased": true,
+    "reset_or_close_ms": [0.388458, 0.280042, 3.425166],
+    "example_binary_sha256": "b8e62dbc3b1c950ba392bfeb54cd9953ff8a4b351283c4eda0efe48d3b4e1033",
+    "qualification": "functional smoke only; not a performance acceptance run or exhaustive state-erasure proof",
+    "startup_metric_note": "Example schema-v5 cold/cached field names are not applicable to recycled mode because prepare_workers runs before timing. No cold-start claim is made."
+  },
+  "wpt": {
+    "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "runner": "existing diagnostic runner, not W0/W2 upstream executor qualification",
+    "timers": {
+      "passed_files": 10,
+      "total_files": 13,
+      "environment_blocked": 0,
+      "elapsed_seconds": 40.262,
+      "result": "browser-v10-routing-timers-wpt-2026-09-13.json",
+      "result_sha256": "736894f16b0dc9d94f066e4179ff858cd0b181e277f07deeecbf86462c929086",
+      "remaining": ["setinterval-cross-realm-callback-report-exception.html: harness timeout", "settimeout-cross-realm-callback-report-exception.html: harness timeout", "settimeout-detached-iframe.html: null initial contentWindow"]
+    },
+    "templates": {
+      "passed_files": 8,
+      "total_files": 67,
+      "environment_blocked": 0,
+      "elapsed_seconds": 47.598,
+      "result": "browser-v10-routing-templates-wpt-2026-09-13.json",
+      "result_sha256": "e17d890ed495a495ed5e4ef018d33fa1e31e8bd99f8aaf8dbf4a5c0a0e5a7727"
+    },
+    "adoption": {
+      "passed_files": 3,
+      "total_files": 3,
+      "environment_blocked": 0,
+      "elapsed_seconds": 6.505,
+      "result": "browser-v10-routing-adoption-wpt-2026-09-13.json",
+      "result_sha256": "9c897521f8ab5f462dcd7a996b62bdad858203159b25db344da53d2f7b82f6f9"
+    }
+  },
+  "scope": "Authenticated root-page binding credentials; not per-document or multi-environment routing",
+  "p0_complete": false
+}

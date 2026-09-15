@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree native diagnostic; not a new signed or WPT qualification",
+  "goal_complete": false,
+  "source_tree_sha256": "58bfd0c18794c0cb054b1e8480c2428e7b4a61e689acc59a1cb07119c763b628",
+  "change": "Driver and callback-created realms share scope-based native document installation, including platform-host attachment, supplied Trusted Types/eval policy, previous-state retirement and environment binding. Realm mismatch or retired environment is rejected before replacing bindings.",
+  "tests": {
+    "native": {"passed": 566, "failed": 0, "ignored": 6, "elapsed_seconds": 148.16},
+    "strict_native_clippy": "passed",
+    "formatting": "passed",
+    "diff_check": "passed"
+  },
+  "verified": [
+    "The existing callback realm test now uses the same document installer as the production driver.",
+    "A callback-created child enforces its supplied raw-HTML, policy-creation and eval restrictions while its caller can still eval.",
+    "Callback context restoration, native document ownership, opaque-origin denial, pending-realm adoption, retirement and retained DOM access remain covered.",
+    "Invalid realm identity and retired execution environments leave the previous V8 binding state untouched."
+  ],
+  "remaining": [
+    "Wire synchronous iframe insertion to native realm creation and bootstrap; this prerequisite does not yet change iframe timing.",
+    "Replace provisional JavaScript WindowProxy linkage and complete initial about:blank reuse/navigation semantics.",
+    "Make per-document policy inheritance and broker routing explicit; the driver's existing policy-selection behavior is preserved in this refactor.",
+    "Persisted SaaS outcomes, broader research, full WPT and clean-source security/performance gates remain open."
+  ],
+  "previous_signed_evidence": "research-extraction-signed-2026-09-14.json"
+}

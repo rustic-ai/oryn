@@ -1,0 +1,849 @@
+{
+  "assertions": [
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/Window-document.html|window|:ff0cbf2b319348069a6f3d3ad23176f3",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 111,
+        "teardown_ms": 14,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "28b20833c3e54cc3a07301693c296a8a"
+          }
+        ],
+        "id": "1623833100f94569bdd05beb1761ddd0",
+        "ports": [
+          57367,
+          57370,
+          57374,
+          57377,
+          57382,
+          57386,
+          57387
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 250,
+          "teardown_ms": 940
+        },
+        "tls": {
+          "ca_sha256": "b98bbec9307c4b32a91459c20db4a38c474db19352f070c071bdebb7825e8128",
+          "certificate_sha256": "4eb22ce73665d9ce05f0dab8bbe2357220cde6c18faa72acf420b27cb26b4d98"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/Window-document.html|window|",
+      "path": "html/browsers/the-window-object/Window-document.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:57367/html/browsers/the-window-object/Window-document.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 915,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:57367/html/browsers/the-window-object/Window-document.html"
+          },
+          "page_id": "3",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 11,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 915,
+          "response_sha256": "a7902a80dd50287fbac5be51b067361f4b5a649b4271d9c52bb32d36242dfc21",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57367/html/browsers/the-window-object/Window-document.html",
+          "worker_pid": 23736
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:57367/html/browsers/the-window-object/Window-document.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57367/resources/testharness.js",
+          "worker_pid": 23736
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:57367/html/browsers/the-window-object/Window-document.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57367/resources/testharnessreport.js",
+          "worker_pid": 23736
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot read properties of null (reading 'document')",
+            "name": "Document in a browsing context",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 23736,
+          "rss_bytes": 37470208
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/document-attribute.window.js|window|:50400a7495d04ebd8a6a9a3df6f8c3ee",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 194,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "1c84da66ce9345488345edd0918d2093"
+          }
+        ],
+        "id": "fea81cf74613428f8c7562e466a297b8",
+        "ports": [
+          57368,
+          57369,
+          57371,
+          57372,
+          57376,
+          57380,
+          57383
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 249,
+          "teardown_ms": 358
+        },
+        "tls": {
+          "ca_sha256": "b98bbec9307c4b32a91459c20db4a38c474db19352f070c071bdebb7825e8128",
+          "certificate_sha256": "4eb22ce73665d9ce05f0dab8bbe2357220cde6c18faa72acf420b27cb26b4d98"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/document-attribute.window.js|window|",
+      "path": "html/browsers/the-window-object/document-attribute.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:57368/html/browsers/the-window-object/document-attribute.window.html"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 250,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:57368/html/browsers/the-window-object/document-attribute.window.html"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 10,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 250,
+          "response_sha256": "2a549014c30daa375505ed14fa485b19dac239081fac70fc246d8b8543652ff6",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57368/html/browsers/the-window-object/document-attribute.window.html",
+          "worker_pid": 23737
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:57368/html/browsers/the-window-object/document-attribute.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57368/resources/testharness.js",
+          "worker_pid": 23737
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57368/html/browsers/the-window-object/document-attribute.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57368/resources/testharnessreport.js",
+          "worker_pid": 23737
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:57368/html/browsers/the-window-object/document-attribute.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 516,
+          "response_sha256": "0acd75c7ebc31de177d379abff4806edbc57896c8d6f438fd4b4e73bc79d8e8d",
+          "sequence": 3,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:57368/html/browsers/the-window-object/document-attribute.window.js",
+          "worker_pid": 23737
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Window object's document IDL attribute and discarding the browsing context",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 23737,
+          "rss_bytes": 38305792
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "diagnostics": [
+        "native script realm failed: JavaScript execution failed: unknown JavaScript realm 2"
+      ],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": false,
+        "error": "native script realm failed: JavaScript execution failed: unknown JavaScript realm 2",
+        "id": "html/browsers/the-window-object/window-properties.https.html|window|:bce9afd5125a44cb8e28835397fb03f5",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 97,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": [
+          "completion_not_object"
+        ]
+      },
+      "failure_domain": "runtime",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "3e5b746f5a944ca8861607096ea65d56"
+          }
+        ],
+        "id": "631c14c959b34e0480212c57f123ec6b",
+        "ports": [
+          57373,
+          57375,
+          57378,
+          57379,
+          57381,
+          57384,
+          57385
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 249,
+          "teardown_ms": 925
+        },
+        "tls": {
+          "ca_sha256": "b98bbec9307c4b32a91459c20db4a38c474db19352f070c071bdebb7825e8128",
+          "certificate_sha256": "4eb22ce73665d9ce05f0dab8bbe2357220cde6c18faa72acf420b27cb26b4d98"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/window-properties.https.html|window|",
+      "path": "html/browsers/the-window-object/window-properties.https.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "https://localhost:57375/html/browsers/the-window-object/window-properties.https.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        }
+      ],
+      "raw_completion": null,
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 5,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 11206,
+          "response_sha256": "41c73c51c23079906147ac6b5ac68d6e70b3471c6d98d7d367f5b3c20a36d0cb",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "https://localhost:57375/html/browsers/the-window-object/window-properties.https.html",
+          "worker_pid": 23738
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 4,
+          "initiator": "https://localhost:57375/html/browsers/the-window-object/window-properties.https.html",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 379,
+          "response_sha256": "ae7809e074d7607b721c6ca6619382f638072a9bbdd83ed9d578f380e1d7cc6a",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "https://localhost:57375/resources/blank.html",
+          "worker_pid": 23738
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 4,
+          "initiator": "https://localhost:57375/html/browsers/the-window-object/window-properties.https.html",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 379,
+          "response_sha256": "ae7809e074d7607b721c6ca6619382f638072a9bbdd83ed9d578f380e1d7cc6a",
+          "sequence": 2,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "https://localhost:57375/resources/blank.html",
+          "worker_pid": 23738
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 41,
+          "initiator": "https://localhost:57375/html/browsers/the-window-object/window-properties.https.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 3,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "https://localhost:57375/resources/testharness.js",
+          "worker_pid": 23738
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "https://localhost:57375/html/browsers/the-window-object/window-properties.https.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 4,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "https://localhost:57375/resources/testharnessreport.js",
+          "worker_pid": 23738
+        }
+      ],
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 23738,
+          "rss_bytes": 38027264
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "7a91af0aeec28fdacfea3e6c473701c2ad64a964b47b725d73342729a641e9e8",
+    "size_bytes": 7275920
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 3.988,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "1a91ec8aa31f8b4c19e4bf36f6b8d6f6d13e8a5bf8314a6c444b5630b661f4e8",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "caa232ff877c83faa2daa84d082be06af44f342aa065785ff42c267262144c13",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "4ddc2b7925bdd5c9d631dc75db67dc58a79367627ae65fa1a40b83ef6fb24399",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "072dc60a2c472d79f03dbc18f68786e1f5589ace02bb1315411097e657bef2d3",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "2b51a70fe9f08a7e7aacd54453539dd32d14e6310d5481007f356be8cc81936f",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "89c8aa01b9cd646d82ca4a9fa1281e9e235919bf87dd33d0eb25dd0628c9ef00",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "401b65ab27684f116dc0d6051ba820b2f5493f4f85f62a247b5022c245c66585",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "63a7a1922dd364d348416e70dd72b3cbd5d10b934b23e2f1f8f05b7eb01e5a82",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "1a91ec8aa31f8b4c19e4bf36f6b8d6f6d13e8a5bf8314a6c444b5630b661f4e8",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "caa232ff877c83faa2daa84d082be06af44f342aa065785ff42c267262144c13",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "4ddc2b7925bdd5c9d631dc75db67dc58a79367627ae65fa1a40b83ef6fb24399",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "072dc60a2c472d79f03dbc18f68786e1f5589ace02bb1315411097e657bef2d3",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "2b51a70fe9f08a7e7aacd54453539dd32d14e6310d5481007f356be8cc81936f",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "89c8aa01b9cd646d82ca4a9fa1281e9e235919bf87dd33d0eb25dd0628c9ef00",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "401b65ab27684f116dc0d6051ba820b2f5493f4f85f62a247b5022c245c66585",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "63a7a1922dd364d348416e70dd72b3cbd5d10b934b23e2f1f8f05b7eb01e5a82",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": "f15e6fba36457a1995ce1ff7f47cadd56c76afdbd1522b4c759061fed08a4168",
+  "jobs": 3,
+  "outcome": {
+    "attempted": 3,
+    "environment_blocked": 0,
+    "required_finished": 3,
+    "required_passed": 1,
+    "required_total": 3,
+    "status": "failed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "988d8cab711693bc0e6a9ed0ad53de681998d709db28d61a21d609dbdf30053e",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "d7b8200f463c98f55936cc1776dc4fe80ce942bf68821f66098663fe576cb903",
+    "worker_binary_sha256": "a16470dc768613d8a870b00250504d7252f6dcb827d270e81c1fd7c8124fad05",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "4081e2523f14f23d9bd5075799ae067b5e8b8227",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": null,
+    "global": "window",
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 30,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "5eede4c9ceac9067e81ef9f6babb67fd6579c8f284ce373b6070d080ccead25f",
+    "untracked_file_count": 11903,
+    "untracked_sha256": "71527afbe68a648d0dfa01bb103cd305cb5fc65acfcca8288d660b63901027ec"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

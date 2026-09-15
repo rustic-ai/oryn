@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "planned": 8,
+  "builds": {
+    "angular": {
+      "command": [
+        "pnpm",
+        "--filter",
+        "app-compatibility-angular",
+        "run",
+        "build"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 2.103,
+      "status": "passed",
+      "sha256": "cda5e9c3cf598d2bf204ba6b9c120cb58a93a60a4e3d26b3921e3572fd00fcf7",
+      "files": {
+        "index.html": "feacf1a11a10ce6772b44332f8b2affae0995115bf2c7dfc1a95a219b02a079b",
+        "main.js": "e480df2ccfb41b9e6481755b946f1de6cf73d52ee9dbf9de58528872269cf297"
+      },
+      "artifact": "served/cda5e9c3cf598d2bf204ba6b9c120cb58a93a60a4e3d26b3921e3572fd00fcf7"
+    },
+    "next": {
+      "command": [
+        "pnpm",
+        "--filter",
+        "app-compatibility-next",
+        "run",
+        "build"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 7.188,
+      "status": "passed",
+      "sha256": "386969f6bf0a90a0cee5860a3750cb919ed7fa93ebce34bc4b4d50a6612c2111",
+      "files": {
+        "404/index.html": "152dbb631ed50676bb8dbe83a3911cdb0f54d216116532f47eb9b4a84ecab651",
+        "404.html": "152dbb631ed50676bb8dbe83a3911cdb0f54d216116532f47eb9b4a84ecab651",
+        "_next/static/chunks/867-cb9473ace2096461.js": "b46c7bb9c4817fbf6bc35c450bb6da569150d8e1054bd95e470dc49d6a32a162",
+        "_next/static/chunks/framework-c951146618502ce6.js": "d929a13405f768a649beac919b1779a88074e01bd141f7b40ef85efbb2e0b72a",
+        "_next/static/chunks/main-8c3aba94c21bee0a.js": "e6273a76a11b1750e6421d40391362bc463770585f4176277cbfd100881d876e",
+        "_next/static/chunks/pages/_app-79c3ec695c907ee7.js": "bcf7b851139355a751585cc654953c74dba2058576b1053cec1a5485a39a4408",
+        "_next/static/chunks/pages/_error-82396ac934d59c5c.js": "0c9f42b40b5374826ebb7419e83a69f3d2e9d5e1e36965b3a37ee6c44c5ecd32",
+        "_next/static/chunks/pages/details-576ec91296404e46.js": "b9ee69f4f66bac534114f5770b68d52002a98fe496bed8b23c9f9796ae77ba6c",
+        "_next/static/chunks/pages/index-a1f60e8e4b0c1e40.js": "31074a14ebdd6daa58e2d6c1ea92047e52635fab508a850969757b4185a0a54d",
+        "_next/static/chunks/polyfills-42372ed130431b0a.js": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683",
+        "_next/static/chunks/webpack-26c5388c5ec8847c.js": "6164dbcc7a8346d6869c9ce78680ee061425d252429c18cfe878201e59873b96",
+        "_next/static/duS78PAwzOnuuhneNtlpA/_buildManifest.js": "54cf864d622c0f3687c5ea6673b9e2bf0a1fd322ed7ae6afd57067a24b47325f",
+        "_next/static/duS78PAwzOnuuhneNtlpA/_ssgManifest.js": "6f5b4aa00d2f8d6aed9935b471806bf7acef464d0c1d390260e5fe27f800c67e",
+        "details/index.html": "5f3f6f490a017e8947f785ee8c7f75b61cb8db31d9d62eca31134957f3cfa746",
+        "index.html": "62641a79b176db11fc2006c8f9f7a96e2c30b9e22f41171183429307100b052a"
+      },
+      "artifact": "served/386969f6bf0a90a0cee5860a3750cb919ed7fa93ebce34bc4b4d50a6612c2111"
+    },
+    "nuxt": {
+      "command": [
+        "pnpm",
+        "--filter",
+        "app-compatibility-nuxt",
+        "run",
+        "build"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 2.792,
+      "status": "passed",
+      "sha256": "72af8301dd0da6e0dbe61ba317b106395f877c19025ffa96b3f1517502065f37",
+      "files": {
+        "200.html": "15163cd8a86e650f774dfc7c42f1cb84edde73b528ac380d12fa94fd3cc54ecc",
+        "404.html": "15163cd8a86e650f774dfc7c42f1cb84edde73b528ac380d12fa94fd3cc54ecc",
+        "_nuxt/BL6o5S1h.js": "f0311818cdfd5b98c4eb6ddc2691c7e7821ddd1fd9ebb747911eb3db03e825df",
+        "_nuxt/BOaGB7Aw.js": "c9659ae10b1062f9c6b051b69ccf2874ed4113a52f067f6a2188949cc3de0142",
+        "_nuxt/CLShWz4h.js": "b947290991f98ab09d6d615b28765ba6515f0270bbfee19c02bd7a6652b5c5e5",
+        "_nuxt/C_d9Vk27.js": "2137baa3b396c55453e1ed27299331a0f74b5bb407847427a60cf0b95599fe98",
+        "_nuxt/K1BIFNwy.js": "886f9be24ac288d84206414949bd26f278e923ece0d24d86c8909257804d5281",
+        "_nuxt/Nt2_OGkh.js": "4a123786e2c3c044040eb669057505bd5886e2bc9d8e0799e73e5cdd02695967",
+        "_nuxt/error-404.8FknljMo.css": "003c7aae1b680c8eb291dd35bfdf2b749ab393530664759e830214afa7cc6952",
+        "_nuxt/error-500.A5RXdQzh.css": "c7a13390026b974d5adf0618db2c9630ba97d2e0d1bfc83bd457d3d1ec066ded",
+        "_payload.json": "99dca2a57dc5ba843d7f4a4a3b74744614382a78468ea2200a72b2c1a587ce49",
+        "details/_payload.json": "1c5cb9b06780a37bc79d55481c149f635dec15a708ab85a8d18d877a62455e17",
+        "details/index.html": "f05548310bd8a22db2b2aabd02cb8d020a52625d4e29d9d9c84cb0c3647348ea",
+        "index.html": "b24c0480054da204cb1d7fe090dde0aee64772efb1f4c77c368a1dfc666fd9e7"
+      },
+      "artifact": "served/72af8301dd0da6e0dbe61ba317b106395f877c19025ffa96b3f1517502065f37"
+    },
+    "preact": {
+      "command": [
+        "pnpm",
+        "--filter",
+        "app-compatibility-preact",
+        "run",
+        "build"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.548,
+      "status": "passed",
+      "sha256": "066b2ab063f2351b11610ab7f4b6f1b0f005d7e02cf17e77cae60a10ae5091fc",
+      "files": {
+        "assets/index-Bf8UBQm9.js": "4946a4f9ca0dd367b4cefe517579a7806fadcceb853563908da055daac90c951",
+        "index.html": "896cc2dc023026af6876f6eee286e92d80887017808731aba0b0df4635b19b4a"
+      },
+      "artifact": "served/066b2ab063f2351b11610ab7f4b6f1b0f005d7e02cf17e77cae60a10ae5091fc"
+    },
+    "react": {
+      "command": [
+        "pnpm",
+        "--filter",
+        "app-compatibility-react",
+        "run",
+        "build"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.45,
+      "status": "passed",
+      "sha256": "b29846b75e13f7d3613517400727a6587a6a464d4f18587a64425cd55be52037",
+      "files": {
+        "assets/index-DhduWruq.js": "f0b3d346f759690443986e3d63f3c1cdcbb27bf1b76e90be8501627efa6c1509",
+        "assets/surface-chunk-BMxzlZrB.js": "acc05ecb5c318e57124c7a2151304c3475a6fc821ab43df5cd3f5053878fa2bb",
+        "index.html": "c5e266398aac339e8e49bf6157baccdfa4a9775e81bc7a78f44cab58d2eca9b6"
+      },
+      "artifact": "served/b29846b75e13f7d3613517400727a6587a6a464d4f18587a64425cd55be52037"
+    },
+    "svelte": {
+      "command": [
+        "pnpm",
+        "--filter",
+        "app-compatibility-svelte",
+        "run",
+        "build"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.602,
+      "status": "passed",
+      "sha256": "1ee0d52b8ac9ccd1d7919a4b23ad7fc9404a6054ecd90bb496f8173c56d46d45",
+      "files": {
+        "assets/index-CUPTIlt8.js": "9406abcd147d75a499bafc926e193bbdf38da448efda7bb1968cb0214aeed7a0",
+        "index.html": "acf0ad09839452fb8e690c7e3c732d8773ce2c521423fbbaf82f611cf462ab48"
+      },
+      "artifact": "served/1ee0d52b8ac9ccd1d7919a4b23ad7fc9404a6054ecd90bb496f8173c56d46d45"
+    },
+    "sveltekit": {
+      "command": [
+        "pnpm",
+        "--filter",
+        "app-compatibility-sveltekit",
+        "run",
+        "build"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 1.558,
+      "status": "passed",
+      "sha256": "47a1b491da7719602e6c64fd8eec9da9fb519a48a328f91eb7ffd174c4c14b22",
+      "files": {
+        "_app/immutable/chunks/00p0DNrT.js": "e528434f892db46a6e68c916f9b8790d3a19329c2bf5946b364c1ef774ea0ef6",
+        "_app/immutable/chunks/Bjy-W4x2.js": "f07424758318dd6b5f32b0fe8de9d2ffb8d97a17c841758626d18ba0faa0456a",
+        "_app/immutable/chunks/C5W3NHiZ.js": "e5bc0a0e4b8f59c9e65aafb6b90ed2b55f8814206dbc119ad0cdd1ea42c19ad5",
+        "_app/immutable/chunks/DDDq-5zW.js": "e42099886986c75ae8d314a24ec6da1f2a1a27d94b1a91f6f3d169b1ff63218b",
+        "_app/immutable/chunks/xihTtKlq.js": "0214edcff77242079f540507a53803aa22d857b6ad673e60e39748b6c7aa08c1",
+        "_app/immutable/entry/app.DKEzGp-H.js": "0e0e4cad283f7ffbf6e7fd5134552d63448ad6c6be5fc7a02a6e6e947a333ba5",
+        "_app/immutable/entry/start.Clf8m3n-.js": "754ef99dbfefd6a12062b1d327be5927c3cda1cabd78963c87e2ff76f07d9dfc",
+        "_app/immutable/nodes/0.Co2Miosk.js": "8133d1f9d1237fc70cc2473cf6241a477b34e026d171c730d806252b31f9f512",
+        "_app/immutable/nodes/1.C-oWrXm9.js": "3af3b96f04b4c7af6293aa2937d48adffa5d7972ed4650ee5e1a50adb294528b",
+        "_app/immutable/nodes/2.C_bmm9ur.js": "5883631865d036b9132c27d119443a8b8ca8454efb42644263e9d4f7b32c0672",
+        "_app/immutable/nodes/3.BMT8XME8.js": "882c11c01421bf775e9c06d76af82177a2ae358dafef8a73cd8196ce48a64b90",
+        "_app/version.json": "8f6cce8b42b5ad61a15221875b1ab37e57ec17a505da2cf5a611b0170af4abc1",
+        "details.html": "fa86d7b4708495fbc760fff6b4a34c53a6933afcfd4471648f0353db987ed30c",
+        "index.html": "601846d4ef24f476761b3b54fda237395469fb1a88cf9ced2c7cff1f991ce822"
+      },
+      "artifact": "served/47a1b491da7719602e6c64fd8eec9da9fb519a48a328f91eb7ffd174c4c14b22"
+    },
+    "vue": {
+      "command": [
+        "pnpm",
+        "--filter",
+        "app-compatibility-vue",
+        "run",
+        "build"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.497,
+      "status": "passed",
+      "sha256": "d660e9484c15ad06cd2d66ab44a991df35c4ff832cb67940c491897a8f63e6dd",
+      "files": {
+        "assets/index-CgWhbq9b.js": "55c8e7d8a346b814373b2db6c5ebba44c482b3fed0e62218608fd03e7003bdf5",
+        "index.html": "fd848c190a5162c71ef545da14256a7eebc7a0e9638e0c5d330faa987943fa9f"
+      },
+      "artifact": "served/d660e9484c15ad06cd2d66ab44a991df35c4ff832cb67940c491897a8f63e6dd"
+    }
+  },
+  "status": "passed",
+  "node_version": "v24.19.0",
+  "pnpm_version": "11.19.0",
+  "fixture_lock_sha256": "a7f4e8ef33279c2923a570767f9fd978072f982b13a9fe4665c4b81330c386be",
+  "lock_validation": {
+    "command": [
+      "/Users/rohit/Work/oryn2/oryn-roadmap-next/scripts/validate-app-fixtures.sh"
+    ],
+    "returncode": 0,
+    "timed_out": false,
+    "elapsed_seconds": 0.502
+  },
+  "install": {
+    "command": [
+      "pnpm",
+      "install",
+      "--frozen-lockfile"
+    ],
+    "returncode": 0,
+    "timed_out": false,
+    "elapsed_seconds": 0.262
+  },
+  "post_build_lock_validation": {
+    "command": [
+      "/Users/rohit/Work/oryn2/oryn-roadmap-next/scripts/validate-app-fixtures.sh"
+    ],
+    "returncode": 0,
+    "timed_out": false,
+    "elapsed_seconds": 0.448
+  },
+  "passed": 8,
+  "scope": "Exact locked inputs and content-addressed output; not a claim of byte-identical builds across runs. Nuxt/Next may embed build identifiers."
+}

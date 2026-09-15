@@ -1,0 +1,560 @@
+{
+  "assertions": [
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-form-element/form-requestsubmit.html|window|:73016426f56147b0883613034c2a8fdc",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 116,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "853ed08044a342eb86f33e9c9c37d641"
+          }
+        ],
+        "id": "403fbe50d9754eea96aa08ab1698e795",
+        "ports": [
+          52624,
+          52625,
+          52626,
+          52627,
+          52628,
+          52629,
+          52630
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 253,
+          "teardown_ms": 920
+        },
+        "tls": {
+          "ca_sha256": "5270baa80506d280bc94987cca0cf08db39abdb9180567a000da25d8c2a2b839",
+          "certificate_sha256": "f6c1c593e526b7f8971141bdfc4500ae38ee928aac02aef8e6ba68d75187f68c"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-form-element/form-requestsubmit.html|window|",
+      "path": "html/semantics/forms/the-form-element/form-requestsubmit.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:52624/html/semantics/forms/the-form-element/form-requestsubmit.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 7664,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:52624/html/semantics/forms/the-form-element/form-requestsubmit.html"
+          },
+          "page_id": "1",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 7664,
+          "response_sha256": "2dabb9f77acf405bec50db85a1fe272777eb970c2e57a51290d5a5b473090bc4",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:52624/html/semantics/forms/the-form-element/form-requestsubmit.html",
+          "worker_pid": 76156
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:52624/html/semantics/forms/the-form-element/form-requestsubmit.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:52624/resources/testharness.js",
+          "worker_pid": 76156
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:52624/html/semantics/forms/the-form-element/form-requestsubmit.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:52624/resources/testharnessreport.js",
+          "worker_pid": 76156
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 0,
+          "initiator": "http://localhost:52624/html/semantics/forms/the-form-element/form-requestsubmit.html",
+          "method": "GET",
+          "mime": null,
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 3,
+          "started_ms": 61,
+          "status": null,
+          "terminal": "failed",
+          "url": "about:[redacted]",
+          "worker_pid": 76156
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 0,
+          "initiator": "http://localhost:52624/html/semantics/forms/the-form-element/form-requestsubmit.html",
+          "method": "GET",
+          "mime": null,
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 0,
+          "response_sha256": null,
+          "sequence": 4,
+          "started_ms": 66,
+          "status": null,
+          "terminal": "failed",
+          "url": "about:[redacted]",
+          "worker_pid": 76156
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 1,
+          "initiator": "http://localhost:52624/html/semantics/forms/the-form-element/form-requestsubmit.html",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": "dbf499f88fbf3a5de7a9d245adf26dc458db8499f6a7934679d63a11b340b9af",
+          "request_id": 5,
+          "response_bytes": 0,
+          "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sequence": 5,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:52624/common/blank.html",
+          "worker_pid": 76156
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Passing an element which is not a submit button should throw",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Passing a submit button not owned by the context object should throw",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "requestSubmit() should accept button[type=submit], input[type=submit], and input[type=image]",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "requestSubmit() should trigger interactive form validation",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "requestSubmit() doesn't run form submission reentrantly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "requestSubmit() doesn't run interactive validation reentrantly",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "requestSubmit() for a disconnected form should not submit the form",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "The value of the submitter should be appended, and form* attributes of the submitter should be handled.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "The constructed FormData object should not contain an entry for the submit button that was used to submit the form.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Using requestSubmit on a disabled button (via disabled attribute) should trigger submit but not be visible in FormData",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 76156,
+          "rss_bytes": 39632896
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "ebefcb28e8e2ff27a57c560e630074a74097809ead5aba1970c2673702bad17a",
+    "size_bytes": 7242608
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 2.964,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "dfa446bb1e38be8c1e413d22e6b2b49ad4b99a880887a42ea70cfe43d09ca396",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "dbdab0b3c9bbcebf977078125783fe296071581b0d82dd60935c33c2fb87f12f",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "47a9c2c980e0819981b3b09bbb0e5d8ea0283b0727a06f558e793c09ca5ba01b",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "d6271161cabc8dde2e12535c269b004024483eca5a4a8a18dcfb280cc943ce17",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "a7be5fcc7d7e1d640d40d719f66e901c81116a0f1a6dd5dab86232a57d80b07e",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "cac3e0f2031f4c33fbacf81317ee288b03967f6a8b4ee86ccd1a0f1b85644b0d",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "c86b1070529371d89996615211d7934aeeaa3f3f25b5ec2a41d494ae924a513c",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "ee84f15e29ffc1a6dc2707638eaa7b212241e00d29b0affe0f79ba2bdbcc6a93",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "dfa446bb1e38be8c1e413d22e6b2b49ad4b99a880887a42ea70cfe43d09ca396",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "dbdab0b3c9bbcebf977078125783fe296071581b0d82dd60935c33c2fb87f12f",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "47a9c2c980e0819981b3b09bbb0e5d8ea0283b0727a06f558e793c09ca5ba01b",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "d6271161cabc8dde2e12535c269b004024483eca5a4a8a18dcfb280cc943ce17",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "a7be5fcc7d7e1d640d40d719f66e901c81116a0f1a6dd5dab86232a57d80b07e",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "cac3e0f2031f4c33fbacf81317ee288b03967f6a8b4ee86ccd1a0f1b85644b0d",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "c86b1070529371d89996615211d7934aeeaa3f3f25b5ec2a41d494ae924a513c",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "ee84f15e29ffc1a6dc2707638eaa7b212241e00d29b0affe0f79ba2bdbcc6a93",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": "b2ea345a3b4254aa7da41b0f21fc0468f7041de6ca1dae19e55f7169badba4d2",
+  "jobs": 4,
+  "outcome": {
+    "attempted": 1,
+    "environment_blocked": 0,
+    "required_finished": 1,
+    "required_passed": 1,
+    "required_total": 1,
+    "status": "passed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "bd81eec8abc67a5eca8a3c45d3308a6adf7032a5444c2079195d1ed75b61398c",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "fdfd4c918220cadecf1a5689e9b88d8c0c471de96b9c93389d816a254f585e00",
+    "worker_binary_sha256": "b2a7f9a4d19d7973fe99a1d3a30fe688afe3f0da3a79158862eaa4aa508ad3b6",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "9d68cd63dc3cffc9dd259f14d08ba94aa333b5a0",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": "form-requestsubmit.html",
+    "global": "window",
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 30,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "10f2db7be78d2c0f24c3b0201d4960843963eff10c3483ecbdbbc5a6a86bae33",
+    "untracked_file_count": 1132,
+    "untracked_sha256": "79bbbc27877c2b26f7af6e02495af40bb6fcc84b83dd723361fa09266e8dfed8"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

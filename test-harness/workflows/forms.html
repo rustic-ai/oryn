@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Controlled application submission</title>
+<style>body{font:18px sans-serif;max-width:640px;margin:30px}label{display:block;margin-top:12px}input,select,textarea,button{font:inherit}button{display:block;margin-top:20px}</style>
+<h1>Submit an application</h1>
+<form method="post" action="/submit/__CASE_ID__" enctype="__ENCODING__">
+  <label for="name">Full name</label><input id="name" name="name" maxlength="10" required>
+  <label for="email">Email address</label><input id="email" name="email" type="email" required>
+  <label for="role">Primary role</label><select id="role" name="role"><option value="designer">Designer</option><option value="developer">Developer</option></select>
+  <label for="message">Application note</label><textarea id="message" name="message" minlength="5" maxlength="64" required></textarea>
+  <label for="quantity">Requested seats</label><input id="quantity" name="quantity" type="number" min="1" max="9" step="2" value="3" required>
+  <label for="date">Preferred date</label><input id="date" name="date" type="date" min="2026-10-01" max="2026-10-31" value="2026-10-01" required>
+  <label for="time">Overnight contact time</label><input id="time" name="time" type="time" min="21:00" max="06:00" value="23:00" required>
+  <label for="reference">Application reference</label><input id="reference" name="reference" pattern="[A-Z]{3}[0-9]{3}" value="ABC123" required>
+  <label><input type="checkbox" name="skill" value="rust">Rust</label>
+  <label><input type="checkbox" name="skill" value="javascript">JavaScript</label>
+  <label><input type="checkbox" id="cancel">Cancel this submission</label>
+  <input type="hidden" name="case_id" value="__CASE_ID__">
+  <input name="disabled_field" value="must-not-be-submitted" disabled>
+  __UPLOAD_CONTROL__
+  <button type="button" id="adjust">Add seats and move contact slot</button>
+  <button type="submit" name="intent" value="apply">Submit application</button>
+</form>
+<script>
+document.getElementById('adjust').addEventListener('click', () => {
+  const seats = document.getElementById('quantity');
+  const date = document.getElementById('date');
+  const time = document.getElementById('time');
+  seats.stepUp();
+  date.valueAsNumber += 86400000;
+  time.valueAsDate = new Date(time.valueAsDate.getTime() + 60000);
+});
+document.querySelector('form').addEventListener('submit', event => {
+  if (document.getElementById('cancel').checked) event.preventDefault();
+});
+</script>

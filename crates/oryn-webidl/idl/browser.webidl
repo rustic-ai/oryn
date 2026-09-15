@@ -383,6 +383,8 @@ interface MessagePort : EventTarget {
   undefined postMessage(any message, optional sequence<object> transfer = []);
   undefined start();
   undefined close();
+  attribute EventListener? onmessageerror;
+  attribute EventListener? onclose;
 };
 
 [Exposed=(Window,Worker)]
@@ -833,6 +835,23 @@ enum SelectionMode { "select", "start", "end", "preserve" };
 
 [Exposed=Window]
 interface HTMLInputElement : HTMLElement {
+  [CEReactions] attribute long minLength;
+  [CEReactions] attribute long maxLength;
+  [CEReactions] attribute DOMString pattern;
+  attribute unrestricted double valueAsNumber;
+  attribute object? valueAsDate;
+  undefined stepUp(optional long n = 1);
+  undefined stepDown(optional long n = 1);
+  [CEReactions] attribute DOMString min;
+  [CEReactions] attribute DOMString max;
+  [CEReactions] attribute DOMString step;
+  readonly attribute boolean willValidate;
+  readonly attribute ValidityState validity;
+  readonly attribute DOMString validationMessage;
+  boolean checkValidity();
+  undefined setCustomValidity(DOMString error);
+  boolean reportValidity();
+  attribute boolean multiple;
   attribute FileList? files;
   readonly attribute NodeList? labels;
   readonly attribute HTMLFormElement? form;
@@ -863,6 +882,15 @@ interface HTMLInputElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLTextAreaElement : HTMLElement {
+  [CEReactions] attribute long minLength;
+  [CEReactions] attribute long maxLength;
+  readonly attribute unsigned long textLength;
+  boolean reportValidity();
+  readonly attribute boolean willValidate;
+  readonly attribute ValidityState validity;
+  readonly attribute DOMString validationMessage;
+  boolean checkValidity();
+  undefined setCustomValidity(DOMString error);
   readonly attribute NodeList labels;
   readonly attribute HTMLFormElement? form;
   attribute DOMString value;
@@ -883,6 +911,7 @@ interface HTMLTextAreaElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLSelectElement : HTMLElement {
+  boolean reportValidity();
   readonly attribute boolean willValidate;
   readonly attribute ValidityState validity;
   readonly attribute DOMString validationMessage;
@@ -944,6 +973,12 @@ interface HTMLOptionElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLButtonElement : HTMLElement {
+  boolean reportValidity();
+  readonly attribute boolean willValidate;
+  readonly attribute ValidityState validity;
+  readonly attribute DOMString validationMessage;
+  boolean checkValidity();
+  undefined setCustomValidity(DOMString error);
   readonly attribute NodeList labels;
   readonly attribute HTMLFormElement? form;
   [CEReactions] attribute USVString formAction;
@@ -976,17 +1011,40 @@ interface HTMLProgressElement : HTMLElement {
 
 [Exposed=Window]
 interface HTMLOutputElement : HTMLElement {
+  boolean reportValidity();
+  readonly attribute boolean willValidate;
+  readonly attribute ValidityState validity;
+  readonly attribute DOMString validationMessage;
+  boolean checkValidity();
+  undefined setCustomValidity(DOMString error);
   readonly attribute NodeList labels;
   readonly attribute HTMLFormElement? form;
 };
 
 [Exposed=Window]
 interface HTMLFieldSetElement : HTMLElement {
+  boolean reportValidity();
+  readonly attribute boolean willValidate;
+  readonly attribute ValidityState validity;
+  readonly attribute DOMString validationMessage;
+  boolean checkValidity();
+  undefined setCustomValidity(DOMString error);
   [SameObject] readonly attribute HTMLCollection elements;
   readonly attribute HTMLFormElement? form;
   readonly attribute DOMString type;
   [CEReactions] attribute boolean disabled;
   [CEReactions] attribute DOMString name;
+};
+
+[Exposed=Window]
+interface HTMLObjectElement : HTMLElement {
+  boolean reportValidity();
+  readonly attribute HTMLFormElement? form;
+  readonly attribute boolean willValidate;
+  readonly attribute ValidityState validity;
+  readonly attribute DOMString validationMessage;
+  boolean checkValidity();
+  undefined setCustomValidity(DOMString error);
 };
 
 [Exposed=Window]
@@ -1060,6 +1118,7 @@ interface HTMLScriptElement : HTMLElement {
   attribute DOMString src;
   attribute DOMString type;
   attribute DOMString referrerPolicy;
+  attribute DOMString text;
 };
 
 [Exposed=Window]
@@ -2036,4 +2095,9 @@ interface CSSFontFaceDescriptors : CSSStyleDeclaration {
 [Exposed=Window]
 interface CSSFontFaceRule : CSSRule {
   [SameObject, PutForwards=cssText] readonly attribute CSSFontFaceDescriptors style;
+};
+
+partial interface XMLHttpRequest {
+  undefined overrideMimeType(DOMString mime);
+  [Exposed=Window] readonly attribute Document? responseXML;
 };

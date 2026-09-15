@@ -1,0 +1,14 @@
+{
+  "case": "required_recovery",
+  "sample": 1,
+  "case_id": "14160dda81e3b7f2cd660f0ae208568c",
+  "passed": false,
+  "errors": [
+    "receipt did not survive independent GET reload"
+  ],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "154b073531c342aed67094b6dc4e2cdcc15f720c781a452a929b031c9b0dd75f",
+  "elapsed_seconds": 0.264,
+  "final_oracle_verified": true
+}

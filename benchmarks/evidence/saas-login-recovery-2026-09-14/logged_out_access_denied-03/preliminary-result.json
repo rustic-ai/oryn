@@ -1,0 +1,12 @@
+{
+  "case": "logged_out_access_denied",
+  "sample": 3,
+  "case_id": "8430881343a90765e72462e58769ed7a",
+  "base": "http://127.0.0.1:62241/saas/8430881343a90765e72462e58769ed7a",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "7d3eb01defa12371de7286987ce8dbb3c3b93b0acbbdbc9f2feda40624942408",
+  "returncode": 0,
+  "elapsed_seconds": 0.378
+}

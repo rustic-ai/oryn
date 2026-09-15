@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree diagnostic, not release qualification",
+  "base_commit": "c3543ed",
+  "source_tree_sha256": "f23777798c3578b44813c8ca28805afd5d26ef2ae219cd2ce6b6c01c8058a391",
+  "native_test_binary_sha256": "e4e39bf08b72d9197a5fdd7ed70194a889637d24cb8714fda97188dc9b6f2d6e",
+  "changes": [
+    "Bound each response frame before draining, including newline-terminated frames and the delimiter",
+    "Reject outgoing payloads that leave no room for the wire delimiter",
+    "Kill and reap failed transports inside WorkerClient, including malformed JSON and unexpected EOF, without relying on WorkerPage cleanup"
+  ],
+  "tests": {
+    "features": ["in-process-probe"],
+    "native_v8": false,
+    "passed": 196,
+    "failed": 0,
+    "ignored": 0,
+    "test_threads": 1,
+    "elapsed_seconds": 6.47,
+    "worker_client_focused_passed": 19,
+    "new_regressions": 3
+  },
+  "format_and_diff_checks": "passed",
+  "strict_clippy": "cargo clippy -p oryn-native --features in-process-probe --lib --tests -- -D warnings: passed",
+  "signed_probes": {
+    "result": "signature, designated requirement, sandbox-denial, DOM-mutation and authorized-network probes passed",
+    "worker_protocol_version": 10,
+    "parent_sha256": "f8312b2a6f505e2ae0eb97a2e8a43c8485bb839dd8017943289938b4a15dea4c",
+    "unsigned_worker_sha256": "40bb61317b30afa7abdf235fe440a30d732ae44a0578f4b2ff9480c1b989fbd6",
+    "signed_worker_sha256": "7f1c129270d5616eb11f100fb27a824b587ed85b59b33f4e28d421778134f2b7",
+    "code_directory_hash": "39b3af871f57855f98960c8a74be103714e9b538",
+    "v8_archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "v8_bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "wpt": "not rerun for this source; preceding v10 routing evidence remains separate",
+  "p0_complete": false
+}

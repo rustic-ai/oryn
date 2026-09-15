@@ -1,0 +1,10 @@
+goto "http://127.0.0.1:55790/research/88c64a42fa027daba83f6e6ee5001b41/start"
+type "Search sources" "dynamic"
+click "Search reports"
+wait visible css(#ready)
+click "Alpha report"
+wait visible css(#facts)
+extract text --selector "#facts"
+extract tables --selector "#measurements"
+extract links --selector "#sources"
+observe

@@ -1,0 +1,9 @@
+{
+  "case": "mfa-handoff",
+  "sample": 2,
+  "passed": true,
+  "errors": [],
+  "returncode": 0,
+  "timed_out": false,
+  "elapsed_seconds": 0.18943241704255342
+}

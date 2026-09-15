@@ -1,0 +1,6 @@
+Error: custom element already defined
+    at Object.define (<anonymous>:52:214)
+    at eval (eval at <anonymous> (unknown source), <anonymous>:72:16)
+    at eval (<anonymous>)
+    at <anonymous>:1:143
+    at <anonymous>:1:200

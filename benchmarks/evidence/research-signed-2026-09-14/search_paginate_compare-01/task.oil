@@ -1,0 +1,17 @@
+goto "http://127.0.0.1:56120/research/fc18c4229397d39023ff7eb22d1301a2/start"
+type "Search sources" "energy"
+click "Search reports"
+click "Alpha report"
+wait visible css(#facts)
+extract text --selector "#facts"
+extract tables --selector "#measurements"
+extract links --selector "#sources"
+observe
+click "Back to results"
+click "Next results"
+click "Beta report"
+wait visible css(#facts)
+extract text --selector "#facts"
+extract tables --selector "#measurements"
+extract links --selector "#sources"
+observe

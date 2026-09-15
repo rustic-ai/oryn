@@ -451,6 +451,7 @@ mod tests {
             profile: ProjectionProfile::Compact,
             source: ObservationSource::NativeDom,
             nodes: vec![crate::v3::SemanticNodeView {
+                validation: None,
                 semantic_ref: SemanticRef {
                     page_id: PageId(7),
                     document_generation: 3,

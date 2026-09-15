@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "goal_complete": false,
+  "family_qualified": false,
+  "qualification": "fresh parent with signed macOS worker; dirty-source controlled diagnostics, not clean-release or general form conformance",
+  "source_tree_sha256": "cb539bbd1c33811a090989279d738a6506657fabde3f0d9f287fa6959d53c0ca",
+  "parent_sha256": "2d86eaa32940f5393e82f984357d989cb20cbbba3e0d51b54ec6ee155d2fcc2c",
+  "worker_binary_sha256": "754053e3480069fece63b5c1d055aeb7fa02b1eaffcb8bf3800d3ab6d8242c64",
+  "worker_code_directory_hash": "6cc965a4c5b4ccfc4689f792738696cce39fdfa8",
+  "worker_unsigned_build_sha256": "f0cf525b5730f98a6e4f50ff72c7f9b625975fc85453dafd8e0b515384a16158",
+  "native": {
+    "passed": 527, "failed": 0, "ignored": 6, "elapsed_seconds": 157.21,
+    "binary_sha256": "aaaad462f98603809d7bc4021f957d4f4122ddd1b371b02a4519c43079e58576",
+    "timing_caveat": "overlapped release compilation; not a performance benchmark"
+  },
+  "javascript": {
+    "passed": 272, "failed": 0, "ignored": 3, "elapsed_seconds": 4.27,
+    "binary_sha256": "6a05e788282b6fc36406fabab6f6141721b62182194b177fe72dec61bd3eaa9e"
+  },
+  "dom_passed": 104,
+  "core_parser_passed": 31,
+  "cli_passed": 4,
+  "webidl_passed": 10,
+  "oracle_unit_tests_passed": 8,
+  "strict_native_and_cli_clippy": "passed",
+  "format_registry_diff_and_ruff_checks": "passed",
+  "signed_worker_security_probes": {
+    "protocol": 10,
+    "signature_and_designated_requirement": "passed",
+    "filesystem_read_succeeded": false,
+    "listener_succeeded": false,
+    "outgoing_connection_succeeded": false,
+    "secret_environment_present": false
+  },
+  "form_outcomes": {
+    "passed": 21, "total": 21, "scenarios": 7, "samples_per_scenario": 3,
+    "concurrent_parents": 3,
+    "worker_lifecycle": "isolated_on_demand",
+    "timeouts": 0,
+    "final_oracle_verified": true,
+    "source_matches_worker_manifest": true,
+    "fixture_shutdown": "sealed after joining HTTP handlers, clean exit without forced termination",
+    "evidence": "oil-forms-outcomes-signed-2026-09-14/summary.json",
+    "checks": [
+      "exact Unicode and repeated field values, order and submitter",
+      "disabled fields excluded",
+      "required-field and invalid-email blocking with recovery",
+      "cancelled submit blocking with recovery",
+      "authorized multipart filename, byte count and SHA-256",
+      "exactly one accepted POST per successful case and zero POSTs in negative cases",
+      "receipt observed after a second independent GET",
+      "native action count and unique action identities",
+      "per-case nonce isolation and final post-shutdown oracle snapshots"
+    ]
+  },
+  "prior_diagnostics": [
+    {"evidence": "oil-forms-outcomes-initial-2026-09-14/summary.json", "passed": 1, "total": 7, "note": "Old parent rejected Unicode OIL strings. Earlier runner revision; not an identical-harness rate comparison."},
+    {"evidence": "oil-forms-outcomes-unicode-probe-2026-09-14/summary.json", "passed": 0, "total": 7, "note": "Debug CLI argument graph panicked before launch."},
+    {"evidence": "oil-forms-outcomes-unicode-cli-probe-2026-09-14/summary.json", "passed": 2, "total": 7, "note": "Development parent with old signed worker exposed email submission, required file and same-URL reload defects."}
+  ],
+  "oil_smoke": {"passed": 12, "total": 12, "evidence": "oil-forms-fixes-smoke-2026-09-14/summary.json", "qualification": "observation/no-unsupported smoke only, not independent task completion"},
+  "selected_wpt": {
+    "qualification": "new selected diagnostics, no same-selection pre-change comparison",
+    "environment_blocked": 0,
+    "requestsubmit": {"passed_files": 0, "total_files": 1, "passed_assertions": 8, "failed_assertions": 2, "evidence": "forms-outcomes-requestsubmit-wpt-2026-09-14.json", "remaining": "input:invalid and form :invalid selector truth"},
+    "type_mismatch": {"passed_files": 0, "total_files": 1, "passed_assertions": 0, "failed_assertions": 11, "evidence": "forms-outcomes-type-mismatch-wpt-2026-09-14.json", "remaining": "HTMLInputElement validity attribute missing"},
+    "email": {"passed_files": 0, "total_files": 1, "passed_assertions": 0, "failed_assertions": 8, "evidence": "forms-outcomes-email-wpt-2026-09-14.json", "remaining": "multiple reflection, value sanitization and input validity API"}
+  },
+  "repairs": [
+    "OIL quoted strings preserve non-ASCII text and existing escape/control boundaries",
+    "CLI file argument is global and incompatible with WPT session in either argument order",
+    "No-fragment same-URL navigation loads a new document; fragment navigation preserves it",
+    "Form submission checks HTML email syntax and selected file state instead of file text value",
+    "Form validation skips covered barred controls and reads native control values",
+    "Independent server oracle preserves rejected/duplicate requests and checks final state after HTTP shutdown"
+  ],
+  "next": [
+    "Unify native constraint-validation state across form submission, control ValidityState and CSS :valid/:invalid",
+    "Implement email value sanitization and multiple reflection, including attribute transitions",
+    "Expand to multi-step and representative framework form workflows",
+    "Independent outcome and persistence qualification for the other four OIL workflow families",
+    "Remaining architecture, full Core WPT, performance and clean-source release gates"
+  ]
+}

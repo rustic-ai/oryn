@@ -1,0 +1,19 @@
+{
+  "qualification": "dirty-source signed diagnostic smoke, not end-state, WPT or release acceptance",
+  "source_tree_sha256": "7395b34f73d3d3e96665b1aac0e50067c2ba7e1dfbc718701e06ebb92f50a80c",
+  "worker_sha256": "a133ccac6715b74bde14e3e313b3788620522bac736edb6ac86a376452dce7e7",
+  "worker_code_directory_hash": "73dd79a861a319e620562c58879bd27c07a28926",
+  "signed_build_probes": "passed",
+  "smoke_passed": 10,
+  "smoke_total": 12,
+  "timeouts": 0,
+  "remaining_failures": ["04_interactivity.oil", "10_react_spa.oil"],
+  "diagnostic_findings": [
+    "script.text now updates native textContent",
+    "React root is empty during ordinary startup",
+    "Manual repeat transformation can hit duplicate custom-element registration; not an acceptance action",
+    "Simple fixture accepts forced synchronous React rendering; diagnostic only",
+    "Native MessagePort.postMessage implementation discards messages rather than queuing delivery; start/close are no-ops"
+  ],
+  "goal_complete": false
+}

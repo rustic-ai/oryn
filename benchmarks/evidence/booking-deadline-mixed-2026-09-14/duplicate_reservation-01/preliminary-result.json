@@ -1,0 +1,12 @@
+{
+  "case": "duplicate_reservation",
+  "sample": 1,
+  "case_id": "5732bf2586f6a8b5e8cf5bd915c95fe0",
+  "base": "http://127.0.0.1:54735/booking/5732bf2586f6a8b5e8cf5bd915c95fe0",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "791290f3d82cb43acf89265645367f036aa010332d16596e1d26f9ca0ce75af7",
+  "returncode": 0,
+  "elapsed_seconds": 0.44
+}

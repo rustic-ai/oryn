@@ -1,0 +1,11 @@
+{
+  "case": "valid_urlencoded",
+  "sample": 2,
+  "case_id": "2a3eb757d168ea1c2cac8375a5ccc78f",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "278146aa70bc8bfd81937d0a1d60416d6db5e1d27f78384034c53771ad13a38f",
+  "elapsed_seconds": 0.292
+}

@@ -1,0 +1,16 @@
+{
+  "case": "authorized_document_upload",
+  "sample": 1,
+  "case_id": "8c067d0b9b3e514c1128c5b501f65da6",
+  "passed": false,
+  "errors": [
+    "OIL process failed or timed out",
+    "missing or failed OIL outputs",
+    "expected 1 POST/receipt, got 0/0",
+    "final browser location does not match expected outcome"
+  ],
+  "timed_out": false,
+  "returncode": 1,
+  "task_sha256": "4c0e5fe3ac2871a48ec2084c247f70e7483164b02a795ea76d9e80264648e4e3",
+  "elapsed_seconds": 0.133
+}

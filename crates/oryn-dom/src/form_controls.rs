@@ -2,6 +2,24 @@ use super::{DomError, DomRuntime, Mutation, Node, NodeId, NodeKind};
 
 const HTML: &str = "http://www.w3.org/1999/xhtml";
 
+fn valid_email_address(value: &str) -> bool {
+    let Some((local, domain)) = value.split_once('@') else {
+        return false;
+    };
+    !local.is_empty()
+        && local
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b".!#$%&'*+/=?^_`{|}~-".contains(&byte))
+        && domain.split('.').all(|label| {
+            (1..=63).contains(&label.len())
+                && label.as_bytes()[0].is_ascii_alphanumeric()
+                && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+}
+
 impl Node {
     pub fn checked(&self) -> bool {
         self.checkedness
@@ -16,6 +34,111 @@ mod tests {
 
     fn by_id(dom: &DomRuntime, id: &str) -> NodeId {
         dom.get_element_by_id(dom.document(), id).unwrap().unwrap()
+    }
+
+    #[test]
+    fn email_type_mismatch_uses_html_not_mail_server_address_rules() {
+        let mut dom = html::parse("<input id=e type=EMAIL>")
+            .into_runtime()
+            .unwrap();
+        let node = by_id(&dom, "e");
+        for value in [
+            "",
+            "a@b",
+            ".a..@example.test",
+            "a+b@example.test",
+            "a@xn--caf-dma.test",
+        ] {
+            dom.set_value(node, value, false).unwrap();
+            assert!(!dom.input_email_type_mismatch(node).unwrap(), "{value}");
+        }
+        for value in [
+            "not-an-email",
+            "@example.test",
+            "a@",
+            "a@@b",
+            "a@-b",
+            "a@b-",
+            "a@b..c",
+            "a b@c",
+            "é@b",
+            "a@b,c@d",
+        ] {
+            dom.set_value(node, value, false).unwrap();
+            assert!(dom.input_email_type_mismatch(node).unwrap(), "{value}");
+        }
+        dom.set_value(node, format!("a@{}", "b".repeat(64)), false)
+            .unwrap();
+        assert!(dom.input_email_type_mismatch(node).unwrap());
+        dom.set_attribute(node, "multiple", "").unwrap();
+        dom.set_value(node, "a@b, c@d", false).unwrap();
+        assert!(!dom.input_email_type_mismatch(node).unwrap());
+        for value in ["a@b,", ",a@b", "a@b,,c@d"] {
+            dom.set_value(node, value, false).unwrap();
+            assert!(dom.input_email_type_mismatch(node).unwrap(), "{value}");
+        }
+        dom.set_attribute(node, "type", "text").unwrap();
+        assert!(!dom.input_email_type_mismatch(node).unwrap());
+    }
+
+    #[test]
+    fn submit_classification_rejects_non_elements_without_reading_attributes() {
+        let mut dom =
+            html::parse("<button id=b>Submit</button><input id=i type=image><div id=d></div>")
+                .into_runtime()
+                .unwrap();
+        let text = dom.create_text("text");
+        for node in [dom.document(), text, by_id(&dom, "d")] {
+            assert!(!dom.is_submit_button(node).unwrap());
+        }
+        assert!(dom.is_submit_button(by_id(&dom, "b")).unwrap());
+        assert!(dom.is_submit_button(by_id(&dom, "i")).unwrap());
+    }
+
+    #[test]
+    fn email_sanitization_preserves_dirty_value_and_attribute_transition_semantics() {
+        let mut dom = html::parse("<input id=e type=email multiple value=' a@b , c@d '>")
+            .into_runtime()
+            .unwrap();
+        let e = by_id(&dom, "e");
+        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
+        dom.remove_attribute(e, "multiple").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
+        assert!(!dom.arena.get(e).unwrap().dirty_value);
+        dom.set_attribute(e, "value", " c@d ").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "c@d");
+        dom.set_value(e, "\r\n x@y \t", false).unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "x@y");
+        dom.set_attribute(e, "value", "default@host").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "x@y");
+        dom.reset_control_value(e, "default@host".into()).unwrap();
+        dom.set_attribute(e, "value", " next@host ").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "next@host");
+        dom.set_value(e, " a@b , c@d ", false).unwrap();
+        dom.set_attribute(e, "multiple", "").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
+        dom.remove_attribute(e, "multiple").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
+        assert!(dom.control_type_mismatch(e).unwrap());
+    }
+
+    #[test]
+    fn url_type_mismatch_requires_an_absolute_url_and_sanitizes_values() {
+        let mut dom = html::parse("<input id=u type=url>").into_runtime().unwrap();
+        let u = by_id(&dom, "u");
+        for value in [
+            "",
+            "https://example.test/path",
+            "mailto:a@b",
+            "\r\n https://example.test \t",
+        ] {
+            dom.set_value(u, value, false).unwrap();
+            assert!(!dom.control_type_mismatch(u).unwrap(), "{value}");
+        }
+        for value in ["abc", "/relative", "http://[", "https://"] {
+            dom.set_value(u, value, false).unwrap();
+            assert!(dom.control_type_mismatch(u).unwrap(), "{value}");
+        }
     }
 
     #[test]
@@ -260,6 +383,297 @@ mod tests {
 }
 
 impl DomRuntime {
+    pub(super) fn sanitized_input_value(
+        &self,
+        node: NodeId,
+        value: &str,
+    ) -> Result<String, DomError> {
+        if !self.is_element(node, HTML, "input") {
+            return Ok(value.into());
+        }
+        let kind = self
+            .attribute_in_null_namespace(node, "type")?
+            .unwrap_or("text");
+        if super::numeric_controls::numeric_kind(kind) {
+            return self.sanitize_numeric_value(node, &kind.to_ascii_lowercase(), value);
+        }
+        if kind.eq_ignore_ascii_case("email") || kind.eq_ignore_ascii_case("url") {
+            if kind.eq_ignore_ascii_case("email")
+                && self
+                    .attribute_in_null_namespace(node, "multiple")?
+                    .is_some()
+            {
+                return Ok(value
+                    .split(',')
+                    .map(|token| token.trim_matches(['\t', '\n', '\x0c', '\r', ' ']))
+                    .collect::<Vec<_>>()
+                    .join(","));
+            }
+            return Ok(value
+                .replace(['\r', '\n'], "")
+                .trim_matches(['\t', '\n', '\x0c', '\r', ' '])
+                .into());
+        }
+        Ok(value.into())
+    }
+
+    pub(super) fn text_input_attribute_transition_value(
+        &self,
+        node: NodeId,
+        name: &str,
+        value: &str,
+    ) -> Result<Option<String>, DomError> {
+        if self.is_element(node, HTML, "input")
+            && matches!(name, "type" | "multiple" | "min" | "max" | "step")
+            && !self.is_file_input(node)
+            && (self
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| {
+                    kind.eq_ignore_ascii_case("email")
+                        || kind.eq_ignore_ascii_case("url")
+                        || super::numeric_controls::numeric_kind(kind)
+                })
+                || (name == "type"
+                    && (value.eq_ignore_ascii_case("email")
+                        || value.eq_ignore_ascii_case("url")
+                        || super::numeric_controls::numeric_kind(value))))
+        {
+            return self.control_value(node).map(Some);
+        }
+        Ok(None)
+    }
+
+    pub(super) fn sanitize_after_input_attribute(
+        &mut self,
+        node: NodeId,
+        name: &str,
+        old_value: Option<String>,
+    ) -> Result<(), DomError> {
+        if !self.is_element(node, HTML, "input") {
+            return Ok(());
+        }
+        if name == "value" && !self.arena.get(node)?.dirty_value {
+            self.arena.get_mut(node)?.value = None;
+        } else if let Some(value) = old_value
+            && !self.is_file_input(node)
+        {
+            let value = self.sanitized_input_value(node, &value)?;
+            self.arena.get_mut(node)?.value = Some(value);
+        }
+        Ok(())
+    }
+
+    pub fn reset_control_value(&mut self, node: NodeId, value: String) -> Result<(), DomError> {
+        self.set_value(node, value, false)?;
+        self.arena.get_mut(node)?.dirty_value = false;
+        self.arena.get_mut(node)?.pending_edit_value = None;
+        Ok(())
+    }
+
+    pub fn control_will_validate(&self, node: NodeId) -> Result<bool, DomError> {
+        if self.is_element(node, HTML, "select") {
+            return self.select_will_validate(node);
+        }
+        let input = self.is_element(node, HTML, "input");
+        let button = self.is_element(node, HTML, "button");
+        if (!input && !button && !self.is_element(node, HTML, "textarea"))
+            || self.control_disabled(node)?
+        {
+            return Ok(false);
+        }
+        let kind = self
+            .attribute_in_null_namespace(node, "type")?
+            .unwrap_or("text")
+            .to_ascii_lowercase();
+        if input && matches!(kind.as_str(), "hidden" | "button" | "reset") {
+            return Ok(false);
+        }
+        if self
+            .attribute_in_null_namespace(node, "readonly")?
+            .is_some()
+            && !button
+        {
+            return Ok(false);
+        }
+        if button && !self.is_submit_button(node)? {
+            return Ok(false);
+        }
+        Ok(!self
+            .arena
+            .ancestors(node)?
+            .iter()
+            .any(|id| self.is_element(*id, HTML, "datalist")))
+    }
+
+    pub fn control_value_missing(&self, node: NodeId) -> Result<bool, DomError> {
+        if self.is_element(node, HTML, "select") {
+            return self.select_value_missing(node);
+        }
+        if self.is_radio(node) {
+            if self
+                .attribute_in_null_namespace(node, "name")?
+                .unwrap_or("")
+                .is_empty()
+            {
+                return Ok(false);
+            }
+            let peers = self
+                .arena
+                .iter()
+                .filter(|(peer, _)| {
+                    *peer == node || self.same_radio_group(node, *peer).unwrap_or(false)
+                })
+                .collect::<Vec<_>>();
+            return Ok(peers
+                .iter()
+                .any(|(_, record)| record.attributes.contains_null("required"))
+                && !peers.iter().any(|(_, record)| record.checked()));
+        }
+        let record = self.arena.get(node)?;
+        if !record.attributes.contains_null("required") {
+            return Ok(false);
+        }
+        if self.is_file_input(node) {
+            return Ok(record.selected_files.is_empty());
+        }
+        if self.is_element(node, HTML, "input") {
+            match record
+                .attributes
+                .get_null("type")
+                .map(|s| s.to_ascii_lowercase())
+                .as_deref()
+            {
+                Some("checkbox") => return Ok(!record.checked()),
+                Some("hidden" | "button" | "reset" | "submit" | "image" | "range" | "color") => {
+                    return Ok(false);
+                }
+                _ => {}
+            }
+        } else if !self.is_element(node, HTML, "textarea") {
+            return Ok(false);
+        }
+        Ok(!self.control_disabled(node)?
+            && !record.attributes.contains_null("readonly")
+            && self.control_value(node)?.is_empty())
+    }
+
+    pub fn control_validity(&self, node: NodeId) -> Result<bool, DomError> {
+        let numeric = self.control_numeric_validity(node)?;
+        let (too_short, too_long) = self.control_length_validity(node)?;
+        Ok(!self.control_value_missing(node)?
+            && !too_short
+            && !too_long
+            && !self.control_type_mismatch(node)?
+            && !self.control_pattern_mismatch(node)?
+            && !numeric.range_underflow
+            && !numeric.range_overflow
+            && !numeric.step_mismatch
+            && self.custom_validity_message(node)?.is_empty())
+    }
+
+    /// Shared truth for selector matching and computed style. Eligibility is
+    /// separate from the live ValidityState flags of a barred control.
+    pub fn validation_selector_state(&self, node: NodeId) -> Result<Option<bool>, DomError> {
+        if self.is_element(node, HTML, "form") {
+            return Ok(Some(self.invalid_form_controls(node)?.is_empty()));
+        }
+        if self.is_element(node, HTML, "fieldset") {
+            for (child, _) in self.arena.iter() {
+                if self.arena.ancestors(child)?.contains(&node)
+                    && self.control_will_validate(child)?
+                    && !self.control_validity(child)?
+                {
+                    return Ok(Some(false));
+                }
+            }
+            return Ok(Some(true));
+        }
+        if self.control_will_validate(node)? {
+            Ok(Some(self.control_validity(node)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn invalid_form_controls(&self, form: NodeId) -> Result<Vec<NodeId>, DomError> {
+        self.submittable_form_controls(form)?
+            .into_iter()
+            .filter_map(|node| {
+                match self
+                    .control_will_validate(node)
+                    .and_then(|eligible| Ok(eligible && !self.control_validity(node)?))
+                {
+                    Ok(true) => Some(Ok(node)),
+                    Ok(false) => None,
+                    Err(error) => Some(Err(error)),
+                }
+            })
+            .collect()
+    }
+
+    pub fn is_submit_button(&self, node: NodeId) -> Result<bool, DomError> {
+        if !self.is_element(node, HTML, "input") && !self.is_element(node, HTML, "button") {
+            return Ok(false);
+        }
+        let kind = self
+            .attribute_in_null_namespace(node, "type")?
+            .unwrap_or("");
+        if self.is_element(node, HTML, "input") {
+            return Ok(kind.eq_ignore_ascii_case("submit") || kind.eq_ignore_ascii_case("image"));
+        }
+        Ok(self.is_element(node, HTML, "button")
+            && (kind.eq_ignore_ascii_case("submit")
+                || (!kind.eq_ignore_ascii_case("button")
+                    && !kind.eq_ignore_ascii_case("reset")
+                    && self.attribute_in_null_namespace(node, "command")?.is_none()
+                    && self
+                        .attribute_in_null_namespace(node, "commandfor")?
+                        .is_none()
+                    && !self
+                        .parent(node)?
+                        .is_some_and(|parent| self.is_element(parent, HTML, "select")))))
+    }
+
+    pub fn control_type_mismatch(&self, node: NodeId) -> Result<bool, DomError> {
+        if self.is_element(node, HTML, "input")
+            && self
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("url"))
+        {
+            let value = self.control_value(node)?;
+            return Ok(!value.is_empty() && url::Url::parse(&value).is_err());
+        }
+        self.input_email_type_mismatch(node)
+    }
+
+    /// Email-state type mismatch, independent of requiredness and whether the
+    /// control is currently a candidate for constraint validation.
+    /// https://html.spec.whatwg.org/multipage/input.html#email-state-(type=email)
+    pub fn input_email_type_mismatch(&self, node: NodeId) -> Result<bool, DomError> {
+        if !self.is_element(node, HTML, "input")
+            || !self
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("email"))
+        {
+            return Ok(false);
+        }
+        let value = self.control_value(node)?;
+        if value.is_empty() {
+            return Ok(false);
+        }
+        let valid = if self
+            .attribute_in_null_namespace(node, "multiple")?
+            .is_some()
+        {
+            value.split(',').all(|token| {
+                valid_email_address(token.trim_matches(['\t', '\n', '\x0c', '\r', ' ']))
+            })
+        } else {
+            valid_email_address(&value)
+        };
+        Ok(!valid)
+    }
+
     /// Built-in listed descendants of a fieldset, independent of form owner.
     /// Unlike form.elements, this includes image inputs. FACE membership awaits
     /// the custom-element internals registry.

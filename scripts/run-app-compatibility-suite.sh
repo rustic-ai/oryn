@@ -41,7 +41,7 @@ jq -e '
   .execution_mode == "sandboxed_worker" and
   .sandboxed == true and
   .sandbox_state == "app_sandbox" and
-  .worker_protocol_version == 9
+  .worker_protocol_version == 10
 ' <<<"$runtime" >/dev/null
 jq . <<<"$runtime" >"$output_dir/runtime.json"
 

@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "family": "authenticated_saas",
+  "qualification": "controlled_fixture_only",
+  "credential_notice": "Public synthetic fixture credentials; never use a real account.",
+  "cases": [
+    {
+      "id": "create_update_reload_logout",
+      "steps": [
+        "goto \"{base}/login\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Sign in\"",
+        "type \"Record title\" \"Draft\"",
+        "click \"Create record\"",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "type \"Record title\" \"Approved\"",
+        "click \"Save changes\"",
+        "click \"Reload record\"",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "click \"Sign out\"",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Draft",
+        "Approved",
+        "2"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 2
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 1,
+      "expected_requests": [
+        {
+          "action": "login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "login",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        }
+      ]
+    },
+    {
+      "id": "invalid_login_recovery",
+      "steps": [
+        "goto \"{base}/login\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"wrong-fixture-password\"",
+        "click \"Sign in\"",
+        "extract text --selector \"h1\"",
+        "click \"Sign in again\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Sign in\"",
+        "type \"Record title\" \"Draft\"",
+        "click \"Create record\"",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "type \"Record title\" \"Approved\"",
+        "click \"Save changes\"",
+        "click \"Reload record\"",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "click \"Sign out\"",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Invalid credentials",
+        "Draft",
+        "Approved",
+        "2"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 2
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 1,
+      "expected_requests": [
+        {
+          "action": "login",
+          "outcome": 401,
+          "authorized": 0
+        },
+        {
+          "action": "login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "login",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        }
+      ]
+    },
+    {
+      "id": "logged_out_access_denied",
+      "steps": [
+        "goto \"{base}/login\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Sign in\"",
+        "type \"Record title\" \"Draft\"",
+        "click \"Create record\"",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "type \"Record title\" \"Approved\"",
+        "click \"Save changes\"",
+        "click \"Reload record\"",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "click \"Sign out\"",
+        "goto \"{base}/records\"",
+        "extract text --selector \"h1\"",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Draft",
+        "Approved",
+        "2",
+        "Session required"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 2
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 1,
+      "expected_requests": [
+        {
+          "action": "login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "records",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 0
+        }
+      ]
+    },
+    {
+      "id": "expired_session_save_recovery",
+      "steps": [
+        "goto \"{base}/login\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Sign in\"",
+        "type \"Record title\" \"Draft\"",
+        "click \"Create record\"",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "type \"Record title\" \"Rejected edit\"",
+        "click \"Save changes\"",
+        "extract text --selector \"h1\"",
+        "click \"Sign in again\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Sign in\"",
+        "type \"Record title\" \"Approved\"",
+        "click \"Save changes\"",
+        "click \"Reload record\"",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "click \"Sign out\"",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Draft",
+        "Session expired",
+        "Approved",
+        "2"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 2
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 2,
+      "expected_requests": [
+        {
+          "action": "login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 401,
+          "authorized": 0
+        },
+        {
+          "action": "login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "login",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        }
+      ],
+      "scenario": "expire_after_create",
+      "expected_expirations": [
+        "after_create"
+      ]
+    }
+  ]
+}

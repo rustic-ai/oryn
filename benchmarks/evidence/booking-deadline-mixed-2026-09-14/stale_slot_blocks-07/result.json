@@ -1,0 +1,13 @@
+{
+  "case": "stale_slot_blocks",
+  "sample": 7,
+  "case_id": "2ce3df9185c20f691cae778fbcf5c7c0",
+  "base": "http://127.0.0.1:54735/booking/2ce3df9185c20f691cae778fbcf5c7c0",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "5616cc4729d7d5f368869dface1aad2bfa300b51496f433cab724697da949fc1",
+  "returncode": 0,
+  "elapsed_seconds": 0.401,
+  "final_database_verified": true
+}

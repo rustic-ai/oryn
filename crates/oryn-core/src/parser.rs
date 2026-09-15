@@ -1159,6 +1159,45 @@ fn parse_name_value(pair: Pair<Rule>) -> String {
 mod comment_validation_tests {
     use super::*;
 
+    #[test]
+    fn quoted_unicode_values_survive_normalization_and_parsing() {
+        for value in [
+            "Zoë Test",
+            "R&D + 50% = café 日本語",
+            "مرحبا",
+            "👩🏽‍💻",
+            "e\u{301}",
+            "字 # kept",
+        ] {
+            let input = format!("type \"名前\" \"{value}\"");
+            let normalized = crate::normalizer::normalize(&input);
+            let script = parse(&normalized).unwrap();
+            let Some(Command::Type(command)) = &script.lines[0].command else {
+                panic!("expected type command");
+            };
+            assert_eq!(command.text, value);
+            assert_eq!(normalized, input);
+        }
+    }
+
+    #[test]
+    fn unicode_strings_preserve_escape_and_command_boundaries() {
+        let script = parse(&crate::normalizer::normalize(
+            r#"type "名前" "字\n\"quoted\"\\path" # comment"#,
+        ))
+        .unwrap();
+        let Some(Command::Type(command)) = &script.lines[0].command else {
+            panic!("expected type command")
+        };
+        assert_eq!(command.text, "字\n\"quoted\"\\path");
+        assert_eq!(script.lines.len(), 1);
+        for control in ['\0', '\u{1f}', '\u{7f}'] {
+            assert!(parse(&format!("type \"名前\" \"a{control}b\"")).is_err());
+        }
+        assert!(parse("type \"名前\" \"字\\q\"").is_err());
+        assert!(parse("type \"名前\" \"字").is_err());
+    }
+
     fn assert_invalid_digit_hash(input: &str, expected_position: usize, expected_found: &str) {
         let result = parse(input);
         let Err(ParseError::UnexpectedInput {

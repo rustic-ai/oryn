@@ -1,0 +1,12 @@
+{
+  "case": "stock_change_recovery",
+  "sample": 1,
+  "case_id": "cf629ec27a89afc4f036e7c81ffa11ee",
+  "base": "http://127.0.0.1:58293/shop/cf629ec27a89afc4f036e7c81ffa11ee",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "0254a7fecda0cca83810d03e5a472eb0854d079f8ee6a0881b8872127810951d",
+  "returncode": 0,
+  "elapsed_seconds": 0.842
+}

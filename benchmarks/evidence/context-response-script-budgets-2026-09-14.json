@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree native diagnostic, not signed/WPT or release qualification",
+  "source_tree_sha256": "aa51dc65b993e9a85442c3ebba4f4947d937c3986ecc0aa460a5307dbfc51855",
+  "native_test_binary_sha256": "e8a4eb7d7087ed4d0935b2725ea965c52a484f0c4fe2aae8e1041675190b0100",
+  "budgets": {
+    "parent_context_response_including_newline_bytes": 25165824,
+    "page_script_resource_bytes": 8388608,
+    "decoded_page_script_source_bytes": 8388608,
+    "dedicated_worker_script_limit": "unchanged"
+  },
+  "response_behavior": "bounded serialization before socket writes, correlated error on oversized result, channel closure if fallback cannot encode or write",
+  "context_tests": {"passed": 19, "failed": 0, "elapsed_seconds": 0.82},
+  "coverage": [
+    "Exact encoded response boundary including LF",
+    "JSON escape expansion and route/correlation preservation",
+    "Oversized response followed by valid response on same real IPC channel",
+    "Decoded source expansion and raw byte limits",
+    "2 MiB page script accepted by parent loader, over-budget response rejected"
+  ],
+  "native_suite": {"passed": 502, "failed": 0, "ignored": 6, "test_threads": 1, "elapsed_seconds": 142.59},
+  "strict_v8_library_test_clippy": "passed",
+  "format_and_diff_checks": "passed",
+  "signed_replay": "pending; earlier 10/12 workflow result does not qualify these changes",
+  "react_author_script_execution": "not yet verified with these changes",
+  "goal_complete": false
+}

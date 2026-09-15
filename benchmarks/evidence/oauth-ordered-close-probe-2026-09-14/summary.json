@@ -1,0 +1,143 @@
+{
+  "scope": "dirty-tree diagnostic, controlled auth mechanics only",
+  "family_qualified": false,
+  "records": [
+    {
+      "case": "popup-pkce",
+      "sample": 1,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.2178197498433292
+    },
+    {
+      "case": "redirect",
+      "sample": 1,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.20812508277595043
+    },
+    {
+      "case": "mfa-handoff",
+      "sample": 1,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.21073641697876155
+    },
+    {
+      "case": "popup-close-recovery",
+      "sample": 1,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.1901420410722494
+    },
+    {
+      "case": "existing-session-sso",
+      "sample": 1,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.19603237486444414
+    },
+    {
+      "case": "popup-pkce",
+      "sample": 2,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.19063604180701077
+    },
+    {
+      "case": "redirect",
+      "sample": 2,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.1864950000308454
+    },
+    {
+      "case": "mfa-handoff",
+      "sample": 2,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.18943241704255342
+    },
+    {
+      "case": "popup-close-recovery",
+      "sample": 2,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.1914868331514299
+    },
+    {
+      "case": "existing-session-sso",
+      "sample": 2,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.19479612493887544
+    },
+    {
+      "case": "popup-pkce",
+      "sample": 3,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.1935295001603663
+    },
+    {
+      "case": "redirect",
+      "sample": 3,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.18658220791257918
+    },
+    {
+      "case": "mfa-handoff",
+      "sample": 3,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.1907480419613421
+    },
+    {
+      "case": "popup-close-recovery",
+      "sample": 3,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.1896187919192016
+    },
+    {
+      "case": "existing-session-sso",
+      "sample": 3,
+      "passed": true,
+      "errors": [],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.1867573750205338
+    }
+  ],
+  "passed": 15,
+  "total": 15
+}

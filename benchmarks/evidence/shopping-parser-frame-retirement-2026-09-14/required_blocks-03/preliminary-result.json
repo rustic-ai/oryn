@@ -1,0 +1,12 @@
+{
+  "case": "required_blocks",
+  "sample": 3,
+  "case_id": "7250979b0428829853d23e7d9b4260ae",
+  "base": "http://127.0.0.1:58293/shop/7250979b0428829853d23e7d9b4260ae",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "8be38f4fb0e4fafc380ac5a2ef089d27db593ebf92e1e05da2242eeef0b4e283",
+  "returncode": 0,
+  "elapsed_seconds": 0.551
+}

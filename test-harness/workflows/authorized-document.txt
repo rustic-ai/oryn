@@ -1,0 +1,3 @@
+Oryn controlled application attachment.
+This is synthetic test data, not a real application or personal document.
+Encoding check: café — 日本語.

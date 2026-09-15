@@ -101,12 +101,11 @@ mod raw_v8 {
     use oryn_js::scheduler::{PageScheduler, Task, TaskSource};
     use oryn_js::v8_bindings::{
         BindingGlobal, BindingLayout, BindingLayoutProvider, PendingDefaultAction, SharedDom,
-        V8BindingState, deliver_mutation_observers, deliver_selection_change,
-        fixup_focus_eligibility, has_pending_mutation_observer_microtask,
-        install_generated_bindings, install_generated_bindings_with_root,
-        install_generated_bindings_with_root_for_global, publish_named_window_properties,
-        queue_mutation_observer_microtask, reset_mutation_observer_microtask_after_termination,
-        wrap_node,
+        V8BindingState, deliver_control_event, deliver_mutation_observers,
+        deliver_selection_change, fixup_focus_eligibility, has_pending_mutation_observer_microtask,
+        install_generated_bindings_with_root, install_generated_bindings_with_root_for_global,
+        publish_named_window_properties, queue_mutation_observer_microtask,
+        reset_mutation_observer_microtask_after_termination, wrap_node,
     };
 
     static INITIALIZE_V8: Once = Once::new();
@@ -194,13 +193,29 @@ mod raw_v8 {
         watchdog: ExecutionWatchdog,
         isolate: v8::OwnedIsolate,
         contexts: BTreeMap<RealmId, v8::Global<v8::Context>>,
-        security_tokens: BTreeMap<String, v8::Global<v8::String>>,
-        realms: RealmRegistry,
         active_realm: RealmId,
         binding_states: BTreeMap<RealmId, Rc<V8BindingState>>,
-        trusted_types_config: Option<(oryn_js::trusted_types::TrustedTypesConfig, bool)>,
         execution_wall_limit: Duration,
         isolate_entered: bool,
+    }
+
+    /// Immutable policy owned by a native document context, never by the
+    /// isolate's most recently configured document.
+    #[derive(Clone)]
+    struct DocumentCodePolicy {
+        trusted_types: oryn_js::trusted_types::TrustedTypesConfig,
+        allow_eval: bool,
+    }
+
+    /// Identity allocation belongs to the isolate so native callbacks can create
+    /// realms without borrowing (or retaining a pointer to) the host driver.
+    #[derive(Default)]
+    struct NativeRealmIdentities {
+        realms: RealmRegistry,
+        security_tokens: BTreeMap<String, v8::Global<v8::String>>,
+        // Strongly retain callback-created contexts until the driver reaches a
+        // checkpoint. Identity metadata alone must not outlive an unowned realm.
+        pending_contexts: BTreeMap<RealmId, v8::Global<v8::Context>>,
     }
 
     #[derive(Default)]
@@ -650,12 +665,16 @@ mod raw_v8 {
         callback: v8::Global<v8::Function>,
         arguments: Vec<v8::Global<v8::Value>>,
         repeating: bool,
+        delay_ms: u64,
+        nesting_level: u32,
+        scheduled_id: u64,
     }
 
     struct TimerRegistry {
         started: Instant,
         scheduler: PageScheduler<u64>,
         callbacks: BTreeMap<u64, ScheduledTimer>,
+        task_nesting: Rc<std::cell::Cell<u32>>,
     }
 
     impl Default for TimerRegistry {
@@ -664,8 +683,35 @@ mod raw_v8 {
                 started: Instant::now(),
                 scheduler: PageScheduler::default(),
                 callbacks: BTreeMap::new(),
+                task_nesting: Rc::new(std::cell::Cell::new(0)),
             }
         }
+    }
+
+    struct TimerTaskNesting {
+        state: Rc<std::cell::Cell<u32>>,
+        previous: u32,
+    }
+
+    impl TimerTaskNesting {
+        fn enter(state: Rc<std::cell::Cell<u32>>, level: u32) -> Self {
+            let previous = state.replace(level);
+            Self { state, previous }
+        }
+    }
+
+    impl Drop for TimerTaskNesting {
+        fn drop(&mut self) {
+            self.state.set(self.previous);
+        }
+    }
+
+    fn nested_timer_delay(delay_ms: u64, nesting_level: u32) -> Duration {
+        Duration::from_millis(if nesting_level > 5 {
+            delay_ms.max(4)
+        } else {
+            delay_ms
+        })
     }
 
     fn current_environment(scope: &mut v8::PinScope) -> Result<EnvironmentDescriptor, String> {
@@ -730,6 +776,208 @@ mod raw_v8 {
                 workers.outbound.remove(&worker);
             }
         }
+    }
+
+    /// A browsing-context lifetime survives document navigation, but never a
+    /// removal/reinsertion of its embedding element. No author property is used
+    /// to decide whether execution services remain authorized.
+    struct FrameLifetime {
+        frame: NodeId,
+        connection_generation: u64,
+        parent: std::rc::Weak<V8BindingState>,
+        parent_environment: EnvironmentDescriptor,
+        environment: std::cell::Cell<EnvironmentDescriptor>,
+        child: RefCell<std::rc::Weak<V8BindingState>>,
+        closed: std::cell::Cell<bool>,
+    }
+
+    #[derive(Default)]
+    struct FrameLifetimes {
+        live: BTreeMap<(EnvironmentId, NodeId), Rc<FrameLifetime>>,
+        discarded_realms: BTreeSet<RealmId>,
+    }
+
+    /// Register native browsing-context ownership from an entered V8 scope.
+    /// This is shared by driver linking and insertion-time realm creation; it
+    /// does not call a JavaScript proxy factory or borrow the outer host.
+    fn bind_native_frame_lifetime(
+        scope: &mut v8::PinScope<'_, '_, ()>,
+        parent: v8::Local<v8::Context>,
+        child: v8::Local<v8::Context>,
+        frame: NodeId,
+    ) -> Result<(), HostError> {
+        let parent_environment = *parent
+            .get_slot::<EnvironmentDescriptor>()
+            .ok_or_else(|| HostError::Execution("parent frame environment unavailable".into()))?;
+        let environment = *child
+            .get_slot::<EnvironmentDescriptor>()
+            .ok_or_else(|| HostError::Execution("child frame environment unavailable".into()))?;
+        let active = parent
+            .get_slot::<V8BindingState>()
+            .ok_or_else(|| HostError::Execution("parent frame bindings unavailable".into()))?;
+        let child_state = child
+            .get_slot::<V8BindingState>()
+            .ok_or_else(|| HostError::Execution("child frame bindings unavailable".into()))?;
+        let environments = scope
+            .get_slot::<AgentEnvironments>()
+            .ok_or_else(|| HostError::Execution("agent environments unavailable".into()))?;
+        if !environments.is_live(&parent_environment)
+            || !environments.is_live(&environment)
+            || active.execution_retired()
+            || child_state.execution_retired()
+        {
+            return Err(HostError::Execution(
+                "cannot bind a retired frame environment".into(),
+            ));
+        }
+        let dom = active.dom();
+        {
+            let dom = dom.borrow();
+            // The legacy parser loader can link a frame removed by a parent
+            // script before its late initialization. Preserve that path: the
+            // existing lifecycle checkpoint immediately retires it. Insertion
+            // hooks must instead create the initial realm while connected.
+            if dom.arena().node_document(frame).ok().flatten() != Some(active.document_root())
+                || !dom.is_element(frame, "http://www.w3.org/1999/xhtml", "iframe")
+            {
+                return Err(HostError::Execution(
+                    "frame does not belong to its native owner document".into(),
+                ));
+            }
+        }
+        let lifetime = scope
+            .get_slot_mut::<FrameLifetimes>()
+            .ok_or_else(|| HostError::Execution("frame lifetimes unavailable".into()))?
+            .live
+            .entry((parent_environment.id, frame))
+            .or_insert_with(|| {
+                Rc::new(FrameLifetime {
+                    frame,
+                    connection_generation: dom.borrow_mut().track_frame_context(frame),
+                    parent: Rc::downgrade(&active),
+                    parent_environment,
+                    environment: std::cell::Cell::new(environment),
+                    child: RefCell::new(Rc::downgrade(&child_state)),
+                    closed: std::cell::Cell::new(false),
+                })
+            })
+            .clone();
+        if lifetime.closed.get()
+            || dom.borrow().frame_context_generation(frame) != Some(lifetime.connection_generation)
+        {
+            return Err(HostError::Execution(
+                "cannot rebind a discarded frame lifetime".into(),
+            ));
+        }
+        lifetime.environment.set(environment);
+        *lifetime.child.borrow_mut() = Rc::downgrade(&child_state);
+        child.set_slot(lifetime);
+        active.bind_frame_target_name(frame, &child_state);
+        Ok(())
+    }
+
+    fn checkpoint_frame_lifetimes(scope: &mut v8::PinScope) {
+        loop {
+            let Some(registry) = scope.get_slot::<FrameLifetimes>() else {
+                return;
+            };
+            let discarded = registry
+                .live
+                .iter()
+                .filter_map(|(key, frame)| {
+                    let parent_live =
+                        scope
+                            .get_slot::<AgentEnvironments>()
+                            .is_some_and(|environments| {
+                                environments.is_live(&frame.parent_environment)
+                            });
+                    let connected = frame.parent.upgrade().is_some_and(|parent| {
+                        let dom = parent.dom();
+                        let dom = dom.borrow();
+                        dom.is_connected(frame.frame).unwrap_or(false)
+                            && dom.arena().node_document(frame.frame).ok().flatten()
+                                == Some(parent.document_root())
+                            && dom.frame_context_generation(frame.frame)
+                                == Some(frame.connection_generation)
+                            && frame.connection_generation != u64::MAX
+                    });
+                    (!parent_live || !connected).then(|| (*key, frame.clone()))
+                })
+                .collect::<Vec<_>>();
+            if discarded.is_empty() {
+                return;
+            }
+            for (key, frame) in discarded {
+                frame.closed.set(true);
+                let environment = frame.environment.get();
+                retire_environment(scope, environment.id);
+                if let Some(child) = frame.child.borrow().upgrade() {
+                    child.retire_execution();
+                }
+                if let Some(parent) = frame.parent.upgrade() {
+                    parent.discard_frame_context(frame.frame);
+                }
+                let registry = scope.get_slot_mut::<FrameLifetimes>().unwrap();
+                registry.live.remove(&key);
+                registry.discarded_realms.insert(environment.realm);
+            }
+            // A parent discard also retires nested contexts, including opaque
+            // frames with separate arenas whose document roots remain connected.
+        }
+    }
+
+    fn frame_closed_callback(
+        scope: &mut v8::PinScope,
+        args: v8::FunctionCallbackArguments,
+        mut result: v8::ReturnValue,
+    ) {
+        let closed = v8::Local::<v8::Object>::try_from(args.data())
+            .ok()
+            .and_then(|data| data.get_internal_field(scope, 0))
+            .and_then(|value| v8::Local::<v8::Context>::try_from(value).ok())
+            .and_then(|context| context.get_slot::<FrameLifetime>())
+            .is_none_or(|frame| frame.closed.get());
+        result.set_bool(closed);
+    }
+
+    fn frame_close_callback(
+        _scope: &mut v8::PinScope,
+        _args: v8::FunctionCallbackArguments,
+        _result: v8::ReturnValue,
+    ) {
+        // A nested browsing context is not script-closable.
+    }
+
+    fn install_frame_closed_accessor(
+        scope: &mut v8::PinScope,
+        object: v8::Local<v8::Object>,
+        context: v8::Local<v8::Context>,
+    ) -> Result<(), HostError> {
+        let template = v8::ObjectTemplate::new(scope);
+        template.set_internal_field_count(1);
+        let data = template
+            .new_instance(scope)
+            .ok_or_else(|| HostError::Execution("frame lifecycle data allocation".into()))?;
+        data.set_internal_field(0, context.into());
+        let getter = v8::Function::builder(frame_closed_callback)
+            .data(data.into())
+            .build(scope)
+            .ok_or_else(|| HostError::Execution("frame closed getter allocation".into()))?;
+        let key = v8::String::new(scope, "closed").unwrap();
+        let mut descriptor =
+            v8::PropertyDescriptor::new_from_get_set(getter.into(), v8::undefined(scope).into());
+        descriptor.set_enumerable(true);
+        descriptor.set_configurable(true);
+        if object.define_property(scope, key.into(), &descriptor) != Some(true) {
+            return Err(HostError::Execution(
+                "install native frame closed getter".into(),
+            ));
+        }
+        let close = v8::Function::new(scope, frame_close_callback)
+            .ok_or_else(|| HostError::Execution("frame close callback allocation".into()))?;
+        let key = v8::String::new(scope, "close").unwrap();
+        object.set(scope, key.into(), close.into());
+        Ok(())
     }
 
     fn bind_document_environment(
@@ -907,26 +1155,19 @@ mod raw_v8 {
                 .ok_or_else(|| "timer scheduler is unavailable".to_string())?;
             let now_ms = registry.started.elapsed().as_millis() as u64;
             registry.scheduler.advance_to(now_ms);
-            let delay = Duration::from_millis(delay);
-            let timer_id = if repeating {
-                registry
-                    .scheduler
-                    .set_interval_with(delay, |timer_id| Task {
-                        source: TaskSource::Timer,
-                        realm: environment.realm,
-                        document_generation: environment.document_generation,
-                        action_id: None,
-                        payload: timer_id,
-                    })
-            } else {
-                registry.scheduler.set_timeout_with(delay, |timer_id| Task {
+            let nesting_level = registry.task_nesting.get();
+            // Repeating timers are reinitialized only after their callback and
+            // its microtask checkpoint, with the same public handle.
+            let timer_id = registry.scheduler.set_timeout_with(
+                nested_timer_delay(delay, nesting_level),
+                |timer_id| Task {
                     source: TaskSource::Timer,
                     realm: environment.realm,
                     document_generation: environment.document_generation,
                     action_id: None,
                     payload: timer_id,
-                })
-            };
+                },
+            );
             registry.callbacks.insert(
                 timer_id,
                 ScheduledTimer {
@@ -935,6 +1176,9 @@ mod raw_v8 {
                     callback,
                     arguments,
                     repeating,
+                    delay_ms: delay,
+                    nesting_level: nesting_level.saturating_add(1),
+                    scheduled_id: timer_id,
                 },
             );
             Ok(timer_id)
@@ -965,8 +1209,9 @@ mod raw_v8 {
             {
                 return;
             }
-            registry.scheduler.cancel_timer(timer_id);
-            registry.callbacks.remove(&timer_id);
+            if let Some(timer) = registry.callbacks.remove(&timer_id) {
+                registry.scheduler.cancel_timer(timer.scheduled_id);
+            }
         }
     }
 
@@ -1011,6 +1256,206 @@ mod raw_v8 {
             .get_current_context()
             .global(scope)
             .create_data_property(scope, name.into(), value.into());
+    }
+
+    /// The shared realm factory works inside a running native callback. No
+    /// author code runs here and no borrow of isolate-owned state crosses a V8
+    /// allocation. Realm and environment identities remain monotonic on failure.
+    fn create_native_realm_context(
+        scope: &mut v8::PinScope<'_, '_, ()>,
+        origin: Origin,
+        document_generation: u64,
+        frame_id: Option<u64>,
+        global: Option<v8::Global<v8::Object>>,
+    ) -> Result<(RealmId, v8::Global<v8::Context>), HostError> {
+        let realm = scope
+            .get_slot_mut::<NativeRealmIdentities>()
+            .unwrap()
+            .realms
+            .try_create(origin.clone(), document_generation, frame_id)
+            .map_err(|_| HostError::LimitExceeded {
+                resource: "realm identities".into(),
+            })?;
+        let environment = match scope.get_slot_mut::<AgentEnvironments>().unwrap().create(
+            realm,
+            document_generation,
+            None,
+        ) {
+            Ok(environment) => environment,
+            Err(error) => {
+                scope
+                    .get_slot_mut::<NativeRealmIdentities>()
+                    .unwrap()
+                    .realms
+                    .remove(realm);
+                return Err(HostError::Execution(error.into()));
+            }
+        };
+        let identity = origin.security_token_key();
+        let existing_token = scope
+            .get_slot::<NativeRealmIdentities>()
+            .unwrap()
+            .security_tokens
+            .get(&identity)
+            .cloned();
+        let global_object = global
+            .as_ref()
+            .map(|value| v8::Local::new(scope, value).into());
+        let template = v8::ObjectTemplate::new(scope);
+        oryn_js::v8_bindings::window_proxy::configure_local_template(scope, template);
+        let context = v8::Context::new(
+            scope,
+            v8::ContextOptions {
+                global_object,
+                global_template: Some(template),
+                ..Default::default()
+            },
+        );
+        let token = existing_token
+            .as_ref()
+            .map(|token| v8::Local::new(scope, token))
+            .unwrap_or_else(|| {
+                v8::String::new(scope, &identity).expect("allocate V8 context security token")
+            });
+        context.set_security_token(token.into());
+        if existing_token.is_none() {
+            let token = v8::Global::new(scope, token);
+            scope
+                .get_slot_mut::<NativeRealmIdentities>()
+                .unwrap()
+                .security_tokens
+                .insert(identity, token);
+        }
+        let descriptor = scope
+            .get_slot::<NativeRealmIdentities>()
+            .unwrap()
+            .realms
+            .get(realm)
+            .unwrap()
+            .clone();
+        context.set_slot(Rc::new(descriptor));
+        context.set_slot(Rc::new(environment));
+        install_host_functions!(scope, context);
+        let context = v8::Global::new(scope, context);
+        scope
+            .get_slot_mut::<NativeRealmIdentities>()
+            .unwrap()
+            .pending_contexts
+            .insert(realm, context.clone());
+        Ok((realm, context))
+    }
+
+    /// Install one document through the same path for driver-created and
+    /// callback-created realms. Policy is explicit: this helper must not guess
+    /// inheritance from whichever realm last happened to run in the isolate.
+    fn install_native_document(
+        scope: &mut v8::PinScope<'_, '_, ()>,
+        context: v8::Local<v8::Context>,
+        dom: SharedDom,
+        realm: RealmId,
+        document_generation: u64,
+        document: NodeId,
+        policy: Option<&DocumentCodePolicy>,
+    ) -> Result<Rc<V8BindingState>, HostError> {
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let environment = current_environment(scope).map_err(HostError::Execution)?;
+        if environment.realm != realm {
+            return Err(HostError::Execution(
+                "document realm identity mismatch".into(),
+            ));
+        }
+        let previous = context.get_slot::<V8BindingState>();
+        #[cfg(unix)]
+        let platform_context = scope.get_slot::<ContextState>().cloned();
+        let state = install_generated_bindings_with_root(
+            scope,
+            context,
+            dom,
+            realm,
+            document_generation,
+            document,
+        )
+        .map_err(|error| HostError::Execution(error.to_string()))?;
+        #[cfg(unix)]
+        if let Some(platform_context) = platform_context {
+            state.set_platform_host(Rc::new(ContextPlatformHost::new(platform_context)));
+        }
+        if let Some(policy) = policy {
+            state.configure_trusted_types(policy.trusted_types.clone());
+            context.set_allow_generation_from_strings(policy.allow_eval);
+            context.set_slot(Rc::new(policy.clone()));
+        }
+        if let Some(previous) = previous {
+            previous.retire_execution();
+        }
+        bind_document_environment(scope, realm, document_generation)?;
+        Ok(state)
+    }
+
+    /// Allocate and initialize a child document without activating the outer
+    /// driver. The creator's context, not the last configured sibling, supplies
+    /// inherited policy. Failed installation must not leave an adoptable realm.
+    fn create_native_document_context(
+        scope: &mut v8::PinScope<'_, '_, ()>,
+        creator: v8::Local<v8::Context>,
+        origin: Origin,
+        document_generation: u64,
+        frame_id: Option<u64>,
+        dom: SharedDom,
+        document: NodeId,
+    ) -> Result<(RealmId, v8::Global<v8::Context>), HostError> {
+        let creator_environment = creator
+            .get_slot::<EnvironmentDescriptor>()
+            .ok_or_else(|| HostError::Execution("creator environment is unavailable".into()))?;
+        if !scope
+            .get_slot::<AgentEnvironments>()
+            .is_some_and(|environments| environments.is_live(&creator_environment))
+            || creator
+                .get_slot::<V8BindingState>()
+                .is_some_and(|state| state.execution_retired())
+        {
+            return Err(HostError::Execution(
+                "cannot create a child from a retired creator".into(),
+            ));
+        }
+        let policy = creator.get_slot::<DocumentCodePolicy>();
+        let inherited_base = if let Some(state) = creator.get_slot::<V8BindingState>() {
+            let creator_scope = &mut v8::ContextScope::new(scope, creator);
+            Some(
+                oryn_js::v8_bindings::document_base_url(creator_scope, &state, true)
+                    .map_err(|error| HostError::Execution(error.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let (realm, context) =
+            create_native_realm_context(scope, origin, document_generation, frame_id, None)?;
+        let local = v8::Local::new(scope, &context);
+        if let Err(error) = install_native_document(
+            scope,
+            local,
+            dom,
+            realm,
+            document_generation,
+            document,
+            policy.as_deref(),
+        ) {
+            if let Some(state) = local.get_slot::<V8BindingState>() {
+                state.retire_execution();
+            }
+            if let Some(environment) = local.get_slot::<EnvironmentDescriptor>() {
+                retire_environment(scope, environment.id);
+            }
+            let identities = scope.get_slot_mut::<NativeRealmIdentities>().unwrap();
+            identities.pending_contexts.remove(&realm);
+            identities.realms.remove(realm);
+            return Err(error);
+        }
+        local
+            .get_slot::<V8BindingState>()
+            .expect("successful document installation has binding state")
+            .set_inherited_base_url(inherited_base);
+        Ok((realm, context))
     }
 
     impl RawV8Host {
@@ -1309,6 +1754,10 @@ mod raw_v8 {
             isolate.set_slot(DedicatedWorkers::default());
             isolate.set_slot(TimerRegistry::default());
             isolate.set_slot(AgentEnvironments::default());
+            isolate.set_slot(FrameLifetimes::default());
+            isolate.set_slot(oryn_js::v8_bindings::DomLifecycleCheckpoint(
+                checkpoint_frame_lifetimes,
+            ));
             isolate.set_slot(ModuleNames::default());
             isolate.set_slot(ModuleCache::default());
             isolate.set_slot(crate::automation_trace::AutomationTrace::default());
@@ -1328,53 +1777,25 @@ mod raw_v8 {
                         .map(|state| state.base_url.origin().ascii_serialization())
                 })
                 .unwrap_or_else(|| "null".into());
-            let mut realms = RealmRegistry::default();
-            let active_realm = realms.create(origin.clone(), 1, None);
-            let environment = isolate
-                .get_slot_mut::<AgentEnvironments>()
-                .unwrap()
-                .create(active_realm, 1, None)
-                .expect("first execution environment");
-            let (context, security_token) = {
+            isolate.set_slot(NativeRealmIdentities::default());
+            let (active_realm, context) = {
                 v8::scope!(let scope, &mut isolate);
-                let template = v8::ObjectTemplate::new(scope);
-                oryn_js::v8_bindings::window_proxy::configure_local_template(scope, template);
-                let context = v8::Context::new(
-                    scope,
-                    v8::ContextOptions {
-                        global_template: Some(template),
-                        ..Default::default()
-                    },
-                );
-                let identity = realms
-                    .get(active_realm)
-                    .unwrap()
-                    .origin
-                    .security_token_key();
-                let token =
-                    v8::String::new(scope, &identity).expect("allocate V8 context security token");
-                context.set_security_token(token.into());
-                context.set_slot(Rc::new(realms.get(active_realm).unwrap().clone()));
-                context.set_slot(Rc::new(environment));
-                install_host_functions!(scope, context);
-                (
-                    v8::Global::new(scope, context),
-                    (identity, v8::Global::new(scope, token)),
-                )
+                create_native_realm_context(scope, origin.into(), 1, None, None)
+                    .expect("create initial execution realm")
             };
             let mut contexts = BTreeMap::new();
             contexts.insert(active_realm, context);
-            let mut security_tokens = BTreeMap::new();
-            security_tokens.insert(security_token.0, security_token.1);
+            isolate
+                .get_slot_mut::<NativeRealmIdentities>()
+                .unwrap()
+                .pending_contexts
+                .remove(&active_realm);
             Self {
                 watchdog,
                 isolate,
                 contexts,
-                security_tokens,
-                realms,
                 active_realm,
                 binding_states: BTreeMap::new(),
-                trusted_types_config: None,
                 execution_wall_limit: Duration::from_millis(9_500),
                 isolate_entered: true,
             }
@@ -1388,32 +1809,8 @@ mod raw_v8 {
             dom: SharedDom,
             document_generation: u64,
         ) -> Result<(), HostError> {
-            #[cfg(unix)]
-            let platform_context = self.isolate.get_slot::<ContextState>().cloned();
-            let realm = self.active_realm;
-            let context = self
-                .contexts
-                .get(&realm)
-                .ok_or_else(|| HostError::Execution("active realm context is unavailable".into()))?
-                .clone();
-            v8::scope!(let handle_scope, &mut self.isolate);
-            let context = v8::Local::new(handle_scope, &context);
-            let scope = &mut v8::ContextScope::new(handle_scope, context);
-            let state = install_generated_bindings(scope, context, dom, realm, document_generation)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            #[cfg(unix)]
-            if let Some(platform_context) = platform_context {
-                state.set_platform_host(Rc::new(ContextPlatformHost::new(platform_context)));
-            }
-            if let Some((config, allow_eval)) = &self.trusted_types_config {
-                state.configure_trusted_types(config.clone());
-                context.set_allow_generation_from_strings(*allow_eval);
-            }
-            if let Some(previous) = self.binding_states.insert(realm, state) {
-                previous.retire_execution();
-            }
-            bind_document_environment(scope, realm, document_generation)?;
-            Ok(())
+            let document = dom.borrow().document();
+            self.install_dom_root(dom, document_generation, document)
         }
 
         pub fn set_execution_wall_limit(&mut self, limit: Duration) {
@@ -1426,8 +1823,6 @@ mod raw_v8 {
             document_generation: u64,
             document: NodeId,
         ) -> Result<(), HostError> {
-            #[cfg(unix)]
-            let platform_context = self.isolate.get_slot::<ContextState>().cloned();
             let realm = self.active_realm;
             let context = self
                 .contexts
@@ -1436,28 +1831,17 @@ mod raw_v8 {
                 .clone();
             v8::scope!(let handle_scope, &mut self.isolate);
             let context = v8::Local::new(handle_scope, &context);
-            let scope = &mut v8::ContextScope::new(handle_scope, context);
-            let state = install_generated_bindings_with_root(
-                scope,
+            let policy = context.get_slot::<DocumentCodePolicy>();
+            let state = install_native_document(
+                handle_scope,
                 context,
                 dom,
                 realm,
                 document_generation,
                 document,
-            )
-            .map_err(|error| HostError::Execution(error.to_string()))?;
-            #[cfg(unix)]
-            if let Some(platform_context) = platform_context {
-                state.set_platform_host(Rc::new(ContextPlatformHost::new(platform_context)));
-            }
-            if let Some((config, allow_eval)) = &self.trusted_types_config {
-                state.configure_trusted_types(config.clone());
-                context.set_allow_generation_from_strings(*allow_eval);
-            }
-            if let Some(previous) = self.binding_states.insert(realm, state) {
-                previous.retire_execution();
-            }
-            bind_document_environment(scope, realm, document_generation)?;
+                policy.as_deref(),
+            )?;
+            self.binding_states.insert(realm, state);
             Ok(())
         }
 
@@ -1560,12 +1944,47 @@ mod raw_v8 {
                 .get(&self.active_realm)
                 .ok_or_else(|| HostError::Execution("parent realm is unavailable".into()))?
                 .clone();
+            // Browsing-context ancestry is native state. Reading window.top
+            // here would let an author getter execute during linking or replace
+            // the destination with an unrelated object.
+            let mut top_realm = self.active_realm;
+            let mut visited = BTreeSet::new();
+            while visited.insert(top_realm) {
+                let parent = self
+                    .isolate
+                    .get_slot::<FrameLifetimes>()
+                    .unwrap()
+                    .live
+                    .values()
+                    .find(|entry| entry.environment.get().realm == top_realm)
+                    .map(|entry| entry.parent_environment.realm);
+                let Some(parent) = parent else { break };
+                top_realm = parent;
+            }
+            if self
+                .isolate
+                .get_slot::<FrameLifetimes>()
+                .unwrap()
+                .live
+                .values()
+                .any(|entry| entry.environment.get().realm == top_realm)
+            {
+                return Err(HostError::Execution("cyclic native frame ancestry".into()));
+            }
+            let top_context = self
+                .contexts
+                .get(&top_realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("top frame context unavailable".into()))?;
             let active = self
                 .binding_states
                 .get(&self.active_realm)
                 .cloned()
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?;
             let parent_origin = self
+                .isolate
+                .get_slot::<NativeRealmIdentities>()
+                .unwrap()
                 .realms
                 .get(self.active_realm)
                 .map(|descriptor| descriptor.origin.clone())
@@ -1573,6 +1992,9 @@ mod raw_v8 {
                     HostError::Execution("parent realm descriptor is unavailable".into())
                 })?;
             let child_origin = self
+                .isolate
+                .get_slot::<NativeRealmIdentities>()
+                .unwrap()
                 .realms
                 .get(realm)
                 .map(|descriptor| descriptor.origin.clone())
@@ -1582,12 +2004,15 @@ mod raw_v8 {
             let same_origin = document.is_some() && parent_origin == child_origin;
             let parent_origin = parent_origin.serialize();
             let child_origin = child_origin.serialize();
-            if let Some(child) = self.binding_states.get(&realm) {
-                active.bind_frame_target_name(frame, child);
-            }
             v8::scope!(let handle_scope, &mut self.isolate);
             let parent_context_local = v8::Local::new(handle_scope, &parent_context);
             let child_context_local = v8::Local::new(handle_scope, &child_context);
+            bind_native_frame_lifetime(
+                handle_scope,
+                parent_context_local,
+                child_context_local,
+                frame,
+            )?;
             let parent_window =
                 v8::Global::new(handle_scope, parent_context_local.global(handle_scope));
             let child_window =
@@ -1632,15 +2057,8 @@ mod raw_v8 {
                 v8::Global::new(scope, value)
             };
             let parent_top = {
-                let parent_context = v8::Local::new(handle_scope, &parent_context);
-                let scope = &mut v8::ContextScope::new(handle_scope, parent_context);
-                let window = v8::Local::new(scope, &parent_window);
-                let key = v8::String::new(scope, "top")
-                    .ok_or_else(|| HostError::Execution("allocate top key".into()))?;
-                let value = window
-                    .get(scope, key.into())
-                    .unwrap_or_else(|| window.into());
-                v8::Global::new(scope, value)
+                let top_context = v8::Local::new(handle_scope, &top_context);
+                v8::Global::new(handle_scope, top_context.global(handle_scope))
             };
             let frame_element = if same_origin {
                 let parent_context = v8::Local::new(handle_scope, &parent_context);
@@ -1688,6 +2106,8 @@ mod raw_v8 {
                     )
                     .and_then(|value| value.to_object(scope))
                     .ok_or_else(|| HostError::Execution("create child WindowProxy".into()))?;
+                let child_context = v8::Local::new(scope, &child_context);
+                install_frame_closed_accessor(scope, proxy, child_context)?;
                 v8::Global::new(scope, proxy)
             };
             let parent_proxy = {
@@ -1763,6 +2183,7 @@ mod raw_v8 {
                 let child_context = v8::Local::new(handle_scope, &child_context);
                 let scope = &mut v8::ContextScope::new(handle_scope, child_context);
                 let child_window = v8::Local::new(scope, &child_window);
+                install_frame_closed_accessor(scope, child_window, child_context)?;
                 let child_proxy = v8::Local::new(scope, &public_child_proxy);
                 let parent_proxy = v8::Local::new(scope, &parent_proxy);
                 let parent_top = v8::Local::new(scope, &parent_top);
@@ -1793,27 +2214,21 @@ mod raw_v8 {
                 // `top` is transitive. Pointing it at the immediate parent
                 // causes messages from a grandchild to terminate in the
                 // intermediate iframe instead of the top-level harness.
-                let top_key = v8::String::new(scope, "top")
-                    .ok_or_else(|| HostError::Execution("allocate frame top".into()))?;
-                child_window.set(scope, top_key.into(), parent_top);
-                if let Some(frame_element) = &frame_element {
-                    let key = v8::String::new(scope, "frameElement")
-                        .ok_or_else(|| HostError::Execution("allocate frameElement key".into()))?;
-                    let frame_element = v8::Local::new(scope, frame_element);
-                    child_window.set(scope, key.into(), frame_element.into());
-                    let source = v8::String::new(
-                        scope,
-                        "(()=>{const element=globalThis.frameElement,remove=element.remove;Object.defineProperty(element,'__oryn_child_detached',{configurable:true,writable:true,value:false});Object.defineProperty(element,'remove',{configurable:true,value:function(){globalThis.__oryn_document_detached=true;element.__oryn_child_detached=true;return remove.call(element)}})})()",
-                    )
-                    .ok_or_else(|| HostError::Execution("allocate frame detach hook".into()))?;
-                    v8::Script::compile(scope, source, None)
-                        .and_then(|script| script.run(scope))
-                        .ok_or_else(|| HostError::Execution("install frame detach hook".into()))?;
-                }
+                oryn_js::v8_bindings::set_native_window_top(scope, child_window, parent_top)
+                    .map_err(|error| HostError::Execution(error.to_string()))?;
+                let frame_element = frame_element
+                    .as_ref()
+                    .map(|element| v8::Local::new(scope, element));
+                oryn_js::v8_bindings::set_native_window_frame_element(
+                    scope,
+                    child_window,
+                    frame_element,
+                )
+                .map_err(|error| HostError::Execution(error.to_string()))?;
             }
             if let Some(document) = document {
                 active.set_frame_document(frame, document);
-                active.set_frame_committed_window(frame, child_proxy);
+                active.set_frame_committed_window(frame, child_window);
             } else {
                 active.clear_frame_document(frame);
             }
@@ -1932,11 +2347,10 @@ mod raw_v8 {
             allow_string_code_generation: bool,
         ) -> Result<(), HostError> {
             let realm = self.active_realm;
-            self.trusted_types_config = Some((config.clone(), allow_string_code_generation));
             self.binding_states
                 .get(&realm)
                 .ok_or_else(|| HostError::Execution("active Rust DOM is unavailable".into()))?
-                .configure_trusted_types(config);
+                .configure_trusted_types(config.clone());
             let context = self
                 .contexts
                 .get(&realm)
@@ -1945,6 +2359,10 @@ mod raw_v8 {
             v8::scope!(let handle_scope, &mut self.isolate);
             let context = v8::Local::new(handle_scope, &context);
             context.set_allow_generation_from_strings(allow_string_code_generation);
+            context.set_slot(Rc::new(DocumentCodePolicy {
+                trusted_types: config,
+                allow_eval: allow_string_code_generation,
+            }));
             Ok(())
         }
 
@@ -2247,9 +2665,36 @@ mod raw_v8 {
                 })
         }
 
-        /// Drain native journals and publish observer microtasks before style
-        /// and semantic state. Both recursive observers and Promise jobs remain
-        /// subject to the page's V8 execution deadline.
+        /// Drain native custom-element reactions under the page's execution
+        /// deadline, independently of author-writable JavaScript globals.
+        pub fn run_custom_element_reactions(&mut self) -> Result<(), HostError> {
+            let Some(state) = self.binding_states.get(&self.active_realm()).cloned() else {
+                return Ok(());
+            };
+            if !state.has_pending_custom_element_reactions() {
+                return Ok(());
+            }
+            let context = self
+                .contexts
+                .get(&self.active_realm())
+                .cloned()
+                .ok_or_else(|| HostError::Execution("custom element realm missing".into()))?;
+            let deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+            v8::scope!(let handle_scope, &mut self.isolate);
+            let context = v8::Local::new(handle_scope, &context);
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            let result = state
+                .finish_custom_element_reactions(scope)
+                .map_err(|error| HostError::Execution(error.to_string()));
+            if deadline.expired() || scope.is_execution_terminating() {
+                scope.cancel_terminate_execution();
+                return Err(HostError::LimitExceeded {
+                    resource: "wall time".into(),
+                });
+            }
+            result
+        }
+
         pub fn run_dom_observer_checkpoint(&mut self) -> Result<usize, HostError> {
             let Some(dom) = self.active_dom() else {
                 return Ok(0);
@@ -2329,6 +2774,13 @@ mod raw_v8 {
         }
 
         pub fn next_timer_delay(&mut self) -> Option<Duration> {
+            if self
+                .binding_states
+                .values()
+                .any(|state| state.has_pending_control_event())
+            {
+                return Some(Duration::ZERO);
+            }
             let registry = self.isolate.get_slot_mut::<TimerRegistry>()?;
             registry
                 .scheduler
@@ -2357,6 +2809,33 @@ mod raw_v8 {
             }
             let mut delivered = 0_usize;
             while delivered < 1024 {
+                let control_state = self
+                    .binding_states
+                    .iter()
+                    .find(|(_, state)| state.has_pending_control_event())
+                    .map(|(realm, state)| (*realm, state.clone()));
+                if let Some((realm, state)) = control_state {
+                    let Some(context) = self.contexts.get(&realm).cloned() else {
+                        break;
+                    };
+                    let deadline = ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
+                    v8::scope!(let handle_scope, &mut self.isolate);
+                    let context = v8::Local::new(handle_scope, &context);
+                    let scope = &mut v8::ContextScope::new(handle_scope, context);
+                    deliver_control_event(scope, &state)
+                        .map_err(|error| HostError::Execution(error.to_string()))?;
+                    queue_mutation_observer_microtask(scope);
+                    scope.perform_microtask_checkpoint();
+                    if deadline.expired() || scope.is_execution_terminating() {
+                        scope.cancel_terminate_execution();
+                        reset_mutation_observer_microtask_after_termination(scope);
+                        return Err(HostError::LimitExceeded {
+                            resource: "control event task wall time".into(),
+                        });
+                    }
+                    delivered += 1;
+                    continue;
+                }
                 let mut timer_id = None;
                 if let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>() {
                     registry
@@ -2374,15 +2853,23 @@ mod raw_v8 {
                             timer.callback.clone(),
                             timer.arguments.clone(),
                             timer.repeating,
+                            timer.nesting_level,
                         )
                     });
-                let Some((context, callback, arguments, repeating)) = timer else {
+                let Some((context, callback, arguments, repeating, nesting_level)) = timer else {
                     continue;
                 };
                 if !repeating && let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>() {
                     registry.callbacks.remove(&timer_id);
                 }
                 {
+                    let nesting_state = self
+                        .isolate
+                        .get_slot::<TimerRegistry>()
+                        .expect("timer registry")
+                        .task_nesting
+                        .clone();
+                    let nesting = TimerTaskNesting::enter(nesting_state, nesting_level);
                     let _deadline =
                         ExecutionDeadline::arm(&self.isolate, self.execution_wall_limit);
                     v8::scope!(let handle_scope, &mut self.isolate);
@@ -2400,9 +2887,10 @@ mod raw_v8 {
                         if _deadline.expired() || scope.is_execution_terminating() {
                             scope.cancel_terminate_execution();
                             reset_mutation_observer_microtask_after_termination(scope);
-                            if let Some(registry) = scope.get_slot_mut::<TimerRegistry>() {
-                                registry.scheduler.cancel_timer(timer_id);
-                                registry.callbacks.remove(&timer_id);
+                            if let Some(registry) = scope.get_slot_mut::<TimerRegistry>()
+                                && let Some(timer) = registry.callbacks.remove(&timer_id)
+                            {
+                                registry.scheduler.cancel_timer(timer.scheduled_id);
                             }
                             return Err(HostError::LimitExceeded {
                                 resource: "timer callback wall time".into(),
@@ -2418,14 +2906,41 @@ mod raw_v8 {
                             report_timer_exception(scope, callback, exception, message)?;
                         }
                     }
+                    // Microtasks are not timer tasks and must not inherit the
+                    // callback's nesting level. RAII also restores it on errors.
+                    drop(nesting);
                     queue_mutation_observer_microtask(scope);
                     scope.perform_microtask_checkpoint();
                     if _deadline.expired() || scope.is_execution_terminating() {
                         scope.cancel_terminate_execution();
                         reset_mutation_observer_microtask_after_termination(scope);
+                        if let Some(registry) = scope.get_slot_mut::<TimerRegistry>()
+                            && let Some(timer) = registry.callbacks.remove(&timer_id)
+                        {
+                            registry.scheduler.cancel_timer(timer.scheduled_id);
+                        }
                         return Err(HostError::LimitExceeded {
                             resource: "wall time".into(),
                         });
+                    }
+                }
+                if repeating && let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>() {
+                    registry
+                        .scheduler
+                        .advance_to(registry.started.elapsed().as_millis() as u64);
+                    if let Some(timer) = registry.callbacks.get_mut(&timer_id) {
+                        let environment = timer.environment;
+                        timer.scheduled_id = registry.scheduler.set_timeout_with(
+                            nested_timer_delay(timer.delay_ms, timer.nesting_level),
+                            |_| Task {
+                                source: TaskSource::Timer,
+                                realm: environment.realm,
+                                document_generation: environment.document_generation,
+                                action_id: None,
+                                payload: timer_id,
+                            },
+                        );
+                        timer.nesting_level = timer.nesting_level.saturating_add(1);
                     }
                 }
                 if !repeating && let Some(registry) = self.isolate.get_slot_mut::<TimerRegistry>() {
@@ -2723,53 +3238,24 @@ mod raw_v8 {
             frame_id: Option<u64>,
             global: Option<v8::Global<v8::Object>>,
         ) -> Result<RealmId, HostError> {
-            let realm = self
-                .realms
-                .try_create(origin.clone(), document_generation, frame_id)
-                .map_err(|_| HostError::LimitExceeded {
-                    resource: "realm identities".into(),
-                })?;
-            let identity = origin.security_token_key();
-            let environment = self
-                .isolate
-                .get_slot_mut::<AgentEnvironments>()
-                .unwrap()
-                .create(realm, document_generation, None)
-                .map_err(|error| HostError::Execution(error.into()))?;
-            let existing_token = self.security_tokens.get(&identity).cloned();
-            let context = {
-                v8::scope!(let scope, &mut self.isolate);
-                let global_object = global
-                    .as_ref()
-                    .map(|value| v8::Local::new(scope, value).into());
-                let template = v8::ObjectTemplate::new(scope);
-                oryn_js::v8_bindings::window_proxy::configure_local_template(scope, template);
-                let context = v8::Context::new(
-                    scope,
-                    v8::ContextOptions {
-                        global_object,
-                        global_template: Some(template),
-                        ..Default::default()
-                    },
-                );
-                let token = existing_token
-                    .as_ref()
-                    .map(|token| v8::Local::new(scope, token))
-                    .unwrap_or_else(|| {
-                        v8::String::new(scope, &identity)
-                            .expect("allocate V8 context security token")
-                    });
-                context.set_security_token(token.into());
-                if existing_token.is_none() {
-                    self.security_tokens
-                        .insert(identity, v8::Global::new(scope, token));
-                }
-                context.set_slot(Rc::new(self.realms.get(realm).unwrap().clone()));
-                context.set_slot(Rc::new(environment));
-                install_host_functions!(scope, context);
-                v8::Global::new(scope, context)
-            };
+            v8::scope!(let scope, &mut self.isolate);
+            // Preserve the legacy inherited-policy behavior, but select its
+            // actual creator explicitly. Navigation response policy selection
+            // is a separate document-loader responsibility.
+            let policy = self.contexts.get(&self.active_realm).and_then(|context| {
+                v8::Local::new(scope, context).get_slot::<DocumentCodePolicy>()
+            });
+            let (realm, context) =
+                create_native_realm_context(scope, origin, document_generation, frame_id, global)?;
+            if let Some(policy) = policy {
+                v8::Local::new(scope, &context).set_slot(policy);
+            }
             self.contexts.insert(realm, context);
+            scope
+                .get_slot_mut::<NativeRealmIdentities>()
+                .unwrap()
+                .pending_contexts
+                .remove(&realm);
             Ok(realm)
         }
 
@@ -2783,6 +3269,9 @@ mod raw_v8 {
             document_generation: u64,
         ) -> Result<RealmId, HostError> {
             let frame_id = self
+                .isolate
+                .get_slot::<NativeRealmIdentities>()
+                .unwrap()
                 .realms
                 .get(previous)
                 .and_then(|descriptor| descriptor.frame_id)
@@ -2790,7 +3279,10 @@ mod raw_v8 {
                     HostError::Execution("replacement requires an existing frame realm".into())
                 })?;
             // Exhaustion must not detach the still-live old WindowProxy.
-            self.realms
+            self.isolate
+                .get_slot::<NativeRealmIdentities>()
+                .unwrap()
+                .realms
                 .ensure_capacity()
                 .map_err(|_| HostError::LimitExceeded {
                     resource: "realm identities".into(),
@@ -2834,12 +3326,8 @@ mod raw_v8 {
             frame_id: Option<u64>,
             dom: Rc<RefCell<oryn_dom::DomRuntime>>,
         ) -> Result<RealmId, HostError> {
-            let previous = self.active_realm;
-            let realm = self.create_realm(origin, document_generation, frame_id)?;
-            self.activate_realm(realm)?;
-            let installed = self.install_dom(dom, document_generation);
-            self.activate_realm(previous)?;
-            installed.map(|()| realm)
+            let document = dom.borrow().document();
+            self.create_realm_with_dom_root(origin, document_generation, frame_id, dom, document)
         }
 
         pub fn create_realm_with_dom_root(
@@ -2850,15 +3338,31 @@ mod raw_v8 {
             dom: Rc<RefCell<oryn_dom::DomRuntime>>,
             document: NodeId,
         ) -> Result<RealmId, HostError> {
-            let previous = self.active_realm;
-            let realm = self.create_realm(origin, document_generation, frame_id)?;
-            self.activate_realm(realm)?;
-            let installed = self.install_dom_root(dom, document_generation, document);
-            self.activate_realm(previous)?;
-            installed.map(|()| realm)
+            let creator = self
+                .contexts
+                .get(&self.active_realm)
+                .cloned()
+                .ok_or_else(|| HostError::Execution("creator realm is unavailable".into()))?;
+            let realm = {
+                v8::scope!(let scope, &mut self.isolate);
+                let creator = v8::Local::new(scope, &creator);
+                create_native_document_context(
+                    scope,
+                    creator,
+                    origin.into(),
+                    document_generation,
+                    frame_id,
+                    dom,
+                    document,
+                )?
+                .0
+            };
+            self.adopt_created_realms();
+            Ok(realm)
         }
 
         pub fn activate_realm(&mut self, realm: RealmId) -> Result<(), HostError> {
+            self.adopt_created_realms();
             if !self.contexts.contains_key(&realm) {
                 return Err(HostError::Execution(format!(
                     "unknown JavaScript realm {}",
@@ -2877,14 +3381,74 @@ mod raw_v8 {
             self.binding_states.keys().copied().collect()
         }
 
+        /// Transfer callback-created contexts into normal driver ownership.
+        /// Read the final binding slot, not a snapshot taken before bootstrap.
+        /// Retired bindings are retained here until ordinary realm retirement
+        /// releases them; adoption must never reactivate an environment.
+        pub fn adopt_created_realms(&mut self) -> Vec<RealmId> {
+            let pending = std::mem::take(
+                &mut self
+                    .isolate
+                    .get_slot_mut::<NativeRealmIdentities>()
+                    .unwrap()
+                    .pending_contexts,
+            );
+            let mut adopted = Vec::with_capacity(pending.len());
+            for (realm, context) in pending {
+                if self.contexts.contains_key(&realm) {
+                    continue;
+                }
+                let state = {
+                    v8::scope!(let scope, &mut self.isolate);
+                    v8::Local::new(scope, &context).get_slot::<V8BindingState>()
+                };
+                if let Some(state) = state {
+                    self.binding_states.insert(realm, state);
+                }
+                self.contexts.insert(realm, context);
+                adopted.push(realm);
+            }
+            adopted
+        }
+
+        pub fn realm_execution_live(&self, realm: RealmId) -> bool {
+            self.binding_states
+                .get(&realm)
+                .is_some_and(|state| !state.execution_retired())
+        }
+
+        pub fn realm_for_document(&self, dom: &SharedDom, document: NodeId) -> Option<RealmId> {
+            self.binding_states.iter().find_map(|(realm, state)| {
+                (!state.execution_retired()
+                    && state.document_root() == document
+                    && Rc::ptr_eq(&state.dom(), dom))
+                .then_some(*realm)
+            })
+        }
+
+        pub fn take_discarded_frame_realms(&mut self) -> Vec<RealmId> {
+            self.isolate
+                .get_slot_mut::<FrameLifetimes>()
+                .map(|registry| {
+                    std::mem::take(&mut registry.discarded_realms)
+                        .into_iter()
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+
         pub fn realm_descriptor(&self, realm: RealmId) -> Option<&RealmDescriptor> {
-            self.realms.get(realm)
+            self.isolate
+                .get_slot::<NativeRealmIdentities>()?
+                .realms
+                .get(realm)
         }
 
         /// Replace or remove a frame realm after navigation. The top-level
         /// realm cannot be removed because callers always need an active
         /// execution context.
         pub fn remove_realm(&mut self, realm: RealmId) -> Result<RealmDescriptor, HostError> {
+            self.adopt_created_realms();
             if self.contexts.len() == 1 || realm == RealmId(0) {
                 return Err(HostError::Execution(
                     "the top-level JavaScript realm cannot be removed".into(),
@@ -2908,9 +3472,14 @@ mod raw_v8 {
             if self.active_realm == realm {
                 self.active_realm = RealmId(0);
             }
-            self.realms.remove(realm).ok_or_else(|| {
-                HostError::Execution(format!("missing descriptor for realm {}", realm.0))
-            })
+            self.isolate
+                .get_slot_mut::<NativeRealmIdentities>()
+                .unwrap()
+                .realms
+                .remove(realm)
+                .ok_or_else(|| {
+                    HostError::Execution(format!("missing descriptor for realm {}", realm.0))
+                })
         }
 
         pub fn execute_module(
@@ -3065,6 +3634,48 @@ mod raw_v8 {
             self.isolate.set_slot(ModuleSources(sources.clone()));
         }
 
+        pub fn register_import_map(&mut self, source: &str) -> Result<(), HostError> {
+            v8::scope!(let scope, &mut self.isolate);
+            let context = v8::Local::new(
+                scope,
+                self.contexts.get(&self.active_realm).expect("active realm"),
+            );
+            let scope = &mut v8::ContextScope::new(scope, context);
+            current_environment(scope).map_err(HostError::Execution)?;
+            let state = self.binding_states.get(&self.active_realm).ok_or_else(|| {
+                HostError::Execution("import map requires a document environment".into())
+            })?;
+            let base = oryn_js::v8_bindings::document_base_url(scope, state, true)
+                .map_err(|error| HostError::Execution(error.to_string()))?;
+            let base =
+                Url::parse(&base).map_err(|error| HostError::Execution(error.to_string()))?;
+            module_import_map(scope)
+                .borrow_mut()
+                .register(source, &base)
+                .map_err(HostError::Execution)
+        }
+
+        pub fn resolve_module_specifier(
+            &mut self,
+            base: &str,
+            specifier: &str,
+        ) -> Result<Option<String>, HostError> {
+            let Ok(base) = Url::parse(base) else {
+                return Ok(None);
+            };
+            v8::scope!(let scope, &mut self.isolate);
+            let context = v8::Local::new(
+                scope,
+                self.contexts.get(&self.active_realm).expect("active realm"),
+            );
+            let scope = &mut v8::ContextScope::new(scope, context);
+            current_environment(scope).map_err(HostError::Execution)?;
+            module_import_map(scope)
+                .borrow()
+                .resolve(&base, specifier)
+                .map_err(HostError::Execution)
+        }
+
         pub fn take_module_error_reports(&mut self) -> Vec<String> {
             self.isolate
                 .get_slot_mut::<ModuleErrorReports>()
@@ -3191,6 +3802,7 @@ mod raw_v8 {
         specifier: v8::Local<'s, v8::String>,
         _import_attributes: v8::Local<'s, v8::FixedArray>,
     ) -> Option<v8::Local<'s, v8::Promise>> {
+        v8::tc_scope!(let scope, scope);
         let resolver = v8::PromiseResolver::new(scope)?;
         let specifier = specifier.to_rust_string_lossy(scope);
         let resource_name = resource_name.to_rust_string_lossy(scope);
@@ -3200,9 +3812,7 @@ mod raw_v8 {
                 .ok_or_else(|| "module source map is unavailable".to_string())?
                 .0
                 .clone();
-            let resolved = resolve_module_name(&resource_name, &specifier, &sources)
-                .or_else(|| fetch_module_source(scope, &resource_name, &specifier))
-                .ok_or_else(|| format!("module source {specifier:?} is unavailable"))?;
+            let resolved = resolve_requested_module(scope, &resource_name, &specifier, &sources)?;
             if let Some(updated) = scope.get_slot::<ModuleSources>() {
                 sources = updated.0.clone();
             }
@@ -3253,14 +3863,74 @@ mod raw_v8 {
                 resolver.resolve(scope, namespace);
             }
             Err(error) => {
-                let detail = v8::String::new(
-                    scope,
-                    &format!("dynamic module {specifier:?} failed: {error}"),
-                )?;
-                resolver.reject(scope, detail.into());
+                let exception = if let Some(exception) = scope.exception() {
+                    scope.reset();
+                    exception
+                } else {
+                    let detail = v8::String::new(
+                        scope,
+                        &format!("dynamic module {specifier:?} failed: {error}"),
+                    )?;
+                    v8::Exception::type_error(scope, detail)
+                };
+                resolver.reject(scope, exception);
             }
         }
         Some(resolver.get_promise(scope))
+    }
+
+    fn module_import_map(scope: &mut v8::PinScope) -> Rc<RefCell<crate::import_maps::ImportMap>> {
+        let context = scope.get_current_context();
+        if let Some(map) = context.get_slot::<RefCell<crate::import_maps::ImportMap>>() {
+            return map;
+        }
+        context.set_slot(Rc::new(RefCell::new(
+            crate::import_maps::ImportMap::default(),
+        )));
+        context
+            .get_slot::<RefCell<crate::import_maps::ImportMap>>()
+            .expect("installed import map")
+    }
+
+    fn resolve_requested_module(
+        scope: &mut v8::PinScope,
+        resource_name: &str,
+        specifier: &str,
+        sources: &BTreeMap<String, String>,
+    ) -> Result<String, String> {
+        current_environment(scope)?;
+        let base = Url::parse(resource_name).ok().or_else(|| {
+            // HTML event-handler attributes have no referencing Script Record.
+            // Resolve against this realm's native document base, not the
+            // isolate-wide fetch configuration or a page-overridden property.
+            let state = scope.get_current_context().get_slot::<V8BindingState>()?;
+            let base = oryn_js::v8_bindings::document_base_url(scope, &state, true).ok()?;
+            Url::parse(&base).ok()
+        });
+        let map = module_import_map(scope);
+        let mapped = base
+            .as_ref()
+            .map(|base| map.borrow().resolve(base, specifier))
+            .transpose()?
+            .flatten();
+        let resolved = if let Some(mapped) = mapped {
+            sources
+                .contains_key(&mapped)
+                .then_some(mapped.clone())
+                .or_else(|| fetch_module_source(scope, resource_name, &mapped))
+        } else {
+            // Kept for explicit in-process dependency maps with non-URL names.
+            // Import-map null/invalid entries have already failed above.
+            resolve_module_name(resource_name, specifier, sources)
+                .or_else(|| fetch_module_source(scope, resource_name, specifier))
+        }
+        .ok_or_else(|| {
+            format!("module source {specifier:?} from {resource_name:?} is unavailable")
+        })?;
+        if let Some(base) = base {
+            map.borrow_mut().record_resolution(&base, specifier)?;
+        }
+        Ok(resolved)
     }
 
     fn resolve_module_name(
@@ -4772,15 +5442,18 @@ mod raw_v8 {
             .and_then(|names| names.0.get(&referrer.get_identity_hash().get()))
             .cloned()
             .unwrap_or_default();
-        let Some(resolved) = resolve_module_name(&resource_name, &specifier, &sources)
-            .or_else(|| fetch_module_source(scope, &resource_name, &specifier))
-        else {
-            if let Some(failures) = scope.get_slot_mut::<ModuleResolutionFailures>() {
-                failures.0.push(format!(
-                    "cannot resolve {specifier:?} from {resource_name:?}"
-                ));
+        let resolved = match resolve_requested_module(scope, &resource_name, &specifier, &sources) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                if let Some(failures) = scope.get_slot_mut::<ModuleResolutionFailures>() {
+                    failures.0.push(error.clone());
+                }
+                if let Some(message) = v8::String::new(scope, &error) {
+                    let exception = v8::Exception::type_error(scope, message);
+                    scope.throw_exception(exception);
+                }
+                return None;
             }
-            return None;
         };
         let cache_key = (current_realm_identity(scope), resolved.clone());
         if let Some(module) = scope
@@ -5084,6 +5757,81 @@ mod raw_v8 {
     }
     #[cfg(test)]
     mod native_context_tests {
+        #[test]
+        fn timer_nesting_clamps_callbacks_but_not_their_microtasks() {
+            use super::*;
+            assert_eq!(nested_timer_delay(0, 5), Duration::ZERO);
+            assert_eq!(nested_timer_delay(0, 6), Duration::from_millis(4));
+            assert_eq!(nested_timer_delay(9, 6), Duration::from_millis(9));
+            let mut host = RawV8Host::new();
+            host.execute("globalThis.root=__oryn_timer_schedule(()=>{globalThis.nested=__oryn_timer_schedule(()=>{},10000,false,[]);Promise.resolve().then(()=>{globalThis.micro=__oryn_timer_schedule(()=>{},10000,false,[])})},0,false,[])").unwrap();
+            let root: u64 = host
+                .evaluate_string("String(root)")
+                .unwrap()
+                .parse()
+                .unwrap();
+            host.isolate
+                .get_slot_mut::<TimerRegistry>()
+                .unwrap()
+                .callbacks
+                .get_mut(&root)
+                .unwrap()
+                .nesting_level = 6;
+            host.drain_scheduled_timers(false).unwrap();
+            let nested: u64 = host
+                .evaluate_string("String(nested)")
+                .unwrap()
+                .parse()
+                .unwrap();
+            let micro: u64 = host
+                .evaluate_string("String(micro)")
+                .unwrap()
+                .parse()
+                .unwrap();
+            let registry = host.isolate.get_slot::<TimerRegistry>().unwrap();
+            assert_eq!(registry.callbacks[&nested].nesting_level, 7);
+            assert_eq!(registry.callbacks[&micro].nesting_level, 1);
+            assert_eq!(registry.task_nesting.get(), 0);
+        }
+
+        #[test]
+        fn interval_reinitialization_keeps_public_handle_and_obeys_microtask_cancel() {
+            use super::*;
+            let mut host = RawV8Host::new();
+            host.execute("globalThis.count=0;globalThis.interval=__oryn_timer_schedule(()=>{count++;if(count===2)Promise.resolve().then(()=>__oryn_timer_cancel(interval))},0,true,[])").unwrap();
+            let id: u64 = host
+                .evaluate_string("String(interval)")
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert_eq!(host.drain_scheduled_timers(false).unwrap(), 1);
+            let timer = &host.isolate.get_slot::<TimerRegistry>().unwrap().callbacks[&id];
+            assert_ne!(timer.scheduled_id, id);
+            assert_eq!(timer.nesting_level, 2);
+            assert_eq!(host.drain_scheduled_timers(false).unwrap(), 1);
+            assert_eq!(host.evaluate_string("String(count)").unwrap(), "2");
+            assert_eq!(host.next_timer_delay(), None);
+            assert!(
+                host.isolate
+                    .get_slot::<TimerRegistry>()
+                    .unwrap()
+                    .callbacks
+                    .is_empty()
+            );
+        }
+
+        #[test]
+        fn interval_cancellation_removes_the_reinitialized_scheduler_handle() {
+            use super::*;
+            let mut host = RawV8Host::new();
+            host.execute("globalThis.interval=__oryn_timer_schedule(()=>{},0,true,[])")
+                .unwrap();
+            host.drain_scheduled_timers(false).unwrap();
+            host.execute("__oryn_timer_cancel(interval)").unwrap();
+            assert_eq!(host.next_timer_delay(), None);
+            assert_eq!(host.drain_scheduled_timers(false).unwrap(), 0);
+        }
+
         use super::*;
 
         #[cfg(unix)]
@@ -5195,7 +5943,13 @@ mod raw_v8 {
             let origin = Origin::opaque();
             let first = host.create_realm(origin.clone(), 1, Some(3)).unwrap();
             let inherited = host.create_realm(origin, 1, Some(4)).unwrap();
-            assert!(host.realms.same_origin(first, inherited));
+            assert!(
+                host.isolate
+                    .get_slot::<NativeRealmIdentities>()
+                    .unwrap()
+                    .realms
+                    .same_origin(first, inherited)
+            );
             v8::scope!(let scope, &mut host.isolate);
             let first = v8::Local::new(scope, host.contexts.get(&first).unwrap());
             let inherited = v8::Local::new(scope, host.contexts.get(&inherited).unwrap());
@@ -5211,6 +5965,142 @@ mod raw_v8 {
                 Url::parse("https://example.test/").unwrap(),
                 256 * 1024 * 1024,
             )
+        }
+
+        #[test]
+        fn retired_creator_cannot_allocate_child_document() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(oryn_dom::DomRuntime::new()));
+            host.install_dom(dom.clone(), 1).unwrap();
+            {
+                let parent = host.contexts.get(&RealmId(0)).unwrap().clone();
+                v8::scope!(let scope, &mut host.isolate);
+                let parent = v8::Local::new(scope, &parent);
+                let environment = *parent.get_slot::<EnvironmentDescriptor>().unwrap();
+                retire_environment(scope, environment.id);
+            }
+            assert!(
+                host.create_realm_with_dom("https://example.test", 1, Some(1), dom)
+                    .is_err()
+            );
+            assert_eq!(host.active_realm(), RealmId(0));
+            assert_eq!(host.contexts.len(), 1);
+            assert!(host.realm_descriptor(RealmId(1)).is_none());
+            assert!(host.adopt_created_realms().is_empty());
+        }
+
+        #[test]
+        fn failed_child_document_installation_is_not_adoptable() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(oryn_dom::DomRuntime::new()));
+            host.install_dom(dom.clone(), 1).unwrap();
+            let invalid = NodeId {
+                slot: u32::MAX,
+                generation: u32::MAX,
+            };
+            assert!(
+                host.create_realm_with_dom_root(
+                    "https://example.test",
+                    1,
+                    Some(1),
+                    dom.clone(),
+                    invalid
+                )
+                .is_err()
+            );
+            assert_eq!(host.active_realm(), RealmId(0));
+            assert_eq!(host.contexts.len(), 1);
+            assert_eq!(host.realm_ids(), vec![RealmId(0)]);
+            assert!(host.adopt_created_realms().is_empty());
+            assert!(host.realm_descriptor(RealmId(1)).is_none());
+            let document = dom.borrow().document();
+            let next = host
+                .create_realm_with_dom_root("https://example.test", 1, Some(2), dom, document)
+                .unwrap();
+            assert_eq!(next, RealmId(2));
+            assert_eq!(host.active_realm(), RealmId(0));
+            assert!(host.realm_execution_live(next));
+        }
+
+        #[test]
+        fn scope_frame_lifetime_rejects_wrong_owner_and_retires_on_removal() {
+            fn bind_from_callback(
+                scope: &mut v8::PinScope,
+                args: v8::FunctionCallbackArguments,
+                mut rv: v8::ReturnValue,
+            ) {
+                let parent = scope.get_current_context();
+                let target = v8::Local::<v8::Object>::try_from(args.data()).unwrap();
+                let child = target.get_creation_context(scope).unwrap();
+                let state = parent.get_slot::<V8BindingState>().unwrap();
+                let frame = state.dom().borrow().find_by_id("frame").unwrap();
+                bind_native_frame_lifetime(scope, parent, child, frame).unwrap();
+                assert_eq!(scope.get_current_context(), parent);
+                rv.set_bool(true);
+            }
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<iframe id=frame></iframe><div id=notframe></div>")
+                    .into_runtime()
+                    .unwrap(),
+            ));
+            host.install_dom(dom.clone(), 1).unwrap();
+            let parent = host.contexts.get(&RealmId(0)).unwrap().clone();
+            let frame = dom.borrow().find_by_id("frame").unwrap();
+            let notframe = dom.borrow().find_by_id("notframe").unwrap();
+            v8::scope!(let scope, &mut host.isolate);
+            let parent = v8::Local::new(scope, &parent);
+            let (realm, child) = create_native_realm_context(
+                scope,
+                parent.get_slot::<RealmDescriptor>().unwrap().origin.clone(),
+                1,
+                Some(1),
+                None,
+            )
+            .unwrap();
+            let child = v8::Local::new(scope, &child);
+            let child_dom = Rc::new(RefCell::new(oryn_dom::DomRuntime::new()));
+            let document = child_dom.borrow().document();
+            let child_state =
+                install_native_document(scope, child, child_dom, realm, 1, document, None).unwrap();
+            assert!(bind_native_frame_lifetime(scope, parent, child, notframe).is_err());
+            assert!(scope.get_slot::<FrameLifetimes>().unwrap().live.is_empty());
+            {
+                let scope = &mut v8::ContextScope::new(scope, parent);
+                let callback = v8::Function::builder(bind_from_callback)
+                    .data(child.global(scope).into())
+                    .build(scope)
+                    .unwrap();
+                let key = v8::String::new(scope, "bindNativeFrame").unwrap();
+                parent.global(scope).set(scope, key.into(), callback.into());
+                let source = v8::String::new(scope, "bindNativeFrame()").unwrap();
+                assert!(
+                    v8::Script::compile(scope, source, None)
+                        .unwrap()
+                        .run(scope)
+                        .unwrap()
+                        .is_true()
+                );
+            }
+            let lifetime = child.get_slot::<FrameLifetime>().unwrap();
+            assert!(!lifetime.closed.get());
+            {
+                let scope = &mut v8::ContextScope::new(scope, parent);
+                let source =
+                    v8::String::new(scope, "document.getElementById('frame').remove()").unwrap();
+                v8::Script::compile(scope, source, None)
+                    .unwrap()
+                    .run(scope)
+                    .unwrap();
+            }
+            {
+                let scope = &mut v8::ContextScope::new(scope, parent);
+                checkpoint_frame_lifetimes(scope);
+            }
+            assert!(lifetime.closed.get());
+            assert!(child_state.execution_retired());
+            assert!(bind_native_frame_lifetime(scope, parent, child, frame).is_err());
+            assert!(scope.get_slot::<FrameLifetimes>().unwrap().live.is_empty());
         }
 
         fn expose_child(host: &mut RawV8Host, child: RealmId) {
@@ -5240,6 +6130,307 @@ mod raw_v8 {
             let incumbent = RawV8Host::incumbent_realm(scope).unwrap();
             let result = format!("{}:{}", current.id.0, incumbent.id.0);
             rv.set(v8::String::new(scope, &result).unwrap().into());
+        }
+
+        #[test]
+        fn child_blank_document_captures_creator_base_url() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(oryn_dom::DomRuntime::new()));
+            host.install_dom(dom, 1).unwrap();
+            host.commit_location("https://example.test/parent/page")
+                .unwrap();
+            let child = host
+                .create_realm_with_dom(
+                    "https://example.test",
+                    1,
+                    Some(1),
+                    Rc::new(RefCell::new(oryn_dom::DomRuntime::new())),
+                )
+                .unwrap();
+            host.commit_location("https://example.test/later/page")
+                .unwrap();
+            host.activate_realm(child).unwrap();
+            assert_eq!(host.evaluate_string("document.URL").unwrap(), "about:blank");
+            assert_eq!(
+                host.evaluate_string("document.baseURI").unwrap(),
+                "https://example.test/parent/page"
+            );
+            host.commit_location("https://other.test/committed/page")
+                .unwrap();
+            assert_eq!(
+                host.evaluate_string("document.baseURI").unwrap(),
+                "https://other.test/committed/page"
+            );
+        }
+
+        #[test]
+        fn nested_blank_document_captures_creator_base_element() {
+            let mut host = host();
+            let dom = oryn_dom::html::parse("<!doctype html><base href='../assets/'>")
+                .into_runtime()
+                .unwrap();
+            host.install_dom(Rc::new(RefCell::new(dom)), 1).unwrap();
+            host.commit_location("https://example.test/parent/page")
+                .unwrap();
+            let child = host
+                .create_realm_with_dom(
+                    "https://example.test",
+                    1,
+                    Some(1),
+                    Rc::new(RefCell::new(oryn_dom::DomRuntime::new())),
+                )
+                .unwrap();
+            host.execute("document.querySelector('base').href = '/changed/'")
+                .unwrap();
+            host.activate_realm(child).unwrap();
+            assert_eq!(
+                host.evaluate_string("document.baseURI").unwrap(),
+                "https://example.test/assets/"
+            );
+            let grandchild = host
+                .create_realm_with_dom(
+                    "https://example.test",
+                    1,
+                    Some(2),
+                    Rc::new(RefCell::new(oryn_dom::DomRuntime::new())),
+                )
+                .unwrap();
+            host.commit_location("https://example.test/child-navigation")
+                .unwrap();
+            host.activate_realm(grandchild).unwrap();
+            assert_eq!(host.evaluate_string("document.URL").unwrap(), "about:blank");
+            assert_eq!(
+                host.evaluate_string("document.baseURI").unwrap(),
+                "https://example.test/assets/"
+            );
+        }
+
+        #[test]
+        fn native_document_installer_rejects_invalid_environment_before_mutation() {
+            let mut host = host();
+            let dom = Rc::new(RefCell::new(oryn_dom::DomRuntime::new()));
+            let document = dom.borrow().document();
+            host.install_dom(dom.clone(), 1).unwrap();
+            let context = host.contexts.get(&RealmId(0)).unwrap().clone();
+            v8::scope!(let scope, &mut host.isolate);
+            let context = v8::Local::new(scope, &context);
+            let previous = context.get_slot::<V8BindingState>().unwrap();
+            let result = install_native_document(
+                scope,
+                context,
+                dom.clone(),
+                RealmId(99),
+                1,
+                document,
+                None,
+            );
+            assert!(
+                matches!(result, Err(HostError::Execution(detail)) if detail == "document realm identity mismatch")
+            );
+            assert!(Rc::ptr_eq(
+                &previous,
+                &context.get_slot::<V8BindingState>().unwrap()
+            ));
+            assert!(!previous.execution_retired());
+            let environment = *context.get_slot::<EnvironmentDescriptor>().unwrap();
+            retire_environment(scope, environment.id);
+            let result =
+                install_native_document(scope, context, dom, RealmId(0), 2, document, None);
+            assert!(
+                matches!(result, Err(HostError::Execution(detail)) if detail == "execution environment is retired")
+            );
+            assert!(Rc::ptr_eq(
+                &previous,
+                &context.get_slot::<V8BindingState>().unwrap()
+            ));
+        }
+
+        #[test]
+        fn native_document_policy_belongs_to_its_realm_not_last_configured_sibling() {
+            for parent_restricted in [true, false] {
+                let mut host = host();
+                let dom = || Rc::new(RefCell::new(oryn_dom::DomRuntime::new()));
+                let policy = |restricted| oryn_js::trusted_types::TrustedTypesConfig {
+                    require_script: restricted,
+                    deny_policy_creation: restricted,
+                    ..Default::default()
+                };
+                let check = "(()=>{let html=false,code=false;try{document.createElement('div').innerHTML='<b>raw</b>'}catch(_){html=true}try{eval('1')}catch(_){code=true}return [html,code].join(',')})()";
+                host.install_dom(dom(), 1).unwrap();
+                host.configure_trusted_types(policy(parent_restricted), !parent_restricted)
+                    .unwrap();
+                let child = host
+                    .create_realm_with_dom("https://example.test", 1, Some(1), dom())
+                    .unwrap();
+                host.activate_realm(child).unwrap();
+                host.configure_trusted_types(policy(!parent_restricted), parent_restricted)
+                    .unwrap();
+                host.activate_realm(RealmId(0)).unwrap();
+                let expected = format!("{parent_restricted},{parent_restricted}");
+                assert_eq!(
+                    host.evaluate_string(check).unwrap(),
+                    expected,
+                    "configuring a child must preserve the parent's policy"
+                );
+                let sibling = host
+                    .create_realm_with_dom("https://example.test", 1, Some(2), dom())
+                    .unwrap();
+                host.activate_realm(sibling).unwrap();
+                assert_eq!(
+                    host.evaluate_string(check).unwrap(),
+                    expected,
+                    "legacy realm inheritance must select the active creator, not the last configured sibling"
+                );
+                host.activate_realm(child).unwrap();
+                assert_eq!(
+                    host.evaluate_string(check).unwrap(),
+                    format!("{},{}", !parent_restricted, !parent_restricted)
+                );
+            }
+        }
+
+        #[test]
+        fn native_realm_factory_runs_inside_callback_with_document_and_origin_identity() {
+            fn create_child(
+                scope: &mut v8::PinScope,
+                args: v8::FunctionCallbackArguments,
+                mut rv: v8::ReturnValue,
+            ) {
+                let caller = scope.get_current_context();
+                let origin = if args.get(0).boolean_value(scope) {
+                    Origin::opaque()
+                } else {
+                    caller.get_slot::<RealmDescriptor>().unwrap().origin.clone()
+                };
+                let dom = Rc::new(RefCell::new(oryn_dom::DomRuntime::new()));
+                let document = dom.borrow().document();
+                let (_, context) = create_native_document_context(
+                    scope,
+                    caller,
+                    origin,
+                    1,
+                    Some(7),
+                    dom,
+                    document,
+                )
+                .unwrap();
+                let child = v8::Local::new(scope, &context);
+                let policy = args
+                    .get(2)
+                    .boolean_value(scope)
+                    .then(|| DocumentCodePolicy {
+                        trusted_types: oryn_js::trusted_types::TrustedTypesConfig {
+                            require_script: true,
+                            deny_policy_creation: true,
+                            ..Default::default()
+                        },
+                        allow_eval: false,
+                    });
+                if let Some(policy) = policy {
+                    child
+                        .get_slot::<V8BindingState>()
+                        .unwrap()
+                        .configure_trusted_types(policy.trusted_types.clone());
+                    child.set_allow_generation_from_strings(policy.allow_eval);
+                    child.set_slot(Rc::new(policy));
+                }
+                {
+                    let child_scope = &mut v8::ContextScope::new(scope, child);
+                    if args.get(1).boolean_value(child_scope) {
+                        let environment = *child.get_slot::<EnvironmentDescriptor>().unwrap();
+                        child
+                            .get_slot::<V8BindingState>()
+                            .unwrap()
+                            .retire_execution();
+                        retire_environment(child_scope, environment.id);
+                    }
+                }
+                assert_eq!(scope.get_current_context(), caller);
+                rv.set(child.global(scope).into());
+            }
+            let mut host = host();
+            {
+                let context = host.contexts.get(&RealmId(0)).unwrap().clone();
+                v8::scope!(let scope, &mut host.isolate);
+                let context = v8::Local::new(scope, &context);
+                let scope = &mut v8::ContextScope::new(scope, context);
+                let callback = v8::Function::new(scope, create_child).unwrap();
+                let key = v8::String::new(scope, "createNativeChild").unwrap();
+                context
+                    .global(scope)
+                    .set(scope, key.into(), callback.into());
+            }
+            assert_eq!(
+                host.evaluate_string(
+                    r#"
+                globalThis.child=createNativeChild(false);
+                const root=child.document.createElement('html');
+                child.document.appendChild(root);
+                root.textContent='synchronous';
+                const opaque=createNativeChild(true);
+                let denied=false;
+                try { opaque.document; } catch (_) { denied=true; }
+                [child.Array!==Array,root.ownerDocument===child.document,
+                 child.document.documentElement.textContent==='synchronous',denied].every(Boolean)
+            "#
+                )
+                .unwrap(),
+                "true"
+            );
+            assert_eq!(host.realm_descriptor(RealmId(1)).unwrap().frame_id, Some(7));
+            assert!(
+                host.realm_descriptor(RealmId(2))
+                    .unwrap()
+                    .origin
+                    .is_opaque()
+            );
+            host.execute("globalThis.retiredChild=createNativeChild(false,true)")
+                .unwrap();
+            assert_eq!(
+                host.adopt_created_realms(),
+                vec![RealmId(1), RealmId(2), RealmId(3)]
+            );
+            assert!(host.adopt_created_realms().is_empty());
+            assert_eq!(host.realm_ids(), vec![RealmId(1), RealmId(2), RealmId(3)]);
+            assert!(host.realm_execution_live(RealmId(1)));
+            assert!(!host.realm_execution_live(RealmId(3)));
+            host.activate_realm(RealmId(1)).unwrap();
+            assert_eq!(
+                host.evaluate_string("document.documentElement.textContent")
+                    .unwrap(),
+                "synchronous"
+            );
+            host.execute(
+                "__oryn_timer_schedule(()=>{throw Error('retired timer fired')},0,false,[])",
+            )
+            .unwrap();
+            host.activate_realm(RealmId(0)).unwrap();
+            host.remove_realm(RealmId(1)).unwrap();
+            assert_eq!(host.next_timer_delay(), None);
+            host.remove_realm(RealmId(2)).unwrap();
+            host.remove_realm(RealmId(3)).unwrap();
+            assert!(host.realm_ids().is_empty());
+            host.execute("globalThis.unadopted=createNativeChild(false)")
+                .unwrap();
+            host.remove_realm(RealmId(4)).unwrap();
+            assert!(host.adopt_created_realms().is_empty());
+            assert!(host.realm_descriptor(RealmId(4)).is_none());
+            host.isolate.low_memory_notification();
+            assert_eq!(
+                host.evaluate_string("child.document.documentElement.textContent")
+                    .unwrap(),
+                "synchronous"
+            );
+            assert_eq!(host.evaluate_string(r#"(()=>{
+                const protectedChild=createNativeChild(false,false,true);
+                let htmlDenied=false, evalDenied=false, policyDenied=false;
+                try { protectedChild.document.createElement('div').innerHTML='<p>raw</p>'; } catch (_) { htmlDenied=true; }
+                try { protectedChild.eval('1'); } catch (_) { evalDenied=true; }
+                try { protectedChild.trustedTypes.createPolicy('unapproved',{}); } catch (_) { policyDenied=true; }
+                return htmlDenied && evalDenied && policyDenied && eval('2')===2;
+            })()"#).unwrap(), "true");
+            assert_eq!(host.adopt_created_realms(), vec![RealmId(5)]);
+            host.remove_realm(RealmId(5)).unwrap();
         }
 
         #[test]
@@ -5821,6 +7012,57 @@ mod raw_v8 {
             assert_eq!(host.evaluate_string("oldBody.id").unwrap(), "old");
             host.activate_realm(next).unwrap();
             assert_eq!(host.evaluate_string("calls").unwrap(), "0");
+        }
+
+        #[test]
+        fn message_channel_transfer_uses_destination_realm_and_retires_on_navigation() {
+            let mut host = host();
+            let dom = || {
+                Rc::new(RefCell::new(
+                    oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+                ))
+            };
+            host.install_dom(dom(), 1).unwrap();
+            let frame = host
+                .create_realm_with_dom("https://example.test", 1, Some(7), dom())
+                .unwrap();
+            expose_child(&mut host, frame);
+            host.execute(
+                r#"
+              globalThis.channel = new MessageChannel();
+              channel.port2.postMessage({value:'queued'});
+              child.moved = child.structuredClone(channel.port1, {transfer:[channel.port1]});
+              channel.port1.close();
+              globalThis.retained=[]; child.results=retained;
+            "#,
+            )
+            .unwrap();
+            host.activate_realm(frame).unwrap();
+            host.execute(r#"
+              moved.onmessage = event => results.push(event instanceof MessageEvent && event.data instanceof Object && event.data.value);
+            "#).unwrap();
+            host.drain_async_fetches(false).unwrap();
+            host.activate_realm(RealmId(0)).unwrap();
+            assert_eq!(
+                host.evaluate_string("JSON.stringify(retained)").unwrap(),
+                r#"["queued"]"#
+            );
+            host.execute("channel.port2.postMessage({value:'must retire'})")
+                .unwrap();
+            let replacement = host
+                .replace_frame_realm(frame, "https://foreign.test", 2)
+                .unwrap();
+            host.activate_realm(replacement).unwrap();
+            host.install_dom(dom(), 2).unwrap();
+            host.drain_async_fetches(false).unwrap();
+            host.activate_realm(RealmId(0)).unwrap();
+            host.execute("channel.port2.postMessage({value:'after retirement'})")
+                .unwrap();
+            host.drain_async_fetches(false).unwrap();
+            assert_eq!(
+                host.evaluate_string("JSON.stringify(retained)").unwrap(),
+                r#"["queued"]"#
+            );
         }
 
         #[test]

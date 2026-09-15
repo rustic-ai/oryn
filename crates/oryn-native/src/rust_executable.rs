@@ -46,13 +46,7 @@ fn populate_validation_states(
             slot: node.id as u32,
             generation: (node.id >> 32) as u32,
         };
-        node.validity = if dom.is_element(id, "http://www.w3.org/1999/xhtml", "select")
-            && dom.select_will_validate(id)?
-        {
-            Some(dom.select_validity(id)?)
-        } else {
-            None
-        };
+        node.validity = dom.validation_selector_state(id)?;
     }
     Ok(())
 }
@@ -526,6 +520,7 @@ fn module_dependencies(source: &str) -> Vec<String> {
 
 #[cfg(unix)]
 fn preload_module_graph(
+    host: &mut RawV8Host,
     client: &crate::context_service::SharedContextClient,
     page_id: oryn_common::v3::PageId,
     root_name: &str,
@@ -539,19 +534,16 @@ fn preload_module_graph(
         let (sender, receiver) = std::sync::mpsc::channel();
         let mut scheduled = 0usize;
         for (parent, source) in std::mem::take(&mut pending) {
-            let base = Url::parse(&parent).ok();
             for dependency in module_dependencies(&source) {
-                if resource_entry(resources, &dependency).is_some() {
-                    continue;
-                }
-                let Some(url) = base
-                    .as_ref()
-                    .and_then(|base| base.join(&dependency).ok())
-                    .or_else(|| Url::parse(&dependency).ok())
+                // Speculative loading does not record resolution and must not
+                // turn a bare import or a fragment into a relative HTTP URL.
+                let Ok(Some(canonical)) = host.resolve_module_specifier(&parent, &dependency)
                 else {
                     continue;
                 };
-                let canonical = url.to_string();
+                if resources.contains_key(&canonical) {
+                    continue;
+                }
                 if !visited.insert(canonical.clone()) {
                     continue;
                 }
@@ -563,7 +555,6 @@ fn preload_module_graph(
                 }
                 let sender = sender.clone();
                 let client = client.clone();
-                let dependency_alias = dependency.clone();
                 let initiator_url = parent.clone();
                 std::thread::spawn(move || {
                     let result = client
@@ -581,7 +572,7 @@ fn preload_module_graph(
                                 url,
                                 source,
                                 ..
-                            } => Ok((dependency_alias, url, source)),
+                            } => Ok((url, source)),
                             _ => Err("parent returned an invalid module response".into()),
                         });
                     let _ = sender.send(result);
@@ -590,11 +581,12 @@ fn preload_module_graph(
             }
         }
         for _ in 0..scheduled {
-            let (alias, url, source) = receiver
+            let loaded = receiver
                 .recv()
-                .map_err(|_| HostError::Execution("module scheduler disconnected".into()))?
-                .map_err(HostError::Execution)?;
-            resources.insert(format!("oryn:module-alias:{alias}"), url.clone());
+                .map_err(|_| HostError::Execution("module scheduler disconnected".into()))?;
+            // A regex-discovered dependency may be an unused dynamic import.
+            // Only V8's actual resolution may reject the importing script.
+            let Ok((url, source)) = loaded else { continue };
             resources.insert(url.clone(), source.clone());
             pending.push((url, source));
         }
@@ -647,15 +639,13 @@ fn script_record(dom: &DomRuntime, node: NodeId) -> Result<ScriptRecord, HostErr
             .attribute(node, "defer")
             .map_err(|error| HostError::Execution(error.to_string()))?
             .is_some();
-    let parser_blocking = script_type.as_deref().is_none_or(|kind| {
-        matches!(
-            kind,
-            "" | "text/javascript" | "application/javascript" | "text/babel"
-        )
-    }) && dom
-        .attribute(node, "async")
-        .map_err(|error| HostError::Execution(error.to_string()))?
-        .is_none()
+    let parser_blocking = script_type
+        .as_deref()
+        .is_none_or(|kind| matches!(kind, "" | "text/javascript" | "application/javascript"))
+        && dom
+            .attribute(node, "async")
+            .map_err(|error| HostError::Execution(error.to_string()))?
+            .is_none()
         && dom
             .attribute(node, "defer")
             .map_err(|error| HostError::Execution(error.to_string()))?
@@ -699,15 +689,22 @@ fn run_script_record(
     )>,
 ) -> Result<(), HostError> {
     let (script, src, script_type, inline, _parser_blocking, no_module, _) = record;
-    if *no_module {
+    let import_map = script_type.as_deref() == Some("importmap");
+    if *no_module && !import_map {
         return Ok(());
     }
     if script_type.as_deref().is_some_and(|kind| {
         !matches!(
             kind,
-            "" | "module" | "text/javascript" | "application/javascript" | "text/babel"
+            "" | "module" | "importmap" | "text/javascript" | "application/javascript"
         )
     }) {
+        return Ok(());
+    }
+    if import_map && src.is_some() {
+        diagnostics.push(script_diagnostic(HostError::Execution(
+            "external import maps are not supported by HTML".into(),
+        )));
         return Ok(());
     }
     #[cfg(unix)]
@@ -812,6 +809,12 @@ fn run_script_record(
             }
         }
     }
+    if import_map {
+        if let Err(error) = host.register_import_map(inline) {
+            diagnostics.push(script_diagnostic(error));
+        }
+        return Ok(());
+    }
     host.set_current_script((script_type.as_deref() != Some("module")).then_some(*script))?;
     if let Some(src) = src
         && resource_entry(resources, src).is_none()
@@ -834,7 +837,7 @@ fn run_script_record(
             .unwrap_or_else(|| inline.clone());
         #[cfg(unix)]
         if let Some((client, page_id, _)) = context {
-            preload_module_graph(client, *page_id, &name, &source, resources)?;
+            preload_module_graph(host, client, *page_id, &name, &source, resources)?;
         }
         host.execute_module_script(&name, &source, resources, src.is_some())
             .map_err(|error| script_diagnostic_at(error, &name))
@@ -844,17 +847,6 @@ fn run_script_record(
             .and_then(|src| resource_entry(resources, src))
             .map(|(_, source)| source)
             .unwrap_or(inline);
-        let transformed;
-        let source = if script_type.as_deref() == Some("text/babel") {
-            let encoded = serde_json::to_string(source)
-                .map_err(|error| HostError::Execution(error.to_string()))?;
-            transformed = host.evaluate_string(&format!(
-                "Babel.transform({encoded},{{presets:['react']}}).code"
-            ))?;
-            transformed.as_str()
-        } else {
-            source
-        };
         let document_url = host.evaluate_string("location.href")?;
         let resource_name = match src.as_ref().and_then(|src| resource_entry(resources, src)) {
             Some((name, _)) => name.to_owned(),
@@ -893,7 +885,7 @@ fn parser_checkpoint(
     // markup after this parser-blocking script (and, for example, before
     // `document.body` exists). Completion tasks are drained only after parsing
     // resumes or at the document load barrier.
-    host.execute("__oryn_run_custom_reactions()")?;
+    host.run_custom_element_reactions()?;
     host.run_dom_observer_checkpoint()?;
     for report in host.take_module_error_reports() {
         diagnostics.push(script_diagnostic(HostError::Execution(report)));
@@ -1525,6 +1517,17 @@ fn parse_live_document(
             if let html::ParserEvent::ScriptReady { node, scheduling } = &event {
                 host.run_microtask_checkpoint()?;
                 let record = script_record(&live_dom.borrow(), *node)?;
+                if record.2.as_deref() == Some("importmap") {
+                    run_script_record(
+                        host,
+                        live_dom,
+                        resources,
+                        &record,
+                        diagnostics,
+                        #[cfg(unix)]
+                        context,
+                    )?;
+                }
                 let asynchronous = live_dom
                     .borrow()
                     .attribute(*node, "async")
@@ -1695,16 +1698,11 @@ fn parse_live_document(
 }
 
 const RUST_RUNTIME_GLOBALS: &str = r#"
-globalThis.window=globalThis;
-globalThis.self=globalThis;
 globalThis.global=globalThis;
 // A top-level Window is its own parent and top. WPT's harness determines the
 // browsing-context root before any test code runs, so leaving these absent
 // prevents every generated-binding assertion from reaching the interface.
 globalThis.parent=globalThis;
-globalThis.top=globalThis;
-globalThis.frames=globalThis;
-globalThis.frameElement=null;globalThis.__oryn_document_detached=false;
 if(globalThis.Document&&!globalThis.XMLDocument)globalThis.XMLDocument=globalThis.Document;
 globalThis.focus=()=>{if(typeof globalThis.__oryn_context_call==='function'&&__oryn_page_id!==null)contextCall({operation:'activate_page',source_page_id:__oryn_page_id,target_page_id:__oryn_page_id})};
 globalThis.blur=()=>{};
@@ -1740,13 +1738,6 @@ globalThis.confirm=value=>{__oryn_console.push({level:'info',message:'confirm di
 globalThis.prompt=value=>{__oryn_console.push({level:'info',message:'prompt dismissed: '+String(value)});return null};
 globalThis.__oryn_context_trace=[];
 globalThis.__oryn_take_context_trace=()=>__oryn_context_trace.splice(0);
-globalThis.__oryn_custom_reactions=[];
-globalThis.__oryn_run_custom_reactions=()=>{for(let rounds=0;__oryn_custom_reactions.length&&rounds<1024;rounds++){const reactions=__oryn_custom_reactions.splice(0);for(const reaction of reactions)reaction()}if(__oryn_custom_reactions.length)throw new Error('custom-element reaction limit exceeded')};
-globalThis.__oryn_custom_definitions=new Map();
-const __oryn_upgrade_custom_element=node=>{if(!node||node.namespaceURI!=='http://www.w3.org/1999/xhtml')return null;const definition=__oryn_custom_definitions.get(String(node.localName).toLowerCase());if(!definition||node.__orynCustomDefinition===definition)return null;try{__oryn_begin_custom_element_upgrade(node);const upgraded=Reflect.construct(definition,[],definition);upgraded.__orynCustomDefinition=definition;return upgraded}catch(error){__oryn_begin_custom_element_upgrade(null);__oryn_console.push({level:'error',message:'custom element constructor: '+String(error)});return null}};
-const __oryn_queue_connected=node=>{if(node&&node.isConnected&&typeof node.connectedCallback==='function'&&!node.__orynConnected){node.__orynConnected=true;__oryn_custom_reactions.push(()=>node.connectedCallback())}};
-globalThis.customElements={define(name,constructor){name=String(name).toLowerCase();if(!name.includes('-'))throw new Error('custom element name must contain a hyphen');if(__oryn_custom_definitions.has(name))throw new Error('custom element already defined');__oryn_custom_definitions.set(name,constructor);for(const node of Array.from(document.getElementsByTagName(name))){const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)}__oryn_run_custom_reactions()},get(name){return __oryn_custom_definitions.get(String(name).toLowerCase())},whenDefined(name){name=String(name).toLowerCase();if(this.get(name))return Promise.resolve(this.get(name));return new Promise(resolve=>{const timer=setInterval(()=>{if(this.get(name)){clearInterval(timer);resolve(this.get(name))}},1)})},upgrade(root){const apply=node=>{const upgraded=__oryn_upgrade_custom_element(node);if(upgraded)__oryn_queue_connected(upgraded)};if(root&&root.tagName)apply(root);if(root&&root.querySelectorAll)for(const node of root.querySelectorAll('*'))apply(node);__oryn_run_custom_reactions()}};
-for(const [owner,method] of [[Document.prototype,'createElement'],[Node.prototype,'appendChild'],[Node.prototype,'insertBefore'],[Node.prototype,'replaceChild']]){const native=owner[method];if(typeof native!=='function')continue;Object.defineProperty(owner,method,{configurable:true,writable:true,value:function(...args){const result=native.apply(this,args),node=method==='createElement'?result:args[0],upgraded=__oryn_upgrade_custom_element(node);if(method!=='createElement'){__oryn_queue_connected(upgraded||node);__oryn_run_custom_reactions()}return method==='createElement'?(upgraded||result):result}})}
 globalThis.__oryn_animation_frames=new Map();globalThis.__oryn_next_animation_frame=1;
 globalThis.requestAnimationFrame=callback=>{const id=__oryn_next_animation_frame++;__oryn_animation_frames.set(id,callback);return id};
 globalThis.cancelAnimationFrame=id=>__oryn_animation_frames.delete(Number(id));
@@ -1912,7 +1903,7 @@ const __oryn_testdriver_keyboard=(target,value,pressed,repeat=false)=>{
     const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType:'insertFromPaste',data:controlPaste?pasted:null,dataTransfer:controlPaste?null:transfer});
     target.dispatchEvent(before);
     if(!before.defaultPrevented){
-      if(controlPaste){const current=String(target.value||'');let start=Number(target.selectionStart??target.__oryn_selection_start??current.length),end=Number(target.selectionEnd??target.__oryn_selection_end??start);target.setRangeText(pasted,start,end,'end');target.selectionStart=target.selectionEnd=target.__oryn_selection_start=target.__oryn_selection_end=start+pasted.length;target.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste',data:pasted,dataTransfer:null}))}
+      if(controlPaste){const current=String(target.value||'');let start=Number(target.selectionStart??target.__oryn_selection_start??current.length),end=Number(target.selectionEnd??target.__oryn_selection_end??start);const caret=__oryn_edit_control(target,pasted,start,end);target.__oryn_selection_start=target.__oryn_selection_end=caret;target.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste',data:pasted,dataTransfer:null}))}
       else{const html=transfer.getData('text/html');globalThis.__oryn_pending_input_event={inputType:'insertFromPaste',data:null,dataTransfer:transfer};try{document.execCommand(html&&/<[a-z!/]/i.test(html)?'insertHTML':'insertText',false,html||pasted);const selection=document.getSelection();let host=selection?.anchorNode;while(host&&!(host.nodeType===1&&host.isContentEditable))host=host.parentElement;for(const styled of host?.querySelectorAll?.('[style]')||[]){const value=styled.getAttribute('style');if(value&&!value.trimEnd().endsWith(';'))styled.setAttribute('style',value.trimEnd()+';')}}finally{delete globalThis.__oryn_pending_input_event}}
     }return
   }
@@ -1921,23 +1912,23 @@ const __oryn_testdriver_keyboard=(target,value,pressed,repeat=false)=>{
   }
   const tag=String(target.tagName||'').toLowerCase();
   const textControl=tag==='textarea'||(tag==='input'&&!['button','checkbox','file','radio','reset','submit'].includes(String(target.type||'').toLowerCase()));
-  if(textControl&&(key==='Backspace'||key==='Delete'||key.length===1)){
+  if(textControl&&(key==='Backspace'||key==='Delete'||[...key].length===1)){
     const unavailable=()=>!target.isConnected||target.getClientRects().length===0||getComputedStyle(target).visibility==='hidden';
     if(unavailable())return;
-    if(key.length===1){
+    if([...key].length===1){
       const keypress=new Event('keypress',{bubbles:true,cancelable:true});keypress.key=key;keypress.code=event.code;target.dispatchEvent(keypress);
       if(keypress.defaultPrevented||unavailable())return;
     }
     const inputType=key==='Backspace'?'deleteContentBackward':key==='Delete'?'deleteContentForward':'insertText';
-    const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType,data:key.length===1?key:null});target.dispatchEvent(before);
+    const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType,data:[...key].length===1?key:null});target.dispatchEvent(before);
     if(before.defaultPrevented||unavailable())return;
     const current=String(target.value||'');
     let start=Number(target.selectionStart??target.__oryn_selection_start??current.length),end=Number(target.selectionEnd??target.__oryn_selection_end??start);
     start=Math.max(0,Math.min(current.length,start));end=Math.max(start,Math.min(current.length,end));
     let replacement='';
-    if(key==='Backspace'&&start===end&&start>0)start--;else if(key==='Delete'&&start===end&&end<current.length)end++;else if(key.length===1)replacement=key;
-    target.setRangeText(replacement,start,end,'end');
-    target.selectionStart=target.selectionEnd=target.__oryn_selection_start=target.__oryn_selection_end=start+replacement.length;
+    if(key==='Backspace'&&start===end&&start>0)start--;else if(key==='Delete'&&start===end&&end<current.length)end++;else if([...key].length===1)replacement=key;
+    const caret=__oryn_edit_control(target,replacement,start,end);
+    target.__oryn_selection_start=target.__oryn_selection_end=caret;
     const input=new Event('input',{bubbles:true});input.inputType=inputType;input.data=replacement||null;target.dispatchEvent(input);return
   }
   if(key==='Enter'){
@@ -1961,7 +1952,7 @@ const __oryn_testdriver_keyboard=(target,value,pressed,repeat=false)=>{
   }
   else if(key==='Home'||key==='End'){
     const text=__oryn_testdriver_text_node(target,key==='End');if(text){const selection=document.getSelection();selection.collapse(text,key==='Home'?0:text.data.length)}
-  }else if(key.length===1){
+  }else if([...key].length===1){
     const keypress=new Event('keypress',{bubbles:true,cancelable:true});keypress.key=key;keypress.code=event.code;target.dispatchEvent(keypress);if(keypress.defaultPrevented)return;
     const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType:'insertText',data:key});target.dispatchEvent(before);
     if(!before.defaultPrevented)document.execCommand('insertText',false,key)
@@ -2740,6 +2731,12 @@ impl RustExecutableDocument {
         // its own events and scheduler checkpoint before the top-level load
         // barrier is released.
         for realm in initial_frame_realms {
+            // Parent scripts and an earlier child's load handlers may discard
+            // any parser-created frame. This list is a scheduling snapshot,
+            // not authority to revive a retired document or dispatch its load.
+            if !page.agent.host.realm_execution_live(realm) {
+                continue;
+            }
             page.agent.host.activate_realm(realm)?;
             page.agent.host.prepare_document_images()?;
             page.agent.host.drain_async_fetches(true)?;
@@ -2808,7 +2805,7 @@ impl RustExecutableDocument {
         self.agent
             .dom
             .borrow_mut()
-            .set_value(node, value, false)
+            .set_user_control_value(node, value, false)
             .map_err(|error| HostError::Execution(error.to_string()))?;
         self.agent.host.execute_with_node(
             node,
@@ -3001,7 +2998,7 @@ impl RustExecutableDocument {
                 self.agent
                     .dom
                     .borrow_mut()
-                    .set_value(
+                    .set_user_control_value(
                         target,
                         if action == SemanticAction::Clear {
                             ""
@@ -3096,6 +3093,15 @@ impl RustExecutableDocument {
         self.agent.dom.borrow().focus_visible()
     }
 
+    pub(crate) fn populate_semantic_control_state(
+        &self,
+        graph: &mut crate::semantic::SemanticGraph,
+    ) -> Result<(), HostError> {
+        graph
+            .apply_native_control_state(&self.agent.dom.borrow())
+            .map_err(|error| HostError::Execution(error.to_string()))
+    }
+
     pub(crate) fn populate_validation_states(
         &self,
         input: &mut oryn_layout::LayoutInput,
@@ -3179,7 +3185,7 @@ impl RustExecutableDocument {
             .copied()
             .collect::<Vec<_>>();
         for realm in pending {
-            if self.agent.host.realm_descriptor(realm).is_none() {
+            if !self.agent.host.realm_execution_live(realm) {
                 self.pending_document_loads.remove(&realm);
                 continue;
             }
@@ -3219,6 +3225,17 @@ impl RustExecutableDocument {
         // Run a bounded page-wide fixed point instead of relying on an
         // unrelated future command to tick that realm.
         for _ in 0..8 {
+            self.agent.host.adopt_created_realms();
+            for realm in self.agent.host.take_discarded_frame_realms() {
+                self.frame_realms.remove(&realm);
+                self.node_realms.retain(|_, owner| *owner != realm);
+                self.pending_document_loads.remove(&realm);
+                self.pending_frame_navigations
+                    .retain(|(owner, _), _| *owner != realm);
+                if self.agent.host.realm_descriptor(realm).is_some() {
+                    self.agent.host.remove_realm(realm)?;
+                }
+            }
             self.agent.host.drain_async_fetches(false)?;
             self.drain_dynamic_referrer_policies()?;
             self.drain_default_actions()?;
@@ -3229,9 +3246,15 @@ impl RustExecutableDocument {
             self.agent.host.drain_async_fetches(false)?;
             self.flush_document_loads()?;
             for realm in self.agent.host.realm_ids() {
+                if !self.agent.host.realm_execution_live(realm) {
+                    continue;
+                }
                 self.agent.host.activate_realm(realm)?;
                 self.agent.host.execute("__oryn_drain()")?;
-                self.agent.host.execute("__oryn_run_custom_reactions()")?;
+                if !self.agent.host.realm_execution_live(realm) {
+                    continue;
+                }
+                self.agent.host.run_custom_element_reactions()?;
                 self.agent.host.run_dom_observer_checkpoint()?;
                 for report in self.agent.host.take_module_error_reports() {
                     self.diagnostics
@@ -3741,10 +3764,17 @@ impl RustExecutableDocument {
                                 .map_err(|error| HostError::Execution(error.to_string()))?,
                         )
                         .collect::<Vec<_>>();
-                    let realm = ancestry
-                        .iter()
-                        .find_map(|node| self.node_realms.get(node).copied())
-                        .unwrap_or(scheduled_realm);
+                    let Some(document) = dom
+                        .arena()
+                        .node_document(frame)
+                        .map_err(|error| HostError::Execution(error.to_string()))?
+                    else {
+                        continue;
+                    };
+                    let Some(realm) = self.agent.host.realm_for_document(&scheduled_dom, document)
+                    else {
+                        continue;
+                    };
                     let policy = ancestry
                         .iter()
                         .find(|node| {
@@ -3770,10 +3800,17 @@ impl RustExecutableDocument {
                         });
                     (realm, policy)
                 };
-                // Keep frame wrapper and WindowProxy bookkeeping in the realm
-                // that scheduled the insertion. The document realm below is
-                // used for URL/security inheritance only.
-                let parent_realm = scheduled_realm;
+                // A wrapper's creation realm is not the embedding document.
+                // Lifecycle, WindowProxy and security ownership all follow the
+                // native ownerDocument, including calls through foreign wrappers.
+                let parent_realm = document_realm;
+                let parent_origin = self
+                    .agent
+                    .host
+                    .realm_descriptor(parent_realm)
+                    .ok_or_else(|| HostError::Execution("frame owner realm unavailable".into()))?
+                    .origin
+                    .clone();
                 let replaced_realms = self
                     .frame_realms
                     .iter()
@@ -4023,11 +4060,17 @@ impl RustExecutableDocument {
                         })
                         .ok()
                 };
-                let network_cross_origin = parent_url
-                    .as_ref()
-                    .zip(frame_url.as_ref())
-                    .is_some_and(|(parent, child)| parent.origin() != child.origin());
-                let cross_origin = opaque_sandbox || network_cross_origin;
+                // about:blank/srcdoc inherit the owner's origin identity,
+                // including an opaque identity; serializing and reparsing
+                // `null` would create a different origin.
+                let child_origin = if opaque_sandbox {
+                    oryn_js::origin::Origin::opaque()
+                } else if is_srcdoc || inherited_about_blank {
+                    parent_origin.clone()
+                } else {
+                    oryn_js::origin::Origin::from_url(&url)
+                };
+                let cross_origin = child_origin != parent_origin;
                 if cross_origin {
                     self.diagnostics
                     .push(oryn_common::v3::CapabilityDiagnostic {
@@ -4086,11 +4129,7 @@ impl RustExecutableDocument {
                     (parent_dom.clone(), document)
                 };
                 let realm = self.agent.host.create_realm_with_dom_root(
-                    frame_url
-                        .as_ref()
-                        .filter(|_| !opaque_sandbox)
-                        .map(|url| url.origin().ascii_serialization())
-                        .unwrap_or_else(|| "null".into()),
+                    child_origin.clone(),
                     1,
                     Some(u64::try_from(self.node_realms.len()).unwrap_or(u64::MAX) + 1),
                     frame_dom.clone(),
@@ -4174,16 +4213,13 @@ impl RustExecutableDocument {
                         .map_err(|error| {
                             HostError::Execution(format!("dynamic frame opaque origin: {error}"))
                         })?;
-                } else if (is_srcdoc || inherited_about_blank)
-                    && let Some(frame_origin) = frame_url
-                        .as_ref()
-                        .map(|url| url.origin().ascii_serialization())
-                {
-                    let frame_origin = serde_json::to_string(&frame_origin)
+                } else if is_srcdoc || inherited_about_blank {
+                    let frame_origin = serde_json::to_string(&child_origin.serialize())
                         .map_err(|error| HostError::Execution(error.to_string()))?;
                     self.agent.host
                         .execute(&format!(
-                            "globalThis.__oryn_security_origin={frame_origin};globalThis.__oryn_opaque_origin=false"
+                            "globalThis.__oryn_security_origin={frame_origin};globalThis.__oryn_opaque_origin={}",
+                            child_origin.is_opaque()
                         ))
                         .map_err(|error| {
                             HostError::Execution(format!("dynamic srcdoc origin: {error}"))
@@ -4324,6 +4360,7 @@ impl RustExecutableDocument {
                 #[cfg(unix)]
                 if let Some((client, page_id, _)) = &self.context {
                     preload_module_graph(
+                        &mut self.agent.host,
                         client,
                         *page_id,
                         &resource_name,
@@ -4850,6 +4887,464 @@ mod tests {
     use super::*;
 
     #[test]
+    fn custom_element_connections_follow_detached_subtrees_and_reconnection() {
+        let mut page = RustExecutableDocument::load(r#"<body><script>
+          globalThis.connections=[];
+          customElements.define('connection-probe', class extends HTMLElement {
+            connectedCallback(){connections.push('connected');if(!this.shadowRoot)this.attachShadow({mode:'open'}).innerHTML='<button>Ready</button>'}
+            disconnectedCallback(){connections.push('disconnected')}
+          });
+          const container=document.createElement('section');
+          const component=document.createElement('connection-probe');
+          container.appendChild(component);
+          if(connections.length)throw Error('connected while detached');
+          document.body.appendChild(container);
+          if(!component.shadowRoot)throw Error('missing subtree connection');
+          container.remove();document.body.appendChild(container);
+        </script>"#).unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(connections)").unwrap(),
+            r#"["connected","disconnected","connected"]"#
+        );
+    }
+
+    #[test]
+    fn native_custom_element_registry_owns_callbacks_attributes_and_adoption() {
+        let mut page = RustExecutableDocument::load(r#"<body><script>
+          globalThis.events=[];
+          class NativeLifecycle extends HTMLElement {
+            static get observedAttributes(){return new Set(['value'])}
+            connectedCallback(){events.push('connected')}
+            disconnectedCallback(){events.push('disconnected')}
+            attributeChangedCallback(name,oldValue,newValue,namespace){events.push([name,oldValue,newValue,namespace])}
+            adoptedCallback(oldDocument,newDocument){events.push(['adopted',oldDocument===document,newDocument===other])}
+          }
+          customElements.define('native-lifecycle',NativeLifecycle);
+          globalThis.other=document.implementation.createHTMLDocument('other');
+          const component=new NativeLifecycle();
+          if(component.localName!=='native-lifecycle')throw Error('construction identity');
+          component.__orynConnected=true; component.__orynCustomDefinition=NativeLifecycle;
+          NativeLifecycle.prototype.connectedCallback=()=>{throw Error('callbacks must be captured at define')};
+          globalThis.__oryn_run_custom_reactions=()=>{throw Error('author checkpoint override')};
+          component.setAttribute('value','a'); component.setAttribute('ignored','x');
+          document.body.append(component);
+          other.adoptNode(component);other.body.append(component);component.remove();
+        </script>"#).unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(events)").unwrap(),
+            r#"[["value",null,"a",null],"connected","disconnected",["adopted",true,true],"connected","disconnected"]"#
+        );
+    }
+
+    #[test]
+    fn custom_element_upgrade_preserves_existing_wrapper_and_private_fields() {
+        let mut page = RustExecutableDocument::load(r#"<held-element></held-element><script>
+            const held=document.querySelector('held-element');
+            held.expando={retained:true};
+            const map=new WeakMap([[held,42]]);
+            class Held extends HTMLElement {
+                #value=7;
+                constructor(){super();this.seenSame=this===held}
+                value(){return this.#value}
+            }
+            customElements.define('held-element',Held);
+            globalThis.result=[held===document.querySelector('held-element'),held instanceof Held,
+                held.seenSame,held.value(),held.expando.retained,map.get(document.querySelector('held-element'))];
+        </script>"#).unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(result)").unwrap(),
+            "[true,true,true,7,true,42]"
+        );
+    }
+
+    #[test]
+    fn custom_element_fragment_upgrades_interleave_with_parent_reactions() {
+        let mut page = RustExecutableDocument::load(r#"<body><main></main><script>
+            globalThis.events=[];
+            class Parent extends HTMLElement {
+                constructor(){super();events.push('parent-constructor')}
+                connectedCallback(){
+                    events.push('parent-connected');
+                    const child=this.firstChild;
+                    this.removeChild(child);
+                    this.appendChild(child);
+                }
+            }
+            class Child extends HTMLElement {
+                constructor(){super();events.push('child-constructor')}
+                connectedCallback(){events.push('child-connected')}
+                disconnectedCallback(){events.push('child-disconnected')}
+            }
+            customElements.define('queued-parent',Parent);
+            customElements.define('queued-child',Child);
+            document.querySelector('main').innerHTML='<queued-parent><queued-child></queued-child></queued-parent>';
+            events.push('returned');
+        </script>"#).unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(events)").unwrap(),
+            r#"["parent-constructor","parent-connected","child-constructor","child-connected","returned"]"#
+        );
+    }
+
+    #[test]
+    fn custom_element_nested_removal_flushes_only_enqueued_element_reactions() {
+        let mut page = RustExecutableDocument::load(
+            r#"<body><script>
+          globalThis.events=[];
+          class Parent extends HTMLElement {
+            connectedCallback(){events.push('begin');this.firstChild.remove();events.push('end')}
+          }
+          class Child extends HTMLElement {
+            connectedCallback(){events.push('connected')}
+            disconnectedCallback(){events.push('disconnected')}
+          }
+          class QuietChild extends HTMLElement {
+            connectedCallback(){events.push('connected')}
+          }
+          customElements.define('parent-element',Parent);
+          customElements.define('child-element',Child);
+          customElements.define('quiet-child',QuietChild);
+          const first=new Parent();first.append(new Child());document.body.append(first);
+          events.push('next');
+          const second=new Parent();second.append(new QuietChild());document.body.append(second);
+        </script>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(events)").unwrap(),
+            r#"["begin","connected","disconnected","end","next","begin","end","connected"]"#
+        );
+    }
+
+    #[test]
+    fn custom_element_implicit_adoption_reports_descendants_before_connection() {
+        let mut page = RustExecutableDocument::load(r#"<body><script>
+          globalThis.events=[];
+          globalThis.other=document.implementation.createHTMLDocument('other');
+          class Adopted extends HTMLElement {
+            adoptedCallback(oldDocument,newDocument){events.push([this.id,'adopted',oldDocument===document,newDocument===other])}
+            connectedCallback(){events.push([this.id,'connected'])}
+            disconnectedCallback(){events.push([this.id,'disconnected'])}
+          }
+          customElements.define('adopted-element',Adopted);
+          const container=document.createElement('section');
+          const a=document.createElement('adopted-element');a.id='a';container.append(a);
+          const host=document.createElement('div');container.append(host);
+          const b=document.createElement('adopted-element');b.id='b';host.attachShadow({mode:'closed'}).append(b);
+          document.body.append(container);events=[];
+          other.body.append(container);
+        </script>"#).unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(events)").unwrap(),
+            r#"[["a","disconnected"],["a","adopted",true,true],["a","connected"],["b","disconnected"],["b","adopted",true,true],["b","connected"]]"#
+        );
+    }
+
+    #[test]
+    fn native_custom_element_registry_rejects_invalid_names_and_reentrant_definition() {
+        let mut page = RustExecutableDocument::load(
+            r#"<script>
+          globalThis.events=[];
+          customElements.whenDefined('invalid').catch(error=>events.push(error.name));
+          const pending=customElements.whenDefined('valid-element');
+          if(pending!==customElements.whenDefined('valid-element'))throw Error('promise identity');
+          class Valid extends HTMLElement {}
+          Object.defineProperty(Valid.prototype,'connectedCallback',{get(){
+            try { customElements.define('nested-element',class extends HTMLElement {}); }
+            catch(error){events.push(error.name)}
+            return undefined;
+          }});
+          customElements.define('valid-element',Valid);
+          pending.then(constructor=>events.push(constructor===Valid));
+          customElements.define('after-element',class extends HTMLElement {});
+          events.push(customElements.get('nested-element')===undefined);
+          events.push(!!customElements.get('after-element'));
+        </script>"#,
+        )
+        .unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(events)").unwrap(),
+            r#"["NotSupportedError",true,true,"SyntaxError",true]"#
+        );
+    }
+
+    #[test]
+    fn message_channel_delivers_cloned_fifo_tasks_with_microtask_checkpoints() {
+        let mut page = RustExecutableDocument::load(r#"<script>
+          globalThis.order = [];
+          const channel = new MessageChannel();
+          channel.port1.onmessage = event => {
+            if (!(event instanceof MessageEvent) || !event.isTrusted || event.target !== channel.port1 || event.currentTarget !== channel.port1)
+              throw Error('invalid native message event');
+            if (event.origin !== '' || event.source !== null || event.ports.length !== 0) throw Error('message metadata');
+            order.push(event.data.value);
+            queueMicrotask(() => order.push('microtask'));
+          };
+          const value = {value: 'first'};
+          channel.port2.postMessage(value); value.value = 'mutated';
+          channel.port2.postMessage({value: 'second'});
+          order.push('sync');
+        </script>"#).unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(order)").unwrap(),
+            r#"["sync","first","microtask","second","microtask"]"#
+        );
+    }
+
+    #[test]
+    fn message_channel_start_close_and_transfer_validation() {
+        let mut page = RustExecutableDocument::load(
+            r#"<script>
+          globalThis.messages = [];
+          globalThis.channel = new MessageChannel();
+          channel.port1.addEventListener('message', event => messages.push(event.data));
+          channel.port2.postMessage('queued');
+        </script>"#,
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("JSON.stringify(messages)").unwrap(), "[]");
+        page.evaluate("channel.port1.start(); 'started'").unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(messages)").unwrap(),
+            r#"["queued"]"#
+        );
+        page.evaluate(r#"(() => {
+          channel.port2.postMessage('inflight'); channel.port1.close(); channel.port1.start();
+          channel.port2.postMessage('disconnected');
+          let errors = 0;
+          try { channel.port2.postMessage(()=>{}); } catch(e) { if(e.name==='DataCloneError')errors++; }
+          const bytes = new ArrayBuffer(4);
+          try { channel.port2.postMessage('bad', [bytes, bytes]); } catch(e) { if(e.name==='DataCloneError')errors++; }
+          if(errors!==2 || bytes.byteLength!==4)throw Error('validation/atomicity');
+          return 'ok';
+        })()"#).unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(messages)").unwrap(),
+            r#"["queued","inflight"]"#
+        );
+    }
+
+    #[test]
+    fn message_channel_transfers_buffer_and_preserves_graphs() {
+        let mut page = RustExecutableDocument::load(r#"<script>
+          globalThis.result = 'pending';
+          const channel = new MessageChannel();
+          channel.port1.onmessage = event => {
+            const value = event.data;
+            result = String(value.self === value && value.map.get('bytes') === value.bytes && value.bytes[0] === 42);
+          };
+          const bytes = new Uint8Array([42]);
+          const value = {bytes, map:new Map([['bytes',bytes]])}; value.self = value;
+          channel.port2.postMessage(value, {transfer:[bytes.buffer]});
+          if(bytes.byteLength!==0)throw Error('buffer not transferred');
+        </script>"#).unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(page.evaluate("result").unwrap(), "true");
+    }
+
+    #[test]
+    fn message_channel_bounds_paused_queue() {
+        let mut page = RustExecutableDocument::load("<body></body>").unwrap();
+        assert_eq!(page.evaluate(r#"(() => {
+          const channel = new MessageChannel();
+          for(let i=0;i<1024;i++)channel.port2.postMessage(i);
+          let bounded=false;
+          try { channel.port2.postMessage(1024); } catch(e) { bounded=e.name==='QuotaExceededError'; }
+          if(!bounded)throw Error('queue not bounded');
+          channel.port1.close(); channel.port2.postMessage('closed');
+          return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn message_channel_port_transfer_moves_queue_and_revokes_old_wrapper() {
+        let mut page = RustExecutableDocument::load(r#"<script>
+          globalThis.received = [];
+          const channel = new MessageChannel();
+          channel.port2.postMessage('before transfer');
+          const moved = structuredClone({port:channel.port1}, {transfer:[channel.port1]}).port;
+          channel.port1.close(); channel.port1.start(); channel.port1.postMessage('old authority');
+          moved.onmessage = e => received.push(e.data);
+          channel.port2.postMessage('after transfer');
+          let rejected=false;
+          try{structuredClone(channel.port1,{transfer:[channel.port1]})}catch(e){rejected=e.name==='DataCloneError'}
+          if(!rejected)throw Error('detached port transferable');
+        </script>"#).unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(received)").unwrap(),
+            r#"["before transfer","after transfer"]"#
+        );
+    }
+
+    #[test]
+    fn message_channel_transferred_ports_are_native_event_capabilities() {
+        let mut page = RustExecutableDocument::load(r#"<script>
+          globalThis.received = [];
+          const transport = new MessageChannel(), payload = new MessageChannel();
+          payload.port2.postMessage('queued payload');
+          transport.port1.onmessage = e => {
+            if(e.ports.length!==1 || !Object.isFrozen(e.ports) || e.data.port!==e.ports[0])throw Error('transferred identity');
+            e.ports[0].onmessage = event => received.push(event.data);
+            e.ports[0].postMessage('reply');
+          };
+          payload.port2.onmessage = e => received.push(e.data);
+          transport.port2.postMessage({port:payload.port1}, [payload.port1]);
+        </script>"#).unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(received)").unwrap(),
+            r#"["queued payload","reply"]"#
+        );
+    }
+
+    #[test]
+    fn message_channel_rejects_self_transfer_and_preserves_cross_channel_order() {
+        let mut page = RustExecutableDocument::load(
+            r#"<script>
+          globalThis.received = [];
+          const a=new MessageChannel(), b=new MessageChannel();
+          a.port1.onmessage=e=>received.push(e.data); b.port1.onmessage=e=>received.push(e.data);
+          a.port2.postMessage(1);a.port2.postMessage(2);b.port2.postMessage(3);
+          let rejected=false;
+          try{a.port2.postMessage(null,[a.port2])}catch(e){rejected=e.name==='DataCloneError'}
+          if(!rejected)throw Error('self transfer permitted');
+          const doomed=new MessageChannel();
+          doomed.port2.postMessage(null,[doomed.port1]);
+          doomed.port2.postMessage('lost');
+        </script>"#,
+        )
+        .unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(received)").unwrap(),
+            "[1,2,3]"
+        );
+    }
+
+    #[test]
+    fn script_text_uses_native_children_and_prepares_author_code_once() {
+        let mut page = RustExecutableDocument::load("<body></body>").unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"(() => {
+            const script = document.createElement('script');
+            script.appendChild(document.createTextNode('first'));
+            const nested = document.createElement('span');
+            nested.textContent = 'excluded';
+            script.appendChild(nested);
+            script.appendChild(document.createComment('excluded'));
+            script.appendChild(document.createTextNode('last'));
+            if (script.text !== 'firstlast') throw Error('not child text content');
+            globalThis.scriptTextRuns = 0;
+            script.text = 'globalThis.scriptTextRuns++';
+            if (script.childNodes.length !== 1 || script.textContent !== script.text)
+                throw Error('text did not replace children');
+            if (script.getAttribute('text') !== null) throw Error('text reflected as attribute');
+            document.body.appendChild(script);
+            script.text = 'globalThis.scriptTextRuns += 100';
+            script.remove(); document.body.appendChild(script);
+            if (scriptTextRuns !== 1) throw Error('script execution count');
+            return 'ok';
+        })()"#
+            )
+            .unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn script_text_enforces_trusted_script_before_mutating_children() {
+        let config = oryn_js::trusted_types::TrustedTypesConfig {
+            require_script: true,
+            allow_any_policy: true,
+            ..Default::default()
+        };
+        let resources = BTreeMap::from([(
+            "oryn:trusted-types".into(),
+            serde_json::to_string(&config).unwrap(),
+        )]);
+        let mut page =
+            RustExecutableDocument::load_with_resources("<body></body>", &resources).unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"(() => {
+            const script = document.createElement('script');
+            script.appendChild(document.createTextNode('original'));
+            let rejected = false;
+            try { script.text = 'untrusted'; } catch (_) { rejected = true; }
+            if (!rejected || script.text !== 'original') throw Error('untrusted mutation');
+            const policy = trustedTypes.createPolicy('author', {createScript: value => value});
+            script.text = policy.createScript('globalThis.trustedScriptTextRan = true');
+            document.body.appendChild(script);
+            return String(globalThis.trustedScriptTextRan);
+        })()"#
+            )
+            .unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn author_prepares_script_from_unescaped_data_block_inner_html() {
+        let mut page = RustExecutableDocument::load(r#"
+            <body>
+            <script id="source" type="text/author">globalThis.authored = (() => 1 < 2 && 3 > 2)();</script>
+            <script>
+              const source = document.getElementById('source');
+              if (source.innerHTML !== source.textContent) throw Error('raw script text changed');
+              const prepared = document.createElement('script');
+              prepared.textContent = source.innerHTML;
+              document.body.appendChild(prepared);
+            </script>
+        "#).unwrap();
+        assert_eq!(
+            page.evaluate("String(globalThis.authored)").unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn author_data_scripts_are_inert_until_author_prepares_javascript() {
+        let mut page = RustExecutableDocument::load(r#"
+            <script>
+              globalThis.dataExecuted = 0;
+              Object.defineProperty(globalThis, 'Babel', {get(){throw Error('browser must not invoke author transpiler')}});
+            </script>
+            <script type="text/babel">dataExecuted++</script>
+            <script type="application/json">{"not":"javascript"}</script>
+            <script type="text/javascript; charset=utf-8">dataExecuted++</script>
+            <script>globalThis.classicExecuted = true;</script>
+        "#).unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify([dataExecuted,classicExecuted])")
+                .unwrap(),
+            "[0,true]"
+        );
+        assert_eq!(
+            page.evaluate(
+                r#"(() => {
+            const script = document.createElement('script');
+            script.type = 'text/babel'; script.textContent = 'dataExecuted += 100';
+            document.body.appendChild(script);
+            if (dataExecuted !== 0) throw Error('dynamic data executed');
+            script.remove(); script.type = 'text/javascript';
+            script.textContent = 'dataExecuted += 1';
+            document.body.appendChild(script);
+            if (dataExecuted !== 1) throw Error('author-prepared classic did not execute');
+            script.remove(); document.body.appendChild(script);
+            if (dataExecuted !== 1) throw Error('classic script executed twice');
+            return 'ok';
+        })()"#
+            )
+            .unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
     #[ignore = "requires ORYN_WPT_ROOT pointing at the pinned WPT checkout"]
     fn pinned_wpt_range_clone_executes_with_resource_diagnostics() {
         let root = std::path::PathBuf::from(std::env::var("ORYN_WPT_ROOT").unwrap());
@@ -4990,6 +5485,129 @@ mod tests {
         )
         .unwrap();
         assert_eq!(page.evaluate("moduleResult").unwrap(), "ready");
+    }
+
+    #[test]
+    fn import_map_native_parser_aliases_dynamic_import_and_base() {
+        let resources = BTreeMap::from([
+            (
+                "https://example.test/assets/shared.js".into(),
+                "globalThis.instances=(globalThis.instances||0)+1;export const value=42".into(),
+            ),
+            (
+                "https://example.test/assets/lazy.js".into(),
+                "import {value} from '#shared';export default value+1".into(),
+            ),
+        ]);
+        let mut page = RustExecutableDocument::load_with_environment(r##"<base href="/assets/">
+          <script>Object.defineProperty(document,'baseURI',{value:'https://wrong.test/'});globalThis.answer='pending';</script>
+          <script type="importmap">{"imports":{"#shared":"./shared.js","lazy":"./lazy.js"}}</script>
+          <script type="module">import {value} from '#shared';globalThis.staticValue=value;import('lazy').then(m=>globalThis.answer=m.default)</script>"##,
+            &resources, None, Some(Url::parse("https://example.test/page").unwrap())).unwrap();
+        assert!(page.diagnostics.is_empty(), "{:?}", page.diagnostics);
+        assert_eq!(
+            page.evaluate("staticValue+'|'+answer+'|'+instances")
+                .unwrap(),
+            "42|43|1"
+        );
+    }
+
+    #[test]
+    fn import_map_native_does_not_alias_equal_relative_paths_between_directories() {
+        let resources = BTreeMap::from([
+            (
+                "https://example.test/a/main.js".into(),
+                "import {value} from './dep.js';globalThis.a=value".into(),
+            ),
+            (
+                "https://example.test/b/main.js".into(),
+                "import {value} from './dep.js';globalThis.b=value".into(),
+            ),
+            (
+                "https://example.test/a/dep.js".into(),
+                "export const value='a'".into(),
+            ),
+            (
+                "https://example.test/b/dep.js".into(),
+                "export const value='b'".into(),
+            ),
+        ]);
+        let mut page = RustExecutableDocument::load_with_environment("<script type=module src='https://example.test/a/main.js'></script><script type=module src='https://example.test/b/main.js'></script>", &resources, None, Some(Url::parse("https://example.test/").unwrap())).unwrap();
+        assert!(page.diagnostics.is_empty(), "{:?}", page.diagnostics);
+        assert_eq!(page.evaluate("a+'|'+b").unwrap(), "a|b");
+    }
+
+    #[test]
+    fn import_map_native_csp_denial_does_not_install_mapping() {
+        let policy = crate::csp::CspPolicySet::from_headers(
+            "https://example.test/",
+            &[("content-security-policy".into(), "script-src 'none'".into())],
+        );
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "oryn:csp-policy".into(),
+            serde_json::to_string(&policy).unwrap(),
+        );
+        let mut page = RustExecutableDocument::load_with_environment(
+            r##"<script type=importmap>{"imports":{"#secret":"./secret.js"}}</script>"##,
+            &resources,
+            None,
+            Some(Url::parse("https://example.test/").unwrap()),
+        )
+        .unwrap();
+        assert!(!page.diagnostics.is_empty());
+        assert_eq!(
+            page.agent
+                .host
+                .resolve_module_specifier("https://example.test/", "#secret")
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn import_map_native_frame_maps_do_not_leak_to_parent() {
+        let resources = BTreeMap::from([
+            (
+                "https://example.test/parent.js".into(),
+                "export const value='parent'".into(),
+            ),
+            (
+                "https://example.test/child.js".into(),
+                "export const value='child'".into(),
+            ),
+        ]);
+        let mut page = RustExecutableDocument::load_with_environment(r#"<script type=importmap>{"imports":{"shared":"https://example.test/parent.js"}}</script>
+          <iframe srcdoc='<script type=importmap>{"imports":{"shared":"https://example.test/child.js"}}</script><script type=module>import {value} from "shared";globalThis.answer=value</script>'></iframe>
+          <script type=module>import {value} from 'shared';globalThis.answer=value</script>"#, &resources, None, Some(Url::parse("https://example.test/").unwrap())).unwrap();
+        assert!(page.diagnostics.is_empty(), "{:?}", page.diagnostics);
+        assert_eq!(
+            page.evaluate("answer+'|'+frames[0].answer").unwrap(),
+            "parent|child"
+        );
+    }
+
+    #[test]
+    fn import_map_native_event_handler_resolution_and_typed_rejection() {
+        let resources = BTreeMap::from([
+            (
+                "https://example.test/assets/shared.js".into(),
+                "export const value=42".into(),
+            ),
+            (
+                "https://example.test/assets/protected.js".into(),
+                "globalThis.integrityBypassed=true;export const value=1".into(),
+            ),
+        ]);
+        let mut page = RustExecutableDocument::load_with_environment(r#"<base href='/assets/'>
+          <script type=importmap>{"imports":{"shared":"./shared.js"},"integrity":{"./protected.js":"sha256-required"}}</script>
+          <button id=run onclick="import('shared').then(m=>globalThis.answer=m.value);import('./protected.js').catch(e=>globalThis.blocked=e instanceof TypeError);import('unmapped').catch(e=>globalThis.typed=e instanceof TypeError)">Run</button>"#, &resources, None, Some(Url::parse("https://example.test/").unwrap())).unwrap();
+        page.click("#run").unwrap();
+        assert_eq!(
+            page.evaluate("answer+'|'+blocked+'|'+typed+'|'+typeof integrityBypassed")
+                .unwrap(),
+            "42|true|true|undefined"
+        );
     }
 
     #[test]
@@ -5341,6 +5959,303 @@ mod tests {
             page.evaluate("document.activeElement!==target").unwrap(),
             "true"
         );
+    }
+
+    #[test]
+    fn native_interactive_validation_respects_cancellation_mutation_and_focus() {
+        let mut page = RustExecutableDocument::load("<!doctype html><button id=away type=button>Away</button><form id=f><input id=a required><input id=b required><input id=c required></form>").unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const a=document.getElementById('a'),b=document.getElementById('b'),c=document.getElementById('c');
+            const events=[];
+            for(const control of [a,b,c]) control.oninvalid=e=>{
+                check(e.isTrusted&&!e.bubbles&&e.cancelable,'event flags');events.push(control.id);
+            };
+            away.focus();check(!f.checkValidity()&&document.activeElement===away,'static does not focus');
+            check(events.join(',')==='a,b,c','static snapshot');events.length=0;
+            a.oninvalid=e=>{events.push('a');e.preventDefault()};
+            check(!f.reportValidity()&&document.activeElement===b,'first unhandled');
+            check(events.join(',')==='a,b,c','report snapshot');
+            away.focus();check(!a.reportValidity()&&document.activeElement===away,'canceled control');
+            a.oninvalid=()=>{a.remove();b.value='fixed'};
+            away.focus();check(!f.reportValidity()&&document.activeElement===c,'removed and repaired skipped');
+            document.body.appendChild(a);a.oninvalid=null;
+            a.onfocus=()=>away.focus();check(!a.reportValidity()&&document.activeElement===away,'focus callback wins');
+            a.onfocus=null;a.disabled=true;check(a.reportValidity(),'barred');a.disabled=false;
+            a.oninvalid=()=>{a.value='fixed'};check(!a.reportValidity(),'snapshot result survives repair');
+            check(a.reportValidity(),'subsequent valid result');
+            let submits=0;f.onsubmit=e=>{e.preventDefault();submits++};
+            away.focus();f.requestSubmit();check(submits===0&&document.activeElement===c,'submission reports');
+            c.value='fixed';f.requestSubmit();check(submits===1,'submission recovery');
+            for(const tag of ['input','textarea','select','button','fieldset','output','object']) {
+                const el=document.createElement(tag);check(el.reportValidity(),'interface '+tag);
+            }
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_text_editing_preserves_defaults_lengths_and_provenance() {
+        let mut page = RustExecutableDocument::load("<style>:invalid{color:rgb(255,0,0)}</style><form id=f><textarea id=t minlength=5 maxlength=10 required></textarea><input id=i maxlength=10></form>").unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            t.defaultValue='abc';check(t.value==='abc'&&t.textContent==='abc'&&t.validity.valid,'default native text');
+            t.replaceChildren('abcd');check(t.value==='abcd'&&t.validity.valid,'default children');
+            t.value='';t.focus();t.oninput=()=>{t.defaultValue=t.value};
+            for(const c of 'abc')__oryn_testdriver_keyboard(t,c,true);
+            check(t.value==='abc'&&t.validity.tooShort&&!t.validity.valid,'user provenance');
+            check(t.matches(':invalid')&&getComputedStyle(t).color==='rgb(255, 0, 0)','shared style');
+            let submits=0;f.onsubmit=e=>{e.preventDefault();submits++};f.requestSubmit();check(submits===0,'short blocked');
+            for(const c of 'de')__oryn_testdriver_keyboard(t,c,true);
+            f.requestSubmit();check(submits===1&&t.validity.valid,'recovery');
+            t.value='x';check(!t.validity.tooShort,'script exemption');
+            t.setRangeText('y',0,1,'end');check(t.value==='y'&&!t.validity.tooShort,'range script exemption');
+            t.defaultValue='fresh';check(t.value==='y','dirty default does not change value');
+            f.reset();t.replaceChildren('new');check(t.value==='new'&&!t.validity.tooShort,'reset restores default tracking');
+            check(t.minLength===5&&t.maxLength===10&&t.textLength===3,'reflected lengths');
+            try{t.maxLength=-1;throw Error('missing exception')}catch(e){check(e.name==='IndexSizeError','negative maximum')}
+            i.focus();check(document.execCommand('InsertHTML',false,'👨‍👩‍👧‍👦'),'insert command');
+            check(i.value==='👨‍👩‍👧‍'&&i.value.length===9,'UTF16 scalar truncation');
+            i.maxLength=2;check(i.validity.tooLong,'dynamic maximum');
+            i.value='abc';check(!i.validity.tooLong,'script overlong exemption');
+            i.value='';i.readOnly=true;document.execCommand('insertText',false,'a');check(i.value==='','readonly editing');
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_control_events_are_tasks_and_changes_commit_once() {
+        let mut page = RustExecutableDocument::load(
+            "<form id=f><textarea id=t>abc</textarea><input id=i></form>",
+        )
+        .unwrap();
+        page.execute(
+            r#"
+            globalThis.events=[];globalThis.setTimeout=()=>{throw Error('page timer called')};
+            t.onselect=e=>events.push('select:'+e.isTrusted+':'+e.bubbles+':'+e.cancelable);
+            t.setSelectionRange(0,3);events.push('sync');
+        "#,
+        )
+        .unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(
+            page.evaluate("events.join('|')").unwrap(),
+            "sync|select:true:true:false"
+        );
+        page.execute("events=[];t.setRangeText('foo',2,2);events.push('sync')")
+            .unwrap();
+        page.drain_tasks().unwrap();
+        assert_eq!(
+            page.evaluate("events.join('|')").unwrap(),
+            "sync|select:true:true:false"
+        );
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};let changes=0;
+            t.onchange=e=>{check(e.isTrusted&&e.bubbles&&!e.cancelable,'change flags');changes++};
+            t.focus();t.select();__oryn_testdriver_keyboard(t,'Backspace',true);
+            check(t.value===''&&changes===0,'not committed during input');t.blur();check(changes===1,'commit on blur');
+            t.blur();check(changes===1,'no duplicate');
+            t.value=null;i.value=null;check(t.value===''&&i.value==='','legacy null');
+            t.value=undefined;check(t.value==='undefined','undefined remains DOMString');
+            t.focus();__oryn_testdriver_keyboard(t,'x',true);f.reset();t.blur();check(changes===1,'reset clears pending commit');
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_oil_typing_uses_user_length_constraints() {
+        let mut page =
+            RustExecutableDocument::load("<textarea id=t minlength=5 maxlength=10></textarea>")
+                .unwrap();
+        page.type_text("#t", "abc").unwrap();
+        assert_eq!(
+            page.evaluate("t.validity.tooShort+'|'+t.value").unwrap(),
+            "true|abc"
+        );
+        page.type_text("#t", "👨‍👩‍👧‍👦").unwrap();
+        assert_eq!(
+            page.evaluate("t.validity.valid+'|'+t.value").unwrap(),
+            "true|👨‍👩‍👧‍"
+        );
+        page.execute("t.value='abc';t.dispatchEvent(new Event('input'));t.dispatchEvent(new KeyboardEvent('keydown',{key:'x'}))").unwrap();
+        assert_eq!(page.evaluate("t.validity.tooShort").unwrap(), "false");
+    }
+
+    #[test]
+    fn native_pattern_constraints_share_validation_style_and_submission() {
+        let mut page = RustExecutableDocument::load("<!doctype html><style>:invalid{color:rgb(255,0,0)}</style><form id=f><input id=p pattern='[A-Z]{3}' value=abc></form>").unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const state=p.validity;
+            check(state.patternMismatch&&!state.valid,'native mismatch');
+            check(p.matches(':invalid')&&getComputedStyle(p).color==='rgb(255, 0, 0)','shared style');
+            let submits=0;f.onsubmit=e=>{e.preventDefault();submits++};
+            f.requestSubmit();check(submits===0&&document.activeElement===p,'submission blocked');
+            p.value='ABC';check(state.valid,'live recovery');f.requestSubmit();check(submits===1,'submission recovery');
+            const original=RegExp,exec=RegExp.prototype.exec,test=RegExp.prototype.test;
+            /sentinel/.test('page sentinel');const before=RegExp.input;
+            RegExp.prototype.exec=RegExp.prototype.test=()=>{throw Error('authored regex called')};
+            globalThis.RegExp=()=>{throw Error('authored constructor called')};
+            p.value='private-subject';check(state.patternMismatch,'private engine');
+            check(original.input===before,'no page regex statics leak');
+            globalThis.RegExp=original;original.prototype.exec=exec;original.prototype.test=test;
+            p.pattern='[\\p{ASCII}&&\\p{Letter}]+';p.value='ABC';check(state.valid,'Unicode intersection');
+            p.value='é';check(state.patternMismatch,'Unicode exclusion');
+            p.pattern='a)(b';p.value='ab';check(!state.patternMismatch,'invalid original syntax ignored');
+            p.pattern='[(]';check(!state.patternMismatch,'v syntax enforced');
+            p.pattern='';check(state.patternMismatch,'empty pattern');
+            p.value='';check(!state.patternMismatch,'empty value exemption');
+            for(const type of ['text','search','tel','url','email','password']) {
+                p.type=type;p.pattern='ABC';p.value='xyz';check(state.patternMismatch,type);
+            }
+            p.type='email';p.multiple=true;p.pattern='[^@]+@example\\.test';
+            p.value='a@example.test, b@example.test';check(!state.patternMismatch,'email tokens');
+            p.value='a@example.test,b@else.test';check(state.patternMismatch,'email token mismatch');
+            p.disabled=true;check(state.patternMismatch&&p.checkValidity(),'barred flag retained');p.disabled=false;
+            p.type='text';p.pattern='(\\d+)*$';p.value='12345678901234567890123456789123456789z';
+            check(state.patternMismatch,'bounded backtracking');
+            for(let i=0;i<80;i++){p.pattern='x{'+(i+1)+'}';p.value='x';check(state.patternMismatch===(i!==0),'cache churn '+i)}
+            p.removeAttribute('pattern');check(!state.patternMismatch,'attribute removal');
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_input_numeric_apis_preserve_dom_state_and_error_semantics() {
+        let mut page = RustExecutableDocument::load("<!doctype html><form id=f><input id=n type=number min=0 max=5 step=0.1 value=0.2><input id=d type=date><input id=t type=time></form>").unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const throws=(name,fn)=>{try{fn()}catch(e){check(e.name===name,'exception '+e.name);check(e instanceof (name==='TypeError'?TypeError:DOMException),'exception prototype');return}throw Error('missing '+name)};
+            let events=0;n.oninput=n.onchange=()=>events++;
+            n.stepUp();check(n.value==='0.3'&&n.valueAsNumber===0.3&&n.validity.valid,'precise native step');
+            n.stepDown(undefined);check(n.value==='0.2'&&events===0,'default and no user events');
+            n.stepDown(-2);check(n.value==='0.4','negative count reverses direction');
+            n.stepUp(4294967297);check(n.value==='0.5','Web IDL long wrapping');
+            n.stepDown(2.9);check(n.value==='0.3','Web IDL long truncation');
+            throws('TypeError',()=>n.stepUp(1n));throws('TypeError',()=>n.valueAsNumber=1n);
+            n.valueAsNumber={valueOf(){return 0.4}};check(n.value==='0.4','number conversion');
+            n.valueAsNumber=NaN;check(n.value===''&&Number.isNaN(n.valueAsNumber),'NaN clear');
+            throws('TypeError',()=>n.valueAsNumber=Infinity);
+            n.step='any';throws('InvalidStateError',()=>n.stepUp());
+            d.valueAsDate=new Date('2024-02-29T21:30:00Z');check(d.value==='2024-02-29','UTC date setter');
+            check(d.valueAsDate instanceof Date&&d.valueAsDate.toISOString()==='2024-02-29T00:00:00.000Z','UTC getter');
+            d.stepUp();check(d.value==='2024-03-01','calendar step');
+            const poisoned=new Date(0);poisoned.valueOf=()=>{throw Error('called authored method')};
+            d.valueAsDate=poisoned;check(d.value==='1970-01-01','Date internal slot');
+            throws('TypeError',()=>d.valueAsDate={});d.valueAsDate=null;check(d.value==='','null clear');
+            d.value='2024-02-29';d.valueAsDate=undefined;check(d.value==='','nullable undefined clear');
+            d.valueAsDate=new Date(NaN);check(d.valueAsDate===null,'invalid date');
+            d.type='datetime-local';check(d.valueAsDate===null,'local date does not apply');
+            throws('InvalidStateError',()=>d.valueAsDate=new Date());
+            d.type='text';throws('InvalidStateError',()=>d.valueAsNumber=1);throws('InvalidStateError',()=>d.stepDown());
+            throws('TypeError',()=>d.valueAsDate=1);throws('InvalidStateError',()=>d.valueAsDate={});
+            throws('TypeError',()=>d.valueAsNumber=Infinity);
+            t.valueAsNumber=-3600000;check(t.value==='23:00','negative time wrap');
+            t.valueAsNumber=2.7343337071894478e26;check(t.value==='10:54:10.944','large time wrap');
+            t.value='23:59:59.999';t.step='0.001';t.stepUp();check(t.value==='00:00','midnight step');
+            f.reset();check(n.value==='0.2','reset keeps authored default');
+            return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_numeric_constraints_share_submission_api_and_style() {
+        let mut page = RustExecutableDocument::load("<!doctype html><style>:invalid{color:rgb(255,0,0)}</style><form id=f><input id=n type=number min=1 max=5 step=2 value=3><input id=d type=date><input id=t type=time></form>").unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const n=document.getElementById('n'),d=document.getElementById('d'),t=document.getElementById('t');
+            const v=n.validity;check(n.min==='1'&&n.max==='5'&&n.step==='2','reflection');
+            n.value='4';check(v.stepMismatch&&!v.valid&&!n.checkValidity(),'step');
+            check(n.matches(':invalid')&&getComputedStyle(n).color==='rgb(255, 0, 0)','style');
+            let submits=0;f.onsubmit=e=>{e.preventDefault();submits++};f.requestSubmit();check(submits===0,'blocked');
+            n.step='any';n.value='6';check(v.rangeOverflow&&!v.rangeUnderflow,'overflow');
+            n.value='0';check(v.rangeUnderflow&&!v.rangeOverflow,'underflow');
+            n.value='3';check(v.valid,'recovery');
+            for(const [type,value,min,max,step] of [
+                ['date','2024-02-29','2024-03-01','2024-03-31','1'],
+                ['month','2024-02','2024-03','2024-12','1'],
+                ['week','2024-W01','2024-W02','2024-W52','1'],
+                ['datetime-local','2024-02-29T12:00','2024-03-01T12:00','2024-12-31T12:00','60']
+            ]) {d.type=type;d.min=min;d.max=max;d.step=step;d.value=value;check(d.validity.rangeUnderflow,type);d.value=min;check(d.validity.valid,type+' boundary')}
+            d.value='';t.min='21:00';t.max='06:00';t.value='12:00';check(t.validity.rangeUnderflow&&t.validity.rangeOverflow,'reversed');
+            t.value='23:00';check(t.validity.valid,'overnight');
+            n.step='3e-15';n.min='';n.removeAttribute('value');n.value='17';check(n.validity.stepMismatch,'tiny step');
+            n.step='0.003';n.value='3.6';check(n.validity.valid,'decimal multiple');
+            n.step='any';n.value='1e999';check(n.value===''&&n.validity.valid,'sanitized invalid float');
+            f.requestSubmit();check(submits===1,'successful recovery');return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_validation_candidates_include_submit_controls_and_barred_interfaces() {
+        let mut page = RustExecutableDocument::load("<!doctype html><form id=f><button id=b>Submit</button><input id=i type=image><input id=s type=submit><input id=text required><textarea id=area required></textarea><input id=radio type=radio required><fieldset id=fs></fieldset><output id=out></output><object id=obj></object></form>").unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            let submits=0;f.onsubmit=event=>{event.preventDefault();submits++};
+            for(const control of [text,area]) {
+                check(control.validity.valueMissing,'initial missing');
+                control.disabled=true;check(!control.validity.valueMissing&&control.validity.valid&&!control.willValidate,'disabled missing');
+                control.disabled=false;check(control.validity.valueMissing,'restored missing');control.value='ok';
+            }
+            check(!radio.validity.valueMissing,'unnamed radio');
+            radio.name='group';check(radio.validity.valueMissing,'named radio');
+            radio.disabled=true;check(radio.validity.valueMissing&&!radio.willValidate&&radio.checkValidity(),'disabled radio retains group state');
+            radio.disabled=false;radio.checked=true;
+            for(const type of ['checkbox','file']) {
+                const c=document.createElement('input');c.type=type;c.required=true;c.disabled=true;
+                check(c.validity.valueMissing&&!c.willValidate&&c.checkValidity(),'disabled '+type+' retains validity');
+            }
+            for(const control of [b,i,s]) {
+                const v=control.validity;let events=0;control.oninvalid=()=>events++;
+                check(control.willValidate,'submit candidate');control.setCustomValidity('blocked');
+                check(v.customError&&!v.valid&&!control.checkValidity()&&events===1,'submit custom error');
+                f.requestSubmit();check(submits===0&&events===2,'form validates submit controls including images');
+                control.setCustomValidity('');check(v.valid,'cleared');
+            }
+            b.type='button';b.setCustomValidity('still retained');check(!b.willValidate&&b.checkValidity()&&b.validity.customError,'button barred');
+            b.type='reset';check(!b.willValidate,'reset barred');b.type='submit';b.setCustomValidity('');
+            for(const control of [fs,out,obj]) {
+                const v=control.validity;control.setCustomValidity('barred');
+                check(!control.willValidate&&control.checkValidity()&&v.customError&&!v.valid&&control.validationMessage==='','barred state');
+            }
+            check(obj instanceof HTMLObjectElement&&obj.form===f,'object binding and owner');
+            for(const type of ['color','file','submit','image','checkbox','radio']) {
+                const c=document.createElement('input');c.type=type;c.readOnly=true;
+                check(!c.willValidate,'readonly '+type);
+            }
+            b.setAttribute('command','--example');b.type='invalid';check(!b.willValidate,'auto command not submit');
+            b.type='submit';check(b.willValidate,'explicit submit');
+            f.requestSubmit();check(submits===1,'successful recovery');return 'ok';
+        })()"#).unwrap(), "ok");
+    }
+
+    #[test]
+    fn native_control_validation_is_shared_by_submission_api_and_style() {
+        let mut page = RustExecutableDocument::load(r#"<!doctype html><style>:invalid {color:rgb(255, 0, 0)} :valid {color:rgb(0, 128, 0)}</style><form id=f><fieldset id=fs><input id=e type=email required><textarea id=t required>initial</textarea></fieldset></form><input id=outside form=f required>"#).unwrap();
+        assert_eq!(page.evaluate(r#"(()=>{
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const e=document.getElementById('e'),validity=e.validity;let invalid=0,submits=0;
+            e.oninvalid=event=>{check(event.isTrusted&&!event.bubbles&&event.cancelable,'invalid event');invalid++};
+            f.onsubmit=event=>{event.preventDefault();submits++};
+            check(validity===e.validity&&validity instanceof ValidityState&&validity.valueMissing&&!validity.valid,'live state');
+            check(e.matches(':invalid')&&f.matches(':invalid')&&fs.matches(':invalid'),'initial selectors');
+            check(getComputedStyle(e).color==='rgb(255, 0, 0)','initial style');
+            check(!e.checkValidity()&&invalid===1,'control check');f.requestSubmit();check(submits===0&&invalid===2,'submission check');
+            e.value='a@b';check(validity.valid&&!validity.valueMissing&&e.matches(':valid'),'updated state');
+            check(getComputedStyle(e).color==='rgb(0, 128, 0)','updated style');
+            check(fs.matches(':valid')&&f.matches(':invalid'),'external form owner');
+            outside.value='ok';check(f.matches(':valid')&&f.checkValidity(),'all valid');
+            e.value='bad';check(validity.typeMismatch&&!validity.valid&&e.matches(':invalid'),'email mismatch');
+            e.readOnly=true;check(!e.willValidate&&e.checkValidity()&&!e.matches(':invalid,:valid')&&f.matches(':valid'),'barred eligibility');
+            e.readOnly=false;e.value='a@b';e.setCustomValidity('blocked');
+            check(validity.customError&&!validity.valid&&e.validationMessage==='blocked'&&f.matches(':invalid'),'custom validity');
+            e.setCustomValidity('');check(validity.valid&&e.validationMessage==='','custom clear');
+            t.value='';check(t.validity.valueMissing&&t.matches(':invalid'),'textarea missing');
+            t.value='ok';t.setCustomValidity('text error');check(t.validity.customError&&!f.checkValidity(),'textarea custom');
+            t.setCustomValidity('');f.requestSubmit();check(submits===1,'recovery');
+            e.remove();check(validity===e.validity&&validity.valid,'detached retained state');
+            return 'ok';
+        })()"#).unwrap(), "ok");
     }
 
     #[test]
@@ -6022,7 +6937,8 @@ mod tests {
 
     #[test]
     fn native_file_selection_is_not_an_attribute_and_obeys_input_lifetime() {
-        let mut page = RustExecutableDocument::load("<!doctype html><form id=f><input id=a type=file name=upload><input id=b type=file></form>").unwrap();
+        let mut page = RustExecutableDocument::load("<!doctype html><form id=f><input id=a type=file name=upload required value=forged><input id=b type=file></form>").unwrap();
+        assert_eq!(page.evaluate("String(f.checkValidity())").unwrap(), "false");
         let a = page.node_by_id("a").unwrap();
         page.set_files(
             a,
@@ -6035,6 +6951,7 @@ mod tests {
         .unwrap();
         assert_eq!(page.evaluate(r#"(()=>{
           const check=(v,m)=>{if(!v)throw Error(m)};
+          check(f.checkValidity(),'required selected file rejected');
           check(!a.hasAttribute('data-oryn-upload-files'),'attribute transport remains');
           const files=a.files, file=files[0];
           check(files instanceof FileList&&files===a.files&&files.length===1&&files.item(0)===file&&file.name==='selected.txt','native list');
@@ -6052,7 +6969,7 @@ mod tests {
           const clone=a.cloneNode();check(clone.files[0].name==='selected.txt','clone files');
           a.value='';check(a.files.length===0&&files.length===1&&b.files.length===1,'clear snapshot');
           b.type='text';check(b.files===null,'non-file null');b.type='file';check(b.files.length===0,'type transition');
-          a.files=files;f.reset();check(a.files.length===0,'reset');
+          a.files=files;f.reset();check(a.files.length===0&&!f.checkValidity(),'reset required file');
           try { FileList.prototype.item.call({},0);return 'forged receiver'; } catch(e) {check(e instanceof TypeError,'brand error')}
           return 'ok';
         })()"#).unwrap(),"ok");
@@ -8443,6 +9360,158 @@ mod tests {
     }
 
     #[test]
+    fn custom_element_cloning_and_importing_upgrade_before_return() {
+        let mut page = RustExecutableDocument::load(r#"<script>
+            globalThis.events=[];
+            class Copy extends HTMLElement {
+                static observedAttributes=['title'];
+                attributeChangedCallback(name,oldValue,newValue){events.push([name,oldValue,newValue])}
+            }
+            customElements.define('copy-element',Copy);
+            const original=document.createElement('copy-element');original.title='copied';events=[];
+            const clone=original.cloneNode(false);
+            events.push(clone instanceof Copy);
+            const imported=document.importNode(original,true);
+            events.push(imported instanceof Copy);
+        </script>"#).unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(events)").unwrap(),
+            r#"[["title",null,"copied"],true,["title",null,"copied"],true]"#
+        );
+    }
+
+    #[test]
+    fn custom_element_explicit_upgrade_uses_registry_for_inert_document() {
+        let mut page = RustExecutableDocument::load(
+            r#"<script>
+            globalThis.events=[];
+            class Explicit extends HTMLElement { constructor(){super();events.push('constructed')} }
+            customElements.define('explicit-element',Explicit);
+            const other=document.implementation.createHTMLDocument('inert');
+            other.body.innerHTML='<explicit-element></explicit-element>';
+            events.push(other.body.firstChild instanceof Explicit);
+            customElements.upgrade(other.body);
+            events.push(other.body.firstChild instanceof Explicit);
+            events.push(other.body.firstChild.ownerDocument===other);
+        </script>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate("JSON.stringify(events)").unwrap(),
+            r#"[false,"constructed",true,true]"#
+        );
+    }
+
+    #[test]
+    fn custom_element_foreign_constructor_keeps_native_document_and_reactions() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<body><iframe id=frame srcdoc='<body></body>'></iframe>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const w=document.getElementById('frame').contentWindow;
+            const events=[];
+            class Foreign extends w.HTMLElement {
+                connectedCallback(){events.push('connected')}
+                disconnectedCallback(){events.push('disconnected')}
+            }
+            w.customElements.define('foreign-element',Foreign);
+            const node=new Foreign();
+            events.push(node.ownerDocument===w.document);
+            w.document.body.appendChild(node);
+            node.remove();
+            class Local extends HTMLElement {
+                adoptedCallback(){events.push('adopted')}
+                connectedCallback(){events.push('local-connected')}
+            }
+            customElements.define('local-element',Local);
+            w.customElements.define('local-element',class extends w.HTMLElement {
+                constructor(){super();events.push('foreign-definition')}
+            });
+            const local=new Local();
+            w.document.body.appendChild(local);
+            JSON.stringify(events)
+        "#
+            )
+            .unwrap(),
+            r#"[true,"connected","disconnected","adopted","local-connected"]"#
+        );
+    }
+
+    #[test]
+    fn initial_frame_loads_skip_parser_removed_siblings() {
+        let resources = BTreeMap::from([(
+            "https://frame.example.test/blank".into(),
+            "<body>child</body>".into(),
+        )]);
+        for (remove, expected) in [
+            ("second.remove()", r#"[["first"],true,1]"#),
+            ("first.remove();second.remove()", r#"[[],true,0]"#),
+            (
+                "first.addEventListener('load',()=>second.remove())",
+                r#"[["first"],true,1]"#,
+            ),
+        ] {
+            let source = r#"<iframe id=first src='https://frame.example.test/blank'></iframe><iframe id=second src='https://frame.example.test/blank'></iframe>
+            <script>
+            globalThis.loads=[];
+            first.addEventListener('load',()=>loads.push('first'));
+            second.addEventListener('load',()=>loads.push('second'));
+            globalThis.removedWindow=second.contentWindow;
+            REMOVAL;
+            </script>"#.replace("REMOVAL", remove);
+            let mut page = RustExecutableDocument::load_with_environment(
+                &source,
+                &resources,
+                None,
+                Some(Url::parse("https://frame.example.test/root").unwrap()),
+            )
+            .unwrap();
+            assert_eq!(page.evaluate("JSON.stringify([loads,removedWindow.closed,document.querySelectorAll('iframe').length])").unwrap(),
+            expected, "{remove}");
+        }
+    }
+
+    #[test]
+    fn same_origin_frame_eval_uses_child_realm() {
+        for source in [
+            "<iframe id=frame srcdoc='<p>child</p>'></iframe>",
+            "<iframe id=frame src='https://frame.example.test/child'></iframe><iframe id=removed src='https://frame.example.test/child'></iframe><script>removed.remove()</script>",
+        ] {
+            let resources = BTreeMap::from([(
+                "https://frame.example.test/child".into(),
+                "<p>child</p><script>window.onload=function(){}</script>".into(),
+            )]);
+            let mut page = RustExecutableDocument::load_with_environment(
+                source,
+                &resources,
+                None,
+                Some(Url::parse("https://frame.example.test/root").unwrap()),
+            )
+            .unwrap();
+            assert_eq!(
+                page.evaluate(
+                    r#"(()=>{
+            const child=document.getElementById('frame').contentWindow;
+            const evaluate=child.eval;
+            evaluate('globalThis.childRealmMarker=17');
+            return JSON.stringify([evaluate('document.querySelector("p").textContent'),
+                child.childRealmMarker,typeof globalThis.childRealmMarker,
+                evaluate('window===self && self===frames')]);
+        })()"#
+                )
+                .unwrap(),
+                r#"["child",17,"undefined",true]"#
+            );
+        }
+    }
+
+    #[test]
     fn same_origin_frame_adoption_preserves_cross_realm_identity_and_owner_document() {
         let mut page = RustExecutableDocument::load_with_environment(
             r#"<iframe id=frame srcdoc='<section id=source><span data-kept="yes">text</span></section>'></iframe>"#,
@@ -8543,6 +9612,374 @@ mod tests {
              copy.ownerDocument===document,imported.ownerDocument===document,
              frame.contentDocument===child,child.getElementById('inside').textContent==='live-only'].every(Boolean)
         "#).unwrap(), "true");
+    }
+
+    #[test]
+    fn native_frame_discard_covers_dom_removal_paths_and_retires_timers() {
+        for removal in [
+            "frame.remove()",
+            "frame.parentNode.removeChild(frame)",
+            "document.getElementById('container').remove()",
+            "document.getElementById('container').innerHTML=''",
+            "document.getElementById('container').replaceChildren()",
+        ] {
+            let mut page = RustExecutableDocument::load_with_environment(
+                "<div id=container><iframe id=frame srcdoc='<p>kept</p>'></iframe></div><iframe id=sibling srcdoc='<p>live</p>'></iframe>",
+                &BTreeMap::new(), None,
+                Some(Url::parse("https://frame.example.test/root").unwrap()),
+            ).unwrap();
+            let source = format!(
+                r#"
+                const frame=document.getElementById('frame'), old=frame.contentWindow;
+                const saved=frame.contentDocument;
+                globalThis.fired=0;
+                old.setTimeout(()=>fired++,0);
+                {removal};
+                const retired=old.setTimeout(()=>fired++,0)===0;
+                [old.closed,frame.contentWindow===null,frame.contentDocument===null,
+                 saved.body.textContent==='kept',retired,
+                 document.getElementById('sibling').contentWindow.closed===false].join('|')
+            "#
+            );
+            assert_eq!(
+                page.evaluate(&source).unwrap(),
+                "true|true|true|true|true|true",
+                "{removal}"
+            );
+            assert_eq!(page.evaluate("String(fired)").unwrap(), "0", "{removal}");
+            assert_eq!(
+                page.frame_realms.len(),
+                1,
+                "discarded realm must be released"
+            );
+        }
+    }
+
+    #[test]
+    fn borrowed_meta_setter_updates_only_owner_document_policy() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<meta name=referrer content=no-referrer><iframe id=frame srcdoc='<meta name=referrer content=same-origin><p>child</p>'></iframe>",
+            &BTreeMap::new(), None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        ).unwrap();
+        assert_eq!(page.evaluate(r#"
+            document.querySelector('meta').content='no-referrer';
+            const child=document.getElementById('frame').contentWindow;
+            const meta=child.document.querySelector('meta');
+            Object.getOwnPropertyDescriptor(HTMLMetaElement.prototype,'content').set.call(meta,'unsafe-url');
+            JSON.stringify([__oryn_referrer_policy,child.__oryn_referrer_policy])
+        "#).unwrap(), r#"["no-referrer","unsafe-url"]"#);
+    }
+
+    #[test]
+    fn borrowed_meta_refresh_schedules_owner_document_navigation() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<iframe id=frame src='https://frame.example.test/child/page'></iframe>",
+            &BTreeMap::from([(
+                "https://frame.example.test/child/page".into(),
+                "<meta http-equiv=refresh><p>child</p>".into(),
+            )]),
+            None,
+            Some(Url::parse("https://frame.example.test/parent/page").unwrap()),
+        )
+        .unwrap();
+        let child = *page.frame_realms.keys().next().unwrap();
+        page.agent
+            .host
+            .execute(
+                r#"
+            const child=document.getElementById('frame').contentWindow;
+            Object.getOwnPropertyDescriptor(HTMLMetaElement.prototype,'content').set.call(
+                child.document.querySelector('meta'),'0; url=next');
+        "#,
+            )
+            .unwrap();
+        page.agent.host.drain_scheduled_timers(false).unwrap();
+        assert!(page.agent.host.take_location_navigation().is_none());
+        page.agent.host.activate_realm(child).unwrap();
+        let navigation = page.agent.host.take_location_navigation().unwrap();
+        assert_eq!(navigation.url, "https://frame.example.test/child/next");
+    }
+
+    #[test]
+    fn inserted_scripts_execute_in_native_owner_document_realm() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<iframe id=frame srcdoc='<p>child</p>'></iframe>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const child=document.getElementById('frame').contentWindow;
+            const foreign=document.createElement('script');
+            foreign.textContent='globalThis.childScriptRan=true';
+            Node.prototype.appendChild.call(child.document.body,foreign);
+            const local=child.document.createElement('script');
+            local.textContent='globalThis.parentScriptRan=true';
+            child.Node.prototype.appendChild.call(document.body,local);
+            child.childScriptRan===true && globalThis.childScriptRan===undefined &&
+            globalThis.parentScriptRan===true && child.parentScriptRan===undefined
+        "#
+            )
+            .unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn inserted_scripts_do_not_execute_in_inert_or_retired_documents() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<iframe id=frame srcdoc='<p>child</p>'></iframe>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const frame=document.getElementById('frame');
+            const retired=frame.contentDocument;
+            const old=frame.contentWindow;
+            frame.remove();
+            const inert=document.implementation.createHTMLDocument('inert');
+            globalThis.executed=0;
+            for (const doc of [retired,inert]) {
+                const script=document.createElement('script');
+                script.textContent='globalThis.executed=99';
+                Node.prototype.appendChild.call(doc.body,script);
+            }
+            executed===0 && old.executed===undefined
+        "#
+            )
+            .unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn native_frame_discard_precedes_post_connection_script_execution() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<div id=slot><iframe id=frame srcdoc='<p>old</p>'></iframe></div>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(page.evaluate(r#"
+            globalThis.old=document.getElementById('frame').contentWindow;
+            globalThis.closedDuringScript=false;
+            globalThis.timerDuringScript=-1;
+            const script=document.createElement('script');
+            script.textContent='closedDuringScript=old.closed;timerDuringScript=old.setTimeout(()=>{},0)';
+            document.getElementById('slot').replaceChildren(script);
+            closedDuringScript && timerDuringScript===0
+        "#).unwrap(), "true");
+        assert!(page.frame_realms.is_empty());
+    }
+
+    #[test]
+    fn native_frame_discard_distinguishes_reparenting_from_state_preserving_moves() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<div id=one><iframe id=frame srcdoc='<p>kept</p>'></iframe></div><div id=two></div>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            globalThis.frame=document.getElementById('frame');globalThis.old=frame.contentWindow;
+            old.close();
+            document.getElementById('two').moveBefore(frame,null);
+            [old.closed===false,frame.contentWindow===old].every(Boolean)
+        "#
+            )
+            .unwrap(),
+            "true"
+        );
+        assert_eq!(
+            page.evaluate(
+                r#"
+            document.getElementById('one').appendChild(frame);
+            String(old.closed)
+        "#
+            )
+            .unwrap(),
+            "true"
+        );
+        assert_eq!(page.evaluate("[frame.contentWindow!==old,frame.contentWindow.closed===false,old.closed].every(Boolean)").unwrap(), "true");
+        assert_eq!(page.frame_realms.len(), 1);
+    }
+
+    #[test]
+    fn native_frame_discard_marks_retained_cross_origin_window_closed() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<div id=container><iframe id=frame src='https://foreign.example.test/child'></iframe></div>",
+            &BTreeMap::from([("https://foreign.example.test/child".into(), "<p>foreign</p>".into())]),
+            None, Some(Url::parse("https://frame.example.test/root").unwrap()),
+        ).unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const frame=document.getElementById('frame'), old=frame.contentWindow;
+            const before=old.closed===false;
+            document.getElementById('container').remove();
+            [before,old.closed,frame.contentWindow===null].every(Boolean)
+        "#
+            )
+            .unwrap(),
+            "true"
+        );
+        assert!(page.frame_realms.is_empty());
+    }
+
+    #[test]
+    fn native_frame_discard_inherits_nested_srcdoc_origin_but_respects_sandbox() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<iframe id=outer srcdoc='<div id=slot></div>'></iframe>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        page.execute(
+            r#"
+            globalThis.outer=document.getElementById('outer');
+            outer.contentDocument.getElementById('slot').innerHTML=
+                '<iframe id=nested srcdoc="<p>inherited</p>"></iframe>'+
+                '<iframe id=opaque sandbox="allow-scripts" srcdoc="<p>opaque</p>"></iframe>';
+        "#,
+        )
+        .unwrap();
+        assert_eq!(page.frame_realms.len(), 3, "{:?}", page.diagnostics);
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const doc=outer.contentDocument;
+            const nested=doc.getElementById('nested');
+            const opaque=doc.getElementById('opaque');
+            const retained=nested.contentWindow;
+            const foreign=opaque.contentWindow;
+            const accessible=nested.contentDocument.body.textContent==='inherited';
+            const isolated=opaque.contentDocument===null;
+            outer.remove();
+            [accessible,isolated,retained.closed,foreign.closed].every(Boolean)
+        "#
+            )
+            .unwrap(),
+            "true"
+        );
+        assert!(page.frame_realms.is_empty());
+    }
+
+    #[test]
+    fn native_frame_element_identity_is_readonly_and_cleared_on_discard() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<iframe id=frame srcdoc='<p>child</p>'></iframe>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            page.evaluate(
+                r#"
+            globalThis.frame=document.getElementById('frame');
+            globalThis.child=frame.contentWindow.window;
+            globalThis.descriptor=Object.getOwnPropertyDescriptor(child,'frameElement');
+            [frameElement===null, child.frameElement===frame,
+             descriptor.enumerable, descriptor.configurable,
+             descriptor.set===undefined, typeof descriptor.get,
+             Reflect.set(child,'frameElement',null), child.frameElement===frame].join('|')
+        "#
+            )
+            .unwrap(),
+            "true|true|true|true|true|function|false|true"
+        );
+        page.execute("frame.remove()").unwrap();
+        assert_eq!(
+            page.evaluate("String(descriptor.get.call(child)===null)")
+                .unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn native_frame_link_uses_native_ancestry_without_author_top_getters() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<iframe id=outer srcdoc='<div id=slot></div>'></iframe>",
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        page.execute(r#"
+            globalThis.outer=document.getElementById('outer');
+            globalThis.topReads=0;
+            const replaced = Reflect.defineProperty(outer.contentWindow.window,'top',{
+                configurable:true,get(){topReads++;throw Error('author top getter');}
+            });
+            if (replaced) throw Error('top must be unforgeable');
+            const descriptor = Object.getOwnPropertyDescriptor(outer.contentWindow.window, 'top');
+            if (descriptor.configurable || descriptor.set !== undefined || typeof descriptor.get !== 'function') throw Error('invalid top descriptor');
+            outer.contentDocument.getElementById('slot').innerHTML='<iframe id=nested srcdoc="<p>nested</p>"></iframe>';
+        "#).unwrap();
+        assert_eq!(page.frame_realms.len(), 2, "{:?}", page.diagnostics);
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const nested=outer.contentDocument.getElementById('nested').contentWindow;
+            topReads===0 && nested.top===globalThis
+        "#
+            )
+            .unwrap(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn native_frame_discard_retires_nested_foreign_contexts() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            "<iframe id=outer srcdoc='<div id=slot></div>'></iframe>",
+            &BTreeMap::from([(
+                "https://foreign.example.test/child".into(),
+                "<p>foreign</p>".into(),
+            )]),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        page.execute(r#"
+            globalThis.outer=document.getElementById('outer');
+            outer.contentDocument.getElementById('slot').innerHTML='<iframe id=nested src="https://foreign.example.test/child"></iframe>';
+        "#).unwrap();
+        assert_eq!(
+            page.frame_realms.len(),
+            2,
+            "frames={:?}; diagnostics={:?}; state={:?}",
+            page.frame_realms,
+            page.diagnostics,
+            page.agent.host.realm_ids()
+        );
+        assert_eq!(
+            page.evaluate(
+                r#"
+            const old=outer.contentWindow;
+            const nested=outer.contentDocument.getElementById('nested').contentWindow;
+            const before=!old.closed&&!nested.closed;
+            outer.remove();
+            [before,old.closed,nested.closed].every(Boolean)
+        "#
+            )
+            .unwrap(),
+            "true"
+        );
+        assert!(page.frame_realms.is_empty());
     }
 
     #[test]
@@ -8721,6 +10158,30 @@ mod tests {
             .unwrap(),
             "0|bcde"
         );
+    }
+
+    #[test]
+    fn frame_content_document_uses_native_committed_window() {
+        let mut page = RustExecutableDocument::load_with_environment(
+            r#"<script>
+              globalThis.documentProxyReads = 0;
+              const factory = globalThis.__oryn_make_window_proxy;
+              globalThis.__oryn_make_window_proxy = (...args) => new Proxy(factory(...args), {
+                get(target, key, receiver) {
+                  if (key === 'document') {
+                    documentProxyReads++;
+                    return {body: {textContent: 'forged'}};
+                  }
+                  return Reflect.get(target, key, receiver);
+                }
+              });
+            </script><iframe id=frame srcdoc='<p>native child</p>'></iframe>"#,
+            &BTreeMap::new(),
+            None,
+            Some(Url::parse("https://frame.example.test/root").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(page.evaluate("document.getElementById('frame').contentDocument.body.textContent + '|' + documentProxyReads").unwrap(), "native child|0");
     }
 
     #[test]

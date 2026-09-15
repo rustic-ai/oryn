@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/browsers/the-window-object/Window-document.html",
+      "root": "html",
+      "sha256": "a7902a80dd50287fbac5be51b067361f4b5a649b4271d9c52bb32d36242dfc21",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "script",
+      "path": "html/browsers/the-window-object/document-attribute.window.js",
+      "root": "html",
+      "sha256": "0acd75c7ebc31de177d379abff4806edbc57896c8d6f438fd4b4e73bc79d8e8d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/browsers/the-window-object/window-properties.https.html",
+      "root": "html",
+      "sha256": "41c73c51c23079906147ac6b5ac68d6e70b3471c6d98d7d367f5b3c20a36d0cb",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/document-metadata/the-base-element/base_about_blank.html",
+      "root": "html",
+      "sha256": "4399a3ff65f010d6e81ff6d4f94157109cde9bf6845e750365535cce542465cf",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ]
+}

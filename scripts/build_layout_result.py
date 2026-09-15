@@ -71,7 +71,7 @@ def main() -> int:
         raise ValueError("layout production gate did not pass")
     if (
         runtime.get("contract_version") != 4
-        or runtime.get("worker_protocol_version") != 9
+        or runtime.get("worker_protocol_version") != 10
     ):
         raise ValueError("production runtime is not contract v4 / worker protocol v9")
     if miniwob.get("native") != {"completed": 24, "passed": 24}:

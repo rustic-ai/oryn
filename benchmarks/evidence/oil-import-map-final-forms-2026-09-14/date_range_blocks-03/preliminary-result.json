@@ -1,0 +1,11 @@
+{
+  "case": "date_range_blocks",
+  "sample": 3,
+  "case_id": "8e320b951bf2508a945f67dceb09e322",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "1c9cb8ba97727211f0fd5bda689b48d16a3f76d5a1a4682bb8d6c6f869cb1959",
+  "elapsed_seconds": 0.275
+}

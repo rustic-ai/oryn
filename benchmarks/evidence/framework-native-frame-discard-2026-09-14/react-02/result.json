@@ -1,0 +1,10 @@
+{
+  "framework": "react",
+  "sample": 2,
+  "errors": [],
+  "timed_out": false,
+  "task_sha256": "9b0b9f81da081864b221bb9f40166484eb834f97cec1a399a7dab1e6f28ba743",
+  "returncode": 0,
+  "elapsed_seconds": 0.343,
+  "passed": true
+}

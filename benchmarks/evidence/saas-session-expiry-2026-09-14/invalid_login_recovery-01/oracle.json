@@ -1,0 +1,91 @@
+{
+  "cases": [
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "authenticated": 0,
+      "logins": 1
+    }
+  ],
+  "records": [
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "title": "Approved",
+      "version": 2
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "action": "login",
+      "outcome": 401,
+      "authorized": 0,
+      "body_sha256": "86c4b85bbe5fd5043d1a6cae728455b224cd8cc44d003dfba2f8dba742c4a503"
+    },
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "action": "login",
+      "outcome": 303,
+      "authorized": 0,
+      "body_sha256": "131c955ca748255236d58cab0b91a2bc5f3fc261774179ffd9800431f04d9aa2"
+    },
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "action": "create",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "5ffa39affa902e416eb55ca36b2172dda17b9eab9b6b5457e67a0c1fc23aff7a"
+    },
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "action": "update",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "a6f040e26b7e61573df5c6a9a1b285285c8417a06723e9b505753adf94e6d68c"
+    },
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "action": "logout",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "02d8b7b3e9568544812137a88b299778f232d39a26792eb5b004cfdf11cde6ff"
+    }
+  ],
+  "views": [
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "b22389fbf7c137053f1d92a3cfebd79c",
+      "page": "login",
+      "authorized": 0
+    }
+  ],
+  "expirations": []
+}

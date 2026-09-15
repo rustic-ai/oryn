@@ -1,0 +1,2795 @@
+{
+  "assertions": [
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/clearinterval-from-callback.any.js|window|:bfe4117de11d463283bee19b0fde4865",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 1349,
+        "teardown_ms": 17,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "07d95fd20ade41f8ac498213259f2e38"
+          }
+        ],
+        "id": "35355f0948e9448c88a925ea65a07e7f",
+        "ports": [
+          61300,
+          61301,
+          61302,
+          61303,
+          61304,
+          61305,
+          61306
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 238,
+          "teardown_ms": 190
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/clearinterval-from-callback.any.js|window|",
+      "path": "html/webappapis/timers/clearinterval-from-callback.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61300/html/webappapis/timers/clearinterval-from-callback.any.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 415,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61300/html/webappapis/timers/clearinterval-from-callback.any.html"
+          },
+          "page_id": "1",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 415,
+          "response_sha256": "d4a6a32dbd3ad1fbc1706f461937243fcc3f265e4b7beb00f653f2c05e9d42c6",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61300/html/webappapis/timers/clearinterval-from-callback.any.html",
+          "worker_pid": 30690
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61300/html/webappapis/timers/clearinterval-from-callback.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61300/resources/testharness.js",
+          "worker_pid": 30690
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61300/html/webappapis/timers/clearinterval-from-callback.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61300/resources/testharnessreport.js",
+          "worker_pid": 30690
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61300/html/webappapis/timers/clearinterval-from-callback.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 471,
+          "response_sha256": "c48db2297ad8796a98f4c0d12e0d4bf466ff599cbbb982065dcbd740490fb574",
+          "sequence": 3,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61300/html/webappapis/timers/clearinterval-from-callback.any.js",
+          "worker_pid": 30690
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Clearing an interval from the callback should still clear it.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30690,
+          "rss_bytes": 39895040
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/cleartimeout-clearinterval.any.js|window|:a177e18c1a8641b0a85601bef4b1c547",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 192,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "67a939549959469dbaa2e322d68b82c9"
+          }
+        ],
+        "id": "e6a196c0d9f04954ab46dc124f8ca1b4",
+        "ports": [
+          61309,
+          61310,
+          61311,
+          61312,
+          61313,
+          61314,
+          61315
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 238,
+          "teardown_ms": 820
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/cleartimeout-clearinterval.any.js|window|",
+      "path": "html/webappapis/timers/cleartimeout-clearinterval.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61309/html/webappapis/timers/cleartimeout-clearinterval.any.html"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 414,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61309/html/webappapis/timers/cleartimeout-clearinterval.any.html"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 11,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 414,
+          "response_sha256": "5f2fd53d52c0a1c2052fe8a8d93a483de8014ace1c9f36b57d699f9dc9fcc68c",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61309/html/webappapis/timers/cleartimeout-clearinterval.any.html",
+          "worker_pid": 30694
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61309/html/webappapis/timers/cleartimeout-clearinterval.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61309/resources/testharness.js",
+          "worker_pid": 30694
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61309/html/webappapis/timers/cleartimeout-clearinterval.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61309/resources/testharnessreport.js",
+          "worker_pid": 30694
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61309/html/webappapis/timers/cleartimeout-clearinterval.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 516,
+          "response_sha256": "88249c3de681efa1db0c3a6ca39cdc74b657b052eeb96ca7d43b2971d5327985",
+          "sequence": 3,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61309/html/webappapis/timers/cleartimeout-clearinterval.any.js",
+          "worker_pid": 30694
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Clear timeout with clearInterval",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Clear interval with clearTimeout",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30694,
+          "rss_bytes": 33980416
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/evil-spec-example.any.js|window|:071d241e52b04c6faa7540f5361ad949",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 207,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "e8b4328fbe9a442191ffe993d6e2470f"
+          }
+        ],
+        "id": "e671cfe6a9cb4f26930869297182899d",
+        "ports": [
+          61318,
+          61319,
+          61320,
+          61321,
+          61322,
+          61323,
+          61324
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 238,
+          "teardown_ms": 829
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/evil-spec-example.any.js|window|",
+      "path": "html/webappapis/timers/evil-spec-example.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61318/html/webappapis/timers/evil-spec-example.any.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 405,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61318/html/webappapis/timers/evil-spec-example.any.html"
+          },
+          "page_id": "3",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 13,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 405,
+          "response_sha256": "f5f75ba29d44a4369e4d120ab7e7e9d65535b9212be5311140ae0d80224c9177",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61318/html/webappapis/timers/evil-spec-example.any.html",
+          "worker_pid": 30698
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:61318/html/webappapis/timers/evil-spec-example.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61318/resources/testharness.js",
+          "worker_pid": 30698
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:61318/html/webappapis/timers/evil-spec-example.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61318/resources/testharnessreport.js",
+          "worker_pid": 30698
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61318/html/webappapis/timers/evil-spec-example.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 313,
+          "response_sha256": "5c062ad8966ff14146f4437aa44b3a038d47c5ce44baaa8f142d60479539867e",
+          "sequence": 3,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61318/html/webappapis/timers/evil-spec-example.any.js",
+          "worker_pid": 30698
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Interaction of setTimeout and WebIDL",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30698,
+          "rss_bytes": 34062336
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/missing-timeout-setinterval.any.js|window|:99aebdfbaa894725a260a03ebe459b97",
+        "page_id": 4,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 109,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "93dd024438514b6584922bc51de796e9"
+          }
+        ],
+        "id": "5d7f85b9409d4c2ea5de609a39046f75",
+        "ports": [
+          61327,
+          61328,
+          61329,
+          61330,
+          61331,
+          61332,
+          61333
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 241,
+          "teardown_ms": 900
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/missing-timeout-setinterval.any.js|window|",
+      "path": "html/webappapis/timers/missing-timeout-setinterval.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61327/html/webappapis/timers/missing-timeout-setinterval.any.html"
+          },
+          "page_id": "4",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 415,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61327/html/webappapis/timers/missing-timeout-setinterval.any.html"
+          },
+          "page_id": "4",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 15,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 415,
+          "response_sha256": "82cf4c2fe7119769ef72b835b9b2f12f43e26b0a14b142df536c0d6c3baff74c",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61327/html/webappapis/timers/missing-timeout-setinterval.any.html",
+          "worker_pid": 30702
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61327/html/webappapis/timers/missing-timeout-setinterval.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61327/resources/testharness.js",
+          "worker_pid": 30702
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61327/html/webappapis/timers/missing-timeout-setinterval.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61327/resources/testharnessreport.js",
+          "worker_pid": 30702
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61327/html/webappapis/timers/missing-timeout-setinterval.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 1011,
+          "response_sha256": "5edf0f09d55cacd4ffa6e62696d3614d7fcd099627a56b4a9d00449633395da5",
+          "sequence": 3,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61327/html/webappapis/timers/missing-timeout-setinterval.any.js",
+          "worker_pid": 30702
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Calling setInterval with no interval should be the same as if called with 0 interval",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Calling setInterval with undefined interval should be the same as if called with 0 interval",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30702,
+          "rss_bytes": 34832384
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/negative-setinterval.any.js|window|:20534e96edf04c44aa990672bb418837",
+        "page_id": 5,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 175,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "57a025ae18194aebabe1865cb1d8c11a"
+          }
+        ],
+        "id": "1c91d53b6ab94cf08d68a6dc24d75e36",
+        "ports": [
+          61336,
+          61337,
+          61338,
+          61339,
+          61340,
+          61341,
+          61342
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 236,
+          "teardown_ms": 885
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/negative-setinterval.any.js|window|",
+      "path": "html/webappapis/timers/negative-setinterval.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61336/html/webappapis/timers/negative-setinterval.any.html"
+          },
+          "page_id": "5",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 408,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61336/html/webappapis/timers/negative-setinterval.any.html"
+          },
+          "page_id": "5",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 17,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 408,
+          "response_sha256": "238a0e580f1b543122b30646cf96cc4c3c17b78881885591957041957ccb2fc1",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61336/html/webappapis/timers/negative-setinterval.any.html",
+          "worker_pid": 30708
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61336/html/webappapis/timers/negative-setinterval.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61336/resources/testharness.js",
+          "worker_pid": 30708
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61336/html/webappapis/timers/negative-setinterval.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61336/resources/testharnessreport.js",
+          "worker_pid": 30708
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61336/html/webappapis/timers/negative-setinterval.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 217,
+          "response_sha256": "cc6bba6aa3bffc42321a44380937b4b7fb97ad494dd3a6db919122372ddf1400",
+          "sequence": 3,
+          "started_ms": 73,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61336/html/webappapis/timers/negative-setinterval.any.js",
+          "worker_pid": 30708
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "negative-setinterval",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30708,
+          "rss_bytes": 34570240
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/negative-settimeout.any.js|window|:919192d3ce5e44aeb609e96475f1458f",
+        "page_id": 6,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 106,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "cabb770cde57416d9e937948ea725964"
+          }
+        ],
+        "id": "c300c2f132784dda8829cec32ccd17eb",
+        "ports": [
+          61345,
+          61346,
+          61347,
+          61348,
+          61349,
+          61350,
+          61351
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 239,
+          "teardown_ms": 944
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/negative-settimeout.any.js|window|",
+      "path": "html/webappapis/timers/negative-settimeout.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61345/html/webappapis/timers/negative-settimeout.any.html"
+          },
+          "page_id": "6",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 407,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61345/html/webappapis/timers/negative-settimeout.any.html"
+          },
+          "page_id": "6",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 19,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 407,
+          "response_sha256": "6974868c03b39f8cd4ce80bcf5af7563bfd6fc609f2503da9764cd92e7aed4cd",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61345/html/webappapis/timers/negative-settimeout.any.html",
+          "worker_pid": 30712
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61345/html/webappapis/timers/negative-settimeout.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61345/resources/testharness.js",
+          "worker_pid": 30712
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61345/html/webappapis/timers/negative-settimeout.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61345/resources/testharnessreport.js",
+          "worker_pid": 30712
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:61345/html/webappapis/timers/negative-settimeout.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 88,
+          "response_sha256": "8f8adbe6e0c94b801dd36ba9c8a484bdb7a3f2a1813aa5b19024d3fb04660e94",
+          "sequence": 3,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61345/html/webappapis/timers/negative-settimeout.any.js",
+          "worker_pid": 30712
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "negative-settimeout",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30712,
+          "rss_bytes": 34193408
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [
+        "harness_timeout"
+      ],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html|window|:031c083bfb2740e38277bcc94fb3f42c",
+        "page_id": 7,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 10132,
+        "teardown_ms": 20,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "harness",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "43f6c93ea9f149e0bc025b56d9671b17"
+          }
+        ],
+        "id": "45c812f416674f759088794364c8c847",
+        "ports": [
+          61354,
+          61355,
+          61356,
+          61357,
+          61358,
+          61359,
+          61360
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 239,
+          "teardown_ms": 1075
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html|window|",
+      "path": "html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61354/html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html"
+          },
+          "page_id": "7",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1102,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61354/html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html"
+          },
+          "page_id": "7",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 21,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1102,
+          "response_sha256": "359c1d4eb6074567a292647fe70ccc51f7fac796f494ac89c7f75963e808b878",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61354/html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html",
+          "worker_pid": 30716
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61354/html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61354/resources/testharness.js",
+          "worker_pid": 30716
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61354/html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61354/resources/testharnessreport.js",
+          "worker_pid": 30716
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 2,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": []
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30716,
+          "rss_bytes": 53084160
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/setinterval-settimeout-clamping.any.js|window|:9b75d5142b1340c7907a90ad62848e38",
+        "page_id": 8,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 106,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "96790b84de7f425b9f08906d4944018e"
+          }
+        ],
+        "id": "e9eb499e557f40fc890df7d4c83d383b",
+        "ports": [
+          61371,
+          61372,
+          61373,
+          61374,
+          61375,
+          61376,
+          61377
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 262,
+          "teardown_ms": 945
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/setinterval-settimeout-clamping.any.js|window|",
+      "path": "html/webappapis/timers/setinterval-settimeout-clamping.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61371/html/webappapis/timers/setinterval-settimeout-clamping.any.html"
+          },
+          "page_id": "8",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 502,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61371/html/webappapis/timers/setinterval-settimeout-clamping.any.html"
+          },
+          "page_id": "8",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 23,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 502,
+          "response_sha256": "9db39893d52f717cec34c5bdd781b9c121e36aeeacef7769245817b40bed75a2",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61371/html/webappapis/timers/setinterval-settimeout-clamping.any.html",
+          "worker_pid": 30736
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61371/html/webappapis/timers/setinterval-settimeout-clamping.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61371/resources/testharness.js",
+          "worker_pid": 30736
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61371/html/webappapis/timers/setinterval-settimeout-clamping.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61371/resources/testharnessreport.js",
+          "worker_pid": 30736
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61371/html/webappapis/timers/setinterval-settimeout-clamping.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 681,
+          "response_sha256": "4b94600ee145a44c85b4b8c41bfd4f6b409638e43ef7d191d0869aa18b6f0f71",
+          "sequence": 3,
+          "started_ms": 68,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61371/html/webappapis/timers/setinterval-settimeout-clamping.any.js",
+          "worker_pid": 30736
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "setInterval(0) before setTimeout(0)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "setTimeout(0) before setInterval(0)",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30736,
+          "rss_bytes": 33947648
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [
+        "harness_timeout"
+      ],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html|window|:468c6e6bd62041f48df4ccbd25e91a73",
+        "page_id": 9,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 10132,
+        "teardown_ms": 18,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "harness",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "83517a7315b342758b9debfce8491264"
+          }
+        ],
+        "id": "ccbf5c7ff0824a3499c1196b12cd2f62",
+        "ports": [
+          61380,
+          61381,
+          61382,
+          61383,
+          61384,
+          61385,
+          61386
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 236,
+          "teardown_ms": 1042
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html|window|",
+      "path": "html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61380/html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html"
+          },
+          "page_id": "9",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 932,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61380/html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html"
+          },
+          "page_id": "9",
+          "sequence": 8
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 25,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 932,
+          "response_sha256": "1170cf9ee2fa9f6786e2b9df1bca624dd71b4174b8b27cc6276de55290445c53",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61380/html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html",
+          "worker_pid": 30746
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:61380/html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61380/resources/testharness.js",
+          "worker_pid": 30746
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61380/html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 9,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 63,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61380/resources/testharnessreport.js",
+          "worker_pid": 30746
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 2,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": []
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30746,
+          "rss_bytes": 52396032
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/settimeout-detached-iframe.html|window|:979dbdce7b464ebe996bc762952a0030",
+        "page_id": 10,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 160,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "e8c72c4147354974b96e21502f26c3bf"
+          }
+        ],
+        "id": "8db852379d3e4051bdb192a48cb4c587",
+        "ports": [
+          61395,
+          61396,
+          61397,
+          61398,
+          61399,
+          61400,
+          61401
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 239,
+          "teardown_ms": 882
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/settimeout-detached-iframe.html|window|",
+      "path": "html/webappapis/timers/settimeout-detached-iframe.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61395/html/webappapis/timers/settimeout-detached-iframe.html"
+          },
+          "page_id": "10",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1338,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61395/html/webappapis/timers/settimeout-detached-iframe.html"
+          },
+          "page_id": "10",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 27,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1338,
+          "response_sha256": "7e82617d6fd0d6a62b7cfb03d8a8b1bd47db71db181b14eea6fb569d3f221a53",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61395/html/webappapis/timers/settimeout-detached-iframe.html",
+          "worker_pid": 30774
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61395/html/webappapis/timers/settimeout-detached-iframe.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61395/resources/testharness.js",
+          "worker_pid": 30774
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61395/html/webappapis/timers/settimeout-detached-iframe.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 10,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61395/resources/testharnessreport.js",
+          "worker_pid": 30774
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot read properties of null (reading 'setTimeout')",
+            "name": "setTimeout() on a detached iframe's window does not throw and its callback never runs",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30774,
+          "rss_bytes": 38699008
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html|window|:d0305c5c8763400b818d6baba69351cf",
+        "page_id": 11,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 255,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "c944cdebcbfc404b8a9433a27196ab85"
+          }
+        ],
+        "id": "1248a10901b14e7491470a9dc34a46de",
+        "ports": [
+          61405,
+          61406,
+          61407,
+          61408,
+          61409,
+          61410,
+          61411
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 239,
+          "teardown_ms": 759
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html|window|",
+      "path": "html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61405/html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html"
+          },
+          "page_id": "11",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1597,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61405/html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html"
+          },
+          "page_id": "11",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 29,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1597,
+          "response_sha256": "32c9514cdbf76af2f3666943f3710da9cb9177f78a48d44486138ce507d02771",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61405/html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html",
+          "worker_pid": 30780
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61405/html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61405/resources/testharness.js",
+          "worker_pid": 30780
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61405/html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 11,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61405/resources/testharnessreport.js",
+          "worker_pid": 30780
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Test requires performance.now() to measure approximate timing of callbacks.",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Test that a timer scheduled during a microtask checkpoint does not inherit the timer nesting level of the task that just ran.",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30780,
+          "rss_bytes": 34242560
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/type-long-setinterval.any.js|window|:d8f14ee32f254a0c86d1b6e06cfa48f2",
+        "page_id": 12,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 107,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "77b81cece6d145619dfa3446417a7054"
+          }
+        ],
+        "id": "d61a2d59d50a40979076c8975355e50e",
+        "ports": [
+          61415,
+          61416,
+          61417,
+          61418,
+          61419,
+          61420,
+          61421
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 239,
+          "teardown_ms": 933
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/type-long-setinterval.any.js|window|",
+      "path": "html/webappapis/timers/type-long-setinterval.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61415/html/webappapis/timers/type-long-setinterval.any.html"
+          },
+          "page_id": "12",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 409,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61415/html/webappapis/timers/type-long-setinterval.any.html"
+          },
+          "page_id": "12",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 31,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 409,
+          "response_sha256": "b562694902e34f529cdc299b4938400b1d95116c869fc19b79611dbc0ebfb248",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61415/html/webappapis/timers/type-long-setinterval.any.html",
+          "worker_pid": 30784
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61415/html/webappapis/timers/type-long-setinterval.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61415/resources/testharness.js",
+          "worker_pid": 30784
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61415/html/webappapis/timers/type-long-setinterval.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 66,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61415/resources/testharnessreport.js",
+          "worker_pid": 30784
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61415/html/webappapis/timers/type-long-setinterval.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 12,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 183,
+          "response_sha256": "e8b26e677d157340785e1275c012be94311944118a70b43318e995c48a07f4c9",
+          "sequence": 3,
+          "started_ms": 71,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61415/html/webappapis/timers/type-long-setinterval.any.js",
+          "worker_pid": 30784
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "type-long-setinterval",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30784,
+          "rss_bytes": 33947648
+        }
+      ]
+    },
+    {
+      "classification": "streaming-html",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/webappapis/timers/type-long-settimeout.any.js|window|:8820366b85ea44b2906b433ad59b5d96",
+        "page_id": 13,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 106,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "fd60fca861c84e4db31e4e0171c9456c"
+          }
+        ],
+        "id": "72caa8cd949d4ba7a99012d74f812997",
+        "ports": [
+          61424,
+          61425,
+          61426,
+          61427,
+          61428,
+          61429,
+          61430
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 237,
+          "teardown_ms": 946
+        },
+        "tls": {
+          "ca_sha256": "14d545c5e41ae6c8dd11985ceef488580212c1a28295b2df277b0e5896d66a63",
+          "certificate_sha256": "b7adc66d11c6cf2deed8c6e050342b4739b0fc7d631dc8c75cda95c257a63485"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/webappapis/timers/type-long-settimeout.any.js|window|",
+      "path": "html/webappapis/timers/type-long-settimeout.any.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61424/html/webappapis/timers/type-long-settimeout.any.html"
+          },
+          "page_id": "13",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 408,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61424/html/webappapis/timers/type-long-settimeout.any.html"
+          },
+          "page_id": "13",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 33,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 408,
+          "response_sha256": "310ebbc5dda80f0b6e9a716344b2836214f22a40a6f4b3c7bf725962db32a21c",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61424/html/webappapis/timers/type-long-settimeout.any.html",
+          "worker_pid": 30788
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61424/html/webappapis/timers/type-long-settimeout.any.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61424/resources/testharness.js",
+          "worker_pid": 30788
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61424/html/webappapis/timers/type-long-settimeout.any.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61424/resources/testharnessreport.js",
+          "worker_pid": 30788
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61424/html/webappapis/timers/type-long-settimeout.any.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 13,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 100,
+          "response_sha256": "32135939cf01765305e5dee33c5c3eef0783bacd41e7320080b1c763850e2e8e",
+          "sequence": 3,
+          "started_ms": 67,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61424/html/webappapis/timers/type-long-settimeout.any.js",
+          "worker_pid": 30788
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "type-long-settimeout",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 30788,
+          "rss_bytes": 33701888
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "f76e43a0106e1c6a285d701515a4b7a887fedad8b08298fe2a475d3976e90cf0",
+    "size_bytes": 7209216
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 40.262,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "33243c77134b0c5008b705c5b8688911812d49ffd3a667aadb7b28a6f6250b12",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "96605bfa5f5e461570310181f3ff5a995327bc98f9e8c512f6853ef56b48132a",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "8f270fb1cd574de8d9c102da1d4193e4f49fc5abd091eb70339e64c28b1b4cf6",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "1c4437f2d7f0d21266d7ab6ac76802ddaf5a1b58d61fefac2a1f54db44490898",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "c9f574dbbb08b19baa391b3d3d5640e7dffd94f35bd2a9fca0d3b44bc00c1a67",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "4c7f11049544d06adda2b156d04bd251a308d6981bc7258d3e706469adcffc54",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "f1cdce3cc7bb2b6942e3744c06972db3ed9cd6058d50dff8565e2e39da4987d4",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "496c589f1765b2a3c7df4751ef2335a2a6d400ad0a7e81884661107ac06f550a",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "33243c77134b0c5008b705c5b8688911812d49ffd3a667aadb7b28a6f6250b12",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "96605bfa5f5e461570310181f3ff5a995327bc98f9e8c512f6853ef56b48132a",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "8f270fb1cd574de8d9c102da1d4193e4f49fc5abd091eb70339e64c28b1b4cf6",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "1c4437f2d7f0d21266d7ab6ac76802ddaf5a1b58d61fefac2a1f54db44490898",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "c9f574dbbb08b19baa391b3d3d5640e7dffd94f35bd2a9fca0d3b44bc00c1a67",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "4c7f11049544d06adda2b156d04bd251a308d6981bc7258d3e706469adcffc54",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "f1cdce3cc7bb2b6942e3744c06972db3ed9cd6058d50dff8565e2e39da4987d4",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "496c589f1765b2a3c7df4751ef2335a2a6d400ad0a7e81884661107ac06f550a",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": null,
+  "jobs": 1,
+  "outcome": {
+    "attempted": 13,
+    "environment_blocked": 0,
+    "required_finished": 13,
+    "required_passed": 10,
+    "required_total": 13,
+    "status": "failed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "4662f5d7768b667d50d7f4f3333fc9ae05ca921898a923df1d5b38e8fedbf339",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "6fc2eed4c54dac13ab83ba8e8f49d7bcc7dc39e8c807a2f983cc10a65322d4ad",
+    "worker_binary_sha256": "b8470e36cb331cc1fbd83813722ceeddcd3eba826c7b937f6d9e68279b33986c",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "0f9e6906c7a1b935ac3331e5f5bd5fa074f56d16",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": "html/webappapis/timers/",
+    "global": null,
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 45,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "05b185f9b3d9f05c59c1c917830e0c95f54f488c1179001a3b6b32fbd4391c4c",
+    "untracked_file_count": 7,
+    "untracked_sha256": "6afd4db86d979b82fb85a4a597083b42abb41ecadf435d10e91f612f8bb774ae"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

@@ -44,10 +44,18 @@ pub(super) fn install(
         .unwrap()
         .to_object(scope)
         .unwrap();
-    for name in ["addEventListener", "removeEventListener", "dispatchEvent"] {
-        let key = v8::String::new(scope, name).unwrap();
-        let method = prototype.get(scope, key.into()).unwrap();
-        context.global(scope).set(scope, key.into(), method);
+    // Window inherits these operations through its native prototype chain.
+    // Copying them onto the global changes Web IDL placement and shadows
+    // later prototype updates. Keep the separate Worker bootstrap unchanged.
+    if context
+        .get_slot::<V8BindingState>()
+        .is_some_and(|state| state.binding_global == BindingGlobal::Worker)
+    {
+        for name in ["addEventListener", "removeEventListener", "dispatchEvent"] {
+            let key = v8::String::new(scope, name).unwrap();
+            let method = prototype.get(scope, key.into()).unwrap();
+            context.global(scope).set(scope, key.into(), method);
+        }
     }
     let getter = v8::Function::new(scope, error_handler_get).unwrap();
     let setter = v8::Function::new(scope, error_handler_set).unwrap();

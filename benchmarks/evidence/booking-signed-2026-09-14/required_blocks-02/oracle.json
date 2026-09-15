@@ -1,0 +1,48 @@
+{
+  "cases": [
+    {
+      "case_id": "107feb511b564290ef59061a2a33da10",
+      "scenario": "normal",
+      "reviews": 1
+    }
+  ],
+  "slots": [
+    {
+      "case_id": "107feb511b564290ef59061a2a33da10",
+      "slot": "early",
+      "available": 1,
+      "version": 1
+    },
+    {
+      "case_id": "107feb511b564290ef59061a2a33da10",
+      "slot": "late",
+      "available": 1,
+      "version": 1
+    }
+  ],
+  "offers": [
+    {
+      "case_id": "107feb511b564290ef59061a2a33da10",
+      "offer": "0fc80180414f7d4b3ac86af546aa6217",
+      "slot": "early",
+      "version": 1,
+      "zone": "UTC",
+      "utc": "2026-11-01T05:30:00+00:00",
+      "local": "2026-11-01T05:30:00+00:00"
+    }
+  ],
+  "reservations": [],
+  "requests": [],
+  "views": [
+    {
+      "case_id": "107feb511b564290ef59061a2a33da10",
+      "path": "availability",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "107feb511b564290ef59061a2a33da10",
+      "path": "review",
+      "cookie_valid": 1
+    }
+  ]
+}

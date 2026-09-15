@@ -57,6 +57,7 @@ fn main() {
         bridge
             .cpp(true)
             .file("src/v8_context_bridge.cc")
+            .file("src/v8_pattern_bridge.cc")
             .include("../../vendor/v8-api/include")
             .std("c++20")
             .flag_if_supported("-Wno-unused-parameter")
@@ -71,6 +72,7 @@ fn main() {
         }
         bridge.compile("oryn_v8_context_bridge");
         println!("cargo:rerun-if-changed=src/v8_context_bridge.cc");
+        println!("cargo:rerun-if-changed=src/v8_pattern_bridge.cc");
         println!("cargo:rerun-if-changed=../../vendor/v8-api");
     }
 

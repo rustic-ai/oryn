@@ -1,0 +1,1 @@
+import{B as e,h as t,p as n}from"../chunks/00p0DNrT.js";import"../chunks/xihTtKlq.js";import"../chunks/C5W3NHiZ.js";var r=t(`<h1>SvelteKit details</h1><a href="../">Back</a>`,1);function i(t){var i=r();e(),n(t,i)}export{i as component};

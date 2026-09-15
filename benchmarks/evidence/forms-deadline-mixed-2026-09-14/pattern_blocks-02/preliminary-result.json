@@ -1,0 +1,11 @@
+{
+  "case": "pattern_blocks",
+  "sample": 2,
+  "case_id": "ed4c1d6e831d7283756abec05f993d03",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "5f10c3ffa6af65708945760a6e875996385856e9b691d7ec1112a05c762de869",
+  "elapsed_seconds": 0.34
+}

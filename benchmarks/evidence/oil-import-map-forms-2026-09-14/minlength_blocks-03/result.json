@@ -1,0 +1,12 @@
+{
+  "case": "minlength_blocks",
+  "sample": 3,
+  "case_id": "484abe5a36cc500c3a62baeac0edb029",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "46365d97b3b7c467db724d0ca671b0fd9e8252d424635b0c88c0597d6cf5bfc2",
+  "elapsed_seconds": 0.275,
+  "final_oracle_verified": true
+}

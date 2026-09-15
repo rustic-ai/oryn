@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree signed diagnostic; not full WPT or release qualification",
+  "goal_complete": false,
+  "source_tree_sha256": "051cec7db015bed8a8889f1fae25b6ecde8ba7456f52ae53db7355dc2b6f5e7f",
+  "native_test_binary_sha256": "5735d83caa30714d2c42836c327677fc9eca24bbd9a0a077bd3f52e40fb801f4",
+  "native_suite": {"passed": 517, "failed": 0, "ignored": 6, "elapsed_seconds": 148.74, "test_threads": 1},
+  "dom_suite": {"passed": 103, "failed": 0},
+  "strict_clippy": "passed",
+  "format_and_registry_checks": "passed",
+  "signed_build_and_sandbox_probes": "passed",
+  "worker_binary_sha256": "c6227a91af0a38aad49e9655ec5447749febbf2a7b820bc4b3e4f8f1f434b3de",
+  "worker_code_directory_hash": "4bd9d6b4b8bef615699efd3f85324574db5274d5",
+  "changes": [
+    "Native autonomous-element definitions, construction targets, captured callbacks and mutation-driven reactions replace JavaScript DOM method overrides",
+    "Detached descendant connection, disconnection, reconnection and explicit adoption bookkeeping",
+    "DOM connectivity includes inert documents without broadening active rendering/script connectivity",
+    "Invalid whenDefined names reject promises; reentrant definition getters are guarded",
+    "Native host reaction checkpoints ignore author-overridden helper globals and enforce execution deadlines"
+  ],
+  "oil": {"passed": 11, "total": 12, "timeouts": 0, "evidence": "oil-custom-elements-signed-2026-09-14/summary.json", "task_completion": "not independently verified", "remaining_failure": "React shadow-DOM case reaches ambiguous Delete target (six candidates), rather than missing shadow controls"},
+  "selected_wpt": {"passed_files": 2, "total_files": 9, "environment_blocked": 0, "elapsed_seconds": 12.5, "evidence": "custom-element-callback-wpt-2026-09-14.json"},
+  "remaining_qualification": [
+    "Implicit insertion adoption notifications and nested reaction ordering/lifetime failures",
+    "Fragment parsing upgrade timing, cross-realm callback ownership and exception delivery",
+    "Complete CustomElementRegistry WebIDL, customized built-ins, iterable observedAttributes and constructor validation",
+    "Registry retirement, garbage-collection and navigation qualification",
+    "XHR overrideMimeType dependency in upstream document variants",
+    "Disambiguate the OIL fixture Delete target without weakening runtime ambiguity protection",
+    "Independent workflow outcome oracles, remaining architecture gates, full Core WPT and clean release qualification"
+  ]
+}

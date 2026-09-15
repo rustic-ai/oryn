@@ -1,0 +1,12 @@
+{
+  "case": "valid_urlencoded",
+  "sample": 2,
+  "case_id": "2d8a2a7f1030a1afb93816d5e49bfba5",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "ce0f1fcdbc13c91235e5c2c5af9e783481c086d20879bca4509468833dde4e68",
+  "elapsed_seconds": 0.291,
+  "final_oracle_verified": true
+}

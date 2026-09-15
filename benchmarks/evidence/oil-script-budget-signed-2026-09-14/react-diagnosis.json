@@ -1,0 +1,15 @@
+{
+  "qualification": "signed diagnostic, not task completion",
+  "source_tree_sha256": "aa51dc65b993e9a85442c3ebba4f4947d937c3986ecc0aa460a5307dbfc51855",
+  "babel_type": "object",
+  "react_root_child_count": 0,
+  "script_innerHTML_matches_textContent": false,
+  "manual_author_transform": {
+    "expression": "Babel.transformScriptTags()",
+    "purpose": "diagnose the author's transform failure; not an OIL acceptance action",
+    "error": "SyntaxError: /Inline Babel script (2): Unexpected token (63:63)",
+    "source_excerpt": "shadow.getElementById('logout-btn').onclick = () =&gt; {"
+  },
+  "shopping_retry": "isolated retry also failed with spatial target resolution requires authoritative geometry",
+  "goal_complete": false
+}

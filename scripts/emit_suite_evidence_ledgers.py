@@ -191,10 +191,10 @@ def layout_specs() -> list[dict[str, Any]]:
         assertion(
             "worker-protocol-v6-layout-fingerprint",
             check(
-                "protocol v6 signed runtime",
+                "protocol v10 signed runtime (stable historical control ID)",
                 "runtime.json",
                 json_predicate(
-                    lambda v: v.get("worker_protocol_version") == 7
+                    lambda v: v.get("worker_protocol_version") == 10
                     and v.get("contract_version") == 4
                     and v.get("sandbox_state") == "app_sandbox"
                 ),

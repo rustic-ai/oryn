@@ -1,0 +1,13 @@
+{
+  "case": "logged_out_access_denied",
+  "sample": 2,
+  "case_id": "d8c252620fbdf5151fd1414e104ce841",
+  "base": "http://127.0.0.1:62525/saas/d8c252620fbdf5151fd1414e104ce841",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "441f17360f65c665c353f9a2e6bddbf929b006f4aa519669a005317c6ea4a706",
+  "returncode": 0,
+  "elapsed_seconds": 0.379,
+  "final_database_verified": true
+}

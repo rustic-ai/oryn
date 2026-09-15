@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "script",
+      "path": "html/browsers/the-window-object/close-method.window.js",
+      "root": "html",
+      "sha256": "10e82789d8881960b9c9ad9cff331fdc6cdb9de29d6bc3f58a95c6c5d93b6200",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "script",
+      "path": "html/browsers/the-window-object/closed-attribute.window.js",
+      "root": "html",
+      "sha256": "09ba3220840a5149e3a04dc5e44961d2d0b5f5280c159c05e1f2b886f8a9e4c8",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/browsers/the-window-object/open-close/close_beforeunload.html",
+      "root": "html",
+      "sha256": "90e0fbc327e14cf62f26b6f6883b79a14ee6764b2a7321f2b43aad0336d6f2e0",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/browsers/the-window-object/open-close/close_noopener_beforeunload.html",
+      "root": "html",
+      "sha256": "df2416b87fcb403f4ea1c7baf9a7c1d449910b7de5e6e485a2da787e0fbb0ed6",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/browsers/the-window-object/open-close/close_pagehide.html",
+      "root": "html",
+      "sha256": "0078ba2fbb00fbe451f9f71ea74289a06e519ec3cfa7cd9282aba6ca1af7eb2f",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/browsers/the-window-object/open-close/close_script_defer.html",
+      "root": "html",
+      "sha256": "7194f1cdac21ddcae85e049fa1e5c137730eb374d306b89abf55008d6ed6999b",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/browsers/the-window-object/open-close/close_unload.html",
+      "root": "html",
+      "sha256": "659653028fd107e0f7690c5bc0d1403e9856b0f31d10cdb66915de89a98d8513",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/browsers/the-window-object/open-close/closed-after-close.html",
+      "root": "html",
+      "sha256": "5375a3ba8406eecc6ed7871e106206abd438894b77a2878d6697cb299f5c25f3",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/browsers/the-window-object/open-close/script-closable.html",
+      "root": "html",
+      "sha256": "9dd3cd9d7d9e7d8006248cebaabc533131f44040ba662061a2e22f0ea489e37a",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ],
+  "required_execution_total": 9
+}

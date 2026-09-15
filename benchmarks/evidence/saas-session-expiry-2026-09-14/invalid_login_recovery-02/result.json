@@ -1,0 +1,13 @@
+{
+  "case": "invalid_login_recovery",
+  "sample": 2,
+  "case_id": "d4a40cccec0a8b1d54c1aa287b60d4bf",
+  "base": "http://127.0.0.1:62525/saas/d4a40cccec0a8b1d54c1aa287b60d4bf",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "03aad367877116a4a64e3ca3bc8dd80a7ce7b8e618774083d36d0cdc10f19955",
+  "returncode": 0,
+  "elapsed_seconds": 0.438,
+  "final_database_verified": true
+}

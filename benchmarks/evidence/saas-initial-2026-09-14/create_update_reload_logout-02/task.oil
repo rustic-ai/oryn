@@ -1,0 +1,15 @@
+goto "http://127.0.0.1:62188/saas/6ef4940af55d7f7d9a82f16fd6a09aa8/login"
+type "Username" "agent@example.test"
+type "Password" "fixture-only-password"
+click "Sign in"
+type "Record title" "Draft"
+click "Create record"
+wait visible css(#record)
+extract text --selector "#record"
+type "Record title" "Approved"
+click "Save changes"
+click "Reload record"
+extract text --selector "#record"
+extract text --selector "#version"
+click "Sign out"
+observe

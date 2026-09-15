@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-source native diagnostic; not signed or full-goal qualification",
+  "goal_complete": false,
+  "source_tree_sha256": "21aec65703112943df5d2274031b8daf5766701ba703721c251eeba6b39697ae",
+  "implementation": "Shared scope-based child realm allocation and document initialization. Creator liveness is checked before allocation; native creator policy is inherited; failed initialization retires partial state and removes pending adoption and realm lookup entries without reusing identities. Driver and callback tests use this path.",
+  "verification": {
+    "native": {"passed": 572, "failed": 0, "ignored": 6, "elapsed_seconds": 150.27},
+    "strict_native_clippy": "passed",
+    "targeted": ["failed_child_document_installation_is_not_adoptable", "retired_creator_cannot_allocate_child_document", "native_realm_factory_runs_inside_callback_with_document_and_origin_identity", "native_document_policy_belongs_to_its_realm_not_last_configured_sibling"]
+  },
+  "remaining": ["Insertion-time initial iframe creation", "Native WindowProxy integration", "Initial Window/document reuse", "Navigation-response versus inherited local-document policy", "Per-document broker routing", "Persisted authenticated SaaS workflows", "Signed WPT/security/performance and full-goal qualification"]
+}

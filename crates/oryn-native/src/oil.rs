@@ -905,6 +905,8 @@ impl NativeOilSession {
                     .iter()
                     .find(|node| {
                         node.actions.contains(&SemanticAction::Click)
+                            && node.states.contains(&oryn_common::v3::NodeState::Visible)
+                            && !node.states.contains(&oryn_common::v3::NodeState::Hidden)
                             && preferred
                                 .iter()
                                 .any(|name| node.name.to_ascii_lowercase().contains(name))
@@ -912,6 +914,8 @@ impl NativeOilSession {
                     .or_else(|| {
                         observation.nodes.iter().find(|node| {
                             node.actions.contains(&SemanticAction::Click)
+                                && node.states.contains(&oryn_common::v3::NodeState::Visible)
+                                && !node.states.contains(&oryn_common::v3::NodeState::Hidden)
                                 && matches!(node.name.trim(), "" | "×" | "x" | "X")
                         })
                     })
@@ -1483,6 +1487,26 @@ mod tests {
 
     #[cfg(feature = "v8-host")]
     #[tokio::test(flavor = "current_thread")]
+    async fn unicode_oil_target_and_value_reach_native_input_unchanged() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://forms.example.test/", "<label>名前<input></label>")
+            .await
+            .unwrap();
+        let mut session = NativeOilSession::new(page.clone());
+        session
+            .execute("observe\ntype \"名前\" \"Zoë — 日本語 👩🏽‍💻 # text\"")
+            .await
+            .unwrap();
+        assert_eq!(
+            page.evaluate("document.querySelector('input').value")
+                .await
+                .unwrap(),
+            "Zoë — 日本語 👩🏽‍💻 # text"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
     async fn oil_drives_scripted_native_document_without_scanner_or_cdp() {
         let page = Browser::new().new_context().new_page();
         page.load_html(
@@ -1502,6 +1526,131 @@ mod tests {
             panic!("expected observation")
         };
         assert!(observation.nodes.iter().any(|node| node.name == "Items: 1"));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn cart_workflow_resolves_visible_button_text_and_input_id() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html(
+            "https://example.test/cart",
+            include_str!("../../../test-harness/scenarios/intent-tests/flow-cart.html"),
+        )
+        .await
+        .unwrap();
+        let mut session = NativeOilSession::new(page.clone());
+        session.execute("observe\nclick \"+\" near \"Wireless Mouse\"\ntype \"coupon-code\" \"SAVE10\"\nclick \"Apply\"").await.unwrap();
+        assert_eq!(
+            page.evaluate("document.getElementById('qty-1').textContent")
+                .await
+                .unwrap(),
+            "2"
+        );
+        assert_eq!(
+            page.evaluate("document.getElementById('coupon-code').value")
+                .await
+                .unwrap(),
+            "SAVE10"
+        );
+        assert!(matches!(
+            session.execute("click \"nonexistent-control\"").await,
+            Err(NativeOilError::Runtime(RuntimeError::Semantic(_)))
+        ));
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn pointer_target_recovers_after_ancestor_class_timer_removal() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://example.test/recovery", r#"
+            <style>.disabled { pointer-events: none; opacity: .5 }</style>
+            <div id="container"><button id="target" onclick="this.textContent='Recovered'">Try</button></div>
+            <button onclick="document.getElementById('container').classList.add('disabled'); setTimeout(()=>document.getElementById('container').classList.remove('disabled'),100)">Disable temporarily</button>
+        "#).await.unwrap();
+        let mut session = NativeOilSession::new(page.clone());
+        let result = tokio::time::timeout(Duration::from_secs(5), session.execute("click \"Disable temporarily\"\nwait visible css(#container:not(.disabled) #target)\nclick \"Try\"")).await;
+        assert!(matches!(result, Ok(Ok(_))), "{result:?}; DOM: {}", page.evaluate("JSON.stringify({html:document.body.innerHTML,style:getComputedStyle(document.getElementById('target')).pointerEvents,rect:document.getElementById('target').getBoundingClientRect()})").await.unwrap());
+        assert_eq!(
+            page.evaluate("document.getElementById('target').textContent")
+                .await
+                .unwrap(),
+            "Recovered"
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn numeric_calendar_inputs_are_editable_and_report_constraints_through_oil() {
+        let page = Browser::new().new_context().new_page();
+        page.load_html("https://example.test/booking", "<label for=n>Seats</label><input id=n type=number min=1 max=9 step=2><label for=d>Date</label><input id=d type=date min=2026-10-01><label for=t>Time</label><input id=t type=time min=21:00 max=06:00>").await.unwrap();
+        let mut session = NativeOilSession::new(page.clone());
+        session
+            .execute("type \"Seats\" \"4\"\ntype \"Date\" \"2026-09-30\"\ntype \"Time\" \"12:00\"")
+            .await
+            .unwrap();
+        let observation = page.observe_profile(ProjectionProfile::Full).await.unwrap();
+        for (name, value) in [("Seats", "4"), ("Date", "2026-09-30"), ("Time", "12:00")] {
+            let control = observation
+                .nodes
+                .iter()
+                .find(|n| n.name == name && n.validation.is_some())
+                .unwrap();
+            assert_eq!(control.value.as_deref(), Some(value));
+            let validation = control.validation.as_ref().unwrap();
+            assert!(validation.will_validate && !validation.valid, "{control:?}");
+        }
+        session
+            .execute("type \"Seats\" \"3\"\ntype \"Date\" \"2026-10-01\"\ntype \"Time\" \"23:00\"")
+            .await
+            .unwrap();
+        let observation = page.observe_profile(ProjectionProfile::Full).await.unwrap();
+        assert!(
+            observation
+                .nodes
+                .iter()
+                .filter_map(|n| n.validation.as_ref())
+                .all(|v| v.valid)
+        );
+    }
+
+    #[cfg(feature = "v8-host")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn dismiss_visible_modal_after_native_form_submission() {
+        let page = Browser::new().new_context().new_page();
+        let html = include_str!("../../../test-harness/scenarios/forms/login.html").replace(
+            "<link rel=\"stylesheet\" href=\"/shared/styles.css\">",
+            &format!(
+                "<style>{}</style>",
+                include_str!("../../../test-harness/public/shared/styles.css")
+            ),
+        );
+        page.load_html("https://example.test/login", html)
+            .await
+            .unwrap();
+        let mut session = NativeOilSession::new(page.clone());
+        session.execute("observe\ntype \"Email Address\" \"test@example.com\"\ntype \"Password\" \"password123\"\ncheck \"Remember me\"\nclick \"Sign In\"").await.unwrap();
+        assert_eq!(
+            page.evaluate("document.getElementById('success-modal').style.display")
+                .await
+                .unwrap(),
+            "flex"
+        );
+        let full = page.observe_profile(ProjectionProfile::Full).await.unwrap();
+        let close = full.nodes.iter().find(|node| node.name == "Close").unwrap();
+        assert!(
+            close.states.contains(&oryn_common::v3::NodeState::Visible),
+            "{close:?}"
+        );
+        session
+            .execute("wait visible css(.modal-content)\ndismiss \"modal\"")
+            .await
+            .unwrap();
+        assert_eq!(
+            page.evaluate("document.getElementById('success-modal').style.display")
+                .await
+                .unwrap(),
+            "none"
+        );
     }
 
     #[cfg(feature = "v8-host")]

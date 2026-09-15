@@ -1,0 +1,13 @@
+{
+  "case": "price_change_blocks",
+  "sample": 1,
+  "case_id": "ef35efe6095d30f0014e8169fe253e90",
+  "base": "http://127.0.0.1:52282/shop/ef35efe6095d30f0014e8169fe253e90",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "ee356137834e5ff15f2886b100b02cc3c01a29d0646a6b691a713fae30c8b3a5",
+  "returncode": 0,
+  "elapsed_seconds": 0.651,
+  "final_database_verified": true
+}

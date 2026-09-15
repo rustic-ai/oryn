@@ -1,0 +1,7 @@
+{
+  "control": "intentionally failed executable",
+  "returncode": 1,
+  "case_failures": 5,
+  "all_five_attempted": true,
+  "passed": true
+}

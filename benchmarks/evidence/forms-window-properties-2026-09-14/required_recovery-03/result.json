@@ -1,0 +1,12 @@
+{
+  "case": "required_recovery",
+  "sample": 3,
+  "case_id": "edb2ce64517d5c798a1cf167acb0beb3",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "150e8afb3155b5fd27cd606dcc7527b89b6d051d272039b41a3d8a81a09d1f68",
+  "elapsed_seconds": 0.342,
+  "final_oracle_verified": true
+}

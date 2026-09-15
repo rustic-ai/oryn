@@ -1,0 +1,164 @@
+{
+  "cases": [
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "scenario": "stock",
+      "unit_price": 2500,
+      "blue_stock": 0,
+      "green_stock": 8,
+      "quote_count": 2
+    }
+  ],
+  "carts": [
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "variant": "green",
+      "quantity": 2
+    }
+  ],
+  "quotes": [
+    {
+      "quote": "7865435e77669601404d8c26c68b2cc6",
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "variant": "blue",
+      "quantity": 2,
+      "unit_price": 2500,
+      "total": 5000
+    },
+    {
+      "quote": "5052726bac298f62c2ecf267b944f342",
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "variant": "green",
+      "quantity": 2,
+      "unit_price": 2500,
+      "total": 5000
+    }
+  ],
+  "orders": [
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "order_id": "69415e6429dc0c4829b3530ca37e7b7a",
+      "quote": "5052726bac298f62c2ecf267b944f342",
+      "variant": "green",
+      "quantity": 2,
+      "unit_price": 2500,
+      "total": 5000,
+      "name": "Zo\u00eb Test",
+      "email": "zoe@example.test"
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "action": "cart",
+      "outcome": 303,
+      "body_sha256": "2e53971dbbf74df23e2c4831018e8c0cf3f2ececc3d3c722587d11ec377adf23",
+      "fields": "{\"quantity\": [\"1\"], \"variant\": [\"blue\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "action": "cart",
+      "outcome": 303,
+      "body_sha256": "ab4f287c4ad60be3a66d9e5834f5a46c124793b9e3c2d5fffcd5b62bc7ca15f6",
+      "fields": "{\"quantity\": [\"2\"], \"variant\": [\"blue\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "action": "checkout",
+      "outcome": 409,
+      "body_sha256": "1cd2276499662c762661e4cf40799a0e8892b34b1f2027074ca8d4bad5c89460",
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"quote\": [\"7865435e77669601404d8c26c68b2cc6\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "action": "cart",
+      "outcome": 303,
+      "body_sha256": "ba6892a271bd32b8586620cb8c9f183fc716697c4dfac5d33b55f152cdc976d3",
+      "fields": "{\"quantity\": [\"2\"], \"variant\": [\"green\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "action": "checkout",
+      "outcome": 303,
+      "body_sha256": "865efcbb7928fe1a399ee68f93a79bb4ded562e91d5afe018b402ac312b5b245",
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"quote\": [\"5052726bac298f62c2ecf267b944f342\"]}",
+      "cookie_valid": 1
+    }
+  ],
+  "views": [
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "catalog",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "product/desk",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "catalog",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "catalog",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "product/field",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "review",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "cart",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "review",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "order",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "fda59932372bd4f4349675acebdf68cd",
+      "page": "order",
+      "cookie_valid": 1
+    }
+  ]
+}

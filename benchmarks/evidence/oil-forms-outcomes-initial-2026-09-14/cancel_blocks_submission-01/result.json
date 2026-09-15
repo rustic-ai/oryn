@@ -1,0 +1,15 @@
+{
+  "case": "cancel_blocks_submission",
+  "sample": 1,
+  "case_id": "bc981b7f859a76da2a65c874398cc43f",
+  "passed": false,
+  "errors": [
+    "OIL process failed or timed out",
+    "missing or failed OIL outputs",
+    "final browser location does not match expected outcome"
+  ],
+  "timed_out": false,
+  "returncode": 1,
+  "task_sha256": "511db6d74d339c4ba3a82b868fc25a784f716a4fe8fe201a9cee05a5aabb5908",
+  "elapsed_seconds": 0.143
+}

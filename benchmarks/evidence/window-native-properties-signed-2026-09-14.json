@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-source signed diagnostic, not release or full workflow-family qualification",
+  "goal_complete": false,
+  "source_tree_sha256": "4b41f5e9cf03a53791c66c04b301ea407c31564eec639f13402a687e9805c18a",
+  "parent_sha256": "7a91af0aeec28fdacfea3e6c473701c2ad64a964b47b725d73342729a641e9e8",
+  "worker_sha256": "678c44830392e274f82530c968878c4416d3712cc4a750b3ac690915ee6fb98c",
+  "worker_code_directory_hash": "94f4486eeb3720d243314634f9863247d276be32",
+  "worker_signature": "Apple Development: Rohit Rai (HH58U486S8), team 5HVA9VFF8K, hardened runtime, designated requirement verified",
+  "sandbox_probes": "filesystem read, listening socket, outgoing connection and secret environment access all denied",
+  "native": {"passed": 568, "failed": 0, "ignored": 6, "elapsed_seconds": 155.58},
+  "js": {"passed": 277, "failed": 0, "ignored": 3, "elapsed_seconds": 4.51},
+  "strict_clippy_format_diff": "passed",
+  "wpt": {
+    "before": "parser-frame-retirement-window-wpt-2026-09-14.json",
+    "after": "window-native-properties-wpt-2026-09-14.json",
+    "files_passed": 1, "files_attempted": 3, "environment_blocked": 0,
+    "window_properties_before": {"passed": 61, "failed": 120},
+    "window_properties_after": {"passed": 70, "failed": 111},
+    "gained_assertions": 9, "lost_assertions": 0,
+    "gains": ["EventTarget addEventListener placement", "EventTarget removeEventListener placement", "EventTarget dispatchEvent placement", "Window unforgeable window", "Window replaceable self", "Window replaceable frames", "Window window getter", "Window self getter", "Window frames getter"]
+  },
+  "workflows": {
+    "forms": {"passed": 57, "planned": 57, "persisted_oracles_verified": true, "summary": "forms-window-properties-2026-09-14/summary.json"},
+    "frameworks": {"passed": 24, "planned": 24, "summary": "framework-window-properties-2026-09-14/summary.json"},
+    "source_matches_signed_build": true,
+    "fixtures_cleanly_closed": true,
+    "other_families_rerun": false
+  },
+  "remaining": ["Synchronous initial iframe creation", "Native WindowProxy linkage and complete Window/document reuse", "Other Window properties", "Per-document broker routing", "Persisted authenticated SaaS workflows", "Broader WPT and clean-source security/performance qualification"]
+}

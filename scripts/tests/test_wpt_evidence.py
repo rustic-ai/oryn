@@ -29,6 +29,8 @@ class EvidenceTests(unittest.TestCase):
             ({"failure_domain": "timeout"}, "outer_timeout"),
             ({"result": {"harness": 2}}, "harness_timeout"),
             ({"diagnostics": ['WorkerLimitExceeded { resource: "wall time" }']}, "worker_wall_limit"),
+            ({"diagnostics": ['WorkerLimitExceeded { resource: "wall time (phase=ipc_response, command=load_html, message_id=2)" }']}, "worker_wall_limit"),
+            ({"diagnostics": ['WorkerLimitExceeded { resource: "wall time (phase=worker_execution, command=oil, message_id=3)" }']}, "worker_wall_limit"),
             ({"diagnostics": ['WorkerLimitExceeded: generated platform operation wall time']}, "generated_operation_wall_limit"),
             ({"diagnostics": ['WorkerCrashed: closed stream']}, "reported_worker_crash"),
             ({"result": {"harnessMessage": "click is not implemented by testdriver-vendor.js"}}, "testdriver_operation_not_implemented"),

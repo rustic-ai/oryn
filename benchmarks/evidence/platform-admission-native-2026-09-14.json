@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "goal_complete": false,
+  "qualification": "signed dirty-tree diagnostics; not clean-release or independent workflow qualification",
+  "source_tree_sha256": "0438d0b2b5a68bcc5f377f69eeca1aabbcfedef4d0fb6f1b2a3d1f5e8414afc9",
+  "parent_sha256": "ed6db2b1c9e385364abc384bd7413873ee0451d340a93d60efab71a3d36a36c9",
+  "worker_binary_sha256": "7aeb7580ae27dfa4f5ff897fade106d7b74a44c00721e94b990fc32028efd292",
+  "worker_code_directory_hash": "2c31393d06fea6e3a68adeec334edc84cd6e6df2",
+  "worker_unsigned_build_sha256": "ff5b3f911331ef36bf3b0b3da144587fc5a0d0ba07f28aa0132193f8c87a22d4",
+  "native": {
+    "passed": 525, "failed": 0, "ignored": 6, "elapsed_seconds": 201.67,
+    "binary_sha256": "29c8572bee749afaf73a2991627b2eaa4631f0e27c44a212119265b8094d2936",
+    "timing_caveat": "overlapped release compilation; not a performance comparison"
+  },
+  "javascript": {
+    "passed": 271, "failed": 0, "ignored": 3, "elapsed_seconds": 4.22,
+    "binary_sha256": "3f245cf5736150c9e713e94a7415da7d69c32c1bd1396a6726e23882ab2144ab"
+  },
+  "dom_passed": 103,
+  "webidl_passed": 10,
+  "strict_clippy_format_registry_diff_checks": "passed",
+  "signed_sandbox_security_probes": "passed",
+  "admission_tests": {
+    "passed": 5,
+    "saturated_burst_requests": 288,
+    "max_active_operations": 32,
+    "max_live_streams": 32,
+    "coverage": ["stream-release progress under a full queue","queued cancellation never dispatches","late-header cancellation closes the stream before acknowledgment","count and serialized-byte budgets","duplicate identity rejection","retirement revocation","asynchronous submit failure delivered once"]
+  },
+  "oil": {
+    "passed": 12, "total": 12, "timeouts": 0,
+    "task_completion": "not independently verified",
+    "evidence": "oil-admission-signed-2026-09-14/summary.json"
+  },
+  "mime_override_wpt": {
+    "passed_files": 9, "total_files": 9, "environment_blocked": 0,
+    "reported_assertions_passed": 90, "reported_assertions_failed": 0,
+    "elapsed_seconds": 3.7,
+    "evidence": "xhr-admission-mime-wpt-2026-09-14.json",
+    "improvement": "all 42 prior admission-limit failures resolved without increasing active-operation or stream limits"
+  },
+  "callback_wpt": {
+    "passed_files": 8, "total_files": 9, "environment_blocked": 0,
+    "elapsed_seconds": 13.1,
+    "evidence": "xhr-admission-callback-wpt-2026-09-14.json",
+    "remaining": "cross-realm-callback-report-exception.html still times out before reporting assertions"
+  },
+  "abort_wpt": {
+    "qualification": "new selected diagnostic; no same-selection pre-change run, so not a regression comparison",
+    "passed_files": 8, "total_files": 25, "environment_blocked": 0,
+    "reported_assertions_passed": 9, "reported_assertions_failed": 19,
+    "elapsed_seconds": 14.3,
+    "evidence": "xhr-admission-abort-wpt-2026-09-14.json",
+    "remaining_categories": ["statusText exposure","XMLHttpRequestUpload surface and upload progress events","ProgressEvent interface","abort and re-entrant open event/state sequencing","window.stop","navigation cancellation","synchronous main-thread XHR"]
+  },
+  "implementation": [
+    "Realm-local admission wrapper preserves the existing 32 active-operation and 32 live-HTTP-stream budgets",
+    "At most 256 queued requests, 288 outstanding admission records including acknowledgments, and 16 MiB queued serialized request bytes",
+    "Runnable reads and aborts can bypass stream-blocked starts, including when the queue is full",
+    "Queued cancellations release payloads without contacting the host; active cancellation retains capacity until acknowledgment",
+    "Late cancelled HTTP headers are cleaned up before acknowledgment; parent stream abort is idempotent after endpoint-authority validation",
+    "Retirement revokes the host and clears queued payloads; operation identity allocation fails on exhaustion",
+    "Admission errors no longer claim an API is unimplemented"
+  ],
+  "remaining": [
+    "Additional XHR API/event/lifecycle gaps exposed by the new abort selection",
+    "Agent-wide cross-realm admission and native initial iframe ownership/routing",
+    "Qualification of retained/unconsumed Fetch bodies at the live-stream limit",
+    "Independent outcome, persistence, recovery and concurrency oracles for all five OIL workflow families",
+    "Remaining architecture, full Core WPT, performance and clean-source release gates"
+  ]
+}

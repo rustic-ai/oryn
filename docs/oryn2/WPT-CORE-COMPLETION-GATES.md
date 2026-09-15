@@ -26,4 +26,15 @@ These are inventory counts, not current pass results. Unsupported execution is u
 4. Run the entire Core selection on a frozen signed candidate, preserve all raw outcomes, reconcile aggregate counts, and qualify results. Historical multi-version diagnostics or a small green slice cannot prove this gate.
 5. Verify production isolation/security behavior and clean-source build identities. Parent, worker, V8, bindings, ICU, snapshot, signature and source provenance must match the tested candidate. Historical evidence remains immutable.
 
-Current status: unproven/incomplete. The recovered diagnostic Core baseline recorded 3,618 passes and 10,129 failures across the 13,747 mapped executions; it is not a current qualified score. Later bounded repairs do not establish a new whole-Core pass rate. The reference-focus defect and all unresolved feature/runner coverage remain open until authoritative evidence proves otherwise.
+Current status: unproven/incomplete. The completed September 15 all-tier diagnostic
+records **4,415 raw Core passes, 9,315 failures and 17 environment-blocked results**
+across the 13,747 mapped executions. Together with 2,990 unsupported entries,
+the complete Core denominator is **16,737**. These are unqualified dirty-source
+diagnostics, not a completed Core score. See the
+[full run report](../../artifacts/wpt-full-baseline/full-current-2026-09-15/REPORT.md)
+and [complete Core/five-family implementation plan](CORE-AND-OIL-COMPLETION-PLAN-2026-09-15.md).
+
+The recovered 3,618-pass / 10,129-failure baseline remains historical evidence;
+it is not directly comparable across different runners/candidates. Reference
+prerequisites and all unresolved feature/runner coverage remain open until
+authoritative evidence proves otherwise.

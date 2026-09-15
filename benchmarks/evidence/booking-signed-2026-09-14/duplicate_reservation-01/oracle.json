@@ -1,0 +1,88 @@
+{
+  "cases": [
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "scenario": "normal",
+      "reviews": 1
+    }
+  ],
+  "slots": [
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "slot": "early",
+      "available": 1,
+      "version": 1
+    },
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "slot": "late",
+      "available": 0,
+      "version": 2
+    }
+  ],
+  "offers": [
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "offer": "e0e3f41234a7be8a637534291e7490da",
+      "slot": "late",
+      "version": 1,
+      "zone": "UTC",
+      "utc": "2026-11-01T06:30:00+00:00",
+      "local": "2026-11-01T06:30:00+00:00"
+    }
+  ],
+  "reservations": [
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "reservation": "4df5c7d03cfcad04507f4c3a47cb29a1",
+      "slot": "late",
+      "offer": "e0e3f41234a7be8a637534291e7490da",
+      "request_key": "aec20436e97a56a817b27433c9af0681",
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"e0e3f41234a7be8a637534291e7490da\"], \"request_key\": [\"aec20436e97a56a817b27433c9af0681\"]}",
+      "utc": "2026-11-01T06:30:00+00:00",
+      "local": "2026-11-01T06:30:00+00:00",
+      "zone": "UTC"
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "status": 303,
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"e0e3f41234a7be8a637534291e7490da\"], \"request_key\": [\"aec20436e97a56a817b27433c9af0681\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "status": 303,
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"e0e3f41234a7be8a637534291e7490da\"], \"request_key\": [\"aec20436e97a56a817b27433c9af0681\"]}",
+      "cookie_valid": 1
+    }
+  ],
+  "views": [
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "path": "availability",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "path": "review",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "path": "confirmation",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "path": "confirmation",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "38fb5f9c79499e45dc154a0acf447f45",
+      "path": "confirmation",
+      "cookie_valid": 1
+    }
+  ]
+}

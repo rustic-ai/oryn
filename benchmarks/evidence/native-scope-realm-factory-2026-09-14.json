@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree native unit/integration diagnostic; not signed qualification",
+  "source_tree_sha256": "4cefe541d2dc953f7f84a655667b9e2fc8097820170ee893ab411faa642c24a4",
+  "goal_complete": false,
+  "changes": [
+    "Realm descriptors and canonical security-token handles now belong to isolate-owned NativeRealmIdentities.",
+    "Initial and subsequent driver-created contexts use one scope-based native realm factory.",
+    "The factory can run inside a native callback without borrowing the host driver or retaining an unsafe host pointer.",
+    "Failed environment allocation removes the newly registered realm while preserving monotonic identity allocation."
+  ],
+  "tests": {
+    "native": {"passed": 555, "failed": 0, "ignored": 6, "elapsed_seconds": 145.70},
+    "native_strict_clippy": "passed",
+    "formatting": "passed",
+    "diff_check": "passed",
+    "new_test": "host::raw_v8::native_context_tests::native_realm_factory_runs_inside_callback_with_document_and_origin_identity",
+    "new_test_assertions": [
+      "Native realm and generated Document bindings can be created during an active JavaScript callback.",
+      "The caller context is restored after child binding installation.",
+      "The child has distinct JavaScript intrinsics and a usable native Document in the same script turn.",
+      "An opaque-origin child denies parent document access.",
+      "Retained child Document access survives low-memory garbage collection."
+    ]
+  },
+  "qualification_boundary": "No new signed build or WPT result is claimed. The prior signed frame-disposal candidate is preserved separately.",
+  "previous_signed_evidence": "native-frame-discard-2026-09-14.json",
+  "next_required_integration": [
+    "Register callback-created contexts and bindings with the document driver through native coordinator state.",
+    "Create and link the initial about:blank Document and Window synchronously at connected iframe insertion.",
+    "Apply inherited origin, base URL and sandbox policy before exposing the initial context.",
+    "Retain or replace the initial Window and Document according to navigation rules, with native stable WindowProxy ownership.",
+    "Cover same-turn access, nested insertion, removal, navigation, sandboxing and initial-document identity in native and upstream tests."
+  ]
+}

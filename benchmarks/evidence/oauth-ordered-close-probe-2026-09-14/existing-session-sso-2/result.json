@@ -1,0 +1,9 @@
+{
+  "case": "existing-session-sso",
+  "sample": 2,
+  "passed": true,
+  "errors": [],
+  "returncode": 0,
+  "timed_out": false,
+  "elapsed_seconds": 0.19479612493887544
+}

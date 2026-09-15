@@ -67,7 +67,8 @@ click "Save"
 # =============================================================================
 
 # Click tree items
-click "Documents"
+# Documents is initially expanded; clicking it would hide report.pdf.
+wait visible "Documents"
 observe
 
 click "report.pdf"
@@ -122,7 +123,8 @@ wait visible css(#flaky-result)
 # Simulate flaky state and retry
 click "Simulate Flaky State"
 # Wait for element to become available again (3 seconds)
-wait visible css(#flaky-button:not(.disabled))
+# The fixture disables the container, not the button itself.
+wait visible css(#flaky-button-container:not(.disabled) #flaky-button)
 click "Click Me (Intermittent)"
 
 # =============================================================================

@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree signed-worker diagnostic; not release or five-family qualification",
+  "goal_complete": false,
+  "family_qualified": false,
+  "source_sha256": "ef520aa26600c5d4cc3f2f011cb931730fa6dc80cc8abce581b453b9805dae7b",
+  "parent_sha256": "226dabd4ae912b345e8daf20b344f302b58ffd8a44c6ad28ccd40c7c52b9a76a",
+  "signed_worker_sha256": "b26038a2a6d4ea95235af417a80dcde0d4cce2f0a3ecf660ea82cc204faa8fc4",
+  "worker_build_sha256": "d669ac4d35043e2edbe511679e9f223ae1c244473c68132af2520e4da33306f1",
+  "code_directory_hash": "be5674d7e153a457e0248053f1efd529fcb374a0",
+  "webidl_manifest_sha256": "d7b8200f463c98f55936cc1776dc4fe80ce942bf68821f66098663fe576cb903",
+  "signing_scope": "Apple Development signed worker bundle; parent recorded by executable SHA-256",
+  "v8": {
+    "archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "regexp_header_sha256": "8bdbcbb83463c77495973fe30294273d00a5c5cff90e8428415f5d2f034d0a8a"
+  },
+  "implementation": [
+    "Native user-edit provenance is distinct from dirty value and sensitivity. Shared tooShort/tooLong state drives validation, CSS, submission and OIL observations.",
+    "Text-control input paths normalize line breaks and enforce maxlength in UTF-16 units without splitting a surrogate pair; numeric input excludes maxlength.",
+    "Textarea defaultValue reads direct child text; default and dirty live values stay distinct, with pristine defaults following child mutation and reset.",
+    "Length reflection, textarea textLength and legacy null-to-empty value conversion.",
+    "Keyboard/paste helpers, native OIL typing and focused text-control editing commands use native edit state rather than deriving user provenance from synthetic events.",
+    "Native select-event tasks keep detached targets rooted, run asynchronously with microtask checkpoints, and are discarded on realm retirement; page setTimeout is not consulted.",
+    "User changes commit once on blur/focus transition; reset clears pending commit state."
+  ],
+  "standards": {
+    "form_controls": "https://html.spec.whatwg.org/multipage/form-control-infrastructure.html",
+    "textarea": "https://html.spec.whatwg.org/multipage/form-elements.html#the-textarea-element"
+  },
+  "task_limits": {
+    "queued_select_tasks_per_realm": 1024,
+    "control_and_timer_deliveries_per_drain": 1024,
+    "callback_deadline": "existing execution wall limit",
+    "scope": "Per-realm queue and bounded native host drain, not an agent-wide scheduling qualification."
+  },
+  "tests": {
+    "native": {
+      "passed": 539,
+      "failed": 0,
+      "ignored": 6,
+      "elapsed_seconds": 146.93,
+      "binary_sha256": "4e527989d0756f9b6101f035e50bfc33d40ba6931ee6b5ea5d9aab181e6ddfac",
+      "features": "v8-host,v8-sandbox,in-process-probe,core-full"
+    },
+    "javascript": {
+      "passed": 274,
+      "failed": 0,
+      "ignored": 3,
+      "elapsed_seconds": 4.29,
+      "binary_sha256": "a5000883a3e4a6f53c801c54652f77e3627f9ece9ec492f8d91353308e323afb",
+      "features": "v8-host,v8-sandbox"
+    },
+    "dom_passed": 114,
+    "common_passed": 80,
+    "parser_passed": 31,
+    "webidl_passed": 10,
+    "independent_oracle_passed": 10,
+    "strict_native_clippy": "passed",
+    "rustfmt_generated_registry_ruff_diff_check": "passed",
+    "signed_worker_signature_designated_requirement_protocol10_sandbox_denials": "passed",
+    "scope": "Native default/dirty/provenance, UTF-16 bounds, shared validation/style/submission, queued/trusted select events, poisoned page timers, single blur commit, reset, queue exhaustion and retired-queue rejection.",
+    "timing_scope": "Regression elapsed times with overlapping work; not performance qualification."
+  },
+  "wpt": {
+    "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "parent_mode": "persistent",
+    "worker_lifecycle": "isolated_prewarmed",
+    "jobs_per_run": 4,
+    "constraints": {
+      "evidence": "text-events-constraints-wpt-2026-09-14.json",
+      "baseline": "pattern-constraints-wpt-2026-09-14.json",
+      "files_passed": 28,
+      "files_total": 28,
+      "assertions_passed": 920,
+      "nonpassing_assertions": 0,
+      "baseline_passes_retained": 915,
+      "gains": 5,
+      "lost_or_missing_passes": 0,
+      "environment_blocks": 0,
+      "elapsed_seconds": 11.055
+    },
+    "expanded_text_controls": {
+      "inventory": "text-editing-selection-2026-09-14.inventory.json",
+      "evidence": "text-events-expanded-wpt-2026-09-14.json",
+      "intermediate_baseline": "text-editing-expanded-wpt-2026-09-14.json",
+      "files_passed": 8,
+      "files_total": 8,
+      "assertions_passed": 122,
+      "nonpassing_assertions": 0,
+      "intermediate_passes_retained": 97,
+      "recovered_nonpasses": 25,
+      "lost_or_missing_passes": 0,
+      "environment_blocks": 0,
+      "elapsed_seconds": 4.482
+    },
+    "numeric_apis": {
+      "evidence": "text-events-numeric-apis-wpt-2026-09-14.json",
+      "files_passed": 13,
+      "files_total": 13,
+      "assertions_passed": 182,
+      "nonpassing_assertions": 0,
+      "lost_or_missing_passes": 0,
+      "environment_blocks": 0,
+      "elapsed_seconds": 6.536
+    },
+    "numeric_inputs": {
+      "evidence": "text-events-numeric-inputs-wpt-2026-09-14.json",
+      "files_passed": 8,
+      "files_total": 8,
+      "assertions_passed": 150,
+      "nonpassing_assertions": 0,
+      "lost_or_missing_passes": 0,
+      "environment_blocks": 0,
+      "elapsed_seconds": 4.985
+    },
+    "scope": "Selected relevant suites, not a full-WPT baseline."
+  },
+  "oil": {
+    "evidence": "oil-text-events-signed-2026-09-14/summary.json",
+    "contract_version": 5,
+    "cases": 19,
+    "samples_per_case": 3,
+    "jobs": 3,
+    "passed": 57,
+    "planned": 57,
+    "all_final_oracles_verified": true,
+    "source_matches_signed_build": true,
+    "timeouts": 0,
+    "fixture_cleanup": {
+      "returncode": 0,
+      "forced": false
+    },
+    "new_cases": [
+      "minlength_blocks",
+      "minlength_recovery",
+      "maxlength_unicode_truncation"
+    ],
+    "scope": "OIL actions type and submit; a separate stdin-controlled server oracle checks zero POSTs for blocked input, exactly one receipt after recovery, ordered field values, authorized uploads and receipt reload. UTF-16 length is independently enforced by the server. Contract v5 changes constraints and adds three cases; it is not an identical-fixture comparison with v4."
+  },
+  "smoke": {
+    "evidence": "oil-text-events-smoke-2026-09-14",
+    "passed": 12,
+    "total": 12,
+    "port_3000_free_after": true,
+    "scope": "Existing observation/error smoke, not independent full-workflow qualification."
+  },
+  "intermediate_candidate": {
+    "source_sha256": "1d20d9618675959451f7a3ee313567cef656eaf9538f7332ce3af3993ef0b206",
+    "parent_sha256": "9e5772a92a63c3b621bdb69695841c34285164f325bc57feeedc141b4979ce94",
+    "signed_worker_sha256": "813cc1d1a076bf947a57a6855c9448547f58c9db101eca7267cffc6cd8ecf347",
+    "worker_build_sha256": "56a66d785c26ada2a206baae077d27d34ffce450adbd5ee8c5bf00b8506b4cd4",
+    "code_directory_hash": "098cee98ba1f20aa0ab297b799f9de0d8a5b76b6",
+    "constraints": "text-editing-constraints-wpt-2026-09-14.json",
+    "expanded": "text-editing-expanded-wpt-2026-09-14.json",
+    "oil": "oil-text-editing-signed-2026-09-14/summary.json",
+    "smoke": "oil-text-editing-smoke-2026-09-14",
+    "constraints_passed": 920,
+    "expanded_passed": 97,
+    "expanded_failed": 2,
+    "expanded_timed_out": 1,
+    "expanded_not_run": 22,
+    "oil_passed": 57,
+    "fixes_before_final": "Legacy null conversion, select tasks and change-on-blur. The 22 not-run assertions followed the queued-select timeout; they are not claimed as 22 separate engine defects. All intermediate passing assertion identities retained."
+  },
+  "remaining": [
+    "Broader multi-step forms and independently persisted shopping, research, authenticated SaaS and booking outcomes.",
+    "Representative framework applications, repeated concurrency/context-isolation checks.",
+    "Remaining browser architecture packages: initial connected-window ownership, per-document routing, worker-agent execution and upstream automation.",
+    "Full Core WPT, remaining editing/input semantics including badInput, and clean-source security/performance/Linux qualification."
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "case": "price_change_recovery",
+  "sample": 3,
+  "case_id": "ab42ba7d9177767a3bc4072e223f9e99",
+  "base": "http://127.0.0.1:64211/shop/ab42ba7d9177767a3bc4072e223f9e99",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "8792ac89e91035151220749bcb79ab10a725ec058a73883e96857498d4bbf3f4",
+  "returncode": 0,
+  "elapsed_seconds": 0.796
+}

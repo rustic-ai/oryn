@@ -1,0 +1,70 @@
+{
+  "cases": [
+    {
+      "case_id": "a08b7751ed1ca0b5d0d38a76b03d6606",
+      "scenario": "stale",
+      "reviews": 2
+    }
+  ],
+  "slots": [
+    {
+      "case_id": "a08b7751ed1ca0b5d0d38a76b03d6606",
+      "slot": "early",
+      "available": 0,
+      "version": 2
+    },
+    {
+      "case_id": "a08b7751ed1ca0b5d0d38a76b03d6606",
+      "slot": "late",
+      "available": 0,
+      "version": 2
+    }
+  ],
+  "offers": [
+    {
+      "case_id": "a08b7751ed1ca0b5d0d38a76b03d6606",
+      "offer": "b3299175925fa0b81d66ef008281341c",
+      "slot": "early",
+      "version": 1,
+      "zone": "America/New_York",
+      "utc": "2026-11-01T05:30:00+00:00",
+      "local": "2026-11-01T01:30:00-04:00"
+    },
+    {
+      "case_id": "a08b7751ed1ca0b5d0d38a76b03d6606",
+      "offer": "af496f16234bfc5f09d71268c92b8d90",
+      "slot": "late",
+      "version": 1,
+      "zone": "America/New_York",
+      "utc": "2026-11-01T06:30:00+00:00",
+      "local": "2026-11-01T01:30:00-05:00"
+    }
+  ],
+  "reservations": [
+    {
+      "case_id": "a08b7751ed1ca0b5d0d38a76b03d6606",
+      "reservation": "9e0781d27643abae10ed692a7c5f4a90",
+      "slot": "late",
+      "offer": "af496f16234bfc5f09d71268c92b8d90",
+      "request_key": "edea5a6c60ab5f9f606a8ad45afe08ec",
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"af496f16234bfc5f09d71268c92b8d90\"], \"request_key\": [\"edea5a6c60ab5f9f606a8ad45afe08ec\"]}",
+      "utc": "2026-11-01T06:30:00+00:00",
+      "local": "2026-11-01T01:30:00-05:00",
+      "zone": "America/New_York"
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "a08b7751ed1ca0b5d0d38a76b03d6606",
+      "status": 409,
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"b3299175925fa0b81d66ef008281341c\"], \"request_key\": [\"27660c3169a6e32f04cdc7d1e1e8c011\"]}",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "a08b7751ed1ca0b5d0d38a76b03d6606",
+      "status": 303,
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"af496f16234bfc5f09d71268c92b8d90\"], \"request_key\": [\"edea5a6c60ab5f9f606a8ad45afe08ec\"]}",
+      "cookie_valid": 1
+    }
+  ]
+}

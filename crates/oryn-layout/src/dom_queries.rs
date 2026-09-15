@@ -271,14 +271,12 @@ impl Element for DomElement<'_> {
             NonTSPseudoClass::Required => {
                 self.html_tag(&["input", "select", "textarea"]) && self.attr("required").is_some()
             }
-            NonTSPseudoClass::Valid | NonTSPseudoClass::Invalid => {
-                self.html_tag(&["select"])
-                    && self.dom.select_will_validate(self.id).unwrap_or(false)
-                    && self
-                        .dom
-                        .select_validity(self.id)
-                        .is_ok_and(|valid| valid == matches!(pseudo, NonTSPseudoClass::Valid))
-            }
+            NonTSPseudoClass::Valid | NonTSPseudoClass::Invalid => self
+                .dom
+                .validation_selector_state(self.id)
+                .is_ok_and(|state| {
+                    state.is_some_and(|valid| valid == matches!(pseudo, NonTSPseudoClass::Valid))
+                }),
             NonTSPseudoClass::Optional => {
                 self.html_tag(&["input", "select", "textarea"]) && self.attr("required").is_none()
             }

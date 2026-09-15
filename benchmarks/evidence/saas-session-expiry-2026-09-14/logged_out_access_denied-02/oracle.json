@@ -1,0 +1,84 @@
+{
+  "cases": [
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "authenticated": 0,
+      "logins": 1
+    }
+  ],
+  "records": [
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "title": "Approved",
+      "version": 2
+    }
+  ],
+  "requests": [
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "action": "login",
+      "outcome": 303,
+      "authorized": 0,
+      "body_sha256": "131c955ca748255236d58cab0b91a2bc5f3fc261774179ffd9800431f04d9aa2"
+    },
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "action": "create",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "5c316fad3ca109dd0f24b647fa547e6ada0b8173a39ab7966cb2dff8510789f8"
+    },
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "action": "update",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "72f9ace5414ea4ec0b2de98874351bc7bbc7b908045fb9d0c2a68aaa6b5102cb"
+    },
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "action": "logout",
+      "outcome": 303,
+      "authorized": 1,
+      "body_sha256": "7cf1335cb5a34c857148592984e10e3952a01d5bb6c14d8ec2b8771cb982dffd"
+    }
+  ],
+  "views": [
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "page": "records",
+      "authorized": 1
+    },
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "page": "login",
+      "authorized": 0
+    },
+    {
+      "case_id": "d8c252620fbdf5151fd1414e104ce841",
+      "page": "records",
+      "authorized": 0
+    }
+  ],
+  "expirations": []
+}

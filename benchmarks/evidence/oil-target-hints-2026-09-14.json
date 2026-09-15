@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree native diagnostic, not signed or five-use-case qualification",
+  "source_tree_sha256": "8c95010518f6f0b5a1091c711d1dae244be7f5d5987a675af7229b80b2c3ca93",
+  "native_test_binary_sha256": "a7f388390e52879b6d069e8bd21bcf902a1a13025753e554f99589b5031aaa2e",
+  "changes": [
+    "Exact content-label, ID and placeholder targeting hints, ranked below accessible-name matches without changing accessibility names",
+    "Hints updated and removed through the existing mutation/generation lifecycle; hidden content and control values excluded",
+    "Missing declarative graph targets report no matching actionable target, while reference/alias misses retain stale-reference rejection"
+  ],
+  "focused_tests": {
+    "cart_workflow_resolves_visible_button_text_and_input_id": "passed; existing cart fixture increments the selected product to 2 and receives SAVE10 through OIL",
+    "targeting_hints_preserve_names_ambiguity_privacy_and_mutation_identity": "passed; names, hidden/password exclusion, empty query, mutation and ambiguity controls"
+  },
+  "full_native_suite": {"features": ["v8-host", "v8-sandbox", "in-process-probe", "core-full"], "passed": 495, "failed": 0, "ignored": 6, "test_threads": 1, "elapsed_seconds": 145.91},
+  "strict_v8_library_and_test_clippy": "passed",
+  "signed_requalification": "not run for this source",
+  "remaining": ["CSS resolver still uses the old missing-target error mapping", "signed full-corpus replay", "React/Babel loading failures", "independent workflow end-state oracles", "remaining browser architecture and five-use-case gates"],
+  "goal_complete": false
+}

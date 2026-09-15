@@ -1,0 +1,16 @@
+{
+  "case": "valid_urlencoded",
+  "sample": 1,
+  "case_id": "03671743b0c6e9b398abe8b731f32841",
+  "passed": false,
+  "errors": [
+    "OIL process failed or timed out",
+    "missing or failed OIL outputs",
+    "expected 1 POST/receipt, got 0/0",
+    "final browser location does not match expected outcome"
+  ],
+  "timed_out": false,
+  "returncode": 1,
+  "task_sha256": "14e77606576726f4567b3191c38a4c2c5d4a648cbdde2ea32ad7aa66c7c15cde",
+  "elapsed_seconds": 0.147
+}

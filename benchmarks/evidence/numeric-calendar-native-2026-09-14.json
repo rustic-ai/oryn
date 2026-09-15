@@ -1,0 +1,66 @@
+{
+  "classification": "dirty-tree signed-worker diagnostic; not release qualification",
+  "goal_complete": false,
+  "family_qualified": false,
+  "source_sha256": "41639015816ac12750a396599479d3291e6e43eee1ff275be1c20b5dbedb086f",
+  "parent_sha256": "65e33dd952b8c2f81b44c3984f7be031bf59bea0dc71673ce524588981b2820f",
+  "signed_worker_sha256": "caeb8e8fcf360e75b473725a55621962a3867c3b41e9152256e372cee3c7f627",
+  "code_directory_hash": "8d43a19a0ea24b165d8b9048c56b954f6276a944",
+  "webidl_manifest_sha256": "79038817770f2bbf6ef3c41c48b68f3b6427191f41a7f4b359f614fa7ba01e3b",
+  "tests": {
+    "native": {"passed": 533, "ignored": 6},
+    "javascript": {"passed": 272, "ignored": 3},
+    "dom": {"passed": 110},
+    "common": {"passed": 80},
+    "parser": {"passed": 31},
+    "webidl": {"passed": 10},
+    "oracle": {"passed": 9},
+    "strict_native_clippy": "passed",
+    "formatting_registry_ruff": "passed",
+    "signed_worker_security_probes": "passed"
+  },
+  "constraints": {
+    "evidence": "numeric-calendar-decimal-constraints-wpt-2026-09-14.json",
+    "baseline": "validation-observation-constraints-wpt-2026-09-14.json",
+    "files_passed": 20, "files_total": 28,
+    "assertions_passed": 861, "assertions_failed": 59,
+    "baseline_passes": 690, "gains": 171, "lost_or_missing_baseline_passes": 0,
+    "environment_blocks": 0, "runner_elapsed_seconds": 11.568,
+    "remaining": {"pattern": 54, "textarea_default_value_editing": 4, "emoji_maxlength": 1}
+  },
+  "broader_inputs": {
+    "inventory": "numeric-input-selection-2026-09-14.inventory.json",
+    "evidence": "numeric-calendar-decimal-inputs-wpt-2026-09-14.json",
+    "files_passed": 5, "files_total": 8,
+    "assertions_passed": 122, "assertions_failed": 28,
+    "environment_blocks": 0, "runner_elapsed_seconds": 5.487,
+    "remaining": "Missing stepping APIs: month 1, range 4, time 23"
+  },
+  "oil": {
+    "evidence": "oil-numeric-calendar-decimal-signed-2026-09-14/summary.json",
+    "contract_version": 2, "cases": 13, "samples_per_case": 3,
+    "passed": 39, "planned": 39, "all_final_oracles_verified": true,
+    "source_matches_signed_build": true, "timeouts": 0,
+    "fixture_cleanup": {"returncode": 0, "forced": false},
+    "comparability": "Version 2 adds numeric/calendar fields to every case and six negative/recovery cases; not identical inputs to the historical 21-run version 1 suite."
+  },
+  "smoke": {
+    "evidence_directory": "oil-numeric-calendar-decimal-smoke-2026-09-14",
+    "passed": 12, "total": 12,
+    "scope": "Observation/error smoke, not independent task completion"
+  },
+  "intermediate_candidate": {
+    "source_sha256": "26c4c5e0b932389cf504ed67308cd3c466f2b33c138e5c22a8271211301c0de4",
+    "inputs_evidence": "numeric-calendar-inputs-wpt-2026-09-14.json",
+    "assertions_passed": 121, "assertions_failed": 29,
+    "discovered_failure": "Range snapping serialized 0.6 as 0.6000000000000001",
+    "correction": "Bounded exact decimal integer snapping; rebuilt and signed final source; all 121 intermediate passes retained"
+  },
+  "remaining_scope": [
+    "stepUp/stepDown, valueAsNumber/valueAsDate",
+    "pattern, editing length, badInput and textarea defaultValue",
+    "Five-family independent workflow qualification",
+    "Connected-window and dedicated-worker architecture",
+    "Full Core WPT, clean-source security/performance and Linux qualification"
+  ]
+}

@@ -19,7 +19,8 @@ use crate::{
     runtime::NativeAction,
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 9;
+pub const WORKER_PROTOCOL_VERSION: u32 = 10;
+use crate::worker_route::WorkerRoute;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
 
@@ -102,6 +103,7 @@ impl WorkerLimits {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HostEnvelope {
     pub protocol_version: u32,
+    pub route: Option<WorkerRoute>,
     pub session_id: u64,
     pub message_id: u64,
     pub command: WorkerRequest,
@@ -110,6 +112,7 @@ pub struct HostEnvelope {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerEnvelope {
     pub protocol_version: u32,
+    pub route: Option<WorkerRoute>,
     pub session_id: u64,
     pub message_id: u64,
     pub correlation_id: u64,
@@ -402,6 +405,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
 ) -> std::io::Result<()> {
     let mut session: Option<PageSession> = None;
     let mut active_session_id: Option<u64> = None;
+    let mut active_route: Option<WorkerRoute> = None;
     let mut last_message_id = 0_u64;
     loop {
         let mut line = Vec::new();
@@ -430,6 +434,25 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                         "unsupported worker protocol version".into(),
                     )),
                 }
+            } else if !envelope.route.as_ref().is_some_and(|route| {
+                route.process_session == envelope.session_id
+                    && match &envelope.command {
+                        WorkerRequest::Initialize {
+                            page_id,
+                            document_generation_base,
+                            ..
+                        } => {
+                            route.environment == page_id.0
+                                && route.generation == *document_generation_base
+                        }
+                        _ => active_route.as_ref() == Some(route),
+                    }
+            }) {
+                WorkerResponse::Error {
+                    error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
+                        "missing or stale worker route authority".into(),
+                    )),
+                }
             } else if active_session_id.is_some_and(|session_id| session_id != envelope.session_id)
             {
                 WorkerResponse::Error {
@@ -453,22 +476,28 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                 }
             } else {
                 last_message_id = envelope.message_id;
-                if matches!(&envelope.command, WorkerRequest::Initialize { .. }) {
-                    active_session_id = Some(envelope.session_id);
-                }
                 dispatch(
                     &mut session,
-                    broker.clone(),
+                    broker.clone().map(|broker| {
+                        broker.for_route(envelope.route.clone().expect("validated route"))
+                    }),
                     #[cfg(unix)]
-                    context_client.clone(),
+                    context_client.as_ref().map(|client| {
+                        client.for_route(envelope.route.clone().expect("validated route"))
+                    }),
                     envelope.command,
                 )
                 .await
             };
+            if matches!(response, WorkerResponse::Ready { .. }) {
+                active_session_id = Some(envelope.session_id);
+                active_route = envelope.route.clone();
+            }
             let reset = matches!(response, WorkerResponse::ResetReady { .. });
             let exiting = matches!(response, WorkerResponse::Exiting);
             let response = WorkerEnvelope {
                 protocol_version: WORKER_PROTOCOL_VERSION,
+                route: envelope.route,
                 session_id: envelope.session_id,
                 message_id: envelope.message_id,
                 correlation_id: envelope.message_id,
@@ -479,6 +508,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             writer.flush()?;
             if reset {
                 active_session_id = None;
+                active_route = None;
                 last_message_id = 0;
             }
             if exiting {
@@ -924,6 +954,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn serves_initialized_page_requests_over_v8_json_lines() {
+        let route = WorkerRoute::issue(7, 7, 0).unwrap();
         let requests = vec![
             WorkerRequest::Initialize {
                 nonce: "test-nonce".into(),
@@ -958,6 +989,7 @@ mod tests {
                 &HostEnvelope {
                     protocol_version: WORKER_PROTOCOL_VERSION,
                     session_id: 7,
+                    route: Some(route.clone()),
                     message_id: index as u64 + 1,
                     command,
                 },
@@ -1021,11 +1053,14 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_destroys_the_session_and_accepts_a_fresh_nonce_and_session() {
+        let first = WorkerRoute::issue(41, 1, 0).unwrap();
+        let second = WorkerRoute::issue(42, 2, 1_u64 << 32).unwrap();
         let requests = [
             HostEnvelope {
                 protocol_version: WORKER_PROTOCOL_VERSION,
                 session_id: 41,
                 message_id: 1,
+                route: Some(first.clone()),
                 command: WorkerRequest::Initialize {
                     nonce: "first".into(),
                     limits: WorkerLimits::default(),
@@ -1039,6 +1074,7 @@ mod tests {
                 protocol_version: WORKER_PROTOCOL_VERSION,
                 session_id: 41,
                 message_id: 2,
+                route: Some(first),
                 command: WorkerRequest::Reset {
                     nonce: "reset".into(),
                 },
@@ -1047,6 +1083,7 @@ mod tests {
                 protocol_version: WORKER_PROTOCOL_VERSION,
                 session_id: 42,
                 message_id: 1,
+                route: Some(second.clone()),
                 command: WorkerRequest::Initialize {
                     nonce: "second".into(),
                     limits: WorkerLimits::default(),
@@ -1060,6 +1097,7 @@ mod tests {
                 protocol_version: WORKER_PROTOCOL_VERSION,
                 session_id: 42,
                 message_id: 2,
+                route: Some(second),
                 command: WorkerRequest::Exit,
             },
         ];
@@ -1091,6 +1129,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn rejects_duplicate_unmatched_and_reinitialized_v8_messages() {
+        let route = WorkerRoute::issue(9, 7, 0).unwrap();
         let commands = [
             (
                 9,
@@ -1129,6 +1168,7 @@ mod tests {
                     session_id,
                     message_id,
                     command,
+                    route: Some(route.clone()),
                 },
             )
             .unwrap();
@@ -1160,5 +1200,62 @@ mod tests {
             WorkerResponse::Error { .. }
         ));
         assert!(matches!(responses[4].response, WorkerResponse::Exiting));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_worker_commands_reject_missing_and_forged_routes() {
+        let route = WorkerRoute::issue(1, 1, 0).unwrap();
+        let forged = WorkerRoute::issue(1, 1, 0).unwrap();
+        let mut changed = route.clone();
+        changed.generation = 1;
+        let requests = [
+            (
+                Some(route.clone()),
+                WorkerRequest::Initialize {
+                    nonce: "route-test".into(),
+                    limits: WorkerLimits::default(),
+                    context: Box::new(ContextOptions::default()),
+                    page_id: PageId(1),
+                    opener_page_id: None,
+                    document_generation_base: 0,
+                },
+            ),
+            (None, WorkerRequest::Ping),
+            (Some(forged), WorkerRequest::Ping),
+            (Some(changed), WorkerRequest::Ping),
+            (Some(route.clone()), WorkerRequest::Ping),
+            (Some(route), WorkerRequest::Exit),
+        ];
+        let mut input = Vec::new();
+        for (index, (route, command)) in requests.into_iter().enumerate() {
+            serde_json::to_writer(
+                &mut input,
+                &HostEnvelope {
+                    protocol_version: WORKER_PROTOCOL_VERSION,
+                    session_id: 1,
+                    route,
+                    message_id: index as u64 + 1,
+                    command,
+                },
+            )
+            .unwrap();
+            input.push(b'\n');
+        }
+        let mut output = Vec::new();
+        serve(BufReader::new(Cursor::new(input)), &mut output)
+            .await
+            .unwrap();
+        let replies = output
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice::<WorkerEnvelope>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(replies.len(), 6);
+        assert!(matches!(replies[0].response, WorkerResponse::Ready { .. }));
+        for reply in &replies[1..4] {
+            assert!(matches!(reply.response, WorkerResponse::Error { .. }));
+        }
+        assert!(matches!(replies[4].response, WorkerResponse::Pong { .. }));
+        assert!(matches!(replies[5].response, WorkerResponse::Exiting));
     }
 }

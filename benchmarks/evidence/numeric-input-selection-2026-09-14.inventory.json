@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/date.html",
+      "root": "html",
+      "sha256": "922f70f52663aa49bda5dce86e50a3214c192679c22a7b56dcf52aa17ccd2377",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/datetime-local.html",
+      "root": "html",
+      "sha256": "040d36736c57f754167568aedeb215563974106f73be60ae8e3d90b89a448dec",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/month.html",
+      "root": "html",
+      "sha256": "32ed28063c828084665a050c11c078be9bca491090ecc82d02da678a8627583f",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/number.html",
+      "root": "html",
+      "sha256": "84ef5f8bcec79b6defc89d9d921320df66cd2d67d5b250ead5e59c57c16666d3",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/range-2.html",
+      "root": "html",
+      "sha256": "d6558a656501f93be864f6dfbf7e12ff7139b332f8a891f29a619c7453bbc760",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/range.html",
+      "root": "html",
+      "sha256": "79add2627f8256540717b1646f909539c130b909e2ba29c1e382b38a1fb77d71",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/time.html",
+      "root": "html",
+      "sha256": "f875f2cbd71e20570d62d0d40b633013be0dba592f7aebc77a43fa2d930641be",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/week.html",
+      "root": "html",
+      "sha256": "c17f7ffba095dd19e331291d187a522fdaa1fb3f8f1b678b5c4ed50338bf68ff",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ],
+  "required_execution_total": 8
+}

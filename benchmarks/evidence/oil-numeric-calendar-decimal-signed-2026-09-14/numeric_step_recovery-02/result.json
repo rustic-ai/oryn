@@ -1,0 +1,12 @@
+{
+  "case": "numeric_step_recovery",
+  "sample": 2,
+  "case_id": "46aa2e6ff34b51e637fdd1079b4c4c23",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "d62dea1c19cccfee6ef4da8b7c0e36f217275061746522cf56de7e590204dc43",
+  "elapsed_seconds": 0.357,
+  "final_oracle_verified": true
+}

@@ -1,0 +1,12 @@
+observe
+click "Open popup"
+page wait url "idp/authorize"
+page activate 2
+observe
+click "Cancel"
+page activate 1
+observe
+click "Check popup"
+wait visible "Popup closed; opener recovered"
+extract text --selector "output"
+trace stop

@@ -154,13 +154,13 @@ def validate_raw_evidence(
     )
 
     required_runtime = {
-        "contract_version": 3,
+        "contract_version": 4,
         "native_v8": True,
         "build_profile": "release",
         "execution_mode": "sandboxed_worker",
         "sandboxed": True,
         "sandbox_state": "app_sandbox",
-        "worker_protocol_version": 3,
+        "worker_protocol_version": 10,
     }
     for key, expected in required_runtime.items():
         require(runtime.get(key) == expected, f"raw runtime {key} is not {expected!r}")

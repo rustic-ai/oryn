@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "goal_complete": false,
+  "family_qualified": false,
+  "qualification": "signed-worker dirty-tree diagnostics, not full validation, five-family or release qualification",
+  "source_tree_sha256": "79cb72b8a35d8bbb4f780e0c3b32c2596c20b8b257e2351a27af943314784c9b",
+  "parent_sha256": "ebefcb28e8e2ff27a57c560e630074a74097809ead5aba1970c2673702bad17a",
+  "worker_binary_sha256": "b2a7f9a4d19d7973fe99a1d3a30fe688afe3f0da3a79158862eaa4aa508ad3b6",
+  "worker_code_directory_hash": "9d68cd63dc3cffc9dd259f14d08ba94aa333b5a0",
+  "worker_unsigned_build_sha256": "9d98404acbc49f0d34d004eb4893ade1b9e3f7d0c5545efd21a0c04815fc0c8c",
+  "native": {"passed": 529, "failed": 0, "ignored": 6, "elapsed_seconds": 148.97, "binary_sha256": "4605e84fbe2f9e6c5a00422570167e06e8f251111eba9790bf3eb41663ffedef", "timing_caveat": "overlapped compilation; not a performance benchmark"},
+  "javascript": {"passed": 272, "failed": 0, "ignored": 3, "elapsed_seconds": 4.83, "binary_sha256": "9f5fc601394f54c89f77bbf15fe75b2c8f96241a9e2a528a6fe6d4bf162f2236"},
+  "dom_passed": 107,
+  "core_parser_passed": 31,
+  "webidl_passed": 10,
+  "oracle_unit_tests_passed": 8,
+  "strict_native_clippy_format_registry_diff": "passed",
+  "signed_worker_signature_and_sandbox_probes": "passed; protocol 10 and filesystem, listener, outgoing connection, environment-secret denials verified",
+  "implementation": [
+    "Submit button classification is native and shared by activation and validation, with non-element rejection before attribute reads",
+    "Submit/image inputs and submit buttons participate in validation; readonly input controls remain barred from submission checks",
+    "Form validation uses the submittable collection, including image inputs omitted from form.elements",
+    "Button, fieldset, output and object validation interfaces use the shared owner-traced ValidityState implementation",
+    "Disabled text controls do not suffer missing values; checkbox, radio and file validity flags remain independent of their submission eligibility",
+    "Unnamed radio controls do not acquire named-group missing-value state"
+  ],
+  "constraints_wpt": {
+    "evidence": "validation-mutability-constraints-wpt-2026-09-14.json",
+    "baseline_evidence": "shared-validation-constraints-wpt-2026-09-14.json",
+    "baseline_source": "35b860f0d0acc9e1be7e8217097caf6052fed951ebb6ff16a46a625773611647",
+    "baseline_passed_files": 8,
+    "passed_files": 11,
+    "total_files": 28,
+    "baseline_passed_assertions": 566,
+    "passed_assertions": 608,
+    "failed_assertions": 312,
+    "newly_passing_assertions": 42,
+    "previously_passing_assertions_regressed_or_missing": 0,
+    "comparison_key": "pinned WPT path and assertion name; all 566 previous passes checked",
+    "environment_blocked": 0,
+    "elapsed_seconds": 9.5,
+    "newly_passing_files": ["form-validation-willValidate.html", "form-validation-willValidate-datalist.html", "form-validation-validity-customError.html"],
+    "radio_regression_recheck": "radio-valueMissing.html passes all 6 assertions"
+  },
+  "other_wpt": {
+    "requestsubmit": {"passed_assertions": 10, "total_assertions": 10, "evidence": "validation-mutability-requestsubmit-wpt-2026-09-14.json"},
+    "email": {"passed_assertions": 8, "total_assertions": 8, "evidence": "validation-mutability-email-wpt-2026-09-14.json"}
+  },
+  "oil_outcomes": {"passed": 21, "total": 21, "samples_per_scenario": 3, "concurrent_parents": 3, "timeouts": 0, "final_oracles_verified": true, "source_matches_worker_manifest": true, "fixture_cleanup": "clean, not forced", "evidence": "oil-validation-mutability-signed-2026-09-14/summary.json"},
+  "oil_smoke": {"passed": 12, "total": 12, "qualification": "observation/no-unsupported smoke only", "evidence": "oil-validation-mutability-smoke-2026-09-14/summary.json"},
+  "intermediate_regressions_repaired": [
+    {"source": "7df26424ffb2e6877dbc4ac6502d62fba76bb900a7a2e10b52f23978a2826cb5", "native_passed": 527, "native_failed": 2, "native_ignored": 6, "binary_sha256": "5f200f47f5aea56568e7f7a7fea6f17b43dba42984e673df4dc45c613a1ec770", "cause": "Moving submit classification dropped the non-element guard, breaking focus and exact numeric pagination-link activation", "resolution": "Guard restored; both targeted regressions and final full suite pass; stale build process was terminated before qualification"},
+    {"source": "4d3e5688a2d7b019d1f9f6a72991b69cd755ef24cfab4a7e2ab57e431a109c32", "evidence": "validation-eligibility-constraints-wpt-2026-09-14.json", "passed_files": 10, "passed_assertions": 601, "failed_assertions": 319, "prior_passes_regressed": 7, "cause": "Disabled missing-value suppression was incorrectly applied to checkbox, radio and file controls", "resolution": "Suppression restricted to text-value controls; final baseline comparison has zero lost passes"}
+  ],
+  "remaining": ["Interactive reportValidity behavior", "Pattern constraints and bounded regular-expression execution", "Numeric/date/time range, step and sanitization algorithms", "User-edit length constraints and textarea default-value behavior", "Multi-step/framework forms and independent outcomes for the other four workflow families", "Remaining architecture, full Core WPT, clean-source and security/performance release gates"]
+}

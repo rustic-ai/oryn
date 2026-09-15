@@ -18,6 +18,11 @@ pub mod dom_string;
 use attributes::AttributeKey;
 pub use attributes::{AttributeList, ContentAttribute};
 mod form_controls;
+mod numeric_controls;
+mod pattern_controls;
+mod text_controls;
+pub use numeric_controls::NumericValidity;
+pub use pattern_controls::PatternMatcher;
 pub mod html;
 mod identity;
 pub use identity::{ArenaId, DocumentId, NodeRef};
@@ -113,6 +118,8 @@ pub enum NodeKind {
 /// Native document identity and parser mode, preserved by cloning and import.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentMetadata {
+    pub url: Option<String>,
+    pub encoding: String,
     pub content_type: String,
     pub is_html: bool,
     pub quirks: bool,
@@ -122,6 +129,8 @@ impl Default for DocumentMetadata {
     fn default() -> Self {
         Self {
             content_type: "application/xml".into(),
+            url: None,
+            encoding: "UTF-8".into(),
             is_html: false,
             quirks: false,
         }
@@ -134,6 +143,7 @@ impl DocumentMetadata {
             content_type: "text/html".into(),
             is_html: true,
             quirks: false,
+            ..Self::default()
         }
     }
 }
@@ -175,6 +185,11 @@ pub struct Node {
     /// connectivity ancestry. Adoption of the fragment preserves this edge.
     pub template_host: Option<NodeId>,
     pub value: Option<String>,
+    /// Script/user assignment differs from native value sanitization.
+    pub dirty_value: bool,
+    /// Whether the current value was last changed by native user editing.
+    pub user_edited_value: bool,
+    pub pending_edit_value: Option<String>,
     pub selected_files: Arc<Vec<SelectedFile>>,
     /// Last selected image-button coordinate; not an authored attribute.
     pub image_coordinates: (i32, i32),
@@ -200,6 +215,8 @@ struct Slot {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DomError {
+    #[error("pattern validation failed: {0}")]
+    PatternEvaluation(&'static str),
     #[error("node belongs to arena {actual:?}, not {expected:?}")]
     WrongArena { expected: ArenaId, actual: ArenaId },
     #[error("operation requires a Document node, got {0:?}")]
@@ -287,6 +304,81 @@ impl Clone for DomArena {
 }
 
 impl DomArena {
+    /// Match one selector chain against this arena without cloning DOM state.
+    /// Callers provide the active focused node for the `:focus` pseudo-class.
+    pub fn matches_selector_chain(
+        &self,
+        node: NodeId,
+        selector: &str,
+        focused: Option<NodeId>,
+    ) -> Result<bool, DomError> {
+        if let Some((left, combinator, right)) = split_last_selector_combinator(selector) {
+            if !self.matches_selector_chain(node, right, focused)? {
+                return Ok(false);
+            }
+            let record = self.get(node)?;
+            return match combinator {
+                '>' => record
+                    .parent
+                    .map(|parent| self.matches_selector_chain(parent, left, focused))
+                    .transpose()
+                    .map(|value| value.unwrap_or(false)),
+                '+' | '~' => {
+                    let Some(parent) = record.parent else {
+                        return Ok(false);
+                    };
+                    let siblings = &self.get(parent)?.children;
+                    let Some(index) = siblings.iter().position(|candidate| *candidate == node)
+                    else {
+                        return Ok(false);
+                    };
+                    let matching = siblings[..index]
+                        .iter()
+                        .rev()
+                        .filter(|candidate| {
+                            self.get(**candidate)
+                                .is_ok_and(|record| matches!(record.kind, NodeKind::Element { .. }))
+                        })
+                        .take(if combinator == '+' { 1 } else { usize::MAX })
+                        .any(|candidate| {
+                            self.matches_selector_chain(*candidate, left, focused)
+                                .unwrap_or(false)
+                        });
+                    Ok(matching)
+                }
+                _ => Ok(false),
+            };
+        }
+        let compounds = selector_compounds(selector);
+        let Some(last) = compounds.last() else {
+            return Ok(false);
+        };
+        let focus_subject = last.strip_suffix(":focus");
+        if focus_subject.is_some() && focused != Some(node) {
+            return Ok(false);
+        }
+        let last = focus_subject.unwrap_or(last);
+        if !last.is_empty() && !matches_compound_selector(self.get(node)?, last) {
+            return Ok(false);
+        }
+        let mut ancestor = self.get(node)?.parent;
+        for compound in compounds[..compounds.len() - 1].iter().rev() {
+            let mut matched = None;
+            while let Some(candidate) = ancestor {
+                let record = self.get(candidate)?;
+                ancestor = record.parent;
+                if matches_compound_selector(record, compound) {
+                    matched = Some(candidate);
+                    break;
+                }
+            }
+            if matched.is_none() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     pub fn hosted_document(&self, frame: NodeId) -> Option<NodeId> {
         self.hosted_documents.get(&frame).copied()
     }
@@ -822,6 +914,9 @@ fn new_node(kind: NodeKind) -> Node {
         template_content: None,
         template_host: None,
         value: None,
+        dirty_value: false,
+        user_edited_value: false,
+        pending_edit_value: None,
         selected_files: Arc::new(Vec::new()),
         image_coordinates: (0, 0),
         image_dimensions: None,
@@ -1031,9 +1126,11 @@ struct NodeRoots {
 
 #[derive(Debug, Default, Clone)]
 pub struct DomRuntime {
+    pattern_matcher: Option<Rc<dyn PatternMatcher>>,
     arena: DomArena,
     document: Option<NodeId>,
     connected: BTreeSet<NodeId>,
+    frame_context_generations: BTreeMap<NodeId, u64>,
     roots: BTreeMap<NodeId, NodeRoots>,
     /// Conservative targets of internal non-tree edges. Used only to avoid
     /// full graph tracing for ordinary detached tree components.
@@ -1088,6 +1185,7 @@ impl DomRuntime {
         self.arena = arena;
         self.document = Some(document);
         self.connected.clear();
+        self.frame_context_generations.clear();
         self.roots.clear();
         self.internal_targets.clear();
         self.index_internal_targets();
@@ -1112,6 +1210,20 @@ impl DomRuntime {
         &mut self.arena
     }
 
+    /// Ordinary reparenting discards a browsing context even when removal and
+    /// insertion happen in one call; state-preserving moveBefore does not.
+    pub fn track_frame_context(&mut self, frame: NodeId) -> u64 {
+        *self.frame_context_generations.entry(frame).or_insert(1)
+    }
+
+    pub fn frame_context_generation(&self, frame: NodeId) -> Option<u64> {
+        self.frame_context_generations.get(&frame).copied()
+    }
+
+    pub fn untrack_frame_context(&mut self, frame: NodeId) {
+        self.frame_context_generations.remove(&frame);
+    }
+
     fn index_internal_targets(&mut self) {
         for (_, record) in self.arena.iter() {
             self.internal_targets.extend(record.template_content);
@@ -1125,8 +1237,41 @@ impl DomRuntime {
         if self.arena.node_document(node)? == Some(document) {
             return Ok(());
         }
+        let previous = self.ownership_before_adoption(node, Some(document))?;
         self.arena.assign_node_document(node, document)?;
-        self.mutations.push(Mutation::DocumentOwnership { node });
+        self.publish_ownership_changes(previous)?;
+        Ok(())
+    }
+
+    fn ownership_before_adoption(
+        &self,
+        node: NodeId,
+        document: Option<NodeId>,
+    ) -> Result<Vec<(NodeId, Option<NodeId>)>, DomError> {
+        if self.arena.node_document(node)? == document {
+            return Ok(Vec::new());
+        }
+        let mut previous = Vec::new();
+        let mut pending = vec![node];
+        while let Some(node) = pending.pop() {
+            let record = self.arena.get(node)?;
+            previous.push((node, self.arena.node_document(node)?));
+            pending.extend(record.template_content);
+            pending.extend(record.children.iter().rev().copied());
+            pending.extend(self.arena.attribute_node_ids(node));
+        }
+        Ok(previous)
+    }
+
+    fn publish_ownership_changes(
+        &mut self,
+        previous: Vec<(NodeId, Option<NodeId>)>,
+    ) -> Result<(), DomError> {
+        for (node, document) in previous {
+            if self.arena.node_document(node)? != document {
+                self.mutations.push(Mutation::DocumentOwnership { node });
+            }
+        }
         Ok(())
     }
 
@@ -1553,6 +1698,8 @@ impl DomRuntime {
 
     pub fn append_child(&mut self, parent: NodeId, child: NodeId) -> Result<(), DomError> {
         self.arena.validate_tree_edge(parent, child)?;
+        let previous_ownership =
+            self.ownership_before_adoption(child, self.arena.node_document(parent)?)?;
         let option_owners = self.option_owners_in_subtree(child)?;
         let former_parent = self.arena.get(child)?.parent;
         let mut removed_siblings = MutationSiblings::default();
@@ -1582,6 +1729,7 @@ impl DomRuntime {
                 observer_suppressed: false,
             });
         }
+        self.publish_ownership_changes(previous_ownership)?;
         self.mutations.push(Mutation::Inserted {
             node: child,
             parent: Some(parent),
@@ -1633,6 +1781,8 @@ impl DomRuntime {
         if reference == Some(child) {
             return Ok(());
         }
+        let previous_ownership =
+            self.ownership_before_adoption(child, self.arena.node_document(parent)?)?;
         let option_owners = self.option_owners_in_subtree(child)?;
         let former_parent = self.arena.get(child)?.parent;
         let mut removed_siblings = MutationSiblings::default();
@@ -1671,6 +1821,7 @@ impl DomRuntime {
                 observer_suppressed: false,
             });
         }
+        self.publish_ownership_changes(previous_ownership)?;
         self.mutations.push(Mutation::Inserted {
             node: child,
             parent: Some(parent),
@@ -1845,6 +1996,7 @@ impl DomRuntime {
         let name = data.name.clone();
         let namespace = data.namespace.clone();
         let value = data.value.clone();
+        let old_email_value = self.text_input_attribute_transition_value(node, &name, &value)?;
         let old_value = self
             .arena
             .get_mut(node)?
@@ -1864,6 +2016,9 @@ impl DomRuntime {
         }
         if name == "media" && namespace.is_none() {
             self.arena.get_mut(node)?.stylesheet_media = None;
+        }
+        if namespace.is_none() {
+            self.sanitize_after_input_attribute(node, &name, old_email_value)?;
         }
         if let Some(attribute) = self
             .arena
@@ -1933,12 +2088,17 @@ impl DomRuntime {
         if !matches!(self.arena.get(node)?.kind, NodeKind::Element { .. }) {
             return Err(DomError::NotAnElement(node));
         }
+        let old_email_value =
+            self.text_input_attribute_transition_value(node, &key.local_name, "")?;
         let Some(entry) = self.arena.get_mut(node)?.attributes.remove(&key) else {
             return Ok(());
         };
         let name = entry.name.as_str();
         let old_value = Some(entry.value.clone());
         let namespace = entry.namespace.clone();
+        if namespace.is_none() {
+            self.sanitize_after_input_attribute(node, name, old_email_value)?;
+        }
         if entry.local_name == "type"
             && namespace.is_none()
             && entry.value.eq_ignore_ascii_case("file")
@@ -2373,6 +2533,8 @@ impl DomRuntime {
             record.document_metadata = source.document_metadata;
             record.attributes = source.attributes;
             record.value = source.value;
+            record.dirty_value = source.dirty_value;
+            record.user_edited_value = source.user_edited_value;
             record.selected_files = source.selected_files;
             record.checkedness = source.checkedness;
             record.dirty_checkedness = source.dirty_checkedness;
@@ -2969,17 +3131,27 @@ impl DomRuntime {
                 .cloned()
                 .unwrap_or_else(|| "on".into()));
         }
+        if self.is_element(node, "http://www.w3.org/1999/xhtml", "textarea") && !record.dirty_value
+        {
+            return Ok(dom_string::from_units(&self.normalized_control_edit_units(
+                node,
+                &self.textarea_default_value(node)?,
+            )));
+        }
         if let Some(value) = &record.value {
-            return Ok(value.clone());
+            return self.sanitized_input_value(node, value);
         }
         if self.is_element(node, "http://www.w3.org/1999/xhtml", "textarea") {
             return self.arena.text_content(node);
         }
-        Ok(record
-            .attributes
-            .get_null("value")
-            .cloned()
-            .unwrap_or_default())
+        self.sanitized_input_value(
+            node,
+            &record
+                .attributes
+                .get_null("value")
+                .cloned()
+                .unwrap_or_default(),
+        )
     }
 
     pub fn create_opaque_range(
@@ -3058,10 +3230,12 @@ impl DomRuntime {
         let inserted = u32::try_from(dom_string::len(replacement))
             .map_err(|_| OpaqueRangeError::InvalidOffset)?;
         units.splice(start as usize..end as usize, dom_string::units(replacement));
-        let value = dom_string::from_units(&units);
+        let value = self.sanitized_input_value(node, &dom_string::from_units(&units))?;
         self.opaque_ranges
             .replace(node, start, end - start, inserted, old_length)?;
         self.arena.get_mut(node)?.value = Some(value);
+        self.arena.get_mut(node)?.dirty_value = true;
+        self.arena.get_mut(node)?.user_edited_value = false;
         self.mutations.push(Mutation::FormState { node });
         Ok(())
     }
@@ -3112,6 +3286,8 @@ impl DomRuntime {
         }
         let record = self.arena.get_mut(node)?;
         record.value = Some(value);
+        record.dirty_value = true;
+        record.user_edited_value = false;
         record.sensitive_value = sensitive;
         self.mutations.push(Mutation::FormState { node });
         Ok(())
@@ -3172,6 +3348,21 @@ impl DomRuntime {
     pub fn is_connected(&self, node: NodeId) -> Result<bool, DomError> {
         self.arena.get(node)?;
         Ok(self.connected.contains(&node))
+    }
+
+    /// DOM connectivity includes inert documents, unlike the active tree used
+    /// for rendering and script preparation. Arena parent links include shadow
+    /// hosts, so this walks the shadow-including ancestry.
+    pub fn is_document_connected(&self, node: NodeId) -> Result<bool, DomError> {
+        let mut current = Some(node);
+        while let Some(node) = current {
+            let record = self.arena.get(node)?;
+            if matches!(record.kind, NodeKind::Document) {
+                return Ok(true);
+            }
+            current = record.parent;
+        }
+        Ok(false)
     }
 
     pub fn children(&self, node: NodeId) -> Result<&[NodeId], DomError> {
@@ -3256,75 +3447,8 @@ impl DomRuntime {
     }
 
     fn matches_selector_chain(&self, node: NodeId, selector: &str) -> Result<bool, DomError> {
-        if let Some((left, combinator, right)) = split_last_selector_combinator(selector) {
-            if !self.matches_selector_chain(node, right)? {
-                return Ok(false);
-            }
-            let record = self.arena.get(node)?;
-            return match combinator {
-                '>' => record
-                    .parent
-                    .map(|parent| self.matches_selector_chain(parent, left))
-                    .transpose()
-                    .map(|value| value.unwrap_or(false)),
-                '+' | '~' => {
-                    let Some(parent) = record.parent else {
-                        return Ok(false);
-                    };
-                    let siblings = &self.arena.get(parent)?.children;
-                    let Some(index) = siblings.iter().position(|candidate| *candidate == node)
-                    else {
-                        return Ok(false);
-                    };
-                    let matching = siblings[..index]
-                        .iter()
-                        .rev()
-                        .filter(|candidate| {
-                            self.arena
-                                .get(**candidate)
-                                .is_ok_and(|record| matches!(record.kind, NodeKind::Element { .. }))
-                        })
-                        .take(if combinator == '+' { 1 } else { usize::MAX })
-                        .any(|candidate| {
-                            self.matches_selector_chain(*candidate, left)
-                                .unwrap_or(false)
-                        });
-                    Ok(matching)
-                }
-                _ => Ok(false),
-            };
-        }
-        let compounds = selector
-            .split_ascii_whitespace()
-            .filter(|part| !part.is_empty() && *part != ">")
-            .collect::<Vec<_>>();
-        let Some(last) = compounds.last() else {
-            return Ok(false);
-        };
-        let focused = last.strip_suffix(":focus");
-        if focused.is_some() && self.focused != Some(node) {
-            return Ok(false);
-        }
-        let last = focused.unwrap_or(last);
-        if !last.is_empty() && !matches_compound_selector(self.arena.get(node)?, last) {
-            return Ok(false);
-        }
-        let mut ancestor = self.arena.get(node)?.parent;
-        for compound in compounds[..compounds.len() - 1].iter().rev() {
-            let mut matched = None;
-            while let Some(candidate) = ancestor {
-                let record = self.arena.get(candidate)?;
-                ancestor = record.parent;
-                if matches_compound_selector(record, compound) {
-                    matched = Some(candidate);
-                    break;
-                }
-            }
-            if matched.is_none() {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        self.arena
+            .matches_selector_chain(node, selector, self.focused)
     }
 
     pub fn serialize(&self, node: NodeId) -> Result<String, DomError> {
@@ -3338,7 +3462,16 @@ impl DomRuntime {
                 Ok(output)
             }
             NodeKind::DocumentType { name, .. } => Ok(format!("<!DOCTYPE {name}>")),
-            NodeKind::Text { data } => Ok(escape_text(data)),
+            NodeKind::Text { data } => {
+                // HTML fragment serialization preserves text under raw-text
+                // elements. The namespace guard matters for SVG script/style.
+                let raw = record.parent.and_then(|parent| self.arena.get(parent).ok())
+                    .is_some_and(|parent| matches!(&parent.kind,
+                        NodeKind::Element { name }
+                        if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                            && matches!(name.local.as_ref(), "script" | "style" | "xmp" | "iframe" | "noembed" | "noframes" | "plaintext")));
+                Ok(if raw { data.clone() } else { escape_text(data) })
+            }
             NodeKind::CDataSection { data } => Ok(format!("<![CDATA[{data}]]>")),
             NodeKind::ProcessingInstruction { target, data } => Ok(format!("<?{target} {data}?>")),
             NodeKind::Comment { data } => Ok(format!("<!--{data}-->")),
@@ -3431,7 +3564,13 @@ impl DomRuntime {
         node: NodeId,
         preserve_focus: bool,
     ) -> Result<(), DomError> {
-        self.connected.remove(&node);
+        let was_connected = self.connected.remove(&node);
+        if was_connected
+            && !preserve_focus
+            && let Some(generation) = self.frame_context_generations.get_mut(&node)
+        {
+            *generation = generation.saturating_add(1);
+        }
         if !preserve_focus && self.focused == Some(node) {
             self.focus(None)?;
         }
@@ -3559,6 +3698,7 @@ impl DomRuntime {
             }
         }
         self.roots.remove(&node);
+        self.frame_context_generations.remove(&node);
         self.internal_targets.remove(&node);
         if let Some(host) = template_host
             && self.arena.get(host).is_ok()
@@ -3579,10 +3719,49 @@ fn utf16_len(value: &str) -> u32 {
     value.encode_utf16().count().try_into().unwrap_or(u32::MAX)
 }
 
-/// Returns the last explicit combinator outside attribute selectors and
-/// functional pseudo classes. Descendant whitespace remains handled by the
-/// existing ancestor walk below, while explicit child/sibling relationships
-/// must retain their exact topology.
+/// Split descendant compounds without splitting quoted attribute values or
+/// functional pseudo-class arguments.
+fn selector_compounds(selector: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut depth = 0_u32;
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in selector.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if character == '\\' {
+            escaped = true;
+            continue;
+        }
+        if let Some(active) = quote {
+            if character == active {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '[' | '(' => depth += 1,
+            ']' | ')' => depth = depth.saturating_sub(1),
+            c if c.is_ascii_whitespace() && depth == 0 => {
+                if start < index {
+                    parts.push(&selector[start..index]);
+                }
+                start = index + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    if start < selector.len() {
+        parts.push(&selector[start..]);
+    }
+    parts
+}
+
+/// Find the last explicit combinator outside attributes and pseudo-classes.
 fn split_last_selector_combinator(selector: &str) -> Option<(&str, char, &str)> {
     let mut bracket_depth = 0_u32;
     let mut paren_depth = 0_u32;
@@ -3633,6 +3812,18 @@ fn matches_compound_selector(node: &Node, selector: &str) -> bool {
         index = end;
     }
     while index < selector.len() {
+        if selector[index..].starts_with(":not(") {
+            let start = index + 5;
+            let Some(end) = selector[start..].find(')') else {
+                return false;
+            };
+            let excluded = &selector[start..start + end];
+            if excluded.is_empty() || matches_compound_selector(node, excluded) {
+                return false;
+            }
+            index = start + end + 1;
+            continue;
+        }
         let marker = bytes[index];
         if !matches!(marker, b'#' | b'.' | b'[' | b':') {
             // This bounded selector matcher intentionally leaves escaped and
@@ -3663,7 +3854,14 @@ fn matches_compound_selector(node: &Node, selector: &str) -> bool {
                 .get_null("class")
                 .is_some_and(|value| value.split_ascii_whitespace().any(|class| class == token)),
             b'[' => {
-                if let Some((attribute, value)) = token.split_once('=') {
+                if let Some((attribute, value)) = token.split_once("*=") {
+                    let value = value.trim().trim_matches(['\'', '"']);
+                    !value.is_empty()
+                        && node
+                            .attributes
+                            .get_null(attribute.trim())
+                            .is_some_and(|actual| actual.contains(value))
+                } else if let Some((attribute, value)) = token.split_once('=') {
                     let value = value.trim().trim_matches(['\'', '"']);
                     node.attributes
                         .get_null(attribute.trim())
@@ -3732,6 +3930,25 @@ fn is_void_html_element(name: &LocalName) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_context_generation_observes_atomic_moves_and_preserves_move_before() {
+        let mut dom = html::parse("<div id=a><iframe id=f></iframe></div><div id=b></div>")
+            .into_runtime()
+            .unwrap();
+        let a = dom.find_by_id("a").unwrap();
+        let b = dom.find_by_id("b").unwrap();
+        let frame = dom.find_by_id("f").unwrap();
+        assert_eq!(dom.track_frame_context(frame), 1);
+        dom.move_before(b, frame, None).unwrap();
+        assert_eq!(dom.frame_context_generation(frame), Some(1));
+        dom.append_child(a, frame).unwrap();
+        assert_eq!(dom.frame_context_generation(frame), Some(2));
+        dom.remove(a).unwrap();
+        assert_eq!(dom.frame_context_generation(frame), Some(3));
+        dom.untrack_frame_context(frame);
+        assert_eq!(dom.frame_context_generation(frame), None);
+    }
 
     #[test]
     fn template_ownership_is_inert_shared_nested_and_adopted_without_cloning() {
@@ -5217,6 +5434,44 @@ mod tests {
     }
 
     #[test]
+    fn serialization_preserves_html_raw_text_and_escapes_other_namespaces() {
+        let text = "a < b && c > d\u{a0}";
+        for tag in [
+            "script",
+            "style",
+            "xmp",
+            "iframe",
+            "noembed",
+            "noframes",
+            "plaintext",
+        ] {
+            let mut dom = DomRuntime::new();
+            let element = dom.create_element(tag);
+            let child = dom.create_text(text);
+            dom.append_child(element, child).unwrap();
+            assert_eq!(dom.serialize(child).unwrap(), text);
+            assert_eq!(
+                dom.serialize(element).unwrap(),
+                format!("<{tag}>{text}</{tag}>")
+            );
+        }
+        for (namespace, tag) in [
+            ("http://www.w3.org/2000/svg", "script"),
+            ("http://www.w3.org/2000/svg", "style"),
+            ("http://www.w3.org/1999/xhtml", "p"),
+        ] {
+            let mut dom = DomRuntime::new();
+            let element = dom.create_element_ns(namespace, tag);
+            let child = dom.create_text(text);
+            dom.append_child(element, child).unwrap();
+            assert_eq!(
+                dom.serialize(child).unwrap(),
+                "a &lt; b &amp;&amp; c &gt; d&nbsp;"
+            );
+        }
+    }
+
+    #[test]
     fn serialization_escapes_nonbreaking_spaces_without_changing_dom_text() {
         let parsed = html::parse("<p title='A&nbsp;B'>A&nbsp; &amp; B</p>");
         let dom = parsed.into_runtime().unwrap();
@@ -5259,6 +5514,25 @@ mod tests {
         assert!(!dom.matches_selector(button, ":checked").unwrap());
         assert!(
             dom.matches_selector(button, "button.action, input")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn selector_negation_checks_ancestors() {
+        let dom = html::parse("<div id=container><button id=target>Try</button></div>")
+            .into_runtime()
+            .unwrap();
+        let target = dom
+            .query_selector(dom.document(), "#target")
+            .unwrap()
+            .unwrap();
+        assert!(
+            dom.matches_selector(target, "#container:not(.disabled) #target")
+                .unwrap()
+        );
+        assert!(
+            !dom.matches_selector(target, "#container:not(#container) #target")
                 .unwrap()
         );
     }

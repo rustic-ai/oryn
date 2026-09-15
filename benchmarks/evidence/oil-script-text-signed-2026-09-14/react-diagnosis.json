@@ -1,0 +1,1 @@
+{"babel":"object","root":0,"scripts":[{"type":"","length":0},{"type":"","length":0},{"type":"","length":0},{"type":"","length":90852},{"type":"text/babel","length":27212}],"scriptText":["test","test"],"manual":"TypeError: V8 failed to allocate dynamic script result"}

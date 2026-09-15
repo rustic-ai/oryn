@@ -1,0 +1,12 @@
+{
+  "case": "native_numeric_api_adjustment",
+  "sample": 3,
+  "case_id": "02cd0eca48af3bba25667745fe61f0db",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "5e41b43d9ffd1cf016ac86088e8c9bdbf32f4e8c201aefdb8944778c761f8ffb",
+  "elapsed_seconds": 0.311,
+  "final_oracle_verified": true
+}

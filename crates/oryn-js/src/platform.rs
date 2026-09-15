@@ -277,6 +277,9 @@ pub struct PlatformHostCompletion {
 }
 
 /// Non-blocking authority boundary used by generated bindings.
+/// Each accepted operation produces one terminal completion (including after
+/// cancellation). A failed HttpRead must close its stream before completing.
+/// Retirement revokes the endpoint and may discard outstanding completions.
 pub trait PlatformHost {
     fn submit(
         &self,

@@ -1,0 +1,9 @@
+goto "http://127.0.0.1:61255/research/34c6de85811996bf0deae5afb33a9790/start"
+type "Search sources" "redirect"
+click "Search reports"
+click "Archived Alpha report"
+wait visible css(#facts)
+extract text --selector "#facts"
+extract tables --selector "#measurements"
+extract links --selector "#sources"
+observe

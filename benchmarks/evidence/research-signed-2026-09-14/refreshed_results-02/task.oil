@@ -1,0 +1,12 @@
+goto "http://127.0.0.1:56120/research/bf0a26d04d93b1c9c56d644ea09350ff/start"
+type "Search sources" "refresh"
+click "Search reports"
+click "Refresh results"
+wait visible css(#ready)
+extract links --selector "#results"
+click "Beta report"
+wait visible css(#facts)
+extract text --selector "#facts"
+extract tables --selector "#measurements"
+extract links --selector "#sources"
+observe

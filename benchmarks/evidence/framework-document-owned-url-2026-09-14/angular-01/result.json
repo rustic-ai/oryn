@@ -1,0 +1,10 @@
+{
+  "framework": "angular",
+  "sample": 1,
+  "errors": [],
+  "timed_out": false,
+  "task_sha256": "7b8d1db56f57aaa2aa30589f2b5dd865bc7cd84e4b524dbdc4b3bdfa8f5fe46d",
+  "returncode": 0,
+  "elapsed_seconds": 0.156,
+  "passed": true
+}

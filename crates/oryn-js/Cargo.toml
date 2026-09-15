@@ -12,6 +12,7 @@ v8-sandbox = ["v8/v8_enable_sandbox"]
 
 [dependencies]
 base64 = "0.22"
+encoding_rs = "0.8"
 getrandom = "0.3"
 image = { version = "0.25", default-features = false, features = ["bmp", "png", "jpeg", "gif", "webp"], optional = true }
 oryn-dom = { path = "../oryn-dom" }

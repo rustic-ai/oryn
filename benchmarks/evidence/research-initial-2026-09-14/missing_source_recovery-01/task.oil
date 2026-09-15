@@ -1,0 +1,13 @@
+goto "http://127.0.0.1:55790/research/a7b46c77e7bd4c8cd06808c085eea5ea/start"
+type "Search sources" "missing"
+click "Search reports"
+click "Unavailable report"
+wait visible css(#missing)
+extract text --selector "#missing"
+click "Return to results"
+click "Alpha report"
+wait visible css(#facts)
+extract text --selector "#facts"
+extract tables --selector "#measurements"
+extract links --selector "#sources"
+observe

@@ -1,0 +1,11 @@
+{
+  "case": "overnight_time_recovery",
+  "sample": 1,
+  "case_id": "b02084ee9c72a0e3ace491959b1e1617",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "337d810b7a2f2d3bf10dbcc9a954c3ec226d1956dc244b8f6264f8e2afdeaaa2",
+  "elapsed_seconds": 0.365
+}

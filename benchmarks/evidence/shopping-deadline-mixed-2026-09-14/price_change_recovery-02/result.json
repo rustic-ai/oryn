@@ -1,0 +1,13 @@
+{
+  "case": "price_change_recovery",
+  "sample": 2,
+  "case_id": "2fca4a520de6e220339fcf2843d90354",
+  "base": "http://127.0.0.1:54783/shop/2fca4a520de6e220339fcf2843d90354",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "26083fc9ad983039196752b3df690596f2b0ae948e1838d55f8a8d04a48f0b21",
+  "returncode": 0,
+  "elapsed_seconds": 1.323,
+  "final_database_verified": true
+}

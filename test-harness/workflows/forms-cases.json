@@ -1,0 +1,45 @@
+{
+  "schema_version": 5,
+  "family": "forms_and_document_submission",
+  "scope": "controlled native form POST, validation/recovery, cancellation and authorized upload; not full family qualification",
+  "fields": {
+    "name": "Zoë Test",
+    "email": "zoe@example.test",
+    "role": "developer",
+    "message": "R&D + 50% = café 日本語",
+    "quantity": "3",
+    "date": "2026-10-01",
+    "time": "23:00",
+    "reference": "ABC123",
+    "skill": ["rust", "javascript"]
+  },
+  "fill": [
+    "type \"Full name\" \"Zoë Test\"",
+    "type \"Email address\" \"zoe@example.test\"",
+    "select \"Primary role\" \"developer\"",
+    "type \"Application note\" \"R&D + 50% = café 日本語\"",
+    "check \"Rust\"",
+    "check \"JavaScript\""
+  ],
+  "cases": [
+    {"id":"minlength_blocks","before_fill":[],"after_fill":["type \"Application note\" \"abc\""],"fill":true,"submit":true,"upload":false,"expected_receipts":0},
+    {"id":"minlength_recovery","before_fill":[],"after_fill":["type \"Application note\" \"abc\"","click \"Submit application\"","type \"Application note\" \"R&D + 50% = café 日本語\""],"fill":true,"submit":true,"upload":false},
+    {"id":"maxlength_unicode_truncation","before_fill":[],"after_fill":["type \"Full name\" \"👨‍👩‍👧‍👦\""],"fill":true,"submit":true,"upload":false,"expected_fields":{"name":"👨‍👩‍👧‍"}},
+    {"id":"pattern_blocks","before_fill":[],"after_fill":["type \"Application reference\" \"bad123\""],"fill":true,"submit":true,"upload":false,"expected_receipts":0},
+    {"id":"pattern_recovery","before_fill":[],"after_fill":["type \"Application reference\" \"bad123\"","click \"Submit application\"","type \"Application reference\" \"ABC123\""],"fill":true,"submit":true,"upload":false},
+    {"id":"native_numeric_api_adjustment","before_fill":[],"after_fill":["click \"Add seats and move contact slot\""],"fill":true,"submit":true,"upload":false,"expected_fields":{"quantity":"5","date":"2026-10-02","time":"23:01"}},
+    {"id":"numeric_step_blocks","before_fill":[],"after_fill":["type \"Requested seats\" \"4\""],"fill":true,"submit":true,"upload":false,"expected_receipts":0},
+    {"id":"numeric_step_recovery","before_fill":[],"after_fill":["type \"Requested seats\" \"4\"","click \"Submit application\"","type \"Requested seats\" \"3\""],"fill":true,"submit":true,"upload":false},
+    {"id":"date_range_blocks","before_fill":[],"after_fill":["type \"Preferred date\" \"2026-09-30\""],"fill":true,"submit":true,"upload":false,"expected_receipts":0},
+    {"id":"date_range_recovery","before_fill":[],"after_fill":["type \"Preferred date\" \"2026-09-30\"","click \"Submit application\"","type \"Preferred date\" \"2026-10-01\""],"fill":true,"submit":true,"upload":false},
+    {"id":"overnight_time_blocks","before_fill":[],"after_fill":["type \"Overnight contact time\" \"12:00\""],"fill":true,"submit":true,"upload":false,"expected_receipts":0},
+    {"id":"overnight_time_recovery","before_fill":[],"after_fill":["type \"Overnight contact time\" \"12:00\"","click \"Submit application\"","type \"Overnight contact time\" \"23:00\""],"fill":true,"submit":true,"upload":false},
+    {"id":"valid_urlencoded","before_fill":[],"after_fill":[],"fill":true,"submit":true,"upload":false},
+    {"id":"required_blocks_submission","before_fill":[],"after_fill":[],"fill":false,"submit":true,"upload":false,"expected_receipts":0},
+    {"id":"required_recovery","before_fill":["click \"Submit application\""],"after_fill":[],"fill":true,"submit":true,"upload":false},
+    {"id":"email_recovery","before_fill":[],"after_fill":["type \"Email address\" \"not-an-email\"","click \"Submit application\"","type \"Email address\" \"zoe@example.test\""],"fill":true,"submit":true,"upload":false},
+    {"id":"cancel_blocks_submission","before_fill":[],"after_fill":["check \"Cancel this submission\""],"fill":true,"submit":true,"upload":false,"expected_receipts":0},
+    {"id":"cancel_recovery","before_fill":[],"after_fill":["check \"Cancel this submission\"","click \"Submit application\"","uncheck \"Cancel this submission\""],"fill":true,"submit":true,"upload":false},
+    {"id":"authorized_document_upload","before_fill":[],"after_fill":["upload \"Application document\" $file:authorized"],"fill":true,"submit":true,"upload":true}
+  ]
+}

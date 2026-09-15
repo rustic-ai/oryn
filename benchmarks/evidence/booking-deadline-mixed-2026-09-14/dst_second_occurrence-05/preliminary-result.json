@@ -1,0 +1,12 @@
+{
+  "case": "dst_second_occurrence",
+  "sample": 5,
+  "case_id": "07184481ab24d06feebcaa7b70af34a5",
+  "base": "http://127.0.0.1:54735/booking/07184481ab24d06feebcaa7b70af34a5",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "abcf1db53ab0274e665d7557b9cedba3edb841ff319f5bffa41405057749a52b",
+  "returncode": 0,
+  "elapsed_seconds": 0.415
+}

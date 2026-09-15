@@ -1,0 +1,2 @@
+$ vite build
+5:08:01 PM [vite] warning: `esbuild` option was specified by "vite:preact-jsx" plugin. This option is deprecated, please use `oxc` instead.

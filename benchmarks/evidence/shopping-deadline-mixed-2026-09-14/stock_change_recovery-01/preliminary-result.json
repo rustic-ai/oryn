@@ -1,0 +1,12 @@
+{
+  "case": "stock_change_recovery",
+  "sample": 1,
+  "case_id": "fda59932372bd4f4349675acebdf68cd",
+  "base": "http://127.0.0.1:54783/shop/fda59932372bd4f4349675acebdf68cd",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "dc68f19ef87ecffd4c753d8dcff5fe826606dc8b4124f7582d3f600c70472044",
+  "returncode": 0,
+  "elapsed_seconds": 1.568
+}

@@ -4,6 +4,7 @@ use v8::{ValueDeserializerHelper, ValueSerializerHelper};
 
 #[derive(Clone)]
 enum HostData {
+    Port(u32),
     Blob(BlobRecord),
     DomException {
         name: String,
@@ -18,6 +19,26 @@ pub struct SerializedValue {
     bytes: Vec<u8>,
     hosts: Vec<HostData>,
     buffers: Vec<v8::SharedRef<v8::BackingStore>>,
+    ports: Vec<message_ports::Port>,
+}
+
+impl SerializedValue {
+    pub(super) fn retained_bytes(&self) -> usize {
+        self.hosts
+            .iter()
+            .fold(self.bytes.len(), |total, host| {
+                total.saturating_add(match host {
+                    HostData::Port(_) => std::mem::size_of::<message_ports::Port>(),
+                    HostData::Blob(blob) => blob.bytes.len(),
+                    HostData::DomException { name, message, .. } => {
+                        name.len().saturating_add(message.len())
+                    }
+                })
+            })
+            .saturating_add(self.buffers.iter().fold(0usize, |total, store| {
+                total.saturating_add(store.byte_length())
+            }))
+    }
 }
 
 fn clone_error(scope: &mut v8::PinScope) {
@@ -28,6 +49,7 @@ fn clone_error(scope: &mut v8::PinScope) {
 
 struct Serializer {
     hosts: Rc<RefCell<Vec<HostData>>>,
+    ports: Vec<(u64, u64)>,
 }
 impl v8::ValueSerializerImpl for Serializer {
     fn throw_data_clone_error<'s>(
@@ -65,6 +87,11 @@ impl v8::ValueSerializerImpl for Serializer {
             }
             let records = state.platform_objects.borrow();
             match records.get(&id)? {
+                PlatformObjectRecord::MessagePort(_) => self
+                    .ports
+                    .iter()
+                    .position(|key| *key == (state.instance_id, id))
+                    .map(|index| HostData::Port(index as u32)),
                 PlatformObjectRecord::Blob(blob) => Some(HostData::Blob(blob.clone())),
                 PlatformObjectRecord::DomException {
                     name,
@@ -111,6 +138,7 @@ impl v8::ValueSerializerImpl for Serializer {
 }
 struct Deserializer<'a> {
     hosts: &'a [HostData],
+    ports: &'a [v8::Global<v8::Object>],
 }
 impl v8::ValueDeserializerImpl for Deserializer<'_> {
     fn read_host_object<'s>(
@@ -125,6 +153,12 @@ impl v8::ValueDeserializerImpl for Deserializer<'_> {
         let data = self.hosts.get(id as usize)?;
         let state = scope.get_current_context().get_slot::<V8BindingState>()?;
         let (name, record) = match data {
+            HostData::Port(index) => {
+                return self
+                    .ports
+                    .get(*index as usize)
+                    .map(|port| v8::Local::new(scope, port));
+            }
             HostData::Blob(blob) => (
                 if blob.file.is_some() { "File" } else { "Blob" },
                 PlatformObjectRecord::Blob(blob.clone()),
@@ -155,22 +189,37 @@ pub fn serialize(
     transfers: &[v8::Local<v8::Value>],
 ) -> Option<SerializedValue> {
     let mut buffers: Vec<v8::Local<v8::ArrayBuffer>> = Vec::new();
-    for value in transfers {
-        let Ok(buffer) = v8::Local::<v8::ArrayBuffer>::try_from(*value) else {
-            clone_error(scope);
-            return None;
-        };
-        if buffers.iter().any(|b| b.strict_equals(*value)) {
+    let mut ports = Vec::new();
+    for (index, value) in transfers.iter().enumerate() {
+        if transfers[..index]
+            .iter()
+            .any(|previous| previous.strict_equals(*value))
+        {
             clone_error(scope);
             return None;
         }
-        buffers.push(buffer);
+        if let Ok(buffer) = v8::Local::<v8::ArrayBuffer>::try_from(*value) {
+            if buffer.was_detached() || !buffer.is_detachable() {
+                clone_error(scope);
+                return None;
+            }
+            buffers.push(buffer);
+        } else if let Some(port) = message_ports::transferable(scope, *value) {
+            ports.push(port);
+        } else {
+            clone_error(scope);
+            return None;
+        }
     }
     let hosts = Rc::new(RefCell::new(Vec::new()));
     let writer = v8::ValueSerializer::new(
         scope,
         Box::new(Serializer {
             hosts: hosts.clone(),
+            ports: ports
+                .iter()
+                .map(|(state, id, _)| (state.instance_id, *id))
+                .collect(),
         }),
     );
     writer.write_header();
@@ -179,6 +228,12 @@ pub fn serialize(
     }
     if writer.write_value(scope.get_current_context(), value) != Some(true) {
         return None;
+    }
+    // A getter may have transferred a later item. Revalidate the entire list
+    // before detaching anything here, preserving atomic failure for this call.
+    if buffers.iter().any(|buffer| buffer.was_detached() || !buffer.is_detachable())
+        || ports.iter().any(|(state, id, port)| !matches!(state.platform_objects.borrow().get(id), Some(PlatformObjectRecord::MessagePort(current)) if Rc::ptr_eq(current, port))) {
+        clone_error(scope); return None;
     }
     let mut stores = Vec::new();
     for buffer in buffers {
@@ -196,10 +251,14 @@ pub fn serialize(
     let bytes = writer.release();
     drop(writer);
     let hosts = hosts.borrow().clone();
+    for (state, id, port) in &ports {
+        message_ports::detach(state, *id, port);
+    }
     Some(SerializedValue {
         bytes,
         hosts,
         buffers: stores,
+        ports: ports.into_iter().map(|(_, _, port)| port).collect(),
     })
 }
 
@@ -207,10 +266,28 @@ pub fn deserialize<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     value: SerializedValue,
 ) -> Option<v8::Local<'s, v8::Value>> {
+    deserialize_with_ports(scope, value).map(|(value, _)| value)
+}
+
+pub(super) fn deserialize_with_ports<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    value: SerializedValue,
+) -> Option<(v8::Local<'s, v8::Value>, Vec<v8::Local<'s, v8::Object>>)> {
+    let state = scope.get_current_context().get_slot::<V8BindingState>()?;
+    let ports = value
+        .ports
+        .into_iter()
+        .map(|port| message_ports::receive(scope, &state, port))
+        .collect::<Option<Vec<_>>>()?;
+    let globals = ports
+        .iter()
+        .map(|port| v8::Global::new(scope, *port))
+        .collect::<Vec<_>>();
     let reader = v8::ValueDeserializer::new(
         scope,
         Box::new(Deserializer {
             hosts: &value.hosts,
+            ports: &globals,
         }),
         &value.bytes,
     );
@@ -221,10 +298,12 @@ pub fn deserialize<'s>(
         let buffer = v8::ArrayBuffer::with_backing_store(scope, store);
         reader.transfer_array_buffer(id as u32, buffer);
     }
-    reader.read_value(scope.get_current_context())
+    reader
+        .read_value(scope.get_current_context())
+        .map(|value| (value, ports))
 }
 
-fn transfer_list<'s>(
+pub(super) fn transfer_list<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     options: v8::Local<v8::Value>,
 ) -> Option<Vec<v8::Local<'s, v8::Value>>> {

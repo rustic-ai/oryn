@@ -1,0 +1,11 @@
+<!doctype html>
+<iframe id="frame" srcdoc="<p>child</p>"></iframe>
+<script>
+const initial = frame.contentWindow;
+globalThis.frameTiming = {
+  beforeWindow: !!initial,
+  beforeEval: initial ? typeof initial.eval : null,
+  beforeDocument: !!(initial && initial.document)
+};
+globalThis.retainedInitialWindow = initial;
+</script>

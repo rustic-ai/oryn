@@ -1,0 +1,55 @@
+{
+  "cases": [
+    {
+      "case_id": "5586039800147aaa52d49b23e0d21259",
+      "scenario": "stale",
+      "reviews": 1
+    }
+  ],
+  "slots": [
+    {
+      "case_id": "5586039800147aaa52d49b23e0d21259",
+      "slot": "early",
+      "available": 0,
+      "version": 2
+    },
+    {
+      "case_id": "5586039800147aaa52d49b23e0d21259",
+      "slot": "late",
+      "available": 1,
+      "version": 1
+    }
+  ],
+  "offers": [
+    {
+      "case_id": "5586039800147aaa52d49b23e0d21259",
+      "offer": "4b0ba0b4afc2a2da3d5f8fd972fb3e3a",
+      "slot": "early",
+      "version": 1,
+      "zone": "America/Vancouver",
+      "utc": "2026-11-01T05:30:00+00:00",
+      "local": "2026-10-31T22:30:00-07:00"
+    }
+  ],
+  "reservations": [],
+  "requests": [
+    {
+      "case_id": "5586039800147aaa52d49b23e0d21259",
+      "status": 409,
+      "fields": "{\"email\": [\"zoe@example.test\"], \"name\": [\"Zo\\u00eb Test\"], \"offer\": [\"4b0ba0b4afc2a2da3d5f8fd972fb3e3a\"], \"request_key\": [\"99014dbf265a775e95acacfd79b6cd29\"]}",
+      "cookie_valid": 1
+    }
+  ],
+  "views": [
+    {
+      "case_id": "5586039800147aaa52d49b23e0d21259",
+      "path": "availability",
+      "cookie_valid": 1
+    },
+    {
+      "case_id": "5586039800147aaa52d49b23e0d21259",
+      "path": "review",
+      "cookie_valid": 1
+    }
+  ]
+}

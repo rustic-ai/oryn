@@ -1,0 +1,11 @@
+goto "http://127.0.0.1:49715/form/28b3a85a0cc90405407809a87fa0e8ea"
+observe
+type "Full name" "Zoë Test"
+type "Email address" "zoe@example.test"
+select "Primary role" "developer"
+type "Application note" "R&D + 50% = café 日本語"
+check "Rust"
+check "JavaScript"
+type "Application reference" "bad123"
+click "Submit application"
+observe

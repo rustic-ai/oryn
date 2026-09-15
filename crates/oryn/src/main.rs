@@ -21,7 +21,7 @@ struct Args {
     mode: Option<Mode>,
 
     /// Scripts to execute (non-interactive mode)
-    #[arg(long)]
+    #[arg(long, global = true)]
     file: Option<String>,
 }
 
@@ -197,6 +197,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_cli()
 }
 
+fn validate_args(args: &Args) -> Result<(), clap::Error> {
+    // Clap validates a subcommand before propagating globals supplied before
+    // it, so this cross-level conflict also needs an explicit entrypoint check.
+    if args.file.is_some() && matches!(&args.mode, Some(Mode::Native(native)) if native.wpt_session)
+    {
+        return Err(clap::Error::raw(
+            clap::error::ErrorKind::ArgumentConflict,
+            "--file cannot be combined with --wpt-session",
+        ));
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging to stderr to avoid polluting stdout (used for IPC)
@@ -205,6 +218,7 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args = Args::parse();
+    validate_args(&args)?;
 
     // Native Oryn is the product default. Named compatibility domains and the
     // `native` subcommand remain available for existing scripts.
@@ -553,7 +567,6 @@ async fn run_native(
             match session.execute(&line).await {
                 Ok(outputs) => print_native_outputs(outputs)?,
                 Err(error) => {
-                    eprintln!("{error}");
                     if let (Some(path), Some(checkpoint)) = (
                         &session_options.failure_artifact_out,
                         failure_checkpoint.as_ref(),
@@ -561,6 +574,10 @@ async fn run_native(
                         write_failure_artifact(&context, checkpoint, &error.to_string(), path)
                             .await?;
                     }
+                    if !interactive {
+                        return Err(error.into());
+                    }
+                    eprintln!("{error}");
                 }
             }
         }
@@ -699,4 +716,31 @@ fn print_native_outputs(
         println!("{}", serde_json::to_string(&output)?);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod argument_tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn native_argument_graph_is_valid() {
+        Args::command().debug_assert();
+    }
+
+    #[test]
+    fn file_is_global_and_conflicts_with_wpt_session() {
+        assert!(Args::try_parse_from(["oryn", "--file", "task.oil", "native"]).is_ok());
+        assert!(Args::try_parse_from(["oryn", "native", "--file", "task.oil"]).is_ok());
+        assert!(
+            Args::try_parse_from(["oryn", "--file", "task.oil", "native", "--wpt-session"])
+                .and_then(|args| validate_args(&args))
+                .is_err()
+        );
+        assert!(
+            Args::try_parse_from(["oryn", "native", "--wpt-session", "--file", "task.oil"])
+                .and_then(|args| validate_args(&args))
+                .is_err()
+        );
+    }
 }

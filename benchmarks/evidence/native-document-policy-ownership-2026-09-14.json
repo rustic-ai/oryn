@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree native diagnostic; not new signed or WPT qualification",
+  "goal_complete": false,
+  "source_tree_sha256": "97f30bc2d293ac5f99ee4897990f7fb41b311ea2c907e72a48b497ace87cb14b",
+  "change": "Trusted Types/eval policy is stored on each native V8 context instead of one RawV8Host-wide cache. Legacy realm inheritance explicitly snapshots the active creator context, and later policy configuration replaces only the owning context's policy.",
+  "regression": {
+    "name": "native_document_policy_belongs_to_its_realm_not_last_configured_sibling",
+    "before": "A new realm created from a restricted parent incorrectly allowed raw HTML and eval after a different sibling was configured unrestricted: false,false instead of true,true.",
+    "after": "The active creator's policy is inherited; both restricted-parent/unrestricted-sibling and unrestricted-parent/restricted-sibling cases pass, and existing sibling policies remain unchanged.",
+    "initial_probe_limitation": "An earlier probe attempted to reinstall generated bindings in an existing context and failed with V8 failed to allocate Window.location property. That distinct document-reuse limitation is not fixed or used as policy-regression evidence."
+  },
+  "tests": {
+    "native": {"passed": 567, "failed": 0, "ignored": 6, "elapsed_seconds": 147.96},
+    "strict_native_clippy": "passed",
+    "formatting": "passed",
+    "diff_check": "passed"
+  },
+  "remaining": [
+    "The loader still needs explicit inherited-local-document versus navigation-response policy selection; legacy inheritance is preserved here, not claimed fully conformant.",
+    "Synchronous initial iframe creation and Window/document reuse must avoid reinstalling unforgeable global properties.",
+    "Native WindowProxy linking, per-document broker routing, persisted SaaS outcomes and broader qualification remain open.",
+    "No new signed, WPT, performance or clean-source qualification is claimed."
+  ],
+  "previous_signed_evidence": "research-extraction-signed-2026-09-14.json"
+}

@@ -1,0 +1,11 @@
+{
+  "case": "numeric_step_blocks",
+  "sample": 2,
+  "case_id": "127174969e741efb23204d317b4e235c",
+  "passed": true,
+  "errors": [],
+  "timed_out": false,
+  "returncode": 0,
+  "task_sha256": "fcbeab7edd319f82017550cc06419264ef65c335326ad86c0180152728bb1a11",
+  "elapsed_seconds": 0.253
+}

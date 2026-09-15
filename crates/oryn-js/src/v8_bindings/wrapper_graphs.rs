@@ -83,15 +83,9 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
                 }
                 Mutation::HostedDocument { .. } => complete_rebuild = true,
                 Mutation::DocumentOwnership { node } => {
-                    let mut pending = vec![node];
-                    while let Some(node) = pending.pop() {
-                        changed.insert(node);
-                        if let Ok(record) = dom.arena().get(node) {
-                            pending.extend(record.children.iter().copied());
-                            pending.extend(record.template_content);
-                            pending.extend(dom.arena().attribute_node_ids(node));
-                        }
-                    }
+                    // Ownership journals identify every changed descendant,
+                    // including attributes and template contents individually.
+                    changed.insert(node);
                 }
                 Mutation::ChildrenReplaced { .. }
                 | Mutation::CharacterData { .. }

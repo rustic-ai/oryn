@@ -1,0 +1,11 @@
+❯ Building...
+✔ Building...
+Initial chunk files | Names         | Raw size | Estimated transfer size
+main.js             | main          | 97.25 kB |                29.38 kB
+
+                    | Initial total | 97.25 kB |                29.38 kB
+
+Application bundle generation complete. [1.040 seconds] - 2026-09-15T00:07:51.188Z
+
+Output location: /Users/rohit/Work/oryn2/oryn-roadmap-next/benchmarks/app-compatibility/frameworks/apps/angular/dist
+

@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree signed-worker diagnostic; not release or five-family qualification",
+  "goal_complete": false,
+  "family_qualified": false,
+  "source_sha256": "4d3f8aa1d15fc4a615df3cb9f9b1871530d8f0b55740dd7063c0ad2d289a30f5",
+  "source_and_release_binary_hashes_reverified_after_tests": true,
+  "parent_sha256": "4b84cf57c53d96a2abfab1109b41b8f2ef35acab77ef033105e2f7709a2e3ab8",
+  "signed_worker_sha256": "fa05e165b8f52f79a4bf608b17779bcff8e95692118f8636403349aa56cd09ce",
+  "worker_build_sha256": "f9058ee609c015be7c559aee54370a1916eaf5ffdfe30330f91f46f66332ca19",
+  "code_directory_hash": "76ecfa6e0801ad79dea2a1473dfcb718bc3eeab8",
+  "signing_scope": "Apple Development signed worker bundle; parent recorded by executable SHA-256",
+  "v8": {
+    "archive_sha256": "e289073ac6ebec82134500225a2dcfdf92c83794f0e5a88fb3c1ff5821136ac4",
+    "bindings_sha256": "2eb9b14accc74085e6bdbdfa7e039464454286f70e044d19771492af0074db28",
+    "icu_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92"
+  },
+  "repair": {
+    "root_cause": "ContextService script ClosePage called the explicit-host close path, which SIGKILLs a worker with an in-flight request. A popup closing itself could lose its originating click acknowledgement.",
+    "implementation": "Script closure uses ordered close, serialized behind the current worker command. Explicit host close retains interruption of stuck workers. Existing protocol, RSS and crash rejection paths are unchanged.",
+    "cli": "Noninteractive piped OIL returns an error and stops after a failed command. Interactive/SDK REPL recovery remains supported.",
+    "harness": "All five native auth cases run even after failures. SSO is bound to the selected fixture origin. Exact output, action count, positive page-local action identities, a single diagnostic trace, process exit and stderr are validated.",
+    "fixture_lock": "Revision 2 preserves the original lock byte-for-byte in fixtures-v1.lock.json; application sources and original tasks are unchanged.",
+    "previous_lock_sha256": "a7f4e8ef33279c2923a570767f9fd978072f982b13a9fe4665c4b81330c386be",
+    "current_lock_sha256": "836b1a7620e590a6a2177960dce18f12081ca1155c20bc1d0e19932e1a6d7410"
+  },
+  "tests": {
+    "native": {"passed": 549, "failed": 0, "ignored": 6, "elapsed_seconds": 149.53, "binary_sha256": "048432212fd1865cf2ddac139b3828cfe3cfc0178e82a3d1d17a7d7f8621b5e8"},
+    "cli_signed_regressions": {"passed": 3, "failed": 0, "elapsed_seconds": 0.319},
+    "cli_argument_and_transport_unit_tests": {"passed": 4, "failed": 0},
+    "strict_cli_clippy": "passed",
+    "outcome_validators_and_oracles": {"passed": 26, "failed": 0, "resource_warnings_as_errors": true},
+    "failure_denominator_control": "oauth-harness-failure-denominator-2026-09-14/summary.json",
+    "strict_native_clippy_rustfmt_ruff_diff_fixture_locks": "passed",
+    "signed_signature_protocol10_sandbox_denials": "passed",
+    "worker_substitution_rejections": {"passed": 6, "cases": ["altered-manifest", "altered-executable", "adhoc", "overentitled", "wrong-identifier", "debug"]}
+  },
+  "controlled_workflows": {
+    "auth": {"evidence": "oauth-ordered-close-final-2026-09-14/summary.json", "passed": 15, "planned": 15, "samples": 3, "jobs": 3, "source_matches_signed_build": true, "artifact_identities_unchanged": true, "scope": "Controlled popup, redirect, MFA handoff, cancellation recovery and SSO mechanics; not a real OAuth token exchange or persisted SaaS qualification."},
+    "frameworks": {"evidence": "framework-ordered-close-final-2026-09-14/summary.json", "passed": 24, "planned": 24, "source_matches_signed_build": true, "artifact_identities_unchanged": true, "fixture_cleanup": true, "build_snapshot": "framework-build-2026-09-14/build.json", "scope": "Reuses immutable outputs built with the original fixture lock; unchanged framework source and task hashes are verified by revision 2."},
+    "shopping": {"evidence": "shopping-ordered-close-final-2026-09-14/summary.json", "passed": 21, "planned": 21, "all_post_shutdown_database_checks_verified": true, "source_matches_signed_build": true, "fixture_cleanup": {"returncode": 0, "forced": false}},
+    "forms": {"evidence": "forms-ordered-close-final-2026-09-14/summary.json", "passed": 57, "planned": 57, "all_final_oracles_verified": true, "source_matches_signed_build": true, "fixture_cleanup": {"returncode": 0, "forced": false}},
+    "timeouts": 0,
+    "auth_fixture_cleanup": "Caller-owned server stopped with SIGINT and reaped; port 3104 verified free."
+  },
+  "wpt": {
+    "evidence": "oauth-close-wpt-final-2026-09-14.json",
+    "inventory": "oauth-close-wpt-selection-2026-09-14.inventory.json",
+    "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+    "parent_mode": "persistent",
+    "worker_lifecycle": "isolated_prewarmed",
+    "jobs": 4,
+    "elapsed_seconds": 15.079,
+    "files_passed": 0,
+    "files_total": 9,
+    "assertions_passed": 3,
+    "assertions_failed": 15,
+    "assertions_timed_out": 3,
+    "environment_blocks": 0,
+    "scope": "New selected-family diagnostic, not a full baseline or a measured before/after delta.",
+    "failure_categories": [
+      {"area": "Connected-window properties and initial document access", "failed_assertions": 4, "priority": "P0 architecture", "observed": "opener is undefined; document.open/document.body access is unavailable"},
+      {"area": "Nested browsing-context lifecycle", "failed_assertions": 3, "priority": "P0 architecture", "observed": "Initial iframe contentWindow is null or removed frame remains not closed"},
+      {"area": "BroadcastChannel", "failed_assertions": 8, "priority": "P1 platform", "observed": "ReferenceError before the intended script-closability assertions; closability is not established by these failures"},
+      {"area": "beforeunload/pagehide/unload on close", "timed_out_assertions": 3, "priority": "P0 lifecycle", "observed": "Expected callback never completes; dispatch and cross-window callback delivery still require isolation"}
+    ]
+  },
+  "preserved_diagnostics": [
+    "oauth-framework-candidate-probe-2026-09-14 preserves the original failed click, even though the callback produced authenticated text.",
+    "oauth-ordered-close-probe-2026-09-14 contains the first repaired candidate (source bd1b460a...). Its initial CLI attempts are invalid setup and explicitly adjudicated; only the post-signing reruns are valid.",
+    "oauth-ordered-close-harness-probe-2026-09-14 contains three validator false failures caused by assuming action IDs were global. Corrected page-local validation passes; these are not browser regressions.",
+    "The first rejection-suite invocation omitted local V8 settings and stopped at a missing upstream archive after five successful rejection checks. The complete retry with pinned local artifacts passes all six."
+  ],
+  "remaining": [
+    "Connected-window native ownership/routing and initial iframe realms; nested-context closure and unload lifecycle; agent-scoped BroadcastChannel.",
+    "Persisted authenticated SaaS record operations with expiration and recovery, plus research/extraction and booking/scheduling outcomes.",
+    "Broader real-framework routing/storage, full Core WPT, dedicated/shared/service worker architecture, clean-source security and performance qualification.",
+    "Dynamic import maps, positive SRI, import.meta.resolve and full module evaluation semantics remain open as recorded in the previous diagnostic."
+  ]
+}

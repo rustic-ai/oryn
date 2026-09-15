@@ -1,0 +1,1955 @@
+{
+  "assertions": [
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/Window-document.html|window|:994e59216fd84027ba8a95c4a6d30a33",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 111,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "e0889eb15f78404291b33065f832df84"
+          }
+        ],
+        "id": "c15cd1b05eed4922990263fda7b44611",
+        "ports": [
+          61750,
+          61752,
+          61753,
+          61755,
+          61757,
+          61760,
+          61763
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 251,
+          "teardown_ms": 896
+        },
+        "tls": {
+          "ca_sha256": "fdc7c7cebe63071ef3626eda48bdbc5193417231f51b03d377014e1ddf0096cd",
+          "certificate_sha256": "0bcc7f4e5ca213343b911f246bc213ff7e0695668f05c97a9247bffca7ae2b07"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/Window-document.html|window|",
+      "path": "html/browsers/the-window-object/Window-document.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61750/html/browsers/the-window-object/Window-document.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 915,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61750/html/browsers/the-window-object/Window-document.html"
+          },
+          "page_id": "3",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 11,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 915,
+          "response_sha256": "a7902a80dd50287fbac5be51b067361f4b5a649b4271d9c52bb32d36242dfc21",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61750/html/browsers/the-window-object/Window-document.html",
+          "worker_pid": 26099
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61750/html/browsers/the-window-object/Window-document.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61750/resources/testharness.js",
+          "worker_pid": 26099
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61750/html/browsers/the-window-object/Window-document.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61750/resources/testharnessreport.js",
+          "worker_pid": 26099
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "Cannot read properties of null (reading 'document')",
+            "name": "Document in a browsing context",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 26099,
+          "rss_bytes": 37421056
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/document-attribute.window.js|window|:ef5193e9472b4688918c7fd3d21141a7",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 196,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "f310885525134985b116a8f08a6769d0"
+          }
+        ],
+        "id": "e1001776f1134d5883d17af8becfbb0a",
+        "ports": [
+          61751,
+          61754,
+          61756,
+          61758,
+          61761,
+          61765,
+          61767
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 249,
+          "teardown_ms": 817
+        },
+        "tls": {
+          "ca_sha256": "fdc7c7cebe63071ef3626eda48bdbc5193417231f51b03d377014e1ddf0096cd",
+          "certificate_sha256": "0bcc7f4e5ca213343b911f246bc213ff7e0695668f05c97a9247bffca7ae2b07"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/document-attribute.window.js|window|",
+      "path": "html/browsers/the-window-object/document-attribute.window.js",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61751/html/browsers/the-window-object/document-attribute.window.html"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 250,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61751/html/browsers/the-window-object/document-attribute.window.html"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 10,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 250,
+          "response_sha256": "2a549014c30daa375505ed14fa485b19dac239081fac70fc246d8b8543652ff6",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61751/html/browsers/the-window-object/document-attribute.window.html",
+          "worker_pid": 26100
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61751/html/browsers/the-window-object/document-attribute.window.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61751/resources/testharness.js",
+          "worker_pid": 26100
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61751/html/browsers/the-window-object/document-attribute.window.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61751/resources/testharnessreport.js",
+          "worker_pid": 26100
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61751/html/browsers/the-window-object/document-attribute.window.html",
+          "method": "GET",
+          "mime": "text/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 516,
+          "response_sha256": "0acd75c7ebc31de177d379abff4806edbc57896c8d6f438fd4b4e73bc79d8e8d",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61751/html/browsers/the-window-object/document-attribute.window.js",
+          "worker_pid": 26100
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Window object's document IDL attribute and discarding the browsing context",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 26100,
+          "rss_bytes": 37027840
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/browsers/the-window-object/window-properties.https.html|window|:96f9f2abc82941dd865f74890f77b103",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 146,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": "assertion",
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "63ddfea0ecda43a8b5d64fb5906277f3"
+          }
+        ],
+        "id": "5d092cffaa9e44c4b3fae0f3fa5a8ff4",
+        "ports": [
+          61759,
+          61762,
+          61764,
+          61766,
+          61768,
+          61769,
+          61770
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 249,
+          "teardown_ms": 365
+        },
+        "tls": {
+          "ca_sha256": "fdc7c7cebe63071ef3626eda48bdbc5193417231f51b03d377014e1ddf0096cd",
+          "certificate_sha256": "0bcc7f4e5ca213343b911f246bc213ff7e0695668f05c97a9247bffca7ae2b07"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/browsers/the-window-object/window-properties.https.html|window|",
+      "path": "html/browsers/the-window-object/window-properties.https.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "https://localhost:61762/html/browsers/the-window-object/window-properties.https.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 11206,
+            "kind": "response_received",
+            "status": 200,
+            "url": "https://localhost:61762/html/browsers/the-window-object/window-properties.https.html"
+          },
+          "page_id": "1",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 5,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 11206,
+          "response_sha256": "41c73c51c23079906147ac6b5ac68d6e70b3471c6d98d7d367f5b3c20a36d0cb",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "https://localhost:61762/html/browsers/the-window-object/window-properties.https.html",
+          "worker_pid": 26101
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 3,
+          "initiator": "https://localhost:61762/html/browsers/the-window-object/window-properties.https.html",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 379,
+          "response_sha256": "ae7809e074d7607b721c6ca6619382f638072a9bbdd83ed9d578f380e1d7cc6a",
+          "sequence": 1,
+          "started_ms": 15,
+          "status": 200,
+          "terminal": "complete",
+          "url": "https://localhost:61762/resources/blank.html",
+          "worker_pid": 26101
+        },
+        {
+          "destination": "Frame",
+          "elapsed_ms": 4,
+          "initiator": "https://localhost:61762/html/browsers/the-window-object/window-properties.https.html",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 379,
+          "response_sha256": "ae7809e074d7607b721c6ca6619382f638072a9bbdd83ed9d578f380e1d7cc6a",
+          "sequence": 2,
+          "started_ms": 15,
+          "status": 200,
+          "terminal": "complete",
+          "url": "https://localhost:61762/resources/blank.html",
+          "worker_pid": 26101
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 40,
+          "initiator": "https://localhost:61762/html/browsers/the-window-object/window-properties.https.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 3,
+          "started_ms": 15,
+          "status": 200,
+          "terminal": "complete",
+          "url": "https://localhost:61762/resources/testharness.js",
+          "worker_pid": 26101
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "https://localhost:61762/html/browsers/the-window-object/window-properties.https.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 4,
+          "started_ms": 61,
+          "status": 200,
+          "terminal": "complete",
+          "url": "https://localhost:61762/resources/testharnessreport.js",
+          "worker_pid": 26101
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Value Properties of the Global Object",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Value Property: NaN",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Value Property: Infinity",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Value Property: undefined",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Function Properties of the Global Object",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Function Property: eval",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Function Property: parseInt",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Function Property: parseFloat",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Function Property: isNaN",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Function Property: isFinite",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "URI Handling Function Properties",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "URI Handling Function Property: decodeURI",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "URI Handling Function Property: decodeURIComponent",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "URI Handling Function Property: encodeURI",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "URI Handling Function Property: encodeURIComponent",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Properties of the Global Object",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: Object",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: Function",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: Array",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: String",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: Boolean",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: Number",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: Date",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: RegExp",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: Error",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: EvalError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: RangeError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: ReferenceError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: SyntaxError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: TypeError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Constructor Property: URIError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Other Properties of the Global Object",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Other Property: Math",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Other Property: JSON",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "EventTarget interface",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "EventTarget method: addEventListener",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "EventTarget method: removeEventListener",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "EventTarget method: dispatchEvent",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window interface",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: close",
+            "status": 0
+          },
+          {
+            "message": "assert_true: stop in window expected true got false",
+            "name": "Window method: stop",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Window method: focus",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: blur",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: open",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: alert",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: confirm",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: prompt",
+            "status": 0
+          },
+          {
+            "message": "assert_true: print in window expected true got false",
+            "name": "Window method: print",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Window method: postMessage",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: btoa",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: atob",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: setTimeout",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: clearTimeout",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: setInterval",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: clearInterval",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: queueMicrotask",
+            "status": 0
+          },
+          {
+            "message": "assert_true: createImageBitmap in window expected true got false",
+            "name": "Window method: createImageBitmap",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Window method: getSelection",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: getComputedStyle",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: matchMedia",
+            "status": 0
+          },
+          {
+            "message": "assert_true: moveBy in window expected true got false",
+            "name": "Window method: moveBy",
+            "status": 1
+          },
+          {
+            "message": "assert_true: moveTo in window expected true got false",
+            "name": "Window method: moveTo",
+            "status": 1
+          },
+          {
+            "message": "assert_true: resizeBy in window expected true got false",
+            "name": "Window method: resizeBy",
+            "status": 1
+          },
+          {
+            "message": "assert_true: resizeTo in window expected true got false",
+            "name": "Window method: resizeTo",
+            "status": 1
+          },
+          {
+            "message": "assert_true: scroll in window expected true got false",
+            "name": "Window method: scroll",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Window method: scrollTo",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window method: scrollBy",
+            "status": 0
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window readonly attribute: history",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window readonly attribute: frameElement",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window readonly attribute: navigator",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window readonly attribute: sessionStorage",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window readonly attribute: localStorage",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Window attribute: name",
+            "status": 0
+          },
+          {
+            "message": "assert_true: status in window expected true got false",
+            "name": "Window attribute: status",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window attribute: opener",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onabort in window expected true got false",
+            "name": "Window attribute: onabort",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onafterprint in window expected true got false",
+            "name": "Window attribute: onafterprint",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onbeforeprint in window expected true got false",
+            "name": "Window attribute: onbeforeprint",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onbeforeunload in window expected true got false",
+            "name": "Window attribute: onbeforeunload",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onblur in window expected true got false",
+            "name": "Window attribute: onblur",
+            "status": 1
+          },
+          {
+            "message": "assert_true: oncancel in window expected true got false",
+            "name": "Window attribute: oncancel",
+            "status": 1
+          },
+          {
+            "message": "assert_true: oncanplay in window expected true got false",
+            "name": "Window attribute: oncanplay",
+            "status": 1
+          },
+          {
+            "message": "assert_true: oncanplaythrough in window expected true got false",
+            "name": "Window attribute: oncanplaythrough",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onchange in window expected true got false",
+            "name": "Window attribute: onchange",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onclick in window expected true got false",
+            "name": "Window attribute: onclick",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onclose in window expected true got false",
+            "name": "Window attribute: onclose",
+            "status": 1
+          },
+          {
+            "message": "assert_true: oncontextmenu in window expected true got false",
+            "name": "Window attribute: oncontextmenu",
+            "status": 1
+          },
+          {
+            "message": "assert_true: oncuechange in window expected true got false",
+            "name": "Window attribute: oncuechange",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ondblclick in window expected true got false",
+            "name": "Window attribute: ondblclick",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ondrag in window expected true got false",
+            "name": "Window attribute: ondrag",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ondragend in window expected true got false",
+            "name": "Window attribute: ondragend",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ondragenter in window expected true got false",
+            "name": "Window attribute: ondragenter",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ondragleave in window expected true got false",
+            "name": "Window attribute: ondragleave",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ondragover in window expected true got false",
+            "name": "Window attribute: ondragover",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ondragstart in window expected true got false",
+            "name": "Window attribute: ondragstart",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ondrop in window expected true got false",
+            "name": "Window attribute: ondrop",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ondurationchange in window expected true got false",
+            "name": "Window attribute: ondurationchange",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onemptied in window expected true got false",
+            "name": "Window attribute: onemptied",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onended in window expected true got false",
+            "name": "Window attribute: onended",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Window attribute: onerror",
+            "status": 0
+          },
+          {
+            "message": "assert_true: onfocus in window expected true got false",
+            "name": "Window attribute: onfocus",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onhashchange in window expected true got false",
+            "name": "Window attribute: onhashchange",
+            "status": 1
+          },
+          {
+            "message": "assert_true: oninput in window expected true got false",
+            "name": "Window attribute: oninput",
+            "status": 1
+          },
+          {
+            "message": "assert_true: oninvalid in window expected true got false",
+            "name": "Window attribute: oninvalid",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onkeydown in window expected true got false",
+            "name": "Window attribute: onkeydown",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onkeypress in window expected true got false",
+            "name": "Window attribute: onkeypress",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onkeyup in window expected true got false",
+            "name": "Window attribute: onkeyup",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onload in window expected true got false",
+            "name": "Window attribute: onload",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onloadeddata in window expected true got false",
+            "name": "Window attribute: onloadeddata",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onloadedmetadata in window expected true got false",
+            "name": "Window attribute: onloadedmetadata",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onloadstart in window expected true got false",
+            "name": "Window attribute: onloadstart",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onmessage in window expected true got false",
+            "name": "Window attribute: onmessage",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onmousedown in window expected true got false",
+            "name": "Window attribute: onmousedown",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onmousemove in window expected true got false",
+            "name": "Window attribute: onmousemove",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onmouseout in window expected true got false",
+            "name": "Window attribute: onmouseout",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onmouseover in window expected true got false",
+            "name": "Window attribute: onmouseover",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onmouseup in window expected true got false",
+            "name": "Window attribute: onmouseup",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onoffline in window expected true got false",
+            "name": "Window attribute: onoffline",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ononline in window expected true got false",
+            "name": "Window attribute: ononline",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onpause in window expected true got false",
+            "name": "Window attribute: onpause",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onplay in window expected true got false",
+            "name": "Window attribute: onplay",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onplaying in window expected true got false",
+            "name": "Window attribute: onplaying",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onpagehide in window expected true got false",
+            "name": "Window attribute: onpagehide",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onpageshow in window expected true got false",
+            "name": "Window attribute: onpageshow",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onpopstate in window expected true got false",
+            "name": "Window attribute: onpopstate",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onprogress in window expected true got false",
+            "name": "Window attribute: onprogress",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onratechange in window expected true got false",
+            "name": "Window attribute: onratechange",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onreset in window expected true got false",
+            "name": "Window attribute: onreset",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onresize in window expected true got false",
+            "name": "Window attribute: onresize",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onscroll in window expected true got false",
+            "name": "Window attribute: onscroll",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onseeked in window expected true got false",
+            "name": "Window attribute: onseeked",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onseeking in window expected true got false",
+            "name": "Window attribute: onseeking",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onselect in window expected true got false",
+            "name": "Window attribute: onselect",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onstalled in window expected true got false",
+            "name": "Window attribute: onstalled",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onstorage in window expected true got false",
+            "name": "Window attribute: onstorage",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onsubmit in window expected true got false",
+            "name": "Window attribute: onsubmit",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onsuspend in window expected true got false",
+            "name": "Window attribute: onsuspend",
+            "status": 1
+          },
+          {
+            "message": "assert_true: ontimeupdate in window expected true got false",
+            "name": "Window attribute: ontimeupdate",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onunload in window expected true got false",
+            "name": "Window attribute: onunload",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onvolumechange in window expected true got false",
+            "name": "Window attribute: onvolumechange",
+            "status": 1
+          },
+          {
+            "message": "assert_true: onwaiting in window expected true got false",
+            "name": "Window attribute: onwaiting",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Window unforgeable attribute: window",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window unforgeable attribute: document",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window unforgeable attribute: location",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window unforgeable attribute: top",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window replaceable attribute: self",
+            "status": 0
+          },
+          {
+            "message": "assert_true: locationbar in window expected true got false",
+            "name": "Window replaceable attribute: locationbar",
+            "status": 1
+          },
+          {
+            "message": "assert_true: menubar in window expected true got false",
+            "name": "Window replaceable attribute: menubar",
+            "status": 1
+          },
+          {
+            "message": "assert_true: personalbar in window expected true got false",
+            "name": "Window replaceable attribute: personalbar",
+            "status": 1
+          },
+          {
+            "message": "assert_true: scrollbars in window expected true got false",
+            "name": "Window replaceable attribute: scrollbars",
+            "status": 1
+          },
+          {
+            "message": "assert_true: statusbar in window expected true got false",
+            "name": "Window replaceable attribute: statusbar",
+            "status": 1
+          },
+          {
+            "message": "assert_true: toolbar in window expected true got false",
+            "name": "Window replaceable attribute: toolbar",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Window replaceable attribute: frames",
+            "status": 0
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window replaceable attribute: parent",
+            "status": 1
+          },
+          {
+            "message": "assert_true: external in window expected true got false",
+            "name": "Window replaceable attribute: external",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window replaceable attribute: length",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window replaceable attribute: origin",
+            "status": 1
+          },
+          {
+            "message": "assert_true: screen in window expected true got false",
+            "name": "Window replaceable attribute: screen",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window replaceable attribute: scrollX",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window replaceable attribute: scrollY",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window replaceable attribute: pageXOffset",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window replaceable attribute: pageYOffset",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window replaceable attribute: innerWidth",
+            "status": 1
+          },
+          {
+            "message": "assert_equals: expected \"function\" but got \"undefined\"",
+            "name": "Window replaceable attribute: innerHeight",
+            "status": 1
+          },
+          {
+            "message": "assert_true: screenLeft in window expected true got false",
+            "name": "Window replaceable attribute: screenLeft",
+            "status": 1
+          },
+          {
+            "message": "assert_true: screenTop in window expected true got false",
+            "name": "Window replaceable attribute: screenTop",
+            "status": 1
+          },
+          {
+            "message": "assert_true: screenX in window expected true got false",
+            "name": "Window replaceable attribute: screenX",
+            "status": 1
+          },
+          {
+            "message": "assert_true: screenY in window expected true got false",
+            "name": "Window replaceable attribute: screenY",
+            "status": 1
+          },
+          {
+            "message": "assert_true: outerWidth in window expected true got false",
+            "name": "Window replaceable attribute: outerWidth",
+            "status": 1
+          },
+          {
+            "message": "assert_true: outerHeight in window expected true got false",
+            "name": "Window replaceable attribute: outerHeight",
+            "status": 1
+          },
+          {
+            "message": "assert_true: devicePixelRatio in window expected true got false",
+            "name": "Window replaceable attribute: devicePixelRatio",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "constructor",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Window readonly getter: window",
+            "status": 0
+          },
+          {
+            "message": "globalObject.eval is not a function",
+            "name": "Window readonly getter in iframe: window",
+            "status": 1
+          },
+          {
+            "message": "_eval is not a function",
+            "name": "Window readonly getter in detached iframe: window",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Window readonly getter: self",
+            "status": 0
+          },
+          {
+            "message": "globalObject.eval is not a function",
+            "name": "Window readonly getter in iframe: self",
+            "status": 1
+          },
+          {
+            "message": "_eval is not a function",
+            "name": "Window readonly getter in detached iframe: self",
+            "status": 1
+          },
+          {
+            "message": "",
+            "name": "Window readonly getter: frames",
+            "status": 0
+          },
+          {
+            "message": "globalObject.eval is not a function",
+            "name": "Window readonly getter in iframe: frames",
+            "status": 1
+          },
+          {
+            "message": "_eval is not a function",
+            "name": "Window readonly getter in detached iframe: frames",
+            "status": 1
+          }
+        ]
+      },
+      "status": "failed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 26101,
+          "rss_bytes": 44548096
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/document-metadata/the-base-element/base_about_blank.html|window|:2af97713216c4b4fbeed0f3256014599",
+        "page_id": 4,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 105,
+        "teardown_ms": 15,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "16763fe6646d44bcbed80c74a2b99f74"
+          }
+        ],
+        "id": "5a572bb88ae14125b0278e9b961c8452",
+        "ports": [
+          61782,
+          61783,
+          61784,
+          61785,
+          61786,
+          61787,
+          61788
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 248,
+          "teardown_ms": 934
+        },
+        "tls": {
+          "ca_sha256": "fdc7c7cebe63071ef3626eda48bdbc5193417231f51b03d377014e1ddf0096cd",
+          "certificate_sha256": "0bcc7f4e5ca213343b911f246bc213ff7e0695668f05c97a9247bffca7ae2b07"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/document-metadata/the-base-element/base_about_blank.html|window|",
+      "path": "html/semantics/document-metadata/the-base-element/base_about_blank.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:61782/html/semantics/document-metadata/the-base-element/base_about_blank.html"
+          },
+          "page_id": "4",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 683,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:61782/html/semantics/document-metadata/the-base-element/base_about_blank.html"
+          },
+          "page_id": "4",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 15,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 683,
+          "response_sha256": "4399a3ff65f010d6e81ff6d4f94157109cde9bf6845e750365535cce542465cf",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61782/html/semantics/document-metadata/the-base-element/base_about_blank.html",
+          "worker_pid": 26113
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:61782/html/semantics/document-metadata/the-base-element/base_about_blank.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61782/resources/testharness.js",
+          "worker_pid": 26113
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:61782/html/semantics/document-metadata/the-base-element/base_about_blank.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:61782/resources/testharnessreport.js",
+          "worker_pid": 26113
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "base element in about:blank document should resolve against its fallback base URI",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 26113,
+          "rss_bytes": 37011456
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "7a91af0aeec28fdacfea3e6c473701c2ad64a964b47b725d73342729a641e9e8",
+    "size_bytes": 7275920
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 4.968,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "da1fa6bb1a616c173564639fc0a57347e49ab58cfba4dcbc45a6bc8fdc12d50f",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "1a87f4f1ecba1e140df19db544a7f76534f892e8cf2406ce03f776377b44fa20",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "cf1ecb120557984e9a9b6fc890430608e4786278dd9c5b1829695ba967b51518",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "9c859446e4bdf3cbccc1d85ff37fe2fd433e3894012a4e12c3a0646bfb1445df",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "c2ef313c36e3fb36b01f11d3a89e24f5534c8b01e7c9c414e9910fa1efbbd92c",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "23f56d8729d1fb8864dcf36f9e73a23610abae15b6fcb0ceaf5032a10ef3ffd0",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "925407df3773a36ebba038c0337558bca844a9f80b628dcd84fec90edf5ac8a7",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "bde4260cd0cbf3d3257095fe87d0112ccb5c99c0e08800e0f561eda7d3c381c0",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "da1fa6bb1a616c173564639fc0a57347e49ab58cfba4dcbc45a6bc8fdc12d50f",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "1a87f4f1ecba1e140df19db544a7f76534f892e8cf2406ce03f776377b44fa20",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "cf1ecb120557984e9a9b6fc890430608e4786278dd9c5b1829695ba967b51518",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "9c859446e4bdf3cbccc1d85ff37fe2fd433e3894012a4e12c3a0646bfb1445df",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "c2ef313c36e3fb36b01f11d3a89e24f5534c8b01e7c9c414e9910fa1efbbd92c",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "23f56d8729d1fb8864dcf36f9e73a23610abae15b6fcb0ceaf5032a10ef3ffd0",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "925407df3773a36ebba038c0337558bca844a9f80b628dcd84fec90edf5ac8a7",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "bde4260cd0cbf3d3257095fe87d0112ccb5c99c0e08800e0f561eda7d3c381c0",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": "5219432aa7b51f69ee2e1c07028bc24c9d77479c55d3941a170f91c9a191377f",
+  "jobs": 3,
+  "outcome": {
+    "attempted": 4,
+    "environment_blocked": 0,
+    "required_finished": 4,
+    "required_passed": 2,
+    "required_total": 4,
+    "status": "failed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "ca33d73009ce34706f13e72057a116405c0dfe8912a2f4189d1e9ab344cac865",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "d7b8200f463c98f55936cc1776dc4fe80ce942bf68821f66098663fe576cb903",
+    "worker_binary_sha256": "c1caffcf2cc56870ad7f38b2b4c4b27ee6574c130d498d74210faf63e5b99c80",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "94c1ff06eeae8ac63331c7a6b1243535c32328a4",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": null,
+    "global": "window",
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 30,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "37a6f625768b91e05ec2db8b9dfad27d69530e5e0c025ff081ad9f3f2727f734",
+    "untracked_file_count": 14598,
+    "untracked_sha256": "a9fcf9687d90b73aaba3ff3da3b2446612822a88ab84ed0d8e4f531ed101513a"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

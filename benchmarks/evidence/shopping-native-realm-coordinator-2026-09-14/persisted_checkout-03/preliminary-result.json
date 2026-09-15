@@ -1,0 +1,12 @@
+{
+  "case": "persisted_checkout",
+  "sample": 3,
+  "case_id": "abb81120459234409434c3c4e05e6554",
+  "base": "http://127.0.0.1:52282/shop/abb81120459234409434c3c4e05e6554",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "289e2c81f85b9b0343515cd4ed3fafca94a8101e644806daf0e3dfc8b43ca567",
+  "returncode": 0,
+  "elapsed_seconds": 0.622
+}

@@ -1,0 +1,14 @@
+{
+  "case": "redirected_source",
+  "sample": 1,
+  "case_id": "1c8e2b63f78e65441fe3176b507215da",
+  "base": "http://127.0.0.1:55790/research/1c8e2b63f78e65441fe3176b507215da",
+  "errors": [
+    "extracted facts/tables/source links mismatch"
+  ],
+  "timed_out": false,
+  "passed": false,
+  "task_sha256": "87de283f7da6e6d286d4d683dca9a43165307702cac1e224983ab759dc65ce68",
+  "returncode": 0,
+  "elapsed_seconds": 0.226
+}

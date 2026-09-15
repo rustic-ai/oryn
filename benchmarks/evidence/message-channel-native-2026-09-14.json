@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "qualification": "dirty-tree native diagnostic; not full WPT or release qualification",
+  "source_tree_sha256": "8c72b171d35667b0ef38f6aa942da8ff55c43e81535651a50ec1b08f7751a4c4",
+  "native_test_binary_sha256": "c9ee8b55e12fa2e057cc453cad1cbbe2b72f809792773e12b54e4b466c83a3d9",
+  "changes": [
+    "Native entangled endpoints and asynchronous MessageEvent delivery at platform-task checkpoints",
+    "Paused queues, implicit onmessage start, explicit start, close and execution retirement",
+    "Native structured serialization with buffer and MessagePort transfer, revoked sender wrappers, transferred queued messages, destination realm decoding and event.ports identity",
+    "Per-endpoint 1024-message/32-MiB retained-payload queue limits"
+  ],
+  "specification": "https://html.spec.whatwg.org/multipage/web-messaging.html#message-ports",
+  "focused_native_channel_tests": {"passed": 8, "failed": 0},
+  "structured_clone_regressions": {"passed": 2, "failed": 0},
+  "message_event_regressions": {"passed": 2, "failed": 0},
+  "native_suite": {"passed": 514, "failed": 0, "ignored": 6, "test_threads": 1, "elapsed_seconds": 153.84},
+  "strict_clippy": "passed",
+  "registry_format_and_diff_checks": "passed",
+  "remaining_qualification": [
+    "Signed OIL and upstream WPT replay pending at recording",
+    "Cross-process agent transport and full port garbage-collection behavior are not qualified",
+    "Full navigation/BFCache, worker and lifetime conformance remains unproven",
+    "All five workflow families still require independent outcome evidence and remaining architecture gates"
+  ],
+  "goal_complete": false
+}

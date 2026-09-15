@@ -1,0 +1,14 @@
+[
+  {
+    "mode": "batch",
+    "returncode": 1,
+    "observation_after_error": false,
+    "passed": true
+  },
+  {
+    "mode": "sdk-repl",
+    "returncode": 1,
+    "observation_after_error": false,
+    "passed": false
+  }
+]

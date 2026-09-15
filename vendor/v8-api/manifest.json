@@ -40,6 +40,7 @@
     "v8-platform.h": "ddc3e92fba552696df032e52a4dd6fb11aba2e230bd21c5d489a849ae5edcdd5",
     "v8-primitive.h": "217bbf4d38a203a07dfd53524e1ed25b16010dd522ad5ee8edd17493599d1729",
     "v8-promise.h": "6c17e96e8b9bc8469fee30feb0132dd66eafb7d146e9723703811c5b8a2798d7",
+    "v8-regexp.h": "8bdbcbb83463c77495973fe30294273d00a5c5cff90e8428415f5d2f034d0a8a",
     "v8-sandbox.h": "e6e5f21d51ee6468c511a3f116fa9188fefa4ddcdf537c2b82bb345165e8c6e6",
     "v8-script.h": "cb347ac69d0deac63d940a9d17125f0c19dab0297513054faa5ca1bedbfe4ec0",
     "v8-snapshot.h": "4228f27fc7794598efdc0d465268d70707212155b12a7c347d5fd8a0c137c779",

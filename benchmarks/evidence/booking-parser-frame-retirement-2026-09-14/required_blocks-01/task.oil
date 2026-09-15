@@ -1,0 +1,8 @@
+goto "http://127.0.0.1:58602/booking/1ab3fc0c934a08ea8174211c6d90cbf4/start"
+select "Time zone" "UTC"
+select "Appointment" "early"
+click "Review appointment"
+wait visible css(#appointment-time)
+extract text --selector "#appointment-time"
+click "Reserve test appointment"
+observe

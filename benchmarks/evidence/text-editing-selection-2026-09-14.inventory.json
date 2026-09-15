@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "tests": [
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/textfieldselection/textfieldselection-setRangeText.html",
+      "root": "html",
+      "sha256": "9e176b926989ac8cd9fdc8e043cddfe7debcd089888fe7dc6395568bf8bd4031",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/maxlength-number.html",
+      "root": "html",
+      "sha256": "82050600b34464f3a4cb3a5d41dd1a468794e770d16ee895b41e27b5602eed2b",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/maxlength.html",
+      "root": "html",
+      "sha256": "f24a38ade1416ee988e6f22936ac2e5134713ea7f7f6a9a94948043655707dcb",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-input-element/minlength.html",
+      "root": "html",
+      "sha256": "f9a05869b8af96e671583fbe303d404e8f5c9a4b6c3fc911a28c0586b428e9e5",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-textarea-element/change-to-empty-value.html",
+      "root": "html",
+      "sha256": "2ff4564daefd8c3e81cfc2e7e6711a8563c35de68a17e0f22cb6e2870b6ad6b8",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-textarea-element/textarea-maxlength.html",
+      "root": "html",
+      "sha256": "803b166d5207757fdcb86f597bf6176794d204c9c9c4930d5a413d100d93b95d",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-textarea-element/textarea-minlength.html",
+      "root": "html",
+      "sha256": "ecbaf3dfd006d0b2d16e0ac3d8ba6e9ddf058f1ff5b974241a6e62ccd582bdf8",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    },
+    {
+      "globals": [
+        "window"
+      ],
+      "kind": "html",
+      "path": "html/semantics/forms/the-textarea-element/value-defaultValue-textContent.html",
+      "root": "html",
+      "sha256": "5a5545d6b73e0f0043b586fa5c05951ba66b0220643ea5c9a2ca8ac6dff71f13",
+      "variants": [
+        ""
+      ],
+      "workstream": "core"
+    }
+  ]
+}

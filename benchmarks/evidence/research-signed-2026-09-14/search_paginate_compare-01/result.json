@@ -1,0 +1,13 @@
+{
+  "case": "search_paginate_compare",
+  "sample": 1,
+  "case_id": "fc18c4229397d39023ff7eb22d1301a2",
+  "base": "http://127.0.0.1:56120/research/fc18c4229397d39023ff7eb22d1301a2",
+  "errors": [],
+  "timed_out": false,
+  "passed": true,
+  "task_sha256": "6a75a10f119ff46e7a86dfc484c75d34b3c3cab749546503981175552bfbeef0",
+  "returncode": 0,
+  "elapsed_seconds": 0.569,
+  "final_database_verified": true
+}

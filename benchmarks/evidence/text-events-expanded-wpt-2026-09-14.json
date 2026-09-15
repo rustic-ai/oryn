@@ -1,0 +1,2504 @@
+{
+  "assertions": [
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/textfieldselection/textfieldselection-setRangeText.html|window|:a1eb49e433554aa5b692ce99d70e0c7b",
+        "page_id": 4,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 105,
+        "teardown_ms": 29,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "09b379561d3641a3875a6978211ff933"
+          }
+        ],
+        "id": "d221fe2f716d43ab89ab3cbe0fed024c",
+        "ports": [
+          60176,
+          60179,
+          60181,
+          60185,
+          60187,
+          60189,
+          60192
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 257,
+          "teardown_ms": 416
+        },
+        "tls": {
+          "ca_sha256": "0aebaf9ca60b3f5ec8aae10690e30a1265bb9c05740c24794cf7a25fdaaba36b",
+          "certificate_sha256": "2c6cef5f3897f53addd91da35c45fea1f2e086c63cdae1346e93db7b7a0b22f5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/textfieldselection/textfieldselection-setRangeText.html|window|",
+      "path": "html/semantics/forms/textfieldselection/textfieldselection-setRangeText.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60176/html/semantics/forms/textfieldselection/textfieldselection-setRangeText.html"
+          },
+          "page_id": "4",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 5911,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60176/html/semantics/forms/textfieldselection/textfieldselection-setRangeText.html"
+          },
+          "page_id": "4",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 12,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 5911,
+          "response_sha256": "9e176b926989ac8cd9fdc8e043cddfe7debcd089888fe7dc6395568bf8bd4031",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60176/html/semantics/forms/textfieldselection/textfieldselection-setRangeText.html",
+          "worker_pid": 87046
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60176/html/semantics/forms/textfieldselection/textfieldselection-setRangeText.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60176/resources/testharness.js",
+          "worker_pid": 87046
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60176/html/semantics/forms/textfieldselection/textfieldselection-setRangeText.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 4,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60176/resources/testharnessreport.js",
+          "worker_pid": 87046
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "text setRangeText with only one argument replaces the value between selectionStart and selectionEnd, otherwise replaces the value between 2nd and 3rd arguments",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "text selectionMode missing",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "text selectionMode 'select'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "text selectionMode 'start'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "text selectionMode 'end'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "text selectionMode 'preserve'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "text setRangeText with 3rd argument greater than 2nd argument throws an IndexSizeError exception",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "text setRangeText without argument throws a type error",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "text setRangeText fires a select event",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "text setRangeText fires a select event when fully selected",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "text setRangeText fires a select event after select()",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search setRangeText with only one argument replaces the value between selectionStart and selectionEnd, otherwise replaces the value between 2nd and 3rd arguments",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search selectionMode missing",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search selectionMode 'select'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search selectionMode 'start'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search selectionMode 'end'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search selectionMode 'preserve'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search setRangeText with 3rd argument greater than 2nd argument throws an IndexSizeError exception",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search setRangeText without argument throws a type error",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search setRangeText fires a select event",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search setRangeText fires a select event when fully selected",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "search setRangeText fires a select event after select()",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel setRangeText with only one argument replaces the value between selectionStart and selectionEnd, otherwise replaces the value between 2nd and 3rd arguments",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel selectionMode missing",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel selectionMode 'select'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel selectionMode 'start'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel selectionMode 'end'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel selectionMode 'preserve'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel setRangeText with 3rd argument greater than 2nd argument throws an IndexSizeError exception",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel setRangeText without argument throws a type error",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel setRangeText fires a select event",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel setRangeText fires a select event when fully selected",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tel setRangeText fires a select event after select()",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url setRangeText with only one argument replaces the value between selectionStart and selectionEnd, otherwise replaces the value between 2nd and 3rd arguments",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url selectionMode missing",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url selectionMode 'select'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url selectionMode 'start'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url selectionMode 'end'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url selectionMode 'preserve'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url setRangeText with 3rd argument greater than 2nd argument throws an IndexSizeError exception",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url setRangeText without argument throws a type error",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url setRangeText fires a select event",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url setRangeText fires a select event when fully selected",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "url setRangeText fires a select event after select()",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password setRangeText with only one argument replaces the value between selectionStart and selectionEnd, otherwise replaces the value between 2nd and 3rd arguments",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password selectionMode missing",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password selectionMode 'select'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password selectionMode 'start'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password selectionMode 'end'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password selectionMode 'preserve'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password setRangeText with 3rd argument greater than 2nd argument throws an IndexSizeError exception",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password setRangeText without argument throws a type error",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password setRangeText fires a select event",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password setRangeText fires a select event when fully selected",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "password setRangeText fires a select event after select()",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none setRangeText with only one argument replaces the value between selectionStart and selectionEnd, otherwise replaces the value between 2nd and 3rd arguments",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none selectionMode missing",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none selectionMode 'select'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none selectionMode 'start'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none selectionMode 'end'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none selectionMode 'preserve'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none setRangeText with 3rd argument greater than 2nd argument throws an IndexSizeError exception",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none setRangeText without argument throws a type error",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none setRangeText fires a select event",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none setRangeText fires a select event when fully selected",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "display_none setRangeText fires a select event after select()",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea setRangeText with only one argument replaces the value between selectionStart and selectionEnd, otherwise replaces the value between 2nd and 3rd arguments",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea selectionMode missing",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea selectionMode 'select'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea selectionMode 'start'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea selectionMode 'end'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea selectionMode 'preserve'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea setRangeText with 3rd argument greater than 2nd argument throws an IndexSizeError exception",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea setRangeText without argument throws a type error",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea setRangeText fires a select event",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea setRangeText fires a select event when fully selected",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "textarea setRangeText fires a select event after select()",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc setRangeText with only one argument replaces the value between selectionStart and selectionEnd, otherwise replaces the value between 2nd and 3rd arguments",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc selectionMode missing",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc selectionMode 'select'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc selectionMode 'start'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc selectionMode 'end'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc selectionMode 'preserve'",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc setRangeText with 3rd argument greater than 2nd argument throws an IndexSizeError exception",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc setRangeText without argument throws a type error",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc setRangeText fires a select event",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc setRangeText fires a select event when fully selected",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "input_not_in_doc setRangeText fires a select event after select()",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 87046,
+          "rss_bytes": 38944768
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testdriver-vendor.js",
+        "/resources/testdriver.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/maxlength-number.html|window|:bb4ed1a7eaac45c19d9ca5ecd51998d2",
+        "page_id": 3,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 140,
+        "teardown_ms": 14,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "2d527da314e4474cb82d157d95ace1db"
+          }
+        ],
+        "id": "01082cb9b88b44b685c28ce3925e57d1",
+        "ports": [
+          60177,
+          60178,
+          60180,
+          60182,
+          60183,
+          60186,
+          60191
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 260,
+          "teardown_ms": 866
+        },
+        "tls": {
+          "ca_sha256": "0aebaf9ca60b3f5ec8aae10690e30a1265bb9c05740c24794cf7a25fdaaba36b",
+          "certificate_sha256": "2c6cef5f3897f53addd91da35c45fea1f2e086c63cdae1346e93db7b7a0b22f5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/maxlength-number.html|window|",
+      "path": "html/semantics/forms/the-input-element/maxlength-number.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60177/html/semantics/forms/the-input-element/maxlength-number.html"
+          },
+          "page_id": "3",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 605,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60177/html/semantics/forms/the-input-element/maxlength-number.html"
+          },
+          "page_id": "3",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 11,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 605,
+          "response_sha256": "82050600b34464f3a4cb3a5d41dd1a468794e770d16ee895b41e27b5602eed2b",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60177/html/semantics/forms/the-input-element/maxlength-number.html",
+          "worker_pid": 87047
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60177/html/semantics/forms/the-input-element/maxlength-number.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60177/resources/testharness.js",
+          "worker_pid": 87047
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60177/html/semantics/forms/the-input-element/maxlength-number.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60177/resources/testharnessreport.js",
+          "worker_pid": 87047
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 28,
+          "initiator": "http://localhost:60177/html/semantics/forms/the-input-element/maxlength-number.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 142199,
+          "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60177/resources/testdriver.js",
+          "worker_pid": 87047
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60177/html/semantics/forms/the-input-element/maxlength-number.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 3,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 4116,
+          "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+          "sequence": 4,
+          "started_ms": 94,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60177/resources/testdriver-vendor.js",
+          "worker_pid": 87047
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [
+            {
+              "backend": "oryn",
+              "context_id": 0,
+              "document_generation": 1,
+              "id": 1,
+              "operation": "send_keys",
+              "outcome": "started",
+              "sequence": 0
+            },
+            {
+              "backend": "oryn",
+              "context_id": 0,
+              "document_generation": 1,
+              "id": 1,
+              "operation": "send_keys",
+              "outcome": "completed",
+              "sequence": 1
+            }
+          ],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [
+          {
+            "backend": "oryn",
+            "context_id": 0,
+            "document_generation": 1,
+            "id": 1,
+            "operation": "send_keys",
+            "outcome": "started",
+            "sequence": 0
+          },
+          {
+            "backend": "oryn",
+            "context_id": 0,
+            "document_generation": 1,
+            "id": 1,
+            "operation": "send_keys",
+            "outcome": "completed",
+            "sequence": 1
+          }
+        ],
+        "tests": [
+          {
+            "message": "",
+            "name": "maxlength doesn't apply to input type=number",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 87047,
+          "rss_bytes": 36159488
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/maxlength.html|window|:dc6256e74c5b46fc8b0907982c7ed172",
+        "page_id": 1,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 96,
+        "teardown_ms": 39,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "8bbbe143bbeb4e34a044824224fad78f"
+          }
+        ],
+        "id": "87d739af45894307b4a81904a05fde69",
+        "ports": [
+          60184,
+          60188,
+          60190,
+          60193,
+          60195,
+          60196,
+          60198
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 256,
+          "teardown_ms": 928
+        },
+        "tls": {
+          "ca_sha256": "0aebaf9ca60b3f5ec8aae10690e30a1265bb9c05740c24794cf7a25fdaaba36b",
+          "certificate_sha256": "2c6cef5f3897f53addd91da35c45fea1f2e086c63cdae1346e93db7b7a0b22f5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/maxlength.html|window|",
+      "path": "html/semantics/forms/the-input-element/maxlength.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60184/html/semantics/forms/the-input-element/maxlength.html"
+          },
+          "page_id": "1",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1746,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60184/html/semantics/forms/the-input-element/maxlength.html"
+          },
+          "page_id": "1",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 10,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1746,
+          "response_sha256": "f24a38ade1416ee988e6f22936ac2e5134713ea7f7f6a9a94948043655707dcb",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60184/html/semantics/forms/the-input-element/maxlength.html",
+          "worker_pid": 87048
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:60184/html/semantics/forms/the-input-element/maxlength.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60184/resources/testharness.js",
+          "worker_pid": 87048
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60184/html/semantics/forms/the-input-element/maxlength.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 1,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60184/resources/testharnessreport.js",
+          "worker_pid": 87048
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Unset maxlength is -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Negative maxlength is always -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Non-numeric maxlength is -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Assigning negative integer throws IndexSizeError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Assigning non-numeric to maxlength sets maxlength to 0",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 87048,
+          "rss_bytes": 35323904
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-input-element/minlength.html|window|:781e40dfb7ff499e8ac537048dbce492",
+        "page_id": 2,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 96,
+        "teardown_ms": 39,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "6a6fb89f2b0f4568b060c81157341be4"
+          }
+        ],
+        "id": "2fa7dace19be480dbd51cae573c18aed",
+        "ports": [
+          60194,
+          60197,
+          60199,
+          60200,
+          60201,
+          60202,
+          60203
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 258,
+          "teardown_ms": 933
+        },
+        "tls": {
+          "ca_sha256": "0aebaf9ca60b3f5ec8aae10690e30a1265bb9c05740c24794cf7a25fdaaba36b",
+          "certificate_sha256": "2c6cef5f3897f53addd91da35c45fea1f2e086c63cdae1346e93db7b7a0b22f5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-input-element/minlength.html|window|",
+      "path": "html/semantics/forms/the-input-element/minlength.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60194/html/semantics/forms/the-input-element/minlength.html"
+          },
+          "page_id": "2",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1758,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60194/html/semantics/forms/the-input-element/minlength.html"
+          },
+          "page_id": "2",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 9,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 3,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1758,
+          "response_sha256": "f9a05869b8af96e671583fbe303d404e8f5c9a4b6c3fc911a28c0586b428e9e5",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60194/html/semantics/forms/the-input-element/minlength.html",
+          "worker_pid": 87049
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:60194/html/semantics/forms/the-input-element/minlength.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 14,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60194/resources/testharness.js",
+          "worker_pid": 87049
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60194/html/semantics/forms/the-input-element/minlength.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 2,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 58,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60194/resources/testharnessreport.js",
+          "worker_pid": 87049
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Unset minlength is -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Negative minlength is always -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Non-numeric minlength is -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Assigning negative integer throws IndexSizeError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Assigning non-numeric to minlength sets minlength to 0",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 87049,
+          "rss_bytes": 35471360
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testdriver-actions.js",
+        "/resources/testdriver-vendor.js",
+        "/resources/testdriver.js",
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-textarea-element/change-to-empty-value.html|window|:9455cb7c5bcf448a85c6b77d98f347a8",
+        "page_id": 5,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 137,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "91eeaf2e1ac64f3d8c1493bcafe885a7"
+          }
+        ],
+        "id": "e9b90ed6ee3e4f89b512117ff2313693",
+        "ports": [
+          60249,
+          60250,
+          60251,
+          60252,
+          60253,
+          60254,
+          60255
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 247,
+          "teardown_ms": 913
+        },
+        "tls": {
+          "ca_sha256": "0aebaf9ca60b3f5ec8aae10690e30a1265bb9c05740c24794cf7a25fdaaba36b",
+          "certificate_sha256": "2c6cef5f3897f53addd91da35c45fea1f2e086c63cdae1346e93db7b7a0b22f5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-textarea-element/change-to-empty-value.html|window|",
+      "path": "html/semantics/forms/the-textarea-element/change-to-empty-value.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60249/html/semantics/forms/the-textarea-element/change-to-empty-value.html"
+          },
+          "page_id": "5",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1366,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60249/html/semantics/forms/the-textarea-element/change-to-empty-value.html"
+          },
+          "page_id": "5",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 17,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1366,
+          "response_sha256": "2ff4564daefd8c3e81cfc2e7e6711a8563c35de68a17e0f22cb6e2870b6ad6b8",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60249/html/semantics/forms/the-textarea-element/change-to-empty-value.html",
+          "worker_pid": 87074
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:60249/html/semantics/forms/the-textarea-element/change-to-empty-value.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60249/resources/testharness.js",
+          "worker_pid": 87074
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60249/html/semantics/forms/the-textarea-element/change-to-empty-value.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60249/resources/testharnessreport.js",
+          "worker_pid": 87074
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 28,
+          "initiator": "http://localhost:60249/html/semantics/forms/the-textarea-element/change-to-empty-value.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 3,
+          "response_bytes": 142199,
+          "response_sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+          "sequence": 3,
+          "started_ms": 62,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60249/resources/testdriver.js",
+          "worker_pid": 87074
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 6,
+          "initiator": "http://localhost:60249/html/semantics/forms/the-textarea-element/change-to-empty-value.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 4,
+          "response_bytes": 19270,
+          "response_sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+          "sequence": 4,
+          "started_ms": 94,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60249/resources/testdriver-actions.js",
+          "worker_pid": 87074
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60249/html/semantics/forms/the-textarea-element/change-to-empty-value.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 5,
+          "query_sha256": null,
+          "request_id": 5,
+          "response_bytes": 4116,
+          "response_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+          "sequence": 5,
+          "started_ms": 102,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60249/resources/testdriver-vendor.js",
+          "worker_pid": 87074
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [
+            {
+              "backend": "oryn",
+              "context_id": 0,
+              "document_generation": 1,
+              "id": 1,
+              "operation": "send_keys",
+              "outcome": "started",
+              "sequence": 0
+            },
+            {
+              "backend": "oryn",
+              "context_id": 0,
+              "document_generation": 1,
+              "id": 1,
+              "operation": "send_keys",
+              "outcome": "completed",
+              "sequence": 1
+            }
+          ],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [
+          {
+            "backend": "oryn",
+            "context_id": 0,
+            "document_generation": 1,
+            "id": 1,
+            "operation": "send_keys",
+            "outcome": "started",
+            "sequence": 0
+          },
+          {
+            "backend": "oryn",
+            "context_id": 0,
+            "document_generation": 1,
+            "id": 1,
+            "operation": "send_keys",
+            "outcome": "completed",
+            "sequence": 1
+          }
+        ],
+        "tests": [
+          {
+            "message": "",
+            "name": "Change event when clearing a textarea",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 87074,
+          "rss_bytes": 35962880
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-textarea-element/textarea-maxlength.html|window|:6c65f928524a443a82ba8a2b7633380b",
+        "page_id": 6,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 88,
+        "teardown_ms": 16,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "9bd2aee1c6514a6da93d02a892020926"
+          }
+        ],
+        "id": "a3fb8679e61e4576a777784d6a14a3ff",
+        "ports": [
+          60270,
+          60271,
+          60272,
+          60273,
+          60274,
+          60275,
+          60276
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 253,
+          "teardown_ms": 935
+        },
+        "tls": {
+          "ca_sha256": "0aebaf9ca60b3f5ec8aae10690e30a1265bb9c05740c24794cf7a25fdaaba36b",
+          "certificate_sha256": "2c6cef5f3897f53addd91da35c45fea1f2e086c63cdae1346e93db7b7a0b22f5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-textarea-element/textarea-maxlength.html|window|",
+      "path": "html/semantics/forms/the-textarea-element/textarea-maxlength.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60270/html/semantics/forms/the-textarea-element/textarea-maxlength.html"
+          },
+          "page_id": "6",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1575,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60270/html/semantics/forms/the-textarea-element/textarea-maxlength.html"
+          },
+          "page_id": "6",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 19,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1575,
+          "response_sha256": "803b166d5207757fdcb86f597bf6176794d204c9c9c4930d5a413d100d93b95d",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60270/html/semantics/forms/the-textarea-element/textarea-maxlength.html",
+          "worker_pid": 87091
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60270/html/semantics/forms/the-textarea-element/textarea-maxlength.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60270/resources/testharness.js",
+          "worker_pid": 87091
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 2,
+          "initiator": "http://localhost:60270/html/semantics/forms/the-textarea-element/textarea-maxlength.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 6,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60270/resources/testharnessreport.js",
+          "worker_pid": 87091
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Unset maxlength is -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Negative maxlength is always -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Non-numeric maxlength is -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Assigning negative integer throws IndexSizeError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Assigning non-numeric to maxlength sets maxlength to 0",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 87091,
+          "rss_bytes": 34144256
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-textarea-element/textarea-minlength.html|window|:4ba0d316680440eaa5ea81cc54c68b5f",
+        "page_id": 7,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 93,
+        "teardown_ms": 27,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "ecb2c2aafde140998e99ba0bd0846efe"
+          }
+        ],
+        "id": "ad765d3050594b6cbb4f28f3b743853f",
+        "ports": [
+          60277,
+          60278,
+          60279,
+          60280,
+          60281,
+          60282,
+          60283
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 248,
+          "teardown_ms": 944
+        },
+        "tls": {
+          "ca_sha256": "0aebaf9ca60b3f5ec8aae10690e30a1265bb9c05740c24794cf7a25fdaaba36b",
+          "certificate_sha256": "2c6cef5f3897f53addd91da35c45fea1f2e086c63cdae1346e93db7b7a0b22f5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-textarea-element/textarea-minlength.html|window|",
+      "path": "html/semantics/forms/the-textarea-element/textarea-minlength.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60277/html/semantics/forms/the-textarea-element/textarea-minlength.html"
+          },
+          "page_id": "7",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 1573,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60277/html/semantics/forms/the-textarea-element/textarea-minlength.html"
+          },
+          "page_id": "7",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 20,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 1573,
+          "response_sha256": "ecbaf3dfd006d0b2d16e0ac3d8ba6e9ddf058f1ff5b974241a6e62ccd582bdf8",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60277/html/semantics/forms/the-textarea-element/textarea-minlength.html",
+          "worker_pid": 87073
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 38,
+          "initiator": "http://localhost:60277/html/semantics/forms/the-textarea-element/textarea-minlength.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 13,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60277/resources/testharness.js",
+          "worker_pid": 87073
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60277/html/semantics/forms/the-textarea-element/textarea-minlength.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 7,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 57,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60277/resources/testharnessreport.js",
+          "worker_pid": 87073
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "Unset minlength is -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Negative minlength is always -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Non-numeric minlength is -1",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Assigning negative integer throws IndexSizeError",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Assigning non-numeric to minlength sets minlength to 0",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 87073,
+          "rss_bytes": 34390016
+        }
+      ]
+    },
+    {
+      "classification": "core",
+      "dependencies": [
+        "/resources/testharness.js",
+        "/resources/testharnessreport.js"
+      ],
+      "diagnostic_tags": [],
+      "execution": {
+        "auxiliary_worker_lifecycle": "isolated_on_demand",
+        "cleanup_errors": [],
+        "completion_valid": true,
+        "error": null,
+        "id": "html/semantics/forms/the-textarea-element/value-defaultValue-textContent.html|window|:57d2e65e4b814f5d9526da6a9deebf48",
+        "page_id": 8,
+        "parent_shutdown": {
+          "error": null,
+          "returncode": 0,
+          "shutdown_acknowledged": true,
+          "stderr": ""
+        },
+        "queue_ms": 0,
+        "replacement_error": null,
+        "run_ms": 92,
+        "teardown_ms": 25,
+        "transport": "persistent_session",
+        "validation_errors": []
+      },
+      "failure_domain": null,
+      "fixture": {
+        "error": null,
+        "generations": [
+          {
+            "backend": "oryn",
+            "id": "c24a044571884bcbbd662fbd780df013"
+          }
+        ],
+        "id": "6e18c2a87079450893da61e48f527019",
+        "ports": [
+          60284,
+          60285,
+          60286,
+          60287,
+          60288,
+          60289,
+          60290
+        ],
+        "schema_version": 1,
+        "server": "direct_wptserve",
+        "shutdown_complete": true,
+        "timings": {
+          "startup_ms": 245,
+          "teardown_ms": 948
+        },
+        "tls": {
+          "ca_sha256": "0aebaf9ca60b3f5ec8aae10690e30a1265bb9c05740c24794cf7a25fdaaba36b",
+          "certificate_sha256": "2c6cef5f3897f53addd91da35c45fea1f2e086c63cdae1346e93db7b7a0b22f5"
+        },
+        "tls_validation": "native_verified_reference_bypassed"
+      },
+      "global": "window",
+      "id": "html/semantics/forms/the-textarea-element/value-defaultValue-textContent.html|window|",
+      "path": "html/semantics/forms/the-textarea-element/value-defaultValue-textContent.html",
+      "policy_events": [
+        {
+          "event": {
+            "kind": "request_started",
+            "method": "GET",
+            "url": "http://localhost:60284/html/semantics/forms/the-textarea-element/value-defaultValue-textContent.html"
+          },
+          "page_id": "8",
+          "sequence": 1
+        },
+        {
+          "event": {
+            "bytes": 7470,
+            "kind": "response_received",
+            "status": 200,
+            "url": "http://localhost:60284/html/semantics/forms/the-textarea-element/value-defaultValue-textContent.html"
+          },
+          "page_id": "8",
+          "sequence": 7
+        }
+      ],
+      "resource_audit": {
+        "complete": true,
+        "context_id": 21,
+        "gaps": [],
+        "overflow": false,
+        "schema_version": 2,
+        "websockets": []
+      },
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "resources": [
+        {
+          "destination": "Document",
+          "elapsed_ms": 2,
+          "initiator": "about:[redacted]",
+          "method": "GET",
+          "mime": "text/html",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 7470,
+          "response_sha256": "5a5545d6b73e0f0043b586fa5c05951ba66b0220643ea5c9a2ca8ac6dff71f13",
+          "sequence": 0,
+          "started_ms": 0,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60284/html/semantics/forms/the-textarea-element/value-defaultValue-textContent.html",
+          "worker_pid": 87072
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 39,
+          "initiator": "http://localhost:60284/html/semantics/forms/the-textarea-element/value-defaultValue-textContent.html",
+          "method": "GET",
+          "mime": "text/javascript; charset=utf-8",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 1,
+          "response_bytes": 198291,
+          "response_sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+          "sequence": 1,
+          "started_ms": 12,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60284/resources/testharness.js",
+          "worker_pid": 87072
+        },
+        {
+          "destination": "Script",
+          "elapsed_ms": 3,
+          "initiator": "http://localhost:60284/html/semantics/forms/the-textarea-element/value-defaultValue-textContent.html",
+          "method": "GET",
+          "mime": "application/javascript",
+          "page_id": 8,
+          "query_sha256": null,
+          "request_id": 2,
+          "response_bytes": 1288,
+          "response_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+          "sequence": 2,
+          "started_ms": 56,
+          "status": 200,
+          "terminal": "complete",
+          "url": "http://localhost:60284/resources/testharnessreport.js",
+          "worker_pid": 87072
+        }
+      ],
+      "result": {
+        "automation_overflow": false,
+        "automation_trace": {
+          "complete": true,
+          "events": [],
+          "overflow": false,
+          "schema_version": 1,
+          "scope": "page_isolate"
+        },
+        "complete": true,
+        "completion_count": 1,
+        "harness": 0,
+        "harnessMessage": "",
+        "testdriver": [],
+        "tests": [
+          {
+            "message": "",
+            "name": "defaultValue and value are the empty string by default",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "defaultValue and value are affected by setting textContent",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "defaultValue and value are affected by setting nodeValue on a child text node",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "defaultValue and value are affected by setting data on a child text node",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "defaultValue and value are affected by textContent in combination with appending a text node",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "defaultValue and value are affected by textContent in combination with appending a DocumentFragment",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "defaultValue and value reflect child text content, not textContent",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "Setting defaultValue wipes out any children, including elements (just like setting textContent)",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "defaultValue and value treat CRLF differently",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "value normalizes CRLF even spread over multiple text nodes",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tests for the value setter",
+            "status": 0
+          },
+          {
+            "message": "",
+            "name": "tests for U+0000 NULL",
+            "status": 0
+          }
+        ]
+      },
+      "status": "passed",
+      "variant": "",
+      "worker_memory": [
+        {
+          "pid": 87072,
+          "rss_bytes": 34979840
+        }
+      ]
+    }
+  ],
+  "binary": {
+    "sha256": "226dabd4ae912b345e8daf20b344f302b58ffd8a44c6ad28ccd40c7c52b9a76a",
+    "size_bytes": 7259392
+  },
+  "dependency_discovery": "literal script references only; dynamic URLs may be absent",
+  "dependency_preflight": {
+    "http:/resources/testdriver-actions.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testdriver-vendor.js": {
+      "mime": "application/javascript; charset=utf-8",
+      "sha256": "ae78a131a0280f2ae7308d4dc3304b2f4ea47f7f69fa8d687a47f4396468de89",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testdriver.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "http:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testdriver-actions.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "e2db9153f3850983f423383d004042845b87d2a3a4d388b3f4846c915f571027",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testdriver-vendor.js": {
+      "mime": "application/javascript; charset=utf-8",
+      "sha256": "ae78a131a0280f2ae7308d4dc3304b2f4ea47f7f69fa8d687a47f4396468de89",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testdriver.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "60465169126fb34a3723f97896c8fc84ff6e295074ed67b9a0f043e88cf7694e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharness.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    },
+    "https:/resources/testharnessreport.js": {
+      "mime": "text/javascript; charset=utf-8",
+      "sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+      "status": 200,
+      "template_failure": false,
+      "unresolved_template": false
+    }
+  },
+  "elapsed_seconds": 4.482,
+  "execution_mode": "sandboxed_worker",
+  "h2_qualification": {
+    "alpn": "h2",
+    "close": true,
+    "echo": true,
+    "extended_connect": true
+  },
+  "harness": {
+    "capability_manifest_sha256": "904b1aa13265e0fd6b849e38b2d77f6be568058f703afb8d38b3c3f6b2bcdfb3",
+    "chromium_automation_sha256": "e8ec2378c4b3531161b3274ce9f17a89b3445082f78ec989acbc86b3aefc5faa",
+    "chromium_binary_sha256": null,
+    "chromium_canary_sha256": "eb09ca74d25e59d5c9c7e2bcf9cbae58df3b50de1084086ff1d2538f7f31d165",
+    "chromium_driver_sha256": "66b61412a8060e37854b95db2d0f2a6f2922b1eb73e5968c059fac1b0874ebb9",
+    "chromium_focus_lease_sha256": "8e26c6871f7ac2130b872af41d8ad53dea9cef564f997709b3336ec1e0138854",
+    "evidence_classifier_sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40",
+    "fixture_sha256": "c34c74875315b0e6f85c9d81cf66204641d5ac44d5feea5777a3094df7a50d3a",
+    "h2_probe_sha256": "339becb189392b5d435effe23757dc2108181a8392ba4609d7672d3b20a7d2a9",
+    "helper_sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3",
+    "oryn_automation_sha256": "49b038e94e2ab63879a06a5d89350b6033b971976bd95c8583909ee663b1c41a",
+    "report_adapter_sha256": "dc7417422314166549103029f22e98f40b0efe347dac6679f2cc407d718e5850",
+    "runner_sha256": "44b581aa94cf3794496cd6030efb2cf177300a837475c234fc6a808193033747",
+    "server": "direct_wptserve_v1",
+    "session_client_sha256": "701b091b8905a4939b0a2029a93bb8fbe9accff16ef258f34dcf21524c5e88b6",
+    "tls_fixture_sha256": "79bd87c79220479519d66b92bf8d457b5636fe5558e808b6c9f2bc23a7293d93"
+  },
+  "harness_profile": "upstream",
+  "helper_preflight": [
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "http",
+      "sha256": "0a13edc876d65a54c3d3f9e5d14caad1c8ede1824df2898d4e2ef56cee138b4b",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "http",
+      "sha256": "11f54a336585c5c63a9cf698945c156cb342520d5db2265209fb65c7d90110a6",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "http",
+      "sha256": "78755f4471fa6c3ffd14e620d247b306502e16b6d47b52b83ff3bf8e6836f43f",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "http",
+      "sha256": "71287827734adbc1c6dd312a11a5433a9c2fec707dbb58486c5ea34dc08fb1d8",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "http",
+      "sha256": "97928039dc56e3906385ec79ed83ad4c3343b0728f9e7ad9b83d75dd599dea1b",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "http",
+      "sha256": "3fb6c221226f86db136d339e817ab5a1541d20a9d7a14648223b93fd60bea68c",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "http",
+      "sha256": "b3ab9971edcc6e2a8ea983dcd5ca6902caf7446b26e53af2fd84741b3a0189eb",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "http",
+      "sha256": "57fadaa3b90134ebdb5268548b7ba1a9c525fc82d8a9101725e0b23aa683cad2",
+      "status": 200
+    },
+    {
+      "path": "/common/security-features/resources/common.sub.js",
+      "scheme": "https",
+      "sha256": "0a13edc876d65a54c3d3f9e5d14caad1c8ede1824df2898d4e2ef56cee138b4b",
+      "status": 200
+    },
+    {
+      "path": "/common/get-host-info.sub.js",
+      "scheme": "https",
+      "sha256": "11f54a336585c5c63a9cf698945c156cb342520d5db2265209fb65c7d90110a6",
+      "status": 200
+    },
+    {
+      "path": "/service-workers/service-worker/resources/test-helpers.sub.js",
+      "scheme": "https",
+      "sha256": "78755f4471fa6c3ffd14e620d247b306502e16b6d47b52b83ff3bf8e6836f43f",
+      "status": 200
+    },
+    {
+      "path": "/fetch/metadata/resources/helper.sub.js",
+      "scheme": "https",
+      "sha256": "71287827734adbc1c6dd312a11a5433a9c2fec707dbb58486c5ea34dc08fb1d8",
+      "status": 200
+    },
+    {
+      "path": "/cookies/resources/cookie-helper.sub.js",
+      "scheme": "https",
+      "sha256": "97928039dc56e3906385ec79ed83ad4c3343b0728f9e7ad9b83d75dd599dea1b",
+      "status": 200
+    },
+    {
+      "path": "/websockets/constants.sub.js",
+      "scheme": "https",
+      "sha256": "3fb6c221226f86db136d339e817ab5a1541d20a9d7a14648223b93fd60bea68c",
+      "status": 200
+    },
+    {
+      "path": "/secure-contexts/server-locations.sub.js",
+      "scheme": "https",
+      "sha256": "b3ab9971edcc6e2a8ea983dcd5ca6902caf7446b26e53af2fd84741b3a0189eb",
+      "status": 200
+    },
+    {
+      "path": "/content-security-policy/embedded-enforcement/support/testharness-helper.sub.js",
+      "scheme": "https",
+      "sha256": "57fadaa3b90134ebdb5268548b7ba1a9c525fc82d8a9101725e0b23aa683cad2",
+      "status": 200
+    }
+  ],
+  "inventory_sha256": "048f6362ac1c76f70457bc6bee90316404cf1511ecc629ac4860f1c716240ead",
+  "jobs": 4,
+  "outcome": {
+    "attempted": 8,
+    "environment_blocked": 0,
+    "required_finished": 8,
+    "required_passed": 8,
+    "required_total": 8,
+    "status": "passed"
+  },
+  "parent_mode": "persistent",
+  "parent_progress": null,
+  "qualification": "diagnostic; runtime resource completeness and differential gates required",
+  "run_fingerprint": "a14f0a0b0722e9ee4b84e9f8cd7f4057d1bcca0021c4f58713c8849d49c62828",
+  "runtime_metadata": {
+    "binding_abi_version": 3,
+    "box_engine_version": "taffy-0.14",
+    "build_profile": "release",
+    "capabilities": [
+      "native_dom",
+      "html5ever",
+      "rustls_network_broker",
+      "oil",
+      "semantic_v3_compat",
+      "semantic_v4",
+      "execution_domain_handoff",
+      "trace_recording",
+      "network_record_replay",
+      "sealed_context_checkpoint",
+      "replay_branching",
+      "v8_javascript",
+      "generated_webidl_registry",
+      "generated_web_platform_algorithms",
+      "typed_platform_host_operations",
+      "webassembly",
+      "same_site_cookies",
+      "csp3_agent_critical",
+      "trusted_types_core",
+      "intl_full_icu",
+      "computed_style",
+      "layout_box",
+      "layout_inline_text",
+      "viewport_scroll",
+      "deterministic_embedded_font",
+      "paint_snapshot"
+    ],
+    "contract_version": 4,
+    "embedded_font_sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "execution_mode": "sandboxed_worker",
+    "external_references_sha256": "b8464b91295746973a44e9cc7921bff7421f059aaae686038bd14af924ef1d92",
+    "icu_data_sha256": "1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612",
+    "inline_engine_version": "parley-0.11.1",
+    "limits": {
+      "command_wall_ms": 10000,
+      "ipc_frame_bytes": 25165824,
+      "max_font_bytes": 8388608,
+      "max_layout_nodes": 100000,
+      "max_page_font_bytes": 33554432,
+      "max_resource_cache_bytes": 33554432,
+      "max_resource_cache_entries": 256,
+      "max_resource_cache_entry_bytes": 8388608,
+      "max_viewport_css_px": 16384,
+      "navigation_wall_ms": 30000,
+      "queue_capacity": 32,
+      "runtime_profile": "full",
+      "v8_heap_bytes": 268435456,
+      "worker_rss_bytes": 536870912
+    },
+    "native_v8": true,
+    "policy_digest": "73e8c01b939853daebfa2b45c5598a64eb8685393185edf5c4a14a88c10cc071",
+    "runtime_profile": "core_full",
+    "sandbox_state": "app_sandbox",
+    "sandboxed": true,
+    "semantic_graph_version": 2,
+    "startup_snapshot_sha256": "abebc91da90a4359a88d2f21c30aed1da5d3c80102006061eedc552a39f16ee7",
+    "streaming_parser": true,
+    "style_engine_version": "stylo-computed-values-0.20+taffy-grid-v1",
+    "transport_mode": "async_streaming_parent_broker",
+    "v8_heap_sandbox": true,
+    "v8_version": "15.0.245.2-rusty",
+    "webidl_manifest_sha256": "d7b8200f463c98f55936cc1776dc4fe80ce942bf68821f66098663fe576cb903",
+    "worker_binary_sha256": "b26038a2a6d4ea95235af417a80dcde0d4cce2f0a3ecf660ea82cc204faa8fc4",
+    "worker_bundle_id": "ai.rustic.oryn.page-worker",
+    "worker_code_directory_hash": "be5674d7e153a457e0248053f1efd529fcb374a0",
+    "worker_lifecycle": "isolated_prewarmed",
+    "worker_protocol_version": 10,
+    "worker_signing_cert_sha1": "9A1405B3288A8DD06DE0D29CCCD02B8B45A33F90",
+    "worker_team_id": "5HVA9VFF8K"
+  },
+  "schema_version": 4,
+  "selection": {
+    "exclude": [],
+    "filter": null,
+    "global": "window",
+    "harness_profile": "upstream",
+    "max_tests": null,
+    "parent_mode": "persistent",
+    "script_wall_ms": null,
+    "shard_count": 1,
+    "shard_index": 0,
+    "timeout_seconds": 30,
+    "timeout_source_sha256": null,
+    "variant_filter": null,
+    "variant_override": null
+  },
+  "shard": {
+    "count": 1,
+    "index": 0
+  },
+  "source": {
+    "commit": "c3543ed7281af919acfc6855547fe93d4dd0b2d4",
+    "dirty": true,
+    "patch_sha256": "a58bd421eb05761f4e4b4b8854765c2fe1c51c308cab4b3878084f13132bb49f",
+    "untracked_file_count": 3588,
+    "untracked_sha256": "db567ac0881f57f9a85b64840c95dfc3dce2f938c1eff07684f22c68fbb8c1a3"
+  },
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+}

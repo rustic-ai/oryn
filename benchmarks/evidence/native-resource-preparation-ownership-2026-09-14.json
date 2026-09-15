@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "classification": "dirty-tree native diagnostic; not signed or WPT qualification",
+  "source_tree_sha256": "14d1b4886beceeb7acafd27554243054dad2d6913f28db160f0fbfaf8d493bd5",
+  "goal_complete": false,
+  "changes": [
+    "Insertion-side frame, image and stylesheet preparation enters the active native owner-document context.",
+    "Image preparation independently resolves its native owner state and context, covering direct src setters as well as insertion.",
+    "Resource preparation does not proceed without an active owner-document environment."
+  ],
+  "regression": {
+    "name": "v8_bindings::tests::borrowed_insertion_prepares_images_in_owner_document_environment",
+    "fixture_setup_correction": "Initial test omitted the hosted-document connection and produced no image request; this was corrected before diagnosing browser behavior.",
+    "before_insertion_fix": "Borrowed parent appendChild resolved child image URL against https://example.test/parent/ rather than /child/.",
+    "before_setter_fix": "Borrowed parent src setter submitted an image request to the parent's platform endpoint.",
+    "after": "Both relative URLs resolve against /child/ and both requests use only the child endpoint; the parent endpoint records zero requests."
+  },
+  "tests": {
+    "native": {"passed": 559, "failed": 0, "ignored": 6, "elapsed_seconds": 145.36},
+    "javascript": {"passed": 275, "failed": 0, "ignored": 3, "elapsed_seconds": 4.23},
+    "native_strict_clippy": "passed",
+    "formatting": "passed",
+    "diff_check": "passed"
+  },
+  "previous_signed_evidence": "native-realm-coordinator-signed-2026-09-14.json",
+  "remaining": [
+    "Synchronous initial iframe Window/Document creation and native WindowProxy linking remain incomplete.",
+    "Other direct property preparation paths still require ownership auditing.",
+    "Connected popup architecture, complete per-document routing and five-family OIL qualification remain open.",
+    "No new signed or upstream WPT qualification is claimed for this development revision."
+  ]
+}
