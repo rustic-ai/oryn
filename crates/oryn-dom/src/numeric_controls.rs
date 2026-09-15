@@ -620,7 +620,7 @@ mod tests {
             );
         }
         assert_eq!(
-            serialize("time", 2.7343337071894478e26).as_deref(),
+            serialize("time", 2.734_333_707_189_448e26).as_deref(),
             Some("10:54:10.944")
         );
         assert_eq!(serialize("time", -3_600_000.0).as_deref(), Some("23:00"));

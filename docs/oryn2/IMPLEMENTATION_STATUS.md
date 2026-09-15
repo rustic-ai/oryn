@@ -74,6 +74,22 @@ See [batch exits](../../artifacts/core-completion-2026-09-15/oil-batch-exit.json
 [framework report](../../artifacts/core-completion-2026-09-15/oil-frameworks/summary.json),
 and [auth exits](../../artifacts/core-completion-2026-09-15/oil-auth-exit.json).
 
+Further implementation checkpoint: `9b9cb502` commits context ownership and
+shared computed styles; `3e2452d4` commits document encoding propagation and the
+HTML parser BOM repair. The latter signed candidate passes **71/78** encoding API
+executions. Native tests verify metadata before parser scripts and in static and
+dynamic frames, plus preservation of a second UTF-16 BOM.
+
+The next candidate implements owner-document hyperlink components and legacy
+query encoding; form GET and POST encoding (URL-encoded, text and multipart),
+`_charset_`, and byte-preserving uploads; bounded HTML charset prescanning and
+same-origin parent encoding fallback. Its regression suites pass **116 DOM,
+283 JS, 582 native, and 13 network tests**, with only the existing 3 JS and 6
+native ignores. Strict Clippy passes across those crates. Signed upstream and
+workflow validation is pending; these implementations are not new qualification
+claims. Two pre-existing test-module ordering warnings and an excessive-precision
+literal were repaired without changing test values.
+
 These are controlled regression outcomes, **not expanded five-family acceptance,
 complete Core conformance, or release qualification**. The historical full-WPT
 baseline below remains unchanged.

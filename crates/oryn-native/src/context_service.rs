@@ -230,6 +230,8 @@ pub enum ContextServiceRequest {
         url: String,
         destination: String,
         #[serde(default)]
+        parent_encoding: Option<String>,
+        #[serde(default)]
         initiator_url: Option<String>,
         #[serde(default)]
         referrer_policy: Option<String>,
@@ -807,6 +809,13 @@ struct HttpStreamState {
     offset: usize,
     bytes_read: usize,
     content_length: Option<usize>,
+}
+
+struct PageResourceOptions<'a> {
+    initiator_url: Option<&'a str>,
+    referrer_policy: Option<&'a str>,
+    parent_encoding: Option<&'a str>,
+    post: Option<oryn_js::navigation::PostResource>,
 }
 
 struct HttpStreamEntry {
@@ -1483,6 +1492,7 @@ impl ParentContextService {
                 page_id,
                 url,
                 destination,
+                parent_encoding,
                 initiator_url,
                 referrer_policy,
                 post,
@@ -1490,9 +1500,12 @@ impl ParentContextService {
                 page_id,
                 &url,
                 &destination,
-                initiator_url.as_deref(),
-                referrer_policy.as_deref(),
-                post,
+                PageResourceOptions {
+                    initiator_url: initiator_url.as_deref(),
+                    referrer_policy: referrer_policy.as_deref(),
+                    parent_encoding: parent_encoding.as_deref(),
+                    post,
+                },
             ),
             ContextServiceRequest::AuthorizeInlineScript {
                 page_id,
@@ -2361,10 +2374,14 @@ impl ParentContextService {
         page_id: PageId,
         requested_url: &str,
         destination: &str,
-        initiator_url: Option<&str>,
-        referrer_policy: Option<&str>,
-        mut post: Option<oryn_js::navigation::PostResource>,
+        options: PageResourceOptions<'_>,
     ) -> Result<ContextServiceResponse, RuntimeError> {
+        let PageResourceOptions {
+            initiator_url,
+            referrer_policy,
+            parent_encoding,
+            mut post,
+        } = options;
         self.validate_socket_owner(page_id)?;
         let form_navigation = post.is_some();
         if let Some(resource) = &post {
@@ -2499,10 +2516,11 @@ impl ParentContextService {
                         resource: format!("decoded {destination} data URL"),
                     });
                 }
-                let (source, encoding) = oryn_net::decode_resource_text(
+                let (source, encoding) = oryn_net::decode_resource_text_with_fallback(
                     &body,
                     media_type.as_deref(),
                     page_resource_text_kind(text_kind, media_type.as_deref()),
+                    None,
                 );
                 return Ok(ContextServiceResponse::PageResource {
                     url: url.to_string(),
@@ -2571,10 +2589,15 @@ impl ParentContextService {
                 .iter()
                 .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
                 .map(|(_, value)| value.as_str());
-            let (source, encoding) = oryn_net::decode_resource_text(
+            let (source, encoding) = oryn_net::decode_resource_text_with_fallback(
                 &response.body,
                 content_type,
                 page_resource_text_kind(text_kind, content_type),
+                if destination == "frame" && source.origin() == url.origin() {
+                    parent_encoding
+                } else {
+                    None
+                },
             );
             let document_referrer = policy
                 .header(

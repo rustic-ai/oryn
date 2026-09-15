@@ -41,6 +41,7 @@ mod form_activation;
 mod form_data;
 mod form_data_iterators;
 mod global_events;
+mod hyperlinks;
 mod image_dimensions;
 mod location;
 mod message_events;
@@ -7979,7 +7980,14 @@ fn initialize_platform_constructor<'s>(
             Some(argument_node(scope, state, args.get(1))?)
         };
         form_data::validate(state, form, submitter)?;
-        form_data::create(scope, state, form, submitter, Some(args.this()))?;
+        form_data::create(
+            scope,
+            state,
+            form,
+            submitter,
+            Some(args.this()),
+            encoding_rs::UTF_8,
+        )?;
         return Ok(true);
     }
     if name == "Request" {
@@ -21709,6 +21717,15 @@ fn form_data_body(
     state: &V8BindingState,
     value: v8::Local<v8::Value>,
 ) -> Result<Option<(Vec<u8>, String)>, V8BindingError> {
+    form_data_body_encoded(scope, state, value, encoding_rs::UTF_8)
+}
+
+fn form_data_body_encoded(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    value: v8::Local<v8::Value>,
+    encoding: &'static encoding_rs::Encoding,
+) -> Result<Option<(Vec<u8>, String)>, V8BindingError> {
     let Some(object) = value.to_object(scope) else {
         return Ok(None);
     };
@@ -21732,12 +21749,13 @@ fn form_data_body(
     for (name, value) in entries {
         let name = String::from_utf16_lossy(&oryn_dom::dom_string::units(&name));
         output.extend_from_slice(
-            format!(
-                "--{boundary}\r\nContent-Disposition: form-data; name=\"{}\"",
-                form_data::escape_disposition(&form_data::normalize_newlines(&name))
-            )
-            .as_bytes(),
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"").as_bytes(),
         );
+        output.extend_from_slice(&form_data::encoded_disposition(
+            &form_data::normalize_newlines(&name),
+            encoding,
+        ));
+        output.push(b'"');
         let value = v8::Local::new(scope, value);
         let blob = value
             .to_object(scope)
@@ -21756,13 +21774,9 @@ fn form_data_body(
         if let Some((bytes, media_type, filename)) = blob {
             if let Some(filename) = filename {
                 let filename = String::from_utf16_lossy(&oryn_dom::dom_string::units(&filename));
-                output.extend_from_slice(
-                    format!(
-                        "; filename=\"{}\"",
-                        form_data::escape_disposition(&filename)
-                    )
-                    .as_bytes(),
-                );
+                output.extend_from_slice(b"; filename=\"");
+                output.extend_from_slice(&form_data::encoded_disposition(&filename, encoding));
+                output.push(b'"');
             }
             output.extend_from_slice(
                 format!(
@@ -21779,7 +21793,12 @@ fn form_data_body(
         } else {
             output.extend_from_slice(b"\r\n\r\n");
             output.extend_from_slice(
-                form_data::normalize_newlines(&value.to_rust_string_lossy(scope)).as_bytes(),
+                encoding
+                    .encode(&form_data::normalize_newlines(
+                        &value.to_rust_string_lossy(scope),
+                    ))
+                    .0
+                    .as_ref(),
             );
         }
         output.extend_from_slice(b"\r\n");
@@ -25166,6 +25185,9 @@ fn get_attribute_value<'s>(
     interface: &str,
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    if hyperlinks::handles(interface, member) {
+        return hyperlinks::get(scope, state, node, member);
+    }
     if interface == "Document" && member == "all" {
         return node_lists::all(scope, state, node);
     }
@@ -26483,6 +26505,9 @@ fn set_attribute_value(
     member: &str,
     value: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
+    if hyperlinks::handles(interface, member) {
+        return hyperlinks::set(scope, state, node, member, value);
+    }
     if matches!(interface, "HTMLElement" | "SVGElement") && member == "tabIndex" {
         let value = value
             .int32_value(scope)

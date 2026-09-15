@@ -27,361 +27,6 @@ impl Node {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::html;
-
-    fn by_id(dom: &DomRuntime, id: &str) -> NodeId {
-        dom.get_element_by_id(dom.document(), id).unwrap().unwrap()
-    }
-
-    #[test]
-    fn email_type_mismatch_uses_html_not_mail_server_address_rules() {
-        let mut dom = html::parse("<input id=e type=EMAIL>")
-            .into_runtime()
-            .unwrap();
-        let node = by_id(&dom, "e");
-        for value in [
-            "",
-            "a@b",
-            ".a..@example.test",
-            "a+b@example.test",
-            "a@xn--caf-dma.test",
-        ] {
-            dom.set_value(node, value, false).unwrap();
-            assert!(!dom.input_email_type_mismatch(node).unwrap(), "{value}");
-        }
-        for value in [
-            "not-an-email",
-            "@example.test",
-            "a@",
-            "a@@b",
-            "a@-b",
-            "a@b-",
-            "a@b..c",
-            "a b@c",
-            "é@b",
-            "a@b,c@d",
-        ] {
-            dom.set_value(node, value, false).unwrap();
-            assert!(dom.input_email_type_mismatch(node).unwrap(), "{value}");
-        }
-        dom.set_value(node, format!("a@{}", "b".repeat(64)), false)
-            .unwrap();
-        assert!(dom.input_email_type_mismatch(node).unwrap());
-        dom.set_attribute(node, "multiple", "").unwrap();
-        dom.set_value(node, "a@b, c@d", false).unwrap();
-        assert!(!dom.input_email_type_mismatch(node).unwrap());
-        for value in ["a@b,", ",a@b", "a@b,,c@d"] {
-            dom.set_value(node, value, false).unwrap();
-            assert!(dom.input_email_type_mismatch(node).unwrap(), "{value}");
-        }
-        dom.set_attribute(node, "type", "text").unwrap();
-        assert!(!dom.input_email_type_mismatch(node).unwrap());
-    }
-
-    #[test]
-    fn submit_classification_rejects_non_elements_without_reading_attributes() {
-        let mut dom =
-            html::parse("<button id=b>Submit</button><input id=i type=image><div id=d></div>")
-                .into_runtime()
-                .unwrap();
-        let text = dom.create_text("text");
-        for node in [dom.document(), text, by_id(&dom, "d")] {
-            assert!(!dom.is_submit_button(node).unwrap());
-        }
-        assert!(dom.is_submit_button(by_id(&dom, "b")).unwrap());
-        assert!(dom.is_submit_button(by_id(&dom, "i")).unwrap());
-    }
-
-    #[test]
-    fn email_sanitization_preserves_dirty_value_and_attribute_transition_semantics() {
-        let mut dom = html::parse("<input id=e type=email multiple value=' a@b , c@d '>")
-            .into_runtime()
-            .unwrap();
-        let e = by_id(&dom, "e");
-        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
-        dom.remove_attribute(e, "multiple").unwrap();
-        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
-        assert!(!dom.arena.get(e).unwrap().dirty_value);
-        dom.set_attribute(e, "value", " c@d ").unwrap();
-        assert_eq!(dom.control_value(e).unwrap(), "c@d");
-        dom.set_value(e, "\r\n x@y \t", false).unwrap();
-        assert_eq!(dom.control_value(e).unwrap(), "x@y");
-        dom.set_attribute(e, "value", "default@host").unwrap();
-        assert_eq!(dom.control_value(e).unwrap(), "x@y");
-        dom.reset_control_value(e, "default@host".into()).unwrap();
-        dom.set_attribute(e, "value", " next@host ").unwrap();
-        assert_eq!(dom.control_value(e).unwrap(), "next@host");
-        dom.set_value(e, " a@b , c@d ", false).unwrap();
-        dom.set_attribute(e, "multiple", "").unwrap();
-        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
-        dom.remove_attribute(e, "multiple").unwrap();
-        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
-        assert!(dom.control_type_mismatch(e).unwrap());
-    }
-
-    #[test]
-    fn url_type_mismatch_requires_an_absolute_url_and_sanitizes_values() {
-        let mut dom = html::parse("<input id=u type=url>").into_runtime().unwrap();
-        let u = by_id(&dom, "u");
-        for value in [
-            "",
-            "https://example.test/path",
-            "mailto:a@b",
-            "\r\n https://example.test \t",
-        ] {
-            dom.set_value(u, value, false).unwrap();
-            assert!(!dom.control_type_mismatch(u).unwrap(), "{value}");
-        }
-        for value in ["abc", "/relative", "http://[", "https://"] {
-            dom.set_value(u, value, false).unwrap();
-            assert!(dom.control_type_mismatch(u).unwrap(), "{value}");
-        }
-    }
-
-    #[test]
-    fn form_collection_membership_is_not_submission_eligibility() {
-        let dom = html::parse("<!doctype html><input id=before form=f><form id=f><fieldset id=fs disabled><input id=hidden type=hidden><input id=radio type=radio><button id=button></button></fieldset><select id=select></select><textarea id=textarea></textarea><output id=output></output><object id=object></object><input id=image type=IMAGE><label id=label></label><meter id=meter></meter><progress id=progress></progress><input id=redirected form=other></form><form id=other></form><input id=after form=f>").into_runtime().unwrap();
-        let expected = [
-            "before", "fs", "hidden", "radio", "button", "select", "textarea", "output", "object",
-            "after",
-        ]
-        .map(|id| by_id(&dom, id));
-        assert_eq!(
-            dom.built_in_form_controls(by_id(&dom, "f")).unwrap(),
-            expected
-        );
-        assert_eq!(
-            dom.built_in_form_controls(by_id(&dom, "other")).unwrap(),
-            vec![by_id(&dom, "redirected")]
-        );
-    }
-
-    #[test]
-    fn form_collection_recomputes_ownership_order_and_type_changes() {
-        let mut dom = html::parse(
-            "<form id=f><input id=inner></form><input id=external form=f><form id=g></form>",
-        )
-        .into_runtime()
-        .unwrap();
-        let (f, g, inner, external) = (
-            by_id(&dom, "f"),
-            by_id(&dom, "g"),
-            by_id(&dom, "inner"),
-            by_id(&dom, "external"),
-        );
-        assert_eq!(
-            dom.built_in_form_controls(f).unwrap(),
-            vec![inner, external]
-        );
-        dom.append_child(f, external).unwrap();
-        dom.append_child(f, inner).unwrap();
-        assert_eq!(
-            dom.built_in_form_controls(f).unwrap(),
-            vec![external, inner]
-        );
-        dom.set_attribute(external, "form", "g").unwrap();
-        assert_eq!(dom.built_in_form_controls(f).unwrap(), vec![inner]);
-        assert_eq!(dom.built_in_form_controls(g).unwrap(), vec![external]);
-        dom.set_attribute(inner, "type", "image").unwrap();
-        assert!(dom.built_in_form_controls(f).unwrap().is_empty());
-        dom.set_attribute(inner, "type", "text").unwrap();
-        dom.set_attribute(f, "id", "renamed").unwrap();
-        assert_eq!(dom.built_in_form_controls(f).unwrap(), vec![inner]);
-        dom.remove(f).unwrap();
-        // Explicit form association does not resolve in a disconnected tree.
-        assert_eq!(dom.built_in_form_controls(f).unwrap(), vec![inner]);
-        assert!(dom.built_in_form_controls(g).unwrap().is_empty());
-        dom.remove_attribute(external, "form").unwrap();
-        assert_eq!(
-            dom.built_in_form_controls(f).unwrap(),
-            vec![external, inner]
-        );
-    }
-
-    #[test]
-    fn form_collection_uses_first_id_match_and_does_not_inherit_form_attribute() {
-        let mut dom=html::parse("<span id=f></span><form id=f><input id=inside><fieldset id=fs form=g><input id=child></fieldset></form><input id=outside form=f><form id=g></form>").into_runtime().unwrap();
-        let blocker = by_id(&dom, "f");
-        let form = dom
-            .arena()
-            .iter()
-            .find_map(|(id, _)| dom.is_element(id, HTML, "form").then_some(id))
-            .unwrap();
-        let (inside, fs, child, outside, g) = (
-            by_id(&dom, "inside"),
-            by_id(&dom, "fs"),
-            by_id(&dom, "child"),
-            by_id(&dom, "outside"),
-            by_id(&dom, "g"),
-        );
-        assert_eq!(
-            dom.built_in_form_controls(form).unwrap(),
-            vec![inside, child]
-        );
-        assert_eq!(dom.built_in_form_controls(g).unwrap(), vec![fs]);
-        dom.remove(blocker).unwrap();
-        assert_eq!(
-            dom.built_in_form_controls(form).unwrap(),
-            vec![inside, child, outside]
-        );
-    }
-
-    #[test]
-    fn form_collection_named_matches_preserve_tree_order_and_deduplicate() {
-        let mut dom = html::parse("<form id=f><input name=group id=a><button id=group name=group></button><input name=Group id=c><input type=image name=group></form>").into_runtime().unwrap();
-        let (f, a, b, c) = (
-            by_id(&dom, "f"),
-            by_id(&dom, "a"),
-            by_id(&dom, "group"),
-            by_id(&dom, "c"),
-        );
-        assert_eq!(
-            dom.named_built_in_form_controls(f, "group").unwrap(),
-            vec![a, b]
-        );
-        assert_eq!(
-            dom.named_built_in_form_controls(f, "Group").unwrap(),
-            vec![c]
-        );
-        assert!(dom.named_built_in_form_controls(f, "").unwrap().is_empty());
-        dom.set_attribute(a, "name", "different").unwrap();
-        assert_eq!(
-            dom.named_built_in_form_controls(f, "group").unwrap(),
-            vec![b]
-        );
-        dom.set_attribute(a, "id", "group").unwrap();
-        assert_eq!(
-            dom.named_built_in_form_controls(f, "group").unwrap(),
-            vec![a, b]
-        );
-    }
-
-    #[test]
-    fn form_collection_follows_nearest_dynamic_form_owner() {
-        let mut dom = html::parse("<form id=outer><input id=c></form>")
-            .into_runtime()
-            .unwrap();
-        let (outer, c) = (by_id(&dom, "outer"), by_id(&dom, "c"));
-        let inner = dom.create_element("form");
-        dom.append_child(outer, inner).unwrap();
-        dom.append_child(inner, c).unwrap();
-        assert!(dom.built_in_form_controls(outer).unwrap().is_empty());
-        assert_eq!(dom.built_in_form_controls(inner).unwrap(), vec![c]);
-        dom.set_attribute(c, "form", "outer").unwrap();
-        assert_eq!(dom.built_in_form_controls(outer).unwrap(), vec![c]);
-        assert!(dom.built_in_form_controls(inner).unwrap().is_empty());
-    }
-
-    #[test]
-    fn form_collection_stays_within_its_document_or_shadow_tree() {
-        for mode in [crate::ShadowMode::Open, crate::ShadowMode::Closed] {
-            let mut dom = html::parse("<form id=f><div id=host></div><input id=light></form>")
-                .into_runtime()
-                .unwrap();
-            let (outer, host, light) =
-                (by_id(&dom, "f"), by_id(&dom, "host"), by_id(&dom, "light"));
-            let shadow = dom.create(NodeKind::ShadowRoot {
-                mode,
-                clonable: false,
-            });
-            dom.append_child(host, shadow).unwrap();
-            let inner = dom.create_element("form");
-            dom.set_attribute(inner, "id", "f").unwrap();
-            dom.append_child(shadow, inner).unwrap();
-            let external = dom.create_element("input");
-            dom.set_attribute(external, "form", "f").unwrap();
-            dom.append_child(shadow, external).unwrap();
-            assert_eq!(dom.built_in_form_controls(outer).unwrap(), vec![light]);
-            assert_eq!(dom.built_in_form_controls(inner).unwrap(), vec![external]);
-            dom.remove(inner).unwrap();
-            assert!(dom.form_owner(external).unwrap().is_none());
-            assert_eq!(dom.built_in_form_controls(outer).unwrap(), vec![light]);
-        }
-    }
-
-    #[test]
-    fn checkedness_is_dirty_state_not_an_attribute() {
-        let mut dom = html::parse("<input id=c type=checkbox checked>")
-            .into_runtime()
-            .unwrap();
-        let c = by_id(&dom, "c");
-        dom.set_checked(c, false).unwrap();
-        assert!(!dom.checked(c).unwrap());
-        assert!(
-            dom.attribute_in_null_namespace(c, "checked")
-                .unwrap()
-                .is_some()
-        );
-        dom.set_attribute(c, "checked", "false").unwrap();
-        assert!(!dom.checked(c).unwrap());
-        dom.set_indeterminate(c, true).unwrap();
-        let clone = dom.clone_node(c, false).unwrap();
-        assert!(!dom.checked(clone).unwrap());
-        assert!(dom.arena().get(clone).unwrap().indeterminate);
-        dom.reset_checkedness(c).unwrap();
-        assert!(dom.checked(c).unwrap());
-        dom.remove_attribute(c, "checked").unwrap();
-        assert!(!dom.checked(c).unwrap());
-        dom.set_attribute(c, "checked", "").unwrap();
-        assert!(dom.checked(c).unwrap());
-    }
-
-    #[test]
-    fn radio_groups_use_tree_form_and_case_sensitive_nonempty_name() {
-        let mut dom = html::parse("<form id=f><input id=a type=radio name=g checked><input id=b type=radio name=g checked><input id=c type=radio name=G checked></form><input id=d type=radio name=g checked><input id=e type=radio name=g form=f>").into_runtime().unwrap();
-        let (a, b, c, d, e) = (
-            by_id(&dom, "a"),
-            by_id(&dom, "b"),
-            by_id(&dom, "c"),
-            by_id(&dom, "d"),
-            by_id(&dom, "e"),
-        );
-        assert!(!dom.checked(a).unwrap());
-        assert!(dom.checked(b).unwrap() && dom.checked(c).unwrap() && dom.checked(d).unwrap());
-        assert!(!dom.arena().get(a).unwrap().dirty_checkedness);
-        dom.set_checked(e, true).unwrap();
-        assert!(!dom.checked(b).unwrap());
-        assert!(dom.checked(d).unwrap());
-        dom.set_attribute(e, "form", "missing").unwrap();
-        assert!(!dom.checked(d).unwrap());
-        dom.set_attribute(c, "name", "g").unwrap();
-        dom.set_checked(a, true).unwrap();
-        assert!(!dom.checked(c).unwrap());
-    }
-
-    #[test]
-    fn disconnected_insertion_does_not_group_until_form_owner_or_connection_changes() {
-        let mut dom = html::parse("<div id=container></div><form id=f></form>")
-            .into_runtime()
-            .unwrap();
-        let root = by_id(&dom, "container");
-        dom.remove(root).unwrap();
-        let a = dom.create_element("input");
-        let b = dom.create_element("input");
-        for node in [a, b] {
-            dom.set_attribute(node, "type", "radio").unwrap();
-            dom.set_attribute(node, "name", "g").unwrap();
-            dom.set_checked(node, true).unwrap();
-            dom.append_child(root, node).unwrap();
-        }
-        assert!(dom.checked(a).unwrap() && dom.checked(b).unwrap());
-        let form = by_id(&dom, "f");
-        dom.append_child(form, root).unwrap();
-        assert!(!dom.checked(a).unwrap() && dom.checked(b).unwrap());
-    }
-
-    #[test]
-    fn form_id_changes_reassociate_external_radios() {
-        let mut dom = html::parse("<form id=f><input id=a name=g type=radio checked></form><input id=b name=g type=radio form=other checked>").into_runtime().unwrap();
-        let (a, b, f) = (by_id(&dom, "a"), by_id(&dom, "b"), by_id(&dom, "f"));
-        dom.set_attribute(f, "id", "other").unwrap();
-        assert!(!dom.checked(a).unwrap() && dom.checked(b).unwrap());
-    }
-}
-
 impl DomRuntime {
     pub(super) fn sanitized_input_value(
         &self,
@@ -1110,5 +755,360 @@ impl DomRuntime {
             self.set_checkedness(node, true)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::html;
+
+    fn by_id(dom: &DomRuntime, id: &str) -> NodeId {
+        dom.get_element_by_id(dom.document(), id).unwrap().unwrap()
+    }
+
+    #[test]
+    fn email_type_mismatch_uses_html_not_mail_server_address_rules() {
+        let mut dom = html::parse("<input id=e type=EMAIL>")
+            .into_runtime()
+            .unwrap();
+        let node = by_id(&dom, "e");
+        for value in [
+            "",
+            "a@b",
+            ".a..@example.test",
+            "a+b@example.test",
+            "a@xn--caf-dma.test",
+        ] {
+            dom.set_value(node, value, false).unwrap();
+            assert!(!dom.input_email_type_mismatch(node).unwrap(), "{value}");
+        }
+        for value in [
+            "not-an-email",
+            "@example.test",
+            "a@",
+            "a@@b",
+            "a@-b",
+            "a@b-",
+            "a@b..c",
+            "a b@c",
+            "é@b",
+            "a@b,c@d",
+        ] {
+            dom.set_value(node, value, false).unwrap();
+            assert!(dom.input_email_type_mismatch(node).unwrap(), "{value}");
+        }
+        dom.set_value(node, format!("a@{}", "b".repeat(64)), false)
+            .unwrap();
+        assert!(dom.input_email_type_mismatch(node).unwrap());
+        dom.set_attribute(node, "multiple", "").unwrap();
+        dom.set_value(node, "a@b, c@d", false).unwrap();
+        assert!(!dom.input_email_type_mismatch(node).unwrap());
+        for value in ["a@b,", ",a@b", "a@b,,c@d"] {
+            dom.set_value(node, value, false).unwrap();
+            assert!(dom.input_email_type_mismatch(node).unwrap(), "{value}");
+        }
+        dom.set_attribute(node, "type", "text").unwrap();
+        assert!(!dom.input_email_type_mismatch(node).unwrap());
+    }
+
+    #[test]
+    fn submit_classification_rejects_non_elements_without_reading_attributes() {
+        let mut dom =
+            html::parse("<button id=b>Submit</button><input id=i type=image><div id=d></div>")
+                .into_runtime()
+                .unwrap();
+        let text = dom.create_text("text");
+        for node in [dom.document(), text, by_id(&dom, "d")] {
+            assert!(!dom.is_submit_button(node).unwrap());
+        }
+        assert!(dom.is_submit_button(by_id(&dom, "b")).unwrap());
+        assert!(dom.is_submit_button(by_id(&dom, "i")).unwrap());
+    }
+
+    #[test]
+    fn email_sanitization_preserves_dirty_value_and_attribute_transition_semantics() {
+        let mut dom = html::parse("<input id=e type=email multiple value=' a@b , c@d '>")
+            .into_runtime()
+            .unwrap();
+        let e = by_id(&dom, "e");
+        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
+        dom.remove_attribute(e, "multiple").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
+        assert!(!dom.arena.get(e).unwrap().dirty_value);
+        dom.set_attribute(e, "value", " c@d ").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "c@d");
+        dom.set_value(e, "\r\n x@y \t", false).unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "x@y");
+        dom.set_attribute(e, "value", "default@host").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "x@y");
+        dom.reset_control_value(e, "default@host".into()).unwrap();
+        dom.set_attribute(e, "value", " next@host ").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "next@host");
+        dom.set_value(e, " a@b , c@d ", false).unwrap();
+        dom.set_attribute(e, "multiple", "").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
+        dom.remove_attribute(e, "multiple").unwrap();
+        assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
+        assert!(dom.control_type_mismatch(e).unwrap());
+    }
+
+    #[test]
+    fn url_type_mismatch_requires_an_absolute_url_and_sanitizes_values() {
+        let mut dom = html::parse("<input id=u type=url>").into_runtime().unwrap();
+        let u = by_id(&dom, "u");
+        for value in [
+            "",
+            "https://example.test/path",
+            "mailto:a@b",
+            "\r\n https://example.test \t",
+        ] {
+            dom.set_value(u, value, false).unwrap();
+            assert!(!dom.control_type_mismatch(u).unwrap(), "{value}");
+        }
+        for value in ["abc", "/relative", "http://[", "https://"] {
+            dom.set_value(u, value, false).unwrap();
+            assert!(dom.control_type_mismatch(u).unwrap(), "{value}");
+        }
+    }
+
+    #[test]
+    fn form_collection_membership_is_not_submission_eligibility() {
+        let dom = html::parse("<!doctype html><input id=before form=f><form id=f><fieldset id=fs disabled><input id=hidden type=hidden><input id=radio type=radio><button id=button></button></fieldset><select id=select></select><textarea id=textarea></textarea><output id=output></output><object id=object></object><input id=image type=IMAGE><label id=label></label><meter id=meter></meter><progress id=progress></progress><input id=redirected form=other></form><form id=other></form><input id=after form=f>").into_runtime().unwrap();
+        let expected = [
+            "before", "fs", "hidden", "radio", "button", "select", "textarea", "output", "object",
+            "after",
+        ]
+        .map(|id| by_id(&dom, id));
+        assert_eq!(
+            dom.built_in_form_controls(by_id(&dom, "f")).unwrap(),
+            expected
+        );
+        assert_eq!(
+            dom.built_in_form_controls(by_id(&dom, "other")).unwrap(),
+            vec![by_id(&dom, "redirected")]
+        );
+    }
+
+    #[test]
+    fn form_collection_recomputes_ownership_order_and_type_changes() {
+        let mut dom = html::parse(
+            "<form id=f><input id=inner></form><input id=external form=f><form id=g></form>",
+        )
+        .into_runtime()
+        .unwrap();
+        let (f, g, inner, external) = (
+            by_id(&dom, "f"),
+            by_id(&dom, "g"),
+            by_id(&dom, "inner"),
+            by_id(&dom, "external"),
+        );
+        assert_eq!(
+            dom.built_in_form_controls(f).unwrap(),
+            vec![inner, external]
+        );
+        dom.append_child(f, external).unwrap();
+        dom.append_child(f, inner).unwrap();
+        assert_eq!(
+            dom.built_in_form_controls(f).unwrap(),
+            vec![external, inner]
+        );
+        dom.set_attribute(external, "form", "g").unwrap();
+        assert_eq!(dom.built_in_form_controls(f).unwrap(), vec![inner]);
+        assert_eq!(dom.built_in_form_controls(g).unwrap(), vec![external]);
+        dom.set_attribute(inner, "type", "image").unwrap();
+        assert!(dom.built_in_form_controls(f).unwrap().is_empty());
+        dom.set_attribute(inner, "type", "text").unwrap();
+        dom.set_attribute(f, "id", "renamed").unwrap();
+        assert_eq!(dom.built_in_form_controls(f).unwrap(), vec![inner]);
+        dom.remove(f).unwrap();
+        // Explicit form association does not resolve in a disconnected tree.
+        assert_eq!(dom.built_in_form_controls(f).unwrap(), vec![inner]);
+        assert!(dom.built_in_form_controls(g).unwrap().is_empty());
+        dom.remove_attribute(external, "form").unwrap();
+        assert_eq!(
+            dom.built_in_form_controls(f).unwrap(),
+            vec![external, inner]
+        );
+    }
+
+    #[test]
+    fn form_collection_uses_first_id_match_and_does_not_inherit_form_attribute() {
+        let mut dom=html::parse("<span id=f></span><form id=f><input id=inside><fieldset id=fs form=g><input id=child></fieldset></form><input id=outside form=f><form id=g></form>").into_runtime().unwrap();
+        let blocker = by_id(&dom, "f");
+        let form = dom
+            .arena()
+            .iter()
+            .find_map(|(id, _)| dom.is_element(id, HTML, "form").then_some(id))
+            .unwrap();
+        let (inside, fs, child, outside, g) = (
+            by_id(&dom, "inside"),
+            by_id(&dom, "fs"),
+            by_id(&dom, "child"),
+            by_id(&dom, "outside"),
+            by_id(&dom, "g"),
+        );
+        assert_eq!(
+            dom.built_in_form_controls(form).unwrap(),
+            vec![inside, child]
+        );
+        assert_eq!(dom.built_in_form_controls(g).unwrap(), vec![fs]);
+        dom.remove(blocker).unwrap();
+        assert_eq!(
+            dom.built_in_form_controls(form).unwrap(),
+            vec![inside, child, outside]
+        );
+    }
+
+    #[test]
+    fn form_collection_named_matches_preserve_tree_order_and_deduplicate() {
+        let mut dom = html::parse("<form id=f><input name=group id=a><button id=group name=group></button><input name=Group id=c><input type=image name=group></form>").into_runtime().unwrap();
+        let (f, a, b, c) = (
+            by_id(&dom, "f"),
+            by_id(&dom, "a"),
+            by_id(&dom, "group"),
+            by_id(&dom, "c"),
+        );
+        assert_eq!(
+            dom.named_built_in_form_controls(f, "group").unwrap(),
+            vec![a, b]
+        );
+        assert_eq!(
+            dom.named_built_in_form_controls(f, "Group").unwrap(),
+            vec![c]
+        );
+        assert!(dom.named_built_in_form_controls(f, "").unwrap().is_empty());
+        dom.set_attribute(a, "name", "different").unwrap();
+        assert_eq!(
+            dom.named_built_in_form_controls(f, "group").unwrap(),
+            vec![b]
+        );
+        dom.set_attribute(a, "id", "group").unwrap();
+        assert_eq!(
+            dom.named_built_in_form_controls(f, "group").unwrap(),
+            vec![a, b]
+        );
+    }
+
+    #[test]
+    fn form_collection_follows_nearest_dynamic_form_owner() {
+        let mut dom = html::parse("<form id=outer><input id=c></form>")
+            .into_runtime()
+            .unwrap();
+        let (outer, c) = (by_id(&dom, "outer"), by_id(&dom, "c"));
+        let inner = dom.create_element("form");
+        dom.append_child(outer, inner).unwrap();
+        dom.append_child(inner, c).unwrap();
+        assert!(dom.built_in_form_controls(outer).unwrap().is_empty());
+        assert_eq!(dom.built_in_form_controls(inner).unwrap(), vec![c]);
+        dom.set_attribute(c, "form", "outer").unwrap();
+        assert_eq!(dom.built_in_form_controls(outer).unwrap(), vec![c]);
+        assert!(dom.built_in_form_controls(inner).unwrap().is_empty());
+    }
+
+    #[test]
+    fn form_collection_stays_within_its_document_or_shadow_tree() {
+        for mode in [crate::ShadowMode::Open, crate::ShadowMode::Closed] {
+            let mut dom = html::parse("<form id=f><div id=host></div><input id=light></form>")
+                .into_runtime()
+                .unwrap();
+            let (outer, host, light) =
+                (by_id(&dom, "f"), by_id(&dom, "host"), by_id(&dom, "light"));
+            let shadow = dom.create(NodeKind::ShadowRoot {
+                mode,
+                clonable: false,
+            });
+            dom.append_child(host, shadow).unwrap();
+            let inner = dom.create_element("form");
+            dom.set_attribute(inner, "id", "f").unwrap();
+            dom.append_child(shadow, inner).unwrap();
+            let external = dom.create_element("input");
+            dom.set_attribute(external, "form", "f").unwrap();
+            dom.append_child(shadow, external).unwrap();
+            assert_eq!(dom.built_in_form_controls(outer).unwrap(), vec![light]);
+            assert_eq!(dom.built_in_form_controls(inner).unwrap(), vec![external]);
+            dom.remove(inner).unwrap();
+            assert!(dom.form_owner(external).unwrap().is_none());
+            assert_eq!(dom.built_in_form_controls(outer).unwrap(), vec![light]);
+        }
+    }
+
+    #[test]
+    fn checkedness_is_dirty_state_not_an_attribute() {
+        let mut dom = html::parse("<input id=c type=checkbox checked>")
+            .into_runtime()
+            .unwrap();
+        let c = by_id(&dom, "c");
+        dom.set_checked(c, false).unwrap();
+        assert!(!dom.checked(c).unwrap());
+        assert!(
+            dom.attribute_in_null_namespace(c, "checked")
+                .unwrap()
+                .is_some()
+        );
+        dom.set_attribute(c, "checked", "false").unwrap();
+        assert!(!dom.checked(c).unwrap());
+        dom.set_indeterminate(c, true).unwrap();
+        let clone = dom.clone_node(c, false).unwrap();
+        assert!(!dom.checked(clone).unwrap());
+        assert!(dom.arena().get(clone).unwrap().indeterminate);
+        dom.reset_checkedness(c).unwrap();
+        assert!(dom.checked(c).unwrap());
+        dom.remove_attribute(c, "checked").unwrap();
+        assert!(!dom.checked(c).unwrap());
+        dom.set_attribute(c, "checked", "").unwrap();
+        assert!(dom.checked(c).unwrap());
+    }
+
+    #[test]
+    fn radio_groups_use_tree_form_and_case_sensitive_nonempty_name() {
+        let mut dom = html::parse("<form id=f><input id=a type=radio name=g checked><input id=b type=radio name=g checked><input id=c type=radio name=G checked></form><input id=d type=radio name=g checked><input id=e type=radio name=g form=f>").into_runtime().unwrap();
+        let (a, b, c, d, e) = (
+            by_id(&dom, "a"),
+            by_id(&dom, "b"),
+            by_id(&dom, "c"),
+            by_id(&dom, "d"),
+            by_id(&dom, "e"),
+        );
+        assert!(!dom.checked(a).unwrap());
+        assert!(dom.checked(b).unwrap() && dom.checked(c).unwrap() && dom.checked(d).unwrap());
+        assert!(!dom.arena().get(a).unwrap().dirty_checkedness);
+        dom.set_checked(e, true).unwrap();
+        assert!(!dom.checked(b).unwrap());
+        assert!(dom.checked(d).unwrap());
+        dom.set_attribute(e, "form", "missing").unwrap();
+        assert!(!dom.checked(d).unwrap());
+        dom.set_attribute(c, "name", "g").unwrap();
+        dom.set_checked(a, true).unwrap();
+        assert!(!dom.checked(c).unwrap());
+    }
+
+    #[test]
+    fn disconnected_insertion_does_not_group_until_form_owner_or_connection_changes() {
+        let mut dom = html::parse("<div id=container></div><form id=f></form>")
+            .into_runtime()
+            .unwrap();
+        let root = by_id(&dom, "container");
+        dom.remove(root).unwrap();
+        let a = dom.create_element("input");
+        let b = dom.create_element("input");
+        for node in [a, b] {
+            dom.set_attribute(node, "type", "radio").unwrap();
+            dom.set_attribute(node, "name", "g").unwrap();
+            dom.set_checked(node, true).unwrap();
+            dom.append_child(root, node).unwrap();
+        }
+        assert!(dom.checked(a).unwrap() && dom.checked(b).unwrap());
+        let form = by_id(&dom, "f");
+        dom.append_child(form, root).unwrap();
+        assert!(!dom.checked(a).unwrap() && dom.checked(b).unwrap());
+    }
+
+    #[test]
+    fn form_id_changes_reassociate_external_radios() {
+        let mut dom = html::parse("<form id=f><input id=a name=g type=radio checked></form><input id=b name=g type=radio form=other checked>").into_runtime().unwrap();
+        let (a, b, f) = (by_id(&dom, "a"), by_id(&dom, "b"), by_id(&dom, "f"));
+        dom.set_attribute(f, "id", "other").unwrap();
+        assert!(!dom.checked(a).unwrap() && dom.checked(b).unwrap());
     }
 }

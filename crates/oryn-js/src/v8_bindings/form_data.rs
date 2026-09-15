@@ -9,11 +9,21 @@ pub(super) fn normalize_newlines(value: &str) -> String {
         .replace('\n', "\r\n")
 }
 
-pub(super) fn escape_disposition(value: &str) -> String {
-    value
-        .replace('\r', "%0D")
-        .replace('\n', "%0A")
-        .replace('"', "%22")
+pub(super) fn encoded_disposition(
+    value: &str,
+    encoding: &'static encoding_rs::Encoding,
+) -> Vec<u8> {
+    let encoded = encoding.encode(value).0;
+    let mut output = Vec::with_capacity(encoded.len());
+    for byte in encoded.iter().copied() {
+        match byte {
+            b'\r' => output.extend_from_slice(b"%0D"),
+            b'\n' => output.extend_from_slice(b"%0A"),
+            b'"' => output.extend_from_slice(b"%22"),
+            _ => output.push(byte),
+        }
+    }
+    output
 }
 
 pub(super) fn multipart_boundary() -> Result<String, V8BindingError> {
@@ -83,6 +93,7 @@ pub(super) fn create<'s>(
     form: Option<NodeId>,
     submitter: Option<NodeId>,
     object: Option<v8::Local<'s, v8::Object>>,
+    encoding: &'static encoding_rs::Encoding,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
     let _guard = if let Some(form) = form {
         let lease = submissions::RootedTarget::new(state, form)?;
@@ -98,7 +109,7 @@ pub(super) fn create<'s>(
         None
     };
     let entries = match form {
-        Some(form) => construct_entry_list(scope, state, form, submitter)?,
+        Some(form) => construct_entry_list(scope, state, form, submitter, encoding)?,
         None => Vec::new(),
     };
     let id = register_platform_object(
@@ -190,6 +201,7 @@ fn construct_entry_list(
     state: &Rc<V8BindingState>,
     form: NodeId,
     submitter: Option<NodeId>,
+    encoding: &'static encoding_rs::Encoding,
 ) -> Result<Entries, V8BindingError> {
     let controls = state.dom.borrow().submittable_form_controls(form)?;
     let mut entries = Vec::new();
@@ -287,7 +299,7 @@ fn construct_entry_list(
             continue;
         }
         let value = if input && kind == "hidden" && name.eq_ignore_ascii_case("_charset_") {
-            "UTF-8".into()
+            encoding.name().into()
         } else {
             dom.control_value(control)?
         };

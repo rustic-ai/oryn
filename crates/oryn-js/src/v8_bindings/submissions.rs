@@ -141,7 +141,17 @@ pub(super) fn queue(
         .map(|node| RootedTarget::new(state, node))
         .transpose()?;
     let document_lease = RootedTarget::new(state, document)?;
-    let data = form_data::create(scope, state, Some(form), submitter, None)?;
+    let encoding = {
+        let dom = state.dom.borrow();
+        dom.attribute_in_null_namespace(form, "accept-charset")?
+            .into_iter()
+            .flat_map(str::split_ascii_whitespace)
+            .find_map(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+            .unwrap_or(hyperlinks::document_encoding(state, document)?)
+            .output_encoding()
+    };
+    let encode: url::form_urlencoded::EncodingOverride<'_> = Some(&|text| encoding.encode(text).0);
+    let data = form_data::create(scope, state, Some(form), submitter, None, encoding)?;
     if !state.dom.borrow().is_connected(form)? || owner_document_for_node(state, form)? != document
     {
         return Ok(());
@@ -217,21 +227,27 @@ pub(super) fn queue(
     };
     let post = if method.eq_ignore_ascii_case("post") && matches!(url.scheme(), "http" | "https") {
         let (bytes, content_type) = if enctype.eq_ignore_ascii_case("multipart/form-data") {
-            form_data_body(scope, state, data.into())?.ok_or(V8BindingError::JavaScriptException)?
+            form_data_body_encoded(scope, state, data.into(), encoding)?
+                .ok_or(V8BindingError::JavaScriptException)?
         } else {
             let pairs = form_data::name_value_pairs(scope, state, data)?;
             if enctype.eq_ignore_ascii_case("text/plain") {
                 (
-                    pairs
-                        .into_iter()
-                        .map(|(name, value)| format!("{name}={value}\r\n"))
-                        .collect::<String>()
-                        .into_bytes(),
+                    encoding
+                        .encode(
+                            &pairs
+                                .into_iter()
+                                .map(|(name, value)| format!("{name}={value}\r\n"))
+                                .collect::<String>(),
+                        )
+                        .0
+                        .into_owned(),
                     "text/plain".into(),
                 )
             } else {
                 (
                     url::form_urlencoded::Serializer::new(String::new())
+                        .encoding_override(encode)
                         .extend_pairs(pairs)
                         .finish()
                         .into_bytes(),
@@ -248,6 +264,7 @@ pub(super) fn queue(
         {
             let pairs = form_data::name_value_pairs(scope, state, data)?;
             let query = url::form_urlencoded::Serializer::new(String::new())
+                .encoding_override(encode)
                 .extend_pairs(pairs)
                 .finish();
             url.set_query(Some(&query));

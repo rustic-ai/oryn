@@ -1102,14 +1102,34 @@ interface HTMLFormElement : HTMLElement {
 [Exposed=Window]
 interface HTMLAnchorElement : HTMLElement {
   [CEReactions] attribute DOMString name;
-  attribute DOMString href;
+  [CEReactions] attribute USVString href;
+  readonly attribute USVString origin;
+  [CEReactions] attribute USVString protocol;
+  [CEReactions] attribute USVString username;
+  [CEReactions] attribute USVString password;
+  [CEReactions] attribute USVString host;
+  [CEReactions] attribute USVString hostname;
+  [CEReactions] attribute USVString port;
+  [CEReactions] attribute USVString pathname;
+  [CEReactions] attribute USVString search;
+  [CEReactions] attribute USVString hash;
   attribute DOMString target;
   attribute DOMString referrerPolicy;
 };
 
 [Exposed=Window]
 interface HTMLAreaElement : HTMLElement {
-  attribute DOMString href;
+  [CEReactions] attribute USVString href;
+  readonly attribute USVString origin;
+  [CEReactions] attribute USVString protocol;
+  [CEReactions] attribute USVString username;
+  [CEReactions] attribute USVString password;
+  [CEReactions] attribute USVString host;
+  [CEReactions] attribute USVString hostname;
+  [CEReactions] attribute USVString port;
+  [CEReactions] attribute USVString pathname;
+  [CEReactions] attribute USVString search;
+  [CEReactions] attribute USVString hash;
   attribute DOMString target;
   attribute DOMString referrerPolicy;
 };

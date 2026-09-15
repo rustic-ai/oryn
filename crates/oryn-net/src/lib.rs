@@ -320,7 +320,7 @@ impl IncrementalTextDecoder {
 
     fn start(&mut self, last: bool) -> String {
         let bytes = std::mem::take(&mut self.prescan);
-        let encoding = select_encoding(&bytes, self.content_type.as_deref(), self.kind);
+        let encoding = select_encoding(&bytes, self.content_type.as_deref(), self.kind, None);
         let bom_length = encoding_rs::Encoding::for_bom(&bytes)
             .map(|(_, length)| length)
             .unwrap_or(0);
@@ -343,7 +343,21 @@ pub fn decode_resource_text(
     content_type: Option<&str>,
     kind: TextResourceKind,
 ) -> (String, &'static str) {
-    let encoding = select_encoding(bytes, content_type, kind);
+    decode_resource_text_with_fallback(bytes, content_type, kind, None)
+}
+
+/// HTML subdocuments can inherit an ASCII-compatible encoding from their
+/// same-origin parent. Other resource kinds never inherit HTML fallback.
+pub fn decode_resource_text_with_fallback(
+    bytes: &[u8],
+    content_type: Option<&str>,
+    kind: TextResourceKind,
+    fallback: Option<&str>,
+) -> (String, &'static str) {
+    let fallback = fallback
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .filter(|encoding| encoding.is_ascii_compatible());
+    let encoding = select_encoding(bytes, content_type, kind, fallback);
     let bytes = encoding_rs::Encoding::for_bom(bytes)
         .map(|(_, length)| &bytes[length..])
         .unwrap_or(bytes);
@@ -355,6 +369,7 @@ fn select_encoding(
     bytes: &[u8],
     content_type: Option<&str>,
     kind: TextResourceKind,
+    fallback: Option<&'static encoding_rs::Encoding>,
 ) -> &'static encoding_rs::Encoding {
     let bom = encoding_rs::Encoding::for_bom(bytes).map(|(encoding, _)| encoding);
     let header = content_type.and_then(|value| {
@@ -372,10 +387,10 @@ fn select_encoding(
         .flatten();
     bom.or_else(|| header.and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes())))
         .or(xml_encoding)
+        .or(html_meta)
         .or_else(|| {
-            html_meta
-                .as_deref()
-                .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+            matches!(kind, TextResourceKind::Html)
+                .then_some(fallback.unwrap_or(encoding_rs::WINDOWS_1252))
         })
         .or_else(|| matches!(kind, TextResourceKind::Css).then_some(encoding_rs::UTF_8))
         .or_else(|| matches!(kind, TextResourceKind::JavaScript).then_some(encoding_rs::UTF_8))
@@ -420,23 +435,123 @@ fn xml_decl_encoding(bytes: &[u8]) -> Option<&'static encoding_rs::Encoding> {
     None
 }
 
-fn html_meta_charset(bytes: &[u8]) -> Option<String> {
-    let prescan = &bytes[..bytes.len().min(1024)];
-    let ascii = String::from_utf8_lossy(prescan).to_ascii_lowercase();
-    for marker in ["charset=\"", "charset='", "charset="] {
-        if let Some(start) = ascii.find(marker) {
-            let value = &ascii[start + marker.len()..];
-            let end = value
-                .find(|character: char| {
-                    character == '"'
-                        || character == '\''
-                        || character.is_ascii_whitespace()
-                        || character == '>'
-                })
-                .unwrap_or(value.len());
-            if end > 0 {
-                return Some(value[..end].to_string());
+fn html_meta_charset(bytes: &[u8]) -> Option<&'static encoding_rs::Encoding> {
+    let bytes = &bytes[..bytes.len().min(1024)];
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if bytes[cursor..].starts_with(b"<!--") {
+            let end = bytes[cursor + 4..]
+                .windows(3)
+                .position(|part| part == b"-->")?;
+            cursor += 4 + end + 3;
+            continue;
+        }
+        if bytes[cursor] != b'<' {
+            cursor += 1;
+            continue;
+        }
+        cursor += 1;
+        let start = cursor;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_alphanumeric() {
+            cursor += 1;
+        }
+        let is_meta = bytes[start..cursor].eq_ignore_ascii_case(b"meta");
+        let mut attributes = BTreeMap::new();
+        while cursor < bytes.len() && bytes[cursor] != b'>' {
+            if bytes[cursor].is_ascii_whitespace() || bytes[cursor] == b'/' {
+                cursor += 1;
+                continue;
             }
+            let start = cursor;
+            while cursor < bytes.len()
+                && !bytes[cursor].is_ascii_whitespace()
+                && !matches!(bytes[cursor], b'=' | b'>' | b'/')
+            {
+                cursor += 1;
+            }
+            let name = String::from_utf8_lossy(&bytes[start..cursor]).to_ascii_lowercase();
+            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            let mut value = String::new();
+            if cursor < bytes.len() && bytes[cursor] == b'=' {
+                cursor += 1;
+                while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                    cursor += 1;
+                }
+                let quote = bytes
+                    .get(cursor)
+                    .copied()
+                    .filter(|byte| matches!(byte, b'\'' | b'"'));
+                if quote.is_some() {
+                    cursor += 1;
+                }
+                let start = cursor;
+                while cursor < bytes.len()
+                    && match quote {
+                        Some(quote) => bytes[cursor] != quote,
+                        None => !bytes[cursor].is_ascii_whitespace() && bytes[cursor] != b'>',
+                    }
+                {
+                    cursor += 1;
+                }
+                value = String::from_utf8_lossy(&bytes[start..cursor]).into_owned();
+                if quote.is_some() && cursor < bytes.len() {
+                    cursor += 1;
+                }
+            }
+            if is_meta && !name.is_empty() {
+                attributes.entry(name).or_insert(value);
+            }
+        }
+        cursor = cursor.saturating_add(1);
+        if !is_meta {
+            continue;
+        }
+        let direct = attributes
+            .get("charset")
+            .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()));
+        let pragma = attributes
+            .get("http-equiv")
+            .is_some_and(|value| value.eq_ignore_ascii_case("content-type"));
+        let content = if pragma {
+            attributes.get("content").and_then(|value| {
+                let lower = value.to_ascii_lowercase();
+                let mut remaining = lower.as_str();
+                while let Some(index) = remaining.find("charset") {
+                    remaining = remaining[index + 7..]
+                        .trim_start_matches(|ch: char| ch.is_ascii_whitespace());
+                    let Some(value) = remaining.strip_prefix('=') else {
+                        continue;
+                    };
+                    let value = value.trim_start_matches(|ch: char| ch.is_ascii_whitespace());
+                    let label = if let Some(quote) =
+                        value.chars().next().filter(|ch| matches!(ch, '\'' | '"'))
+                    {
+                        let value = &value[1..];
+                        &value[..value.find(quote).unwrap_or(value.len())]
+                    } else {
+                        &value[..value
+                            .find(|ch: char| ch.is_ascii_whitespace() || ch == ';')
+                            .unwrap_or(value.len())]
+                    };
+                    return encoding_rs::Encoding::for_label(label.as_bytes());
+                }
+                None
+            })
+        } else {
+            None
+        };
+        if let Some(encoding) = direct.or(content) {
+            return Some(
+                if encoding == encoding_rs::UTF_16LE || encoding == encoding_rs::UTF_16BE {
+                    encoding_rs::UTF_8
+                } else if encoding == encoding_rs::X_USER_DEFINED {
+                    encoding_rs::WINDOWS_1252
+                } else {
+                    encoding
+                },
+            );
         }
     }
     None
@@ -597,6 +712,71 @@ mod tests {
         );
         assert_eq!(decoded, "café");
         assert_eq!(encoding, "windows-1252");
+    }
+
+    #[test]
+    fn html_prescan_respects_attribute_boundaries_pragma_and_fallback() {
+        for (source, expected) in [
+            ("<meta charset='iso-8859-8 visual'>", "UTF-8"),
+            (
+                "<!-- <meta charset=windows-1251> --><meta charset=utf-8>",
+                "UTF-8",
+            ),
+            ("<div title=\"charset=windows-1251\">", "UTF-8"),
+            ("<meta content='text/html;charset=windows-1251'>", "UTF-8"),
+            (
+                "<meta content='text/html; charset=windows-1251' http-equiv=Content-Type>",
+                "windows-1251",
+            ),
+            (
+                "<meta charset=unsupported><meta charset=windows-1251>",
+                "windows-1251",
+            ),
+            ("<META charset = ' UTF-16LE '>", "UTF-8"),
+            ("<meta charset=x-user-defined>", "windows-1252"),
+            ("<meta charset=utf-8 charset=windows-1251>", "UTF-8"),
+        ] {
+            let (_, encoding) = decode_resource_text_with_fallback(
+                source.as_bytes(),
+                Some("text/html"),
+                TextResourceKind::Html,
+                Some("UTF-8"),
+            );
+            assert_eq!(encoding, expected, "{source}");
+        }
+        assert_eq!(
+            decode_resource_text(b"\xc2\x80", None, TextResourceKind::Html),
+            ("Â€".into(), "windows-1252")
+        );
+        assert_eq!(
+            decode_resource_text_with_fallback(
+                b"\xca",
+                None,
+                TextResourceKind::Html,
+                Some("windows-1251")
+            ),
+            ("К".into(), "windows-1251")
+        );
+        assert_eq!(
+            decode_resource_text_with_fallback(
+                b"x",
+                None,
+                TextResourceKind::Xml,
+                Some("windows-1251")
+            )
+            .1,
+            "UTF-8"
+        );
+        assert_eq!(
+            decode_resource_text_with_fallback(
+                b"x",
+                None,
+                TextResourceKind::Html,
+                Some("UTF-16LE")
+            )
+            .1,
+            "windows-1252"
+        );
     }
 
     #[test]

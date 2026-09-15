@@ -1042,6 +1042,7 @@ impl ParserResourceScheduler {
         client: crate::context_service::SharedContextClient,
         page_id: oryn_common::v3::PageId,
         requested_url: String,
+        parent_encoding: String,
     ) {
         let sender = self.sender.clone();
         self.pending = self.pending.saturating_add(1);
@@ -1050,6 +1051,7 @@ impl ParserResourceScheduler {
             let result = client
                 .request(
                     crate::context_service::ContextServiceRequest::LoadPageResource {
+                        parent_encoding: Some(parent_encoding),
                         page_id,
                         url: request_url,
                         destination: "frame".into(),
@@ -1115,6 +1117,7 @@ fn load_parser_stylesheet(
     let response = client
         .request(
             crate::context_service::ContextServiceRequest::LoadPageResource {
+                parent_encoding: None,
                 page_id,
                 url: requested_url.into(),
                 destination: "stylesheet".into(),
@@ -1195,6 +1198,7 @@ fn load_css_subresources(
         let response = client
             .request(
                 crate::context_service::ContextServiceRequest::LoadPageResource {
+                    parent_encoding: None,
                     page_id,
                     url: requested,
                     destination: destination.into(),
@@ -1396,6 +1400,16 @@ fn apply_parser_resource_completion(
     Ok(None)
 }
 
+fn document_encoding(dom: &SharedDomRuntime) -> String {
+    let dom = dom.borrow();
+    dom.arena()
+        .get(dom.document())
+        .ok()
+        .and_then(|node| node.document_metadata.as_ref())
+        .map(|metadata| metadata.encoding.clone())
+        .unwrap_or_else(|| "UTF-8".into())
+}
+
 fn set_parsed_encoding(parsed: &mut ParsedDocument, encoding: &str) -> Result<(), HostError> {
     if let Some(metadata) = parsed
         .dom
@@ -1512,7 +1526,12 @@ fn parse_live_document(
                         }
                     }
                     html::ParserEvent::FrameDiscovered { source, .. } => {
-                        resource_scheduler.schedule_frame(client.clone(), *page_id, source.clone());
+                        resource_scheduler.schedule_frame(
+                            client.clone(),
+                            *page_id,
+                            source.clone(),
+                            document_encoding(live_dom),
+                        );
                     }
                     _ => {}
                 }
@@ -2520,6 +2539,7 @@ impl RustExecutableDocument {
             {
                 loaded_frame = match client.request(
                     crate::context_service::ContextServiceRequest::LoadPageResource {
+                        parent_encoding: Some(document_encoding(&live_dom)),
                         page_id: *page_id,
                         url: source.clone(),
                         destination: "frame".into(),
@@ -3962,6 +3982,7 @@ impl RustExecutableDocument {
                     .and_then(|context| context.referrer_policy.clone())
                     .or(element_referrer_policy)
                     .or(parent_policy.clone());
+                let parent_encoding = document_encoding(&parent_dom);
                 let inherited_about_blank =
                     (requested.is_none() && srcdoc.is_none()) || javascript_url.is_some();
                 if inherited_about_blank {
@@ -3984,7 +4005,7 @@ impl RustExecutableDocument {
                             .unwrap_or_else(|| "strict-origin-when-cross-origin".into()),
                         None,
                         None::<String>,
-                        "UTF-8".to_owned(),
+                        parent_encoding.clone(),
                     ))
                 } else if let (Some(requested), Some((client, page_id, _))) =
                     (requested.as_ref(), &self.context)
@@ -3995,6 +4016,7 @@ impl RustExecutableDocument {
                         .map_or_else(|| requested.clone(), |url| url.to_string());
                     match client.request(
                         crate::context_service::ContextServiceRequest::LoadPageResource {
+                            parent_encoding: Some(parent_encoding.clone()),
                             page_id: *page_id,
                             url: requested.clone(),
                             destination: "frame".into(),
@@ -4052,7 +4074,7 @@ impl RustExecutableDocument {
                             "strict-origin-when-cross-origin".into(),
                             None,
                             None::<String>,
-                            "UTF-8".to_owned(),
+                            parent_encoding.clone(),
                         )
                     })
                 } else {
@@ -4069,7 +4091,7 @@ impl RustExecutableDocument {
                             .unwrap_or_else(|| "strict-origin-when-cross-origin".into()),
                         None,
                         None::<String>,
-                        "UTF-8".to_owned(),
+                        parent_encoding.clone(),
                     ))
                 } else if let Some(requested) = requested.as_ref() {
                     self.resources.get(requested).cloned().map(|source| {
@@ -4084,7 +4106,7 @@ impl RustExecutableDocument {
                             "strict-origin-when-cross-origin".into(),
                             None,
                             None::<String>,
-                            "UTF-8".to_owned(),
+                            parent_encoding.clone(),
                         )
                     })
                 } else {
