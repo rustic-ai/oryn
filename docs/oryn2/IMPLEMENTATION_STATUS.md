@@ -5,6 +5,22 @@
 
 ## Completion implementation in progress — September 15
 
+**Latest completed checkpoint: `0dd16976`. The complete plan remains unfinished.**
+The final signed candidate passes **904/930 selected encoding executions**
+(**823 improvements, zero regressions** against the same IDs), including **76/78**
+of the API subset. All 26 remaining selected failures require encoding streams;
+378 prior encoding runtime failures were not repeated in this subset and remain
+open. This is not a full Core qualification run.
+
+The same signed candidate passes **164/165 controlled OIL attempts**. Research,
+forms, shopping, booking, framework and authentication suites pass; SaaS
+`invalid_login_recovery` sample 1 times out at IPC-response execute message 39.
+Prior timeout evidence remains open. DOM/JS/native/network regression suites total
+**996 passes and 9 existing ignores**; strict Clippy, generated bindings and
+formatting checks pass. The architecture guard fails on stale shadow evidence.
+See the [complete run report](../../artifacts/core-completion-2026-09-15/REPORT.md)
+and [final encoding comparison](../../artifacts/core-completion-2026-09-15/encoding-semantic-final-comparison.json).
+
 The pre-implementation working tree was committed as `ba7ba33d`. Native
 TextEncoder/TextDecoder and resource-decoding fixes are committed as `aa8bbf2d`;
 the complete Core allocation ledger is committed as `d3ac0407`. The overall
@@ -104,7 +120,7 @@ The follow-up repairs release temporary context ownership before blocked network
 forwarding and escape ISO-2022-JP control-character replacement references. The
 backpressure regression was first reproduced failing, then passed with the fix.
 Full follow-up suites pass **583 native / 6 existing ignores** and **284 JS / 3
-existing ignores**; strict Clippy passes. Final signed verification is pending.
+existing ignores**; strict Clippy passes. Final signed verification is recorded at the top of this section.
 
 These are controlled regression outcomes, **not expanded five-family acceptance,
 complete Core conformance, or release qualification**. The historical full-WPT
