@@ -52,7 +52,9 @@ pub(super) fn refresh(
             stream.writer_id,
             stream.error.clone(),
             stream.started && !stream.busy && !stream.abort_in_flight,
-            !stream.queue.is_empty() && !stream.closing,
+            stream.queue.iter().filter(|r| r.chunk.is_some()).count() as f64
+                >= stream.high_water_mark
+                && !stream.closing,
             stream.closed,
         )
     };
@@ -145,7 +147,7 @@ pub(super) fn get<'s>(
     let size = if stream.closed {
         0.0
     } else {
-        1.0 - stream.queue.iter().filter(|r| r.chunk.is_some()).count() as f64
+        stream.high_water_mark - stream.queue.iter().filter(|r| r.chunk.is_some()).count() as f64
     };
     Ok(v8::Number::new(scope, size).into())
 }

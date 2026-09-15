@@ -5,6 +5,21 @@
 
 ## Completion implementation in progress — September 15
 
+### Native encoding streams and transform pressure
+
+Native `TextEncoderStream` and `TextDecoderStream` now share the transform queue,
+with incremental codecs, split surrogate/multibyte handling, BOM options, fatal
+flush errors and original input-conversion errors. The distinct native transform
+controller supports enqueue/error/terminate and stable callback identity. Readable
+demand controls writes; count-based high-water marks are validated and reflected
+in readiness. `pipeThrough` accepts native readable/writable pairs.
+
+Validation so far: **310 JS tests passed, 3 existing ignores**; strict JS Clippy,
+generated bindings and formatting checks pass. Signed WPT and native regression
+validation are pending. This does not close the stream package: pipe lifecycle and
+propagation, custom size functions, bytes/BYOB streams, realm behavior and complete
+upstream acceptance still require evidence and implementation.
+
 ### Writable and transform stream prerequisite work
 
 The next continuation implements an ordered native write/close queue and tracks

@@ -153,7 +153,7 @@ fn finish_abort(
         PlatformObjectRecord::WritableStream(stream) => stream.controller_id,
         _ => return Err(V8BindingError::Allocation("WritableStream record")),
     };
-    let controller = new_stateful_object(
+    let controller = new_platform_object(
         scope,
         state,
         "WritableStreamDefaultController",
@@ -260,7 +260,7 @@ fn observe<'s>(
         PlatformObjectRecord::WritableStream(stream) => stream.controller_id,
         _ => return Err(V8BindingError::Allocation("WritableStream record")),
     };
-    let data = new_stateful_object(
+    let data = new_platform_object(
         scope,
         state,
         "WritableStreamDefaultController",
@@ -292,10 +292,7 @@ pub(super) fn start(
             return Err(V8BindingError::Allocation("WritableStream record"));
         };
         let transform = match &stream.kind {
-            WritableKind::Transform {
-                readable_controller_id,
-                ..
-            } => Some(*readable_controller_id),
+            WritableKind::Transform { controller_id, .. } => Some(*controller_id),
             _ => None,
         };
         (stream.source.clone(), stream.controller_id, transform)
@@ -304,8 +301,8 @@ pub(super) fn start(
         let receiver = v8::Local::new(scope, source);
         let callback = v8::Local::new(scope, callback);
         let controller = match transform {
-            Some(id) => new_stateful_object(scope, state, "ReadableStreamDefaultController", id)?,
-            None => new_stateful_object(
+            Some(id) => new_platform_object(scope, state, "TransformStreamDefaultController", id)?,
+            None => new_platform_object(
                 scope,
                 state,
                 "WritableStreamDefaultController",
@@ -321,12 +318,15 @@ pub(super) fn start(
     observe(scope, state, id, value)
 }
 
-fn pump(
+pub(super) fn pump(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     id: u64,
 ) -> Result<(), V8BindingError> {
-    let (callback, source, controller_id, transform, chunk) = {
+    if transform_streams::write_blocked(state, id)? {
+        return Ok(());
+    }
+    let (callback, source, controller_id, transform, transform_controller, chunk) = {
         let mut record = platform_object_mut(state, id)?;
         let PlatformObjectRecord::WritableStream(stream) = &mut *record else {
             return Err(V8BindingError::Allocation("WritableStream record"));
@@ -338,7 +338,7 @@ fn pump(
             return Ok(());
         };
         let closing = request.chunk.is_none();
-        let (callback, transform) = match &stream.kind {
+        let (callback, transform, transform_controller) = match &stream.kind {
             WritableKind::Sink { write, close, .. } => (
                 if closing {
                     close.clone()
@@ -346,11 +346,14 @@ fn pump(
                     write.clone()
                 },
                 None,
+                None,
             ),
             WritableKind::Transform {
                 transform,
                 flush,
                 readable_controller_id,
+                controller_id,
+                ..
             } => (
                 if closing {
                     flush.clone()
@@ -358,6 +361,7 @@ fn pump(
                     transform.clone()
                 },
                 Some(*readable_controller_id),
+                Some(*controller_id),
             ),
         };
         let chunk = request.chunk.clone();
@@ -367,12 +371,47 @@ fn pump(
             stream.source.clone(),
             stream.controller_id,
             transform,
+            transform_controller,
             chunk,
         )
     };
-    let controller = match transform {
-        Some(id) => new_stateful_object(scope, state, "ReadableStreamDefaultController", id)?,
-        None => new_stateful_object(
+    let codec = match &*platform_object(state, id)? {
+        PlatformObjectRecord::WritableStream(WritableStreamRecord {
+            kind: WritableKind::Transform { codec_id, .. },
+            ..
+        }) => *codec_id,
+        _ => None,
+    };
+    if let Some(codec) = codec {
+        let chunk = chunk.map(|chunk| v8::Local::new(scope, chunk));
+        v8::tc_scope!(let scope, scope);
+        match text_encoding::transform_chunk(scope, state, codec, chunk) {
+            Ok(output) => {
+                if let Some(output) = output {
+                    let controller =
+                        transform.ok_or(V8BindingError::Allocation("encoding readable"))?;
+                    if let Err(error) = readable_enqueue(scope, state, controller, output) {
+                        let reason = readable_streams::type_error(scope, &error.to_string())?;
+                        return finish(scope, state, id, Some(reason));
+                    }
+                }
+                let undefined = v8::undefined(scope).into();
+                return observe(scope, state, id, undefined);
+            }
+            Err(error) => {
+                let reason = if let Some(exception) = scope.exception() {
+                    scope.reset();
+                    exception
+                } else {
+                    readable_streams::type_error(scope, &error.to_string())?
+                };
+                return finish(scope, state, id, Some(reason));
+            }
+        }
+    }
+    let controller = match transform_controller {
+        Some(id) => new_platform_object(scope, state, "TransformStreamDefaultController", id)?,
+        None => new_platform_object(
             scope,
             state,
             "WritableStreamDefaultController",
@@ -559,9 +598,9 @@ fn drain_error(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
-    fn run(source: &str) {
+    pub(in crate::v8_bindings) fn run(source: &str) {
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(
             oryn_dom::html::parse("<body>").into_runtime().unwrap(),
@@ -579,6 +618,11 @@ mod tests {
         }
         let promise = v8::Local::<v8::Promise>::try_from(result.unwrap()).unwrap();
         scope.perform_microtask_checkpoint();
+        assert_ne!(
+            promise.state(),
+            v8::PromiseState::Pending,
+            "test promise remained pending"
+        );
         assert_eq!(
             promise.state(),
             v8::PromiseState::Fulfilled,
@@ -645,7 +689,7 @@ mod tests {
             const check=(x,m)=>{if(!x)throw Error(m)};let flush;
             const transformer={transform(x,c){check(this===transformer,'transform receiver');c.enqueue(x+1)},flush(c){check(this===transformer,'flush receiver');return new Promise(r=>flush=()=>{c.enqueue(9);r()})}};
             const t=new TransformStream(transformer),r=t.readable.getReader(),w=t.writable.getWriter();
-            await w.write(1);check((await r.read()).value===2,'transform chunk');const close=w.close();
+            const read=r.read();await w.write(1);check((await read).value===2,'transform chunk');const close=w.close();
             await Promise.resolve();let ended=false;r.closed.then(()=>ended=true);await Promise.resolve();check(!ended,'flush pending');
             flush();await close;check((await r.read()).value===9,'flush chunk');check((await r.read()).done,'readable closed');
             for(const callback of ['transform','flush']){

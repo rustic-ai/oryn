@@ -119,22 +119,7 @@ pub(super) fn construct<'s>(
     let record = if name == "TextEncoder" {
         PlatformObjectRecord::TextEncoder
     } else {
-        let label = if args.get(0).is_undefined() {
-            "utf-8".to_owned()
-        } else {
-            args.get(0)
-                .to_string(scope)
-                .ok_or(V8BindingError::JavaScriptException)?
-                .to_rust_string_lossy(scope)
-        };
-        // WebIDL converts all arguments before running label validation.
-        let options = dictionary(args.get(1))?;
-        let fatal = boolean_member(scope, options, "fatal")?;
-        let ignore_bom = boolean_member(scope, options, "ignoreBOM")?;
-        let encoding = Encoding::for_label(label.as_bytes())
-            .filter(|encoding| *encoding != REPLACEMENT)
-            .ok_or_else(|| error("RangeError"))?;
-        PlatformObjectRecord::TextDecoder(Box::new(DecoderRecord::new(encoding, fatal, ignore_bom)))
+        PlatformObjectRecord::TextDecoder(Box::new(decoder_arguments(scope, args)?))
     };
     let id = register_platform_object(state, record);
     bind_platform_object(scope, state, id, args.this());
@@ -293,4 +278,244 @@ pub(super) fn operation<'s>(
     let written = v8::Number::new(scope, written as f64).into();
     set_object_property(scope, result, "written", written)?;
     Ok(Some(result.into()))
+}
+
+fn decoder_arguments<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Result<DecoderRecord, V8BindingError> {
+    let label = if args.get(0).is_undefined() {
+        "utf-8".to_owned()
+    } else {
+        args.get(0)
+            .to_string(scope)
+            .ok_or(V8BindingError::JavaScriptException)?
+            .to_rust_string_lossy(scope)
+    };
+    // WebIDL converts all arguments before running label validation.
+    let options = dictionary(args.get(1))?;
+    let fatal = boolean_member(scope, options, "fatal")?;
+    let ignore_bom = boolean_member(scope, options, "ignoreBOM")?;
+    let encoding = Encoding::for_label(label.as_bytes())
+        .filter(|encoding| *encoding != REPLACEMENT)
+        .ok_or_else(|| error("RangeError"))?;
+    Ok(DecoderRecord::new(encoding, fatal, ignore_bom))
+}
+
+pub(super) struct EncodingStreamRecord {
+    readable_id: u64,
+    writable_id: u64,
+    codec: StreamCodec,
+}
+
+enum StreamCodec {
+    Encoder { pending_surrogate: Option<u16> },
+    Decoder(Box<DecoderRecord>),
+}
+
+pub(super) fn construct_stream<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    name: &str,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Result<(), V8BindingError> {
+    let codec = if name == "TextEncoderStream" {
+        StreamCodec::Encoder {
+            pending_surrogate: None,
+        }
+    } else {
+        StreamCodec::Decoder(Box::new(decoder_arguments(scope, args)?))
+    };
+    let undefined = v8::undefined(scope).into();
+    let (id, readable_id, writable_id) =
+        transform_streams::create(scope, state, undefined, 1.0, 0.0)?;
+    insert_platform_object(
+        state,
+        id,
+        PlatformObjectRecord::EncodingStream(EncodingStreamRecord {
+            readable_id,
+            writable_id,
+            codec,
+        }),
+    );
+    if let PlatformObjectRecord::WritableStream(stream) =
+        &mut *platform_object_mut(state, writable_id)?
+        && let WritableKind::Transform { codec_id, .. } = &mut stream.kind
+    {
+        *codec_id = Some(id);
+    }
+    bind_platform_object(scope, state, id, args.this());
+    writable_streams::start(scope, state, writable_id, None)
+}
+
+pub(super) fn get_stream<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    id: u64,
+    member: &str,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    let record = platform_object(state, id)?;
+    let PlatformObjectRecord::EncodingStream(record) = &*record else {
+        return Err(error("TypeError"));
+    };
+    match member {
+        "readable" => {
+            Ok(new_platform_object(scope, state, "ReadableStream", record.readable_id)?.into())
+        }
+        "writable" => {
+            Ok(new_platform_object(scope, state, "WritableStream", record.writable_id)?.into())
+        }
+        "encoding" => match &record.codec {
+            StreamCodec::Encoder { .. } => v8_string(scope, "utf-8"),
+            StreamCodec::Decoder(decoder) => {
+                v8_string(scope, &decoder.encoding.name().to_ascii_lowercase())
+            }
+        },
+        "fatal" => match &record.codec {
+            StreamCodec::Decoder(decoder) => Ok(v8::Boolean::new(scope, decoder.fatal).into()),
+            _ => Err(error("TypeError")),
+        },
+        "ignoreBOM" => match &record.codec {
+            StreamCodec::Decoder(decoder) => Ok(v8::Boolean::new(scope, decoder.ignore_bom).into()),
+            _ => Err(error("TypeError")),
+        },
+        _ => Err(error("TypeError")),
+    }
+}
+
+pub(super) fn transform_chunk<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    id: u64,
+    chunk: Option<v8::Local<'s, v8::Value>>,
+) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    let encoder = match &*platform_object(state, id)? {
+        PlatformObjectRecord::EncodingStream(record) => {
+            matches!(record.codec, StreamCodec::Encoder { .. })
+        }
+        _ => return Err(error("TypeError")),
+    };
+    // Conversion may invoke author code, so perform it without borrowing state.
+    let (units, bytes) = if let Some(chunk) = chunk {
+        if encoder {
+            let string = chunk
+                .to_string(scope)
+                .ok_or(V8BindingError::JavaScriptException)?;
+            let mut units = vec![0u16; string.length()];
+            string.write_v2(scope, 0, &mut units, v8::WriteFlags::default());
+            (units, Vec::new())
+        } else {
+            if chunk.is_undefined() {
+                return Err(error("TypeError"));
+            }
+            validate_input(scope, chunk)?;
+            (Vec::new(), copy_input(chunk))
+        }
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let output = {
+        let mut record = platform_object_mut(state, id)?;
+        let PlatformObjectRecord::EncodingStream(record) = &mut *record else {
+            return Err(error("TypeError"));
+        };
+        match &mut record.codec {
+            StreamCodec::Decoder(decoder) => decoder.decode(&bytes, chunk.is_some())?,
+            StreamCodec::Encoder { pending_surrogate } => {
+                let mut units = units;
+                if let Some(pending) = pending_surrogate.take() {
+                    units.insert(0, pending);
+                }
+                if chunk.is_some() && units.last().is_some_and(|u| (0xd800..=0xdbff).contains(u)) {
+                    *pending_surrogate = units.pop();
+                }
+                String::from_utf16_lossy(&units)
+            }
+        }
+    };
+    if output.is_empty() {
+        return Ok(None);
+    }
+    if encoder {
+        let buffer = array_buffer_from_bytes(scope, output.as_bytes());
+        let bytes = v8::Uint8Array::new(scope, buffer, 0, output.len())
+            .ok_or(V8BindingError::Allocation("encoded stream chunk"))?;
+        Ok(Some(bytes.into()))
+    } else {
+        v8_string(scope, &output).map(Some)
+    }
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use super::super::writable_streams::tests::run;
+
+    #[test]
+    fn encoding_streams_retain_brand_attributes_and_read_write_pressure() {
+        run(r#"(async()=>{
+            const check=(x,m)=>{if(!x)throw Error(m)};
+            for(const [Stream,input,expected] of [[TextEncoderStream,'A',65],[TextDecoderStream,new Uint8Array([65]),'A']]){
+                const s=new Stream();check(s.encoding==='utf-8','encoding');check(s.readable===s.readable&&s.writable===s.writable,'same stream identity');
+                check(s.readable instanceof ReadableStream&&s.writable instanceof WritableStream,'native streams');
+                const w=s.writable.getWriter(),r=s.readable.getReader();let written=false;const write=w.write(input).then(()=>written=true);
+                for(let i=0;i<8;i++)await Promise.resolve();check(!written,'write waits for read');const output=await r.read();await write;
+                check(Stream===TextEncoderStream?output.value[0]===expected:output.value===expected,'output');await w.close();check((await r.read()).done,'closed');
+            }
+            const d=new TextDecoderStream('LaTiN1',{fatal:true,ignoreBOM:true});check(d.encoding==='windows-1252'&&d.fatal&&d.ignoreBOM,'decoder options');return 'ok';
+        })()"#);
+    }
+
+    #[test]
+    fn encoder_preserves_surrogates_across_chunks_and_flushes_trailing_high_surrogate() {
+        run(r#"(async()=>{
+            const check=(x,m)=>{if(!x)throw Error(m)};
+            const s=new TextEncoderStream(),r=s.readable.getReader(),w=s.writable.getWriter();const output=[];
+            const drain=(async()=>{while(true){const x=await r.read();if(x.done)return;output.push(...x.value)}})();
+            for(const chunk of ['\ud83d','','\ude00','\ud800','A','\udfff','\ud801'])await w.write(chunk);
+            await w.close();await drain;check(new TextDecoder().decode(new Uint8Array(output))==='😀�A��','surrogate boundaries');return 'ok';
+        })()"#);
+    }
+
+    #[test]
+    fn decoder_preserves_split_multibyte_bom_legacy_state_and_fatal_flush_errors() {
+        run(r#"(async()=>{
+            const check=(x,m)=>{if(!x)throw Error(m)};
+            for(const [label,chunks,expected] of [
+                ['utf-8',[[239],[187],[],[191,240,159],[152],[128]],'😀'],
+                ['shift_jis',[[130],[],[160]],'あ'],
+                ['windows-1252',[[128]],'€']
+            ]){
+                const s=new TextDecoderStream(label),r=s.readable.getReader(),w=s.writable.getWriter();let output='';
+                const drain=(async()=>{while(true){const x=await r.read();if(x.done)return;output+=x.value}})();
+                for(const chunk of chunks)await w.write(new Uint8Array(chunk));await w.close();await drain;check(output===expected,'decoder state '+label);
+            }
+            const s=new TextDecoderStream('utf-8',{fatal:true}),r=s.readable.getReader(),w=s.writable.getWriter();
+            const read=r.read();await w.write(new Uint8Array([240,159]));const close=w.close();
+            for(const p of [read,close,r.closed,w.closed]){let e;try{await p}catch(x){e=x}check(e instanceof TypeError,'fatal incomplete input')}
+            return 'ok';
+        })()"#);
+    }
+
+    #[test]
+    fn encoding_conversion_errors_and_invalid_decoder_chunks_error_both_sides() {
+        run(r#"(async()=>{
+            const check=(x,m)=>{if(!x)throw Error(m)};const reason={conversion:1};
+            for(const [Stream,input] of [[TextEncoderStream,{toString(){throw reason}}],...[undefined,null,42,{},[65]].map(x=>[TextDecoderStream,x])]){
+                const s=new Stream(),r=s.readable.getReader(),w=s.writable.getWriter();const write=w.write(input),read=r.read();
+                for(const p of [write,read,r.closed,w.closed]){let e;try{await p}catch(x){e=x}check(Stream===TextEncoderStream?e===reason:e instanceof TypeError,'error identity')}
+            }
+            return 'ok';
+        })()"#);
+    }
+
+    #[test]
+    fn encoding_pipeline_accepts_native_stream_pairs_and_non_string_inputs() {
+        run(r#"(async()=>{
+            const check=(x,m)=>{if(!x)throw Error(m)};
+            const source=new ReadableStream({start(c){for(const x of [undefined,null,3.14,{},['hi']])c.enqueue(x);c.close()}});
+            const output=source.pipeThrough(new TextEncoderStream()).pipeThrough(new TextDecoderStream());
+            const r=output.getReader();let result='';while(true){const x=await r.read();if(x.done)break;result+=x.value}
+            check(result==='undefinednull3.14[object Object]hi','pipeline output: '+result);return 'ok';
+        })()"#);
+    }
 }

@@ -52,6 +52,7 @@ pub mod structured_clone;
 pub mod submissions;
 mod text_encoding;
 mod token_lists;
+mod transform_streams;
 mod tree_walkers;
 mod url_objects;
 mod validation;
@@ -603,6 +604,12 @@ enum PlatformObjectRecord {
         closed: v8::Global<v8::PromiseResolver>,
         released: bool,
     },
+    EncodingStream(text_encoding::EncodingStreamRecord),
+    TransformController {
+        readable_id: u64,
+        readable_controller_id: u64,
+        writable_id: u64,
+    },
     TransformStream {
         readable_id: u64,
         writable_id: u64,
@@ -612,6 +619,8 @@ enum PlatformObjectRecord {
 struct ReadableStreamRecord {
     error: Option<v8::Global<v8::Value>>,
     reader_id: Option<u64>,
+    transform_writable_id: Option<u64>,
+    high_water_mark: f64,
     started: bool,
     pulling: bool,
     pull_again: bool,
@@ -789,6 +798,8 @@ enum WritableKind {
     Transform {
         transform: Option<v8::Global<v8::Function>>,
         flush: Option<v8::Global<v8::Function>>,
+        codec_id: Option<u64>,
+        controller_id: u64,
         readable_controller_id: u64,
     },
 }
@@ -803,6 +814,7 @@ struct WritableStreamRecord {
     abort_in_flight: bool,
     abort_completion: Option<v8::Global<v8::PromiseResolver>>,
     writer_id: Option<u64>,
+    high_water_mark: f64,
     busy: bool,
     closing: bool,
     started: bool,
@@ -1948,6 +1960,8 @@ impl V8BindingState {
                     PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
                         error: None,
                         reader_id: None,
+                        transform_writable_id: None,
+                        high_water_mark: 1.0,
                         started: true,
                         pulling: false,
                         pull_again: false,
@@ -7369,6 +7383,9 @@ fn is_platform_interface(interface: &str) -> bool {
             | "WritableStreamDefaultWriter"
             | "WritableStreamDefaultController"
             | "TransformStream"
+            | "TransformStreamDefaultController"
+            | "TextEncoderStream"
+            | "TextDecoderStream"
             | "Request"
             | "Response"
             | "XMLHttpRequest"
@@ -7748,6 +7765,7 @@ fn pipe_readable_to<'s>(
         }
         (queued, closed)
     };
+    readable_streams::pull(scope, state, readable_id)?;
     for chunk in queued {
         let chunk = v8::Local::new(scope, chunk);
         let _ = writable_write(scope, state, writable_id, chunk)?;
@@ -7768,6 +7786,10 @@ fn initialize_platform_constructor<'s>(
 ) -> Result<bool, V8BindingError> {
     if !args.is_construct_call() {
         return Ok(false);
+    }
+    if matches!(name, "TextEncoderStream" | "TextDecoderStream") {
+        text_encoding::construct_stream(scope, state, name, args)?;
+        return Ok(true);
     }
     if matches!(name, "TextEncoder" | "TextDecoder") {
         text_encoding::construct(scope, state, name, args)?;
@@ -8166,6 +8188,7 @@ fn initialize_platform_constructor<'s>(
         let stream_id = reserve_platform_object_id(state);
         let controller_id = reserve_platform_object_id(state);
         let source = args.get(0);
+        let high_water_mark = transform_streams::high_water_mark(scope, args.get(1), 1.0)?;
         let start = option_function(scope, source, "start");
         let pull = option_function(scope, source, "pull");
         let cancel = option_function(scope, source, "cancel");
@@ -8180,6 +8203,8 @@ fn initialize_platform_constructor<'s>(
             PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
                 error: None,
                 reader_id: None,
+                transform_writable_id: None,
+                high_water_mark,
                 started: false,
                 pulling: false,
                 pull_again: false,
@@ -8204,6 +8229,7 @@ fn initialize_platform_constructor<'s>(
         let stream_id = reserve_platform_object_id(state);
         let controller_id = reserve_platform_object_id(state);
         let sink = args.get(0);
+        let high_water_mark = transform_streams::high_water_mark(scope, args.get(1), 1.0)?;
         insert_platform_object(
             state,
             controller_id,
@@ -8224,6 +8250,7 @@ fn initialize_platform_constructor<'s>(
                 abort_in_flight: false,
                 abort_completion: None,
                 writer_id: None,
+                high_water_mark,
                 locked: false,
                 closed: false,
                 kind: WritableKind::Sink {
@@ -8239,83 +8266,7 @@ fn initialize_platform_constructor<'s>(
         return Ok(true);
     }
     if name == "TransformStream" {
-        let transform_id = reserve_platform_object_id(state);
-        let readable_id = reserve_platform_object_id(state);
-        let readable_controller_id = reserve_platform_object_id(state);
-        let writable_id = reserve_platform_object_id(state);
-        let writable_controller_id = reserve_platform_object_id(state);
-        let transformer = args.get(0);
-        insert_platform_object(
-            state,
-            readable_controller_id,
-            PlatformObjectRecord::ReadableController {
-                stream_id: readable_id,
-            },
-        );
-        insert_platform_object(
-            state,
-            readable_id,
-            PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
-                error: None,
-                reader_id: None,
-                started: true,
-                pulling: false,
-                pull_again: false,
-                source: None,
-                queue: VecDeque::new(),
-                waiting: VecDeque::new(),
-                closed: false,
-                locked: false,
-                pull: None,
-                cancel: None,
-                controller_id: readable_controller_id,
-                pipes: Vec::new(),
-                host_stream_id: None,
-                host_read_pending: false,
-            }),
-        );
-        insert_platform_object(
-            state,
-            writable_controller_id,
-            PlatformObjectRecord::WritableController {
-                stream_id: writable_id,
-            },
-        );
-        insert_platform_object(
-            state,
-            writable_id,
-            PlatformObjectRecord::WritableStream(WritableStreamRecord {
-                error: None,
-                queue: VecDeque::new(),
-                busy: false,
-                closing: false,
-                started: false,
-                controller_id: writable_controller_id,
-                source: v8::Global::new(scope, transformer),
-                pending_abort: None,
-                abort_in_flight: false,
-                abort_completion: None,
-                writer_id: None,
-                locked: false,
-                closed: false,
-                kind: WritableKind::Transform {
-                    transform: option_function(scope, transformer, "transform"),
-                    flush: option_function(scope, transformer, "flush"),
-                    readable_controller_id,
-                },
-            }),
-        );
-        insert_platform_object(
-            state,
-            transform_id,
-            PlatformObjectRecord::TransformStream {
-                readable_id,
-                writable_id,
-            },
-        );
-        bind_platform_object(scope, state, transform_id, args.this());
-        let start = option_function(scope, transformer, "start");
-        writable_streams::start(scope, state, writable_id, start)?;
+        transform_streams::construct(scope, state, args)?;
         return Ok(true);
     }
     let record = match name {
@@ -8667,6 +8618,8 @@ fn new_byte_stream_record(
         PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
             error: None,
             reader_id: None,
+            transform_writable_id: None,
+            high_water_mark: 1.0,
             started: true,
             pulling: false,
             pull_again: false,
@@ -17950,6 +17903,13 @@ fn get_platform_attribute<'s>(
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     let id = stateful_id(scope, object)?;
+    if interface == "TransformStreamDefaultController" {
+        return transform_streams::desired_size(scope, state, id);
+    }
+
+    if matches!(interface, "TextEncoderStream" | "TextDecoderStream") {
+        return text_encoding::get_stream(scope, state, id, member);
+    }
     if matches!(interface, "TextEncoder" | "TextDecoder") {
         return text_encoding::get(scope, state, id, interface, member);
     }
@@ -18498,7 +18458,15 @@ fn get_platform_attribute<'s>(
             let PlatformObjectRecord::ReadableStream(stream) = &*stream else {
                 return Err(V8BindingError::Allocation("ReadableStream record"));
             };
-            Ok(v8::Integer::new(scope, i32::from(!stream.closed)).into())
+            if stream.error.is_some() {
+                return Ok(v8::null(scope).into());
+            }
+            let size = if stream.closed && stream.queue.is_empty() {
+                0.0
+            } else {
+                stream.high_water_mark - stream.queue.len() as f64
+            };
+            Ok(v8::Number::new(scope, size).into())
         }
         (
             PlatformObjectRecord::TransformStream { readable_id, .. },
@@ -19368,6 +19336,11 @@ fn call_platform_operation<'s>(
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let id = stateful_id(scope, object)?;
+    if interface == "TransformStreamDefaultController" {
+        transform_streams::operation(scope, state, id, member, args.get(0))?;
+        return Ok(None);
+    }
+
     if interface == "WritableStreamDefaultWriter"
         && matches!(member, "write" | "close" | "abort")
         && matches!(
@@ -21229,6 +21202,8 @@ fn call_platform_operation<'s>(
                 PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
                     error: None,
                     reader_id: None,
+                    transform_writable_id: None,
+                    high_water_mark: 1.0,
                     started: true,
                     pulling: false,
                     pull_again: false,
@@ -21422,6 +21397,7 @@ fn call_platform_operation<'s>(
             };
             readable_close(scope, state, controller_id)?;
             readable_streams::settle_closed(scope, state, stream_id)?;
+            transform_streams::cancel_readable(scope, state, stream_id, args.get(0))?;
             if let Some(stream_id) = host_stream_id {
                 submit_platform_operation(
                     state,
@@ -21458,18 +21434,29 @@ fn call_platform_operation<'s>(
                 .get(0)
                 .to_object(scope)
                 .ok_or(V8BindingError::Allocation("TransformStream argument"))?;
-            let transform_id = stateful_id(scope, transform)?;
-            let (readable_id, writable_id) = {
-                let record = platform_object(state, transform_id)?;
-                let PlatformObjectRecord::TransformStream {
-                    readable_id,
-                    writable_id,
-                } = &*record
-                else {
-                    return Err(V8BindingError::Allocation("TransformStream record"));
-                };
-                (*readable_id, *writable_id)
-            };
+            let readable = event_init_member(scope, Some(transform), "readable")
+                .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
+                .ok_or_else(|| {
+                    V8BindingError::EventCallback("pipeThrough readable is not a stream".into())
+                })?;
+            let writable = event_init_member(scope, Some(transform), "writable")
+                .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
+                .ok_or_else(|| {
+                    V8BindingError::EventCallback("pipeThrough writable is not a stream".into())
+                })?;
+            let readable_id = stateful_id(scope, readable)?;
+            let writable_id = stateful_id(scope, writable)?;
+            if !matches!(
+                &*platform_object(state, readable_id)?,
+                PlatformObjectRecord::ReadableStream(_)
+            ) || !matches!(
+                &*platform_object(state, writable_id)?,
+                PlatformObjectRecord::WritableStream(_)
+            ) {
+                return Err(V8BindingError::EventCallback(
+                    "pipeThrough requires readable and writable streams".into(),
+                ));
+            }
             pipe_readable_to(scope, state, id, writable_id)?;
             return Ok(Some(
                 new_platform_object(scope, state, "ReadableStream", readable_id)?.into(),

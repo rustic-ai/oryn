@@ -1,4 +1,22 @@
 [Exposed=(Window,Worker)]
+interface TextEncoderStream {
+  constructor();
+  readonly attribute DOMString encoding;
+  readonly attribute ReadableStream readable;
+  readonly attribute WritableStream writable;
+};
+
+[Exposed=(Window,Worker)]
+interface TextDecoderStream {
+  constructor(optional DOMString label = "utf-8", optional TextDecoderOptions options);
+  readonly attribute DOMString encoding;
+  readonly attribute boolean fatal;
+  readonly attribute boolean ignoreBOM;
+  readonly attribute ReadableStream readable;
+  readonly attribute WritableStream writable;
+};
+
+[Exposed=(Window,Worker)]
 interface TextDecoder {
   constructor(optional DOMString label = "utf-8", optional TextDecoderOptions options);
   readonly attribute DOMString encoding;
@@ -1892,7 +1910,7 @@ interface ReadableStream {
   ReadableStreamDefaultReader getReader();
   Promise<undefined> cancel(optional any reason = null);
   Promise<undefined> pipeTo(WritableStream destination);
-  ReadableStream pipeThrough(TransformStream transform);
+  ReadableStream pipeThrough(any transform);
 };
 
 [Exposed=(Window,Worker)]
@@ -1905,7 +1923,7 @@ interface ReadableStreamDefaultReader {
 
 [Exposed=(Window,Worker)]
 interface ReadableStreamDefaultController {
-  readonly attribute long desiredSize;
+  readonly attribute unrestricted double? desiredSize;
   undefined close();
   undefined enqueue(optional any chunk = null);
   undefined error(optional any error = null);
@@ -1923,7 +1941,7 @@ interface WritableStream {
 [Exposed=(Window,Worker)]
 interface WritableStreamDefaultWriter {
   readonly attribute Promise<undefined> closed;
-  readonly attribute long desiredSize;
+  readonly attribute unrestricted double? desiredSize;
   readonly attribute Promise<undefined> ready;
   Promise<undefined> abort(optional any reason = null);
   Promise<undefined> close();
@@ -1935,6 +1953,14 @@ interface WritableStreamDefaultWriter {
 interface WritableStreamDefaultController {
   readonly attribute AbortSignal signal;
   undefined error(optional any error = null);
+};
+
+[Exposed=(Window,Worker)]
+interface TransformStreamDefaultController {
+  readonly attribute unrestricted double? desiredSize;
+  undefined enqueue(optional any chunk);
+  undefined error(optional any reason);
+  undefined terminate();
 };
 
 [Exposed=(Window,Worker)]

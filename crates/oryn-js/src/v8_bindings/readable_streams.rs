@@ -331,7 +331,7 @@ fn observe<'s>(
         PlatformObjectRecord::ReadableStream(stream) => stream.controller_id,
         _ => return Err(V8BindingError::Allocation("stream reaction record")),
     };
-    let data = new_stateful_object(
+    let data = new_platform_object(
         scope,
         state,
         "ReadableStreamDefaultController",
@@ -369,7 +369,7 @@ pub(super) fn start(
         let receiver = source
             .map(|s| v8::Local::new(scope, s))
             .unwrap_or_else(|| v8::undefined(scope).into());
-        let controller = new_stateful_object(
+        let controller = new_platform_object(
             scope,
             state,
             "ReadableStreamDefaultController",
@@ -389,6 +389,13 @@ pub(super) fn pull(
     state: &Rc<V8BindingState>,
     id: u64,
 ) -> Result<(), V8BindingError> {
+    let transform = match &*platform_object(state, id)? {
+        PlatformObjectRecord::ReadableStream(stream) => stream.transform_writable_id,
+        _ => None,
+    };
+    if let Some(writable) = transform {
+        return writable_streams::pump(scope, state, writable);
+    }
     let (callback, source, controller_id) = {
         let mut record = platform_object_mut(state, id)?;
         let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
@@ -397,7 +404,7 @@ pub(super) fn pull(
         if !stream.started
             || stream.closed
             || stream.error.is_some()
-            || (stream.waiting.is_empty() && !stream.queue.is_empty())
+            || (stream.waiting.is_empty() && stream.queue.len() as f64 >= stream.high_water_mark)
         {
             return Ok(());
         }
@@ -415,7 +422,7 @@ pub(super) fn pull(
     let receiver = source
         .map(|s| v8::Local::new(scope, s))
         .unwrap_or_else(|| v8::undefined(scope).into());
-    let controller = new_stateful_object(
+    let controller = new_platform_object(
         scope,
         state,
         "ReadableStreamDefaultController",
@@ -455,6 +462,11 @@ mod tests {
         }
         let promise = v8::Local::<v8::Promise>::try_from(result.unwrap()).unwrap();
         scope.perform_microtask_checkpoint();
+        assert_ne!(
+            promise.state(),
+            v8::PromiseState::Pending,
+            "test promise remained pending"
+        );
         assert_eq!(
             promise.state(),
             v8::PromiseState::Fulfilled,
