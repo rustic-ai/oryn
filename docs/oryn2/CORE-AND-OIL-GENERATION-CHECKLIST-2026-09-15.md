@@ -1,5 +1,17 @@
 # Full-plan granular generation checklist
 
+## Latest checkpoint — September 19: source committed; native32 compile result
+
+The reviewed implementation and regressions are committed as **`30e0b15383d3a2d46866e19044d9797329c434b7`**. GPG signature verification passed, and the source working tree was clean after the commit. This completes the requested code snapshot; it does not establish final clean-source release qualification.
+
+Repair46 was frozen with **51 requirements, 964 bound paths and 19,466 whole-source inputs**. Native32 is **terminal, exit 101 after 84.30 seconds**. WebIDL freshness passed; all source hashes matched before and after and owned process cleanup completed. The earlier three JavaScript compile errors no longer occur. Compilation stopped on **two native test-code causes, producing three diagnostics**: two uses of an unimported `Instant` in the network-identity test, and a diagnostic passing `PageId` to a display formatter. No runtime assertions executed. Repair47 is preparing both bounded corrections with existing behavioral assertions preserved.
+
+Latest Python evidence remains **727 passed, zero failures/errors, 12 skipped out of 739** in Python12. Both previous Chromium failures passed; signed-runtime prerequisites for the skips remain open. Native29 remains the latest runtime evidence: 5,166 observed passes, 174 failures, seven ignored and one unfinished IPC case, with incomplete aggregates. The later compile runs do not verify recovery of these runtime outcomes.
+
+Full Core conformance in every required profile, all five families/eight frameworks, required workspace checks, and signed reproducible release qualification remain outstanding. Complete the repair batch, review and formatting before freezing the next full run.
+
+Evidence: [native32 result](../../artifacts/completion-validation-2026-09-18/native-js-tests-32.json), [compiler log](../../artifacts/completion-validation-2026-09-18/native-js-tests-32.log), [source custody](../../artifacts/completion-validation-2026-09-18/repair46-native32-whole-custody.json), [WebIDL freshness](../../artifacts/completion-validation-2026-09-18/webidl-check-32.json), [commit verification](../../artifacts/completion-validation-2026-09-18/repair46-code-commit-verification-01.json). Earlier checkpoints below are historical.
+
 ## Latest checkpoint — September 19: native31 compile result; repair46 in progress
 
 Repair45 is integrated, independently reviewed and frozen: **51 requirements, 961 bound paths and 19,463 whole-source inputs**. Its declaration is `d07a624e5e2d4830e1e0b6e3b9fc565461d263edb7840cdf0f18a26ba9c8af66`. Formatting and WebIDL freshness passed. Native31 is **terminal, exit 101 after 56.49 seconds**; all source hashes matched before and after, and owned process cleanup completed.

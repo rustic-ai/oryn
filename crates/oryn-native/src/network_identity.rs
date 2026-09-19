@@ -440,6 +440,7 @@ fn cancel_native(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
     #[test]
     fn rejected_start_keeps_registered_native_identity_until_cancel_ack() {
         struct Reject {

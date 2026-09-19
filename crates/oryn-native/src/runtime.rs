@@ -23044,7 +23044,7 @@ impl PageState {
                 let _ = writeln!(
                     std::io::stderr().lock(),
                     "native foreign capture page={} generation={} {}",
-                    self.page_id,
+                    self.page_id.0,
                     self.document_generation,
                     foreign_subtree_diagnostic(
                         &input,
