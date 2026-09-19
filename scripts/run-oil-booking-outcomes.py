@@ -7,8 +7,10 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from evidence_protocols import validate_protocol_pair
 import secrets
 import signal
+from generation_gate import check_execution_generation
 import subprocess
 import sys
 import time
@@ -31,6 +33,8 @@ receiver = load_module("booking_receiver", FIXTURES / "booking_fixture.py")
 
 
 def task_lines(contract, case, base):
+    if "steps" in case:
+        return [line.replace("{base}", base) for line in case["steps"]]
     def review(slot):
         return [
             f'select "Time zone" "{case["zone"]}"',
@@ -65,6 +69,105 @@ def task_lines(contract, case, base):
     return lines + ["observe"]
 
 
+
+def booking_snapshot_shape_errors(data):
+    """Reject malformed evidence before any join or outcome comparisons."""
+    if not isinstance(data, dict):
+        return ["persisted booking snapshot is not an object"]
+    schemas = {
+        "cases": ("case_id scenario", "reviews"),
+        "slots": ("case_id slot", "available version"),
+        "offers": ("case_id offer slot zone utc local", "version"),
+        "reservations": ("case_id reservation slot offer request_key fields utc local zone", ""),
+        "requests": ("case_id fields", "status cookie_valid"),
+        "views": ("case_id path", "cookie_valid"),
+        "client_selections": ("case_id local zone utc", "valid"),
+        "offer_options": ("case_id offer appointment_option", ""),
+        "cancellations": ("case_id offer", ""),
+    }
+    optional = {"client_selections", "offer_options", "cancellations"}
+    errors = []
+    for table, (strings, integers) in schemas.items():
+        rows = data.get(table, [] if table in optional else None)
+        if not isinstance(rows, list):
+            errors.append(f"persisted {table} table is missing or malformed")
+            continue
+        for row in rows:
+            if (not isinstance(row, dict)
+                    or any(not isinstance(row.get(key), str) for key in strings.split())
+                    or any(type(row.get(key)) is not int for key in integers.split())):
+                errors.append(f"persisted {table} row has missing or malformed fields")
+                continue
+            if any(row[key] not in (0, 1) for key in integers.split()
+                   if key in ("available", "cookie_valid", "valid")):
+                errors.append(f"persisted {table} row has invalid boolean evidence")
+            if "fields" in row:
+                try:
+                    fields = json.loads(row["fields"])
+                except (TypeError, ValueError):
+                    fields = None
+                if (not isinstance(fields, dict)
+                        or any(not isinstance(values, list)
+                               or any(not isinstance(value, str) for value in values)
+                               for values in fields.values())):
+                    errors.append(f"persisted {table} request body is malformed")
+    return errors
+
+
+def durable_booking_ownership_errors(data, case_id):
+    """Join independently persisted offers, requests, reservations and slot state."""
+    errors = booking_snapshot_shape_errors(data)
+    if errors:
+        return errors
+    if len(data["cases"]) != 1:
+        errors.append("persisted booking snapshot must identify exactly one case")
+    tables = ("cases", "slots", "offers", "reservations", "requests", "views",
+              "client_selections", "offer_options", "cancellations")
+    if any(row.get("case_id") != case_id for table in tables for row in data.get(table, [])):
+        errors.append("persisted booking record belongs to another case")
+    offers = {row.get("offer"): row for row in data["offers"]}
+    slots = {row.get("slot"): row for row in data["slots"]}
+    if any(not key for key in offers) or len(offers) != len(data["offers"]):
+        errors.append("issued offer identities are missing or duplicated")
+    if any(not key for key in slots) or len(slots) != len(data["slots"]):
+        errors.append("slot identities are missing or duplicated")
+
+    def fields(row):
+        try:
+            value = json.loads(row["fields"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    if set(slots) != set(receiver.SLOTS):
+        errors.append("persisted booking slot inventory mismatch")
+
+    accepted = [fields(row) for row in data["requests"] if row["status"] == 303]
+    reservations = data["reservations"]
+    for key in ("reservation", "request_key"):
+        values = [row.get(key) for row in reservations]
+        if any(not isinstance(value, str) or not value for value in values) or len(set(values)) != len(values):
+            errors.append("reservation or idempotency identity is missing or duplicated")
+    persisted = [fields(row) for row in reservations]
+    if any(value is None or value not in persisted for value in accepted):
+        errors.append("accepted booking request has no matching durable reservation")
+    for row, value in zip(reservations, persisted):
+        offer = offers.get(row.get("offer"))
+        slot = slots.get(row.get("slot"))
+        if (value is None or set(value) != {"offer", "request_key", "name", "email"}
+                or value.get("offer") != [row.get("offer")]
+                or value.get("request_key") != [row.get("request_key")]
+                or value not in accepted):
+            errors.append("reservation does not match its accepted request identity/body")
+        if (offer is None or any(row.get(key) != offer.get(key) for key in ("slot", "utc", "local", "zone"))):
+            errors.append("reservation does not match its issued offer")
+        if (offer is None or slot is None or slot.get("available") != 0
+                or type(offer.get("version")) is not int
+                or slot.get("version") != offer["version"] + 1):
+            errors.append("reservation does not own exactly one slot version change")
+    return errors
+
+
 def validate(case, lines, base, frames, data):
     errors = []
     if not frames or any(
@@ -72,19 +175,62 @@ def validate(case, lines, base, frames, data):
         for f in frames
     ):
         return ["missing or failed OIL frames"]
-    actions = [f.get("result", {}) for f in frames if f.get("kind") == "action"]
+    errors.extend(durable_booking_ownership_errors(data, base.rstrip("/").rsplit("/", 1)[-1]))
+    if errors:
+        return errors
+    if data["cases"][0]["scenario"] != case["scenario"]:
+        errors.append("persisted booking scenario mismatch")
+    actions = [f.get("result") for f in frames if f.get("kind") == "action"]
+    if any(not isinstance(action, dict) for action in actions):
+        return errors + ["malformed native action evidence"]
+    for frame in frames:
+        if frame.get("kind") == "observation":
+            observation = frame.get("observation")
+            if (not isinstance(observation, dict)
+                    or not isinstance(observation.get("page"), dict)
+                    or not isinstance(observation["page"].get("url"), str)):
+                return errors + ["malformed booking observation evidence"]
     ids = [a.get("action_id") for a in actions]
     expected = sum(line.split()[0] in ("click", "type", "select") for line in lines)
     if (
         len(actions) != expected
-        or len(set(ids)) != len(ids)
         or any(type(i) is not int or i < 1 for i in ids)
+        or len(set(ids)) != len(ids)
         or any(a.get("execution_domain") != "native" for a in actions)
     ):
         errors.append("native action identity/count mismatch")
     observations = [
         f.get("observation", {}) for f in frames if f.get("kind") == "observation"
     ]
+    if "client_selections" in case:
+        actual = [{key: row[key] for key in ("local", "zone", "utc", "valid")}
+                  for row in data.get("client_selections", [])]
+        if actual != case["client_selections"]:
+            errors.append("client timezone selection audit mismatch")
+    if "appointment_options" in case:
+        if [row.get("appointment_option") for row in data.get("offer_options", [])] != case["appointment_options"]:
+            errors.append("persisted appointment options mismatch")
+        if len(data.get("cancellations", [])) != case["cancellations"]:
+            errors.append("persisted review cancellation mismatch")
+        cancelled = {row["offer"] for row in data.get("cancellations", [])}
+        if not cancelled.issubset({row["offer"] for row in data["offers"]}) or len(cancelled) != len(data.get("cancellations", [])):
+            errors.append("cancellation does not identify a unique issued offer")
+        if any(row["offer"] in cancelled for row in data["reservations"]):
+            errors.append("cancelled offer created a reservation")
+        option_offers = {row["offer"] for row in data.get("offer_options", [])}
+        if option_offers != {row["offer"] for row in data["offers"]}:
+            errors.append("offer options do not cover exactly the issued offers")
+    if case.get("gap"):
+        if any(data.get(table) for table in ("offers", "reservations", "requests", "client_selections")):
+            errors.append("nonexistent local time reached reservation backend")
+        if [frame.get("value") for frame in frames if frame.get("kind") == "structured"] != [
+            "This local time does not exist. Choose another time."
+        ]:
+            errors.append("client did not explicitly reject DST gap")
+        final_url = observations[-1].get("page", {}).get("url", "") if observations else ""
+        if final_url != base + "/availability":
+            errors.append("gap navigated away from date selection")
+        return errors
     final = (
         "confirmation"
         if case["reservations"]
@@ -135,7 +281,7 @@ def validate(case, lines, base, frames, data):
     if {r["slot"] for r in data["slots"] if not r["available"]} != expected_unavailable:
         errors.append("slot availability mismatch")
     confirmations = sum(row["path"] == "confirmation" for row in data["views"])
-    if confirmations != (3 if case["duplicate"] else 2) * case["reservations"] or any(
+    if confirmations != (3 if case["duplicate"] else 2) * case["reservations"] + case.get("extra_confirmation_views",0) or any(
         not row["cookie_valid"] for row in data["views"]
     ):
         errors.append("persisted confirmation/reload/session mismatch")
@@ -163,6 +309,7 @@ def run_case(oracle, contract, case, sample, binary, worker, output):
     started = time.monotonic()
     try:
         oracle.request("create", case_id, scenario=case["scenario"])
+        check_execution_generation()
         process = subprocess.Popen(
             [str(binary), "--file", str(task), "native", "--allow-loopback"],
             stdout=subprocess.PIPE,
@@ -205,6 +352,7 @@ def run_case(oracle, contract, case, sample, binary, worker, output):
 
 
 def main():
+    global receiver
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=ROOT / "target/release/oryn")
     parser.add_argument(
@@ -216,15 +364,23 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--samples", type=int, choices=range(1, 9), default=3)
     parser.add_argument("--jobs", type=int, choices=range(1, 5), default=3)
+    parser.add_argument("--frontend-v2", action="store_true")
     args = parser.parse_args()
+    from generation_gate import inherited_generation_lease
+    admission = inherited_generation_lease()
+    fixture_path = FIXTURES / ("booking_fixture_v2.py" if args.frontend_v2 else "booking_fixture.py")
+    contract_path = FIXTURES / ("booking-cases-v2.json" if args.frontend_v2 else "booking-cases.json")
+    if args.frontend_v2:
+        receiver = load_module("booking_receiver_v2", fixture_path)
     args.output, args.binary, args.worker = (
         args.output.resolve(),
         args.binary.resolve(),
         args.worker.resolve(),
     )
+    admission.check()
     args.output.mkdir(parents=True, exist_ok=False)
     database = args.output / "booking.sqlite3"
-    contract = json.loads((FIXTURES / "booking-cases.json").read_text())
+    contract = json.loads(contract_path.read_text())
     report = dict(
         schema_version=1,
         goal_complete=False,
@@ -256,6 +412,8 @@ def main():
                 ROOT / "scripts/run-oil-forms-outcomes.py",
                 FIXTURES / "booking_fixture.py",
                 FIXTURES / "booking-cases.json",
+                fixture_path, contract_path,
+                *([FIXTURES / "v2/booking-client.mjs", FIXTURES / "v2/timezone-resolution.mjs"] if args.frontend_v2 else []),
             ]
         }
         runtime = subprocess.run(
@@ -269,13 +427,14 @@ def main():
         (args.output / "runtime-info.stderr").write_bytes(runtime.stderr)
         runtime.check_returncode()
         report["runtime"] = json.loads(runtime.stdout)
+        validate_protocol_pair(report["runtime"], report["worker_manifest"], ROOT)
         if (
             not report["runtime"].get("sandboxed")
             or report["runtime"].get("worker_binary_sha256") != report["worker_sha256"]
         ):
             raise ValueError("signed runtime identity mismatch")
         oracle = support.Oracle(
-            args.output, FIXTURES / "booking_fixture.py", ["--database", database]
+            args.output, fixture_path, ["--database", database]
         )
         report["origin"] = oracle.origin
         with ThreadPoolExecutor(max_workers=args.jobs) as executor:

@@ -1,0 +1,850 @@
+{
+  "draft_schema_version": 1,
+  "kind": "source_review_map_not_execution_admission",
+  "global_generation_complete": false,
+  "plan_path": "docs/oryn2/CORE-AND-OIL-COMPLETION-PLAN-2026-09-15.md",
+  "source_hashes_frozen": false,
+  "notes": [
+    "Draft only: this is intentionally not accepted by scripts/generation_gate.py.",
+    "Paths are repository-relative. Co-located Rust test modules are valid test-source paths, not claims that every function in that file is tested.",
+    "Each row is an evidence seed, not an exhaustive dependency closure or a parent completion declaration. Preserve transitive caller maps and resolve active dependencies before selecting final hash records.",
+    "Final declaration needs schema_version=1, exact plan_sha256, all 51 IDs, per-parent implementation_generated/tests_generated=true only after review, and nonempty implementation_sources/test_sources records containing path and current sha256.",
+    "No generator, validator, build, test, signing or native execution produced this draft. Hashes are deliberately deferred until active source integration stops.",
+    "Root source-path review added direct close/lifecycle, blank activation, pending protocol and frame-accounting regression owners. Every listed path existed at review; path existence is not semantic completeness or passing execution."
+  ],
+  "semantic_source_maps": {
+    "G": "docs/oryn2/G-SOURCE-DISPOSITION-2026-09-18.md",
+    "R": "docs/oryn2/PARALLEL-NAVIGATION-2026-09-18.md",
+    "P": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md",
+    "L": "docs/oryn2/L-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md",
+    "W": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md",
+    "S": "docs/oryn2/S-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md",
+    "V": "docs/oryn2/PARALLEL-RENDERING-2026-09-18.md",
+    "F": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md",
+    "Q": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+  },
+  "active_dependencies": {
+    "frame_response_accounting": {
+      "parents": [
+        "R-06",
+        "P-03",
+        "P-05",
+        "L-03",
+        "L-04"
+      ],
+      "owner": "automation_timing_completion",
+      "remaining": "Queue/request/loader/policy/context accounting and cancellation sources are delivered. The remaining implementation is NavigationTiming metadata admission tied to the shared native document budget and Arc lifetime; original-response and metadata-copy overlap must remain accounted.",
+      "status": "queue_source_delivered_document_timing_active"
+    },
+    "standalone_auxiliary_integration": {
+      "parents": [
+        "R-02",
+        "R-03",
+        "R-04",
+        "R-05",
+        "P-04",
+        "L-03",
+        "L-05"
+      ],
+      "owner": "rendering_completion",
+      "remaining": "Native auxiliary driver, HTTP/blob navigation, COOP proxy/group transitions, inherited limits, unclaimed adoption wakeup and exact-host recovery source/regressions delivered; see PARALLEL-STANDALONE-AUXILIARY-2026-09-18.md.",
+      "status": "source_delivered_pending_final_reconciliation"
+    },
+    "embedded_selection": {
+      "parents": [
+        "L-01",
+        "L-03",
+        "L-05"
+      ],
+      "owner": "loading_completion",
+      "remaining": "Declared/response MIME selection, exact source eligibility, typed unavailable result, separate notification provenance, navigate credentials and cancellation ACK source/regressions delivered; see final embedded audit.",
+      "status": "source_delivered_pending_final_reconciliation"
+    },
+    "s_caller_inventory": {
+      "parents": [
+        "S-01",
+        "S-04"
+      ],
+      "owner": "dom_input_completion",
+      "remaining": "S01 pinned attribution and variadic failure/grouping matrix, original180 drag attribution and concrete fixes delivered. Final S disposition reconciliation is checking remaining historical reporting/CSP/input/OIL rows.",
+      "status": "source_delivered_final_package_review_active"
+    },
+    "coordinator_review": {
+      "parents": [
+        "G-01",
+        "G-02",
+        "G-03",
+        "G-04",
+        "G-05",
+        "G-06",
+        "G-07",
+        "G-08",
+        "R-01",
+        "R-02",
+        "R-03",
+        "R-04",
+        "R-05",
+        "R-06",
+        "R-07",
+        "P-01",
+        "P-02",
+        "P-03",
+        "P-04",
+        "P-05",
+        "P-06",
+        "L-01",
+        "L-02",
+        "L-03",
+        "L-04",
+        "L-05",
+        "W-01",
+        "W-02",
+        "W-03",
+        "W-04",
+        "W-05",
+        "S-01",
+        "S-02",
+        "S-03",
+        "S-04",
+        "S-05",
+        "V-01",
+        "V-02",
+        "V-03",
+        "V-04",
+        "V-05",
+        "F-01",
+        "F-02",
+        "F-03",
+        "F-04",
+        "Q-01",
+        "Q-02",
+        "Q-03",
+        "Q-04",
+        "Q-05",
+        "Q-06"
+      ],
+      "owner": "root",
+      "remaining": "Reconcile all51 parent requirements and final package dispositions, include final timing and feature-detection source, then author exact reviewed source hashes. No global generation-complete declaration exists yet.",
+      "status": "active"
+    }
+  },
+  "requirements": {
+    "G-01": {
+      "implementation_paths": [
+        "scripts/wpt_full_qualification.py",
+        "scripts/build-core-completion-ledger.py",
+        "scripts/wpt_evidence.py"
+      ],
+      "test_paths": [
+        "scripts/tests/test_wpt_full_qualification.py",
+        "scripts/tests/test_core_completion_ledger.py"
+      ],
+      "caller_evidence": "Full immutable inventory IDs flow through raw/qualified reconciliation; old 4022 backlog never supplies denominator."
+    },
+    "G-02": {
+      "implementation_paths": [
+        "tools/wptrunner-oryn/oryn_wptrunner/product.py",
+        "crates/oryn-native/src/webdriver_script_v8.rs",
+        "crates/oryn-native/src/webdriver_action_execution.rs",
+        "scripts/wpt_operation_contract.py"
+      ],
+      "test_paths": [
+        "tools/wptrunner-oryn/tests/test_product.py",
+        "scripts/tests/test_wpt_operation_contract.py",
+        "crates/oryn-native/src/platform_automation_regressions.rs"
+      ],
+      "caller_evidence": "Upstream product/native action-script routes preserve selected Document identity; immutable occurrence multiplicities prevent omitted repeated/conditional callers."
+    },
+    "G-03": {
+      "implementation_paths": [
+        "scripts/wpt_fixture_contract.py",
+        "scripts/wptserve-helper.py",
+        "crates/oryn/src/webdriver/fixture.rs"
+      ],
+      "test_paths": [
+        "scripts/tests/test_wpt_fixture_contract.py",
+        "scripts/tests/test_wptserve_topology.py",
+        "crates/oryn/src/webdriver/fixture.rs"
+      ],
+      "caller_evidence": "Explicit fixture hosts/TLS/profile contract reaches native context before binding; real upstream wrappers remain authoritative."
+    },
+    "G-04": {
+      "implementation_paths": [
+        "scripts/wpt_topology_probe.py",
+        "scripts/wpt_fixture_contract.py"
+      ],
+      "test_paths": [
+        "scripts/tests/test_wpt_topology_probe.py",
+        "scripts/tests/test_wptserve_topology.py"
+      ],
+      "caller_evidence": "Probe/custody sources require distinct actual address spaces; provisioned host/VM and all17 observations are execution evidence, not invented source artifacts."
+    },
+    "G-05": {
+      "implementation_paths": [
+        "tools/wptrunner-oryn/oryn_wptrunner/product.py",
+        "scripts/wpt_manual_procedures.py",
+        "scripts/wpt_assessment_packet.py",
+        "crates/oryn-render-core/src/print.rs"
+      ],
+      "test_paths": [
+        "tools/wptrunner-oryn/tests/test_product.py",
+        "scripts/tests/test_wpt_manual_procedures.py",
+        "scripts/tests/test_wpt_assessment_packet.py",
+        "crates/oryn-render-core/src/print.rs"
+      ],
+      "caller_evidence": "Official executor types and actual native print/paint feed results; manual/AT assessment records cannot be replaced with a screenshot API flag."
+    },
+    "G-06": {
+      "implementation_paths": [
+        "scripts/wpt_source_matrix.py",
+        "scripts/wpt_operation_contract.py",
+        "scripts/wpt_canary_qualification.py"
+      ],
+      "test_paths": [
+        "scripts/tests/test_wpt_source_matrix.py",
+        "scripts/tests/test_wpt_operation_contract.py",
+        "scripts/tests/test_wpt_canary_qualification.py"
+      ],
+      "caller_evidence": "Helpers, subtests, operation occurrences and failing controls stay source-bound; malformed or incomplete executor output cannot become qualified pass."
+    },
+    "G-07": {
+      "implementation_paths": [
+        "scripts/wpt_native_controls.py",
+        "scripts/wpt_execution_evidence.py"
+      ],
+      "test_paths": [
+        "scripts/tests/test_wpt_native_controls.py",
+        "scripts/tests/test_wpt_reference_lock.py",
+        "scripts/tests/test_wpt_execution_evidence.py"
+      ],
+      "caller_evidence": "Native/reference preflight and original report custody bind focus/trust/profile prerequisites; bypass or raw pass is not certificate qualification."
+    },
+    "G-08": {
+      "implementation_paths": [
+        "scripts/run-upstream-wpt.py",
+        "scripts/run-full-wpt-baseline.py",
+        "scripts/wpt_evidence.py"
+      ],
+      "test_paths": [
+        "scripts/tests/test_upstream_wpt_runner.py",
+        "scripts/tests/test_wpt_evidence.py"
+      ],
+      "caller_evidence": "Historical runner/evidence remain separately attributed from new official executor; parity and new baseline are deferred execution."
+    },
+    "R-01": {
+      "implementation_paths": [
+        "crates/oryn-native/src/host.rs",
+        "crates/oryn-native/src/initial_document_cleanup.rs",
+        "crates/oryn-dom/src/frame_policy.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/realm_endpoint_tests.rs",
+        "crates/oryn-native/src/host.rs"
+      ],
+      "caller_evidence": "Shared native realm creation handles parser/script initial frames with inherited authority and insertion-time identity; source map distinguishes initial from committed documents."
+    },
+    "R-02": {
+      "implementation_paths": [
+        "crates/oryn-js/src/v8_bindings/window_proxy.rs",
+        "crates/oryn-native/src/window_open_v8.rs",
+        "crates/oryn-native/src/remote_window_v8.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/host.rs",
+        "crates/oryn-native/src/standalone_auxiliary_regressions.rs"
+      ],
+      "caller_evidence": "Native WindowProxy routing and target/name actor ownership replace authored proxy/open factories; same-origin versus permitted remote operations retain native checks."
+    },
+    "R-03": {
+      "implementation_paths": [
+        "crates/oryn-native/src/host.rs",
+        "crates/oryn-native/src/navigation_runtime.rs",
+        "crates/oryn-native/src/standalone_auxiliary_root_v8.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/realm_endpoint_tests.rs",
+        "crates/oryn-native/src/standalone_auxiliary_regressions.rs"
+      ],
+      "caller_evidence": "Initial Document reuse and later proxy rebinding preserve retained identities; auxiliary replacement source remains in final owner reconciliation."
+    },
+    "R-04": {
+      "implementation_paths": [
+        "crates/oryn-native/src/navigation_runtime.rs",
+        "crates/oryn-native/src/navigation_target_receipt.rs",
+        "crates/oryn-native/src/frame_navigation_history.rs",
+        "crates/oryn-native/src/prerender_blank.rs",
+        "crates/oryn-native/src/prerender_blank_activation.rs",
+        "crates/oryn-native/src/root_departure.rs",
+        "crates/oryn-native/src/frame_departure.rs",
+        "crates/oryn-js/src/v8_bindings/speculation_registry.rs",
+        "crates/oryn-js/src/v8_bindings.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/navigation_target_receipt.rs",
+        "crates/oryn-native/src/runtime.rs",
+        "crates/oryn-native/src/standalone_auxiliary_regressions.rs",
+        "crates/oryn-native/src/prerender_blank_activation.rs",
+        "crates/oryn-native/src/root_departure.rs",
+        "crates/oryn-native/src/frame_departure.rs",
+        "crates/oryn-js/src/v8_bindings/speculation_registry.rs"
+      ],
+      "caller_evidence": "Selected-target/actor receipts own navigation, blank/prerender claim and ACK; claimed candidates never fall back to duplicate ordinary navigation. Native HTMLScriptElement.supports now recognizes speculationrules, with feature-gated candidate registration and token/conversion regression source."
+    },
+    "R-05": {
+      "implementation_paths": [
+        "crates/oryn-native/src/script_close_runner.rs",
+        "crates/oryn-native/src/script_close_preparation_v8.rs",
+        "crates/oryn-native/src/standalone_script_close_v8.rs",
+        "crates/oryn-js/src/navigation_api.rs",
+        "crates/oryn-native/src/script_close_request.rs",
+        "crates/oryn-native/src/script_close_preparation.rs",
+        "crates/oryn-native/src/script_close_state.rs",
+        "crates/oryn-native/src/script_close_history_projection.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/script_close_runner.rs",
+        "crates/oryn-js/src/navigation_api.rs",
+        "crates/oryn-native/src/script_close_preparation_v8.rs",
+        "crates/oryn-native/src/script_close_preparation.rs",
+        "crates/oryn-native/src/script_close_state.rs",
+        "crates/oryn-native/src/script_close_history_projection.rs"
+      ],
+      "caller_evidence": "Target-owned close departure retains current Document, beforeunload/pagehide/visibility/unload progress and physical ACK rather than replaying source callbacks. Public admission authenticates incumbent Creator/group; retained history publication supplies synchronous eligibility. Admission identity remains replay metadata while queued departure selects the active Document. Native visibility ordering and selected-parent destructive-write guards have direct regression sources; execution is pending."
+    },
+    "R-06": {
+      "implementation_paths": [
+        "crates/oryn-native/src/frame_script_preparation.rs",
+        "crates/oryn-native/src/document_lifecycle_publication.rs",
+        "crates/oryn-js/src/v8_bindings/html_stream.rs",
+        "crates/oryn-native/src/standalone_frame_resource.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/document_lifecycle_publication.rs",
+        "crates/oryn-js/src/v8_bindings/html_stream.rs",
+        "crates/oryn-native/src/rust_executable.rs"
+      ],
+      "caller_evidence": "Retained parser/resource/checkpoint queues and HTML Writable blocking completion advance independently of later OIL commands; portable extraction delivered, response accounting audit active."
+    },
+    "R-07": {
+      "implementation_paths": [
+        "crates/oryn-native/src/host.rs",
+        "crates/oryn-js/src/v8_bindings/node_migration.rs",
+        "crates/oryn-native/src/context_service.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/realm_endpoint_tests.rs",
+        "crates/oryn-native/src/context_service.rs"
+      ],
+      "caller_evidence": "Relevant/current receiver identity and exact Creator epochs fence new admission; accepted receipts survive only their specified lifetime and author callbacks release registry borrows."
+    },
+    "P-01": {
+      "implementation_paths": [
+        "crates/oryn-native/src/worker_client.rs",
+        "crates/oryn-native/src/worker_process.rs",
+        "crates/oryn-native/src/worker_route.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/worker_client.rs"
+      ],
+      "caller_evidence": "WorkerProcessSession and broker/router own stream dispatch; routed page handles share ownership rather than independent reads."
+    },
+    "P-02": {
+      "implementation_paths": [
+        "crates/oryn-native/src/browsing_groups.rs",
+        "crates/oryn-native/src/agent_registry.rs",
+        "crates/oryn-native/src/worker_client.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/browsing_groups.rs",
+        "crates/oryn-native/src/agent_registry.rs"
+      ],
+      "caller_evidence": "Native placement/grants and bounded routes separate public IDs from authority; stable route versus rotating Creator supports BFCache without stale admission."
+    },
+    "P-03": {
+      "implementation_paths": [
+        "crates/oryn-native/src/context_service.rs",
+        "crates/oryn-native/src/runtime.rs",
+        "crates/oryn-native/src/platform_control.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/context_service.rs",
+        "crates/oryn-native/src/platform_automation_regressions.rs"
+      ],
+      "caller_evidence": "Complete operation inventory maps read/effect/accepted-result/cancel lifetimes; storage, focus, clipboard, keepalive and prerender use exact native owner receipts."
+    },
+    "P-04": {
+      "implementation_paths": [
+        "crates/oryn-native/src/auxiliary_root_v8.rs",
+        "crates/oryn-native/src/remote_window_v8.rs",
+        "crates/oryn-native/src/standalone_auxiliary_root_v8.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/host.rs",
+        "crates/oryn-native/src/standalone_auxiliary_regressions.rs"
+      ],
+      "caller_evidence": "Connected actors/native contexts preserve synchronous same-agent access and remote origin limits; finish active standalone related-root disposition."
+    },
+    "P-05": {
+      "implementation_paths": [
+        "crates/oryn-native/src/runtime.rs",
+        "crates/oryn-native/src/worker_client.rs",
+        "crates/oryn-native/src/agent_process.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/runtime.rs",
+        "crates/oryn-native/src/worker_client.rs",
+        "crates/oryn-native/src/agent_process.rs"
+      ],
+      "caller_evidence": "Retirement fan-out continues independent cleanup after a sibling failure; failed custody stays retryable and reset waits for owned teardown."
+    },
+    "P-06": {
+      "implementation_paths": [
+        "crates/oryn-native/src/worker.rs",
+        "crates/oryn-native/src/agent_ipc.rs",
+        "scripts/native_protocol_versions.py",
+        "crates/oryn-native/src/context_service.rs"
+      ],
+      "test_paths": [
+        "scripts/test_native_protocol_versions.py",
+        "crates/oryn-native/src/worker_client.rs",
+        "crates/oryn-native/src/protocol_pending_contract_tests.rs"
+      ],
+      "caller_evidence": "Ready/bootstrap/version/signature/source identities reject mixed halves; final collective version/build/sign/manifest artifacts are deferred, not missing protocol algorithms. The collective source cutover is worker 17/context 50/agent 19. Pending-contract regression sources include embedded-type/unavailable results and retained blank completion fields. Historical binary evidence is unchanged; fresh matching build/sign/admission evidence remains required."
+    },
+    "L-01": {
+      "implementation_paths": [
+        "crates/oryn-native/src/parser_encoding_policy.rs",
+        "crates/oryn-native/src/html_encoding_replay.rs",
+        "crates/oryn-native/src/frame_resource_preparation.rs",
+        "crates/oryn-native/src/runtime.rs",
+        "crates/oryn-native/src/embedded_resource_type.rs",
+        "crates/oryn-dom/src/embedded_content.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/encoding_stream_integration_tests.rs",
+        "crates/oryn-native/src/runtime.rs",
+        "crates/oryn-native/src/embedded_resource_type.rs",
+        "crates/oryn-dom/src/embedded_content.rs"
+      ],
+      "caller_evidence": "Owner encoding and MIME/source selection feed actual incremental consumers; embedded declared-type/mode/status source requires final loading disposition. Final embedded source audit delivered declared-type selection, exact source predicates, typed handler-unavailable outcomes, separate notification provenance and native cancellation acknowledgment regression sources."
+    },
+    "L-02": {
+      "implementation_paths": [
+        "crates/oryn-native/src/module_graph_load.rs",
+        "crates/oryn-native/src/module_graph_backend.rs",
+        "crates/oryn-native/src/module_settlement.rs",
+        "crates/oryn-native/src/script_fetch.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/script_fetch.rs",
+        "crates/oryn-native/src/host.rs"
+      ],
+      "caller_evidence": "Parser/dynamic/preload modules share captured resolution, raw SRI, typed identity and retained linking/TLA settlement; no duplicate evaluation after publication retry."
+    },
+    "L-03": {
+      "implementation_paths": [
+        "crates/oryn-native/src/context_service.rs",
+        "crates/oryn-native/src/agent_io.rs",
+        "crates/oryn-native/src/standalone_platform_http.rs",
+        "crates/oryn-native/src/frame_resource_preparation.rs",
+        "crates/oryn-native/src/standalone_frame_resource.rs",
+        "crates/oryn-native/src/network_identity.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/context_service.rs",
+        "crates/oryn-native/src/agent_io.rs",
+        "crates/oryn-native/src/standalone_platform_http.rs",
+        "crates/oryn-native/src/standalone_frame_resource.rs",
+        "crates/oryn-native/src/network_identity.rs"
+      ],
+      "caller_evidence": "Typed destination producers retain credentials/origin/referrer/body/cancel metadata; link-prefetch is independent of the removed legacy module classification."
+    },
+    "L-04": {
+      "implementation_paths": [
+        "crates/oryn-native/src/context_service.rs",
+        "crates/oryn-native/src/network.rs",
+        "crates/oryn-native/src/agent_io.rs",
+        "crates/oryn-native/src/keepalive.rs",
+        "crates/oryn-native/src/frame_resource_response.rs",
+        "crates/oryn-native/src/frame_resource_preparation.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/network.rs",
+        "crates/oryn-native/src/agent_io.rs",
+        "crates/oryn-native/src/keepalive.rs",
+        "crates/oryn-native/src/frame_resource_response.rs",
+        "crates/oryn-native/src/frame_resource_preparation.rs"
+      ],
+      "caller_evidence": "Demand reads, retained cleanup ACKs, source/body reservations and shared ordinary/deferred keepalive ownership bind abort/retirement to actual transport completion. Portable response accounting now includes binary/no-commit/error payloads, capacities and nested timing exposure; the active completion/policy admission review remains unresolved."
+    },
+    "L-05": {
+      "implementation_paths": [
+        "crates/oryn-native/src/csp.rs",
+        "crates/oryn-native/src/referrer.rs",
+        "crates/oryn-native/src/script_fetch.rs",
+        "crates/oryn-native/src/context_service.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/csp.rs",
+        "crates/oryn-native/src/script_fetch.rs",
+        "crates/oryn-native/src/context_service.rs"
+      ],
+      "caller_evidence": "Policy rechecks every actual destination/redirect; Prefetch unions supported directives per policy and intersects policies; typed CSS uses Style policy, not script sandbox prohibition."
+    },
+    "W-01": {
+      "implementation_paths": [
+        "crates/oryn-native/src/agent_process.rs",
+        "crates/oryn-native/src/agent_thread.rs",
+        "crates/oryn-native/src/agent_registry.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/agent_process.rs",
+        "crates/oryn-native/src/agent_registry.rs"
+      ],
+      "caller_evidence": "Independent native agent executor/termination is distinct from another V8 context in a blocked page isolate; busy-script runtime qualification remains required."
+    },
+    "W-02": {
+      "implementation_paths": [
+        "crates/oryn-native/src/service_registry.rs",
+        "crates/oryn-native/src/service_registry_stream.rs",
+        "crates/oryn-native/src/service_registry_persistence.rs",
+        "crates/oryn-native/src/agent_registry.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/service_registry.rs",
+        "crates/oryn-native/src/agent_registry.rs"
+      ],
+      "caller_evidence": "Registration/controller/version/event/persistence authority survives proper client retirement; actual Unix BrowserContext routes include SW even in-process, raw unclaimed helpers do not establish another platform claim."
+    },
+    "W-03": {
+      "implementation_paths": [
+        "crates/oryn-js/src/v8_bindings/structured_clone.rs",
+        "crates/oryn-native/src/shared_message_backend.rs",
+        "crates/oryn-native/src/cross_context_messages.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-js/src/v8_bindings/structured_clone_transfer_tests.rs",
+        "crates/oryn-native/src/cross_context_messages.rs",
+        "crates/oryn-js/src/v8_bindings/native_shared_wait_tests.rs"
+      ],
+      "caller_evidence": "Clone/transfer/native message identity, independent ACKs and retirement retain bounded ownership; shared-memory selected callers have native wait regression sources."
+    },
+    "W-04": {
+      "implementation_paths": [
+        "crates/oryn-native/src/cookies.rs",
+        "crates/oryn-native/src/storage.rs",
+        "crates/oryn-native/src/storage_service.rs",
+        "crates/oryn-js/src/indexed_db.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/cookies.rs",
+        "crates/oryn-native/src/storage_service.rs",
+        "crates/oryn-js/src/indexed_db.rs"
+      ],
+      "caller_evidence": "Origin/partition/credentials and staged transaction/event ownership reach native persistent state; explicit whole-run cookie policy profiles remain separately qualified."
+    },
+    "W-05": {
+      "implementation_paths": [
+        "crates/oryn-native/src/runtime.rs",
+        "crates/oryn-native/src/agent_registry.rs",
+        "crates/oryn-native/src/storage_idb_connections.rs",
+        "crates/oryn-native/src/service_registry_stream.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/runtime.rs",
+        "crates/oryn-native/src/agent_registry.rs",
+        "crates/oryn-native/src/service_registry.rs"
+      ],
+      "caller_evidence": "Document effects require current Creator while accepted context-owned service/storage work retains its separate lifetime; frozen controller events do not query removed clients."
+    },
+    "S-01": {
+      "implementation_paths": [
+        "crates/oryn-webidl/src/lib.rs",
+        "crates/oryn-dom/src/insertion.rs",
+        "crates/oryn-dom/src/node_migration.rs",
+        "crates/oryn-js/src/v8_bindings/range_insertion.rs",
+        "crates/oryn-dom/src/lib.rs",
+        "crates/oryn-js/src/v8_bindings/node_mutator_bindings.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-webidl/src/lib.rs",
+        "crates/oryn-dom/src/insertion.rs",
+        "crates/oryn-js/src/v8_bindings/parsing_binding_tests.rs",
+        "crates/oryn-js/src/v8_bindings/node_lists/conversion_migration_tests.rs",
+        "crates/oryn-dom/src/lib.rs",
+        "crates/oryn-js/src/v8_bindings/node_mutator_bindings.rs"
+      ],
+      "caller_evidence": "Generated conversion/brand/exposure plus native staged insertion/adoption retain identity; complete frozen WebIDL/traversal/XPath/Range and variadic grouping attribution remains an active inventory. Final S01 attribution and six-method variadic matrix delivered; native committed-tail ownership and before() callback reference correction have generated regression sources. Execution remains pending."
+    },
+    "S-02": {
+      "implementation_paths": [
+        "crates/oryn-js/src/v8_bindings/custom_elements.rs",
+        "crates/oryn-dom/src/html.rs",
+        "crates/oryn-layout/src/shadow_tree.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-js/src/v8_bindings/custom_elements.rs",
+        "crates/oryn-layout/src/shadow_tree_tests.rs",
+        "crates/oryn-js/src/v8_bindings/sanitizer_registry_tests.rs"
+      ],
+      "caller_evidence": "Parser construction/migrated handles, retained reactions and shadow/slot/native style ownership replace snapshot/callback recapture paths."
+    },
+    "S-03": {
+      "implementation_paths": [
+        "crates/oryn-native/src/form_navigation.rs",
+        "crates/oryn-dom/src/form_controls.rs",
+        "crates/oryn-js/src/form_state.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/face_upload_regressions.rs",
+        "crates/oryn-native/src/production_input_regressions.rs",
+        "crates/oryn-dom/src/form_controls.rs"
+      ],
+      "caller_evidence": "Native entry list/control state and captured target/body/file grants preserve callback reentrancy, selected bytes, encoding, FACE and cancellation."
+    },
+    "S-04": {
+      "implementation_paths": [
+        "crates/oryn-js/src/v8_bindings/editing_continuation.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-native/src/webdriver_action_execution.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-js/src/v8_bindings/editing_continuation.rs",
+        "crates/oryn-native/src/production_input_regressions.rs",
+        "crates/oryn-native/src/platform_automation_regressions.rs"
+      ],
+      "caller_evidence": "Retained native editing/inverse/drag/input receipts own author-boundary suffixes; growth is admitted before publication; historical drag failure-to-current regression mapping remains active."
+    },
+    "S-05": {
+      "implementation_paths": [
+        "crates/oryn-native/src/semantic.rs",
+        "crates/oryn-native/src/host.rs",
+        "crates/oryn-js/src/v8_bindings/semantic_edit.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/semantic.rs",
+        "crates/oryn-native/src/production_input_regressions.rs",
+        "scripts/test_workflow_native_adapter.py"
+      ],
+      "caller_evidence": "OIL caller/recovery map uses native stable targets, partial outcome/revision receipts and scoped Dismiss; no application-state mutation shortcut or replay of committed prefixes."
+    },
+    "V-01": {
+      "implementation_paths": [
+        "crates/oryn-layout/src/cssom.rs",
+        "crates/oryn-layout/src/shadow_tree.rs",
+        "crates/oryn-dom/src/stylesheet_adoption.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-layout/src/shadow_tree_tests.rs",
+        "crates/oryn-dom/src/stylesheet_adoption.rs"
+      ],
+      "caller_evidence": "Stylo/CSSOM and native sheet/shadow ownership share invalidation and actual document namespaces/state; generated source is not visual-pass evidence."
+    },
+    "V-02": {
+      "implementation_paths": [
+        "crates/oryn-layout/src/lib.rs",
+        "crates/oryn-layout/src/inline_formatting.rs",
+        "crates/oryn-layout/src/tables.rs",
+        "crates/oryn-layout/src/writing_mode.rs",
+        "crates/oryn-layout/src/columns.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-layout/src/tables.rs",
+        "crates/oryn-layout/src/print.rs",
+        "crates/oryn-layout/src/top_layer_clipping_tests.rs"
+      ],
+      "caller_evidence": "Pinned Core visual source map assigns layout/fragmentation algorithms to the existing native adapter; source paths alone do not certify all pixels."
+    },
+    "V-03": {
+      "implementation_paths": [
+        "crates/oryn-layout/src/svg_fonts.rs",
+        "crates/oryn-layout/src/print.rs",
+        "crates/oryn-render-core/src/svg.rs",
+        "crates/oryn-render-core/src/print.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-layout/src/svg_geometry.rs",
+        "crates/oryn-layout/src/print.rs",
+        "crates/oryn-render-core/src/svg.rs",
+        "crates/oryn-render-core/src/print.rs"
+      ],
+      "caller_evidence": "Actual font/used SVG environment, secure fetched resource document, paint and pagination producers are shared with native output; no screenshot-only inference."
+    },
+    "V-04": {
+      "implementation_paths": [
+        "crates/oryn-layout/src/dom_queries.rs",
+        "crates/oryn-layout/src/scroll_geometry.rs",
+        "crates/oryn-native/src/semantic.rs",
+        "crates/oryn-native/src/webdriver_script_v8.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-layout/src/svg_geometry.rs",
+        "crates/oryn-native/src/semantic.rs",
+        "crates/oryn-native/src/production_input_regressions.rs"
+      ],
+      "caller_evidence": "Geometry/hit/focus/OIL projection share fresh native layout and revision rather than stale independently cached observations."
+    },
+    "V-05": {
+      "implementation_paths": [
+        "crates/oryn-native/src/semantic.rs",
+        "crates/oryn-native/src/accessibility_runtime.rs",
+        "crates/oryn-native/src/accessibility_platform/macos.rs"
+      ],
+      "test_paths": [
+        "crates/oryn-native/src/semantic.rs",
+        "crates/oryn-native/src/platform_automation_regressions.rs",
+        "scripts/tests/native_accessibility_probe.swift"
+      ],
+      "caller_evidence": "Accepted ARIA ownership/name/tree projection is shared by automation and native accessibility; OS/AT observation remains independent execution assessment."
+    },
+    "F-01": {
+      "implementation_paths": [
+        "scripts/workflow_native_adapter.py",
+        "scripts/workflow_family_recipes.py",
+        "scripts/workflow_raw_evidence.py"
+      ],
+      "test_paths": [
+        "scripts/test_workflow_native_adapter.py",
+        "scripts/tests/test_workflow_raw_evidence.py"
+      ],
+      "caller_evidence": "One orchestration layer reuses actual family receivers/oracles and reopened SQLite evidence; no new synthetic pass-only harness substitutes for genuine OIL."
+    },
+    "F-02": {
+      "implementation_paths": [
+        "test-harness/workflows/five-family-contract-v1.json",
+        "scripts/workflow_family_recipes.py",
+        "scripts/run-oil-framework-outcomes.py"
+      ],
+      "test_paths": [
+        "scripts/test_workflow_contract.py",
+        "scripts/test_oil_framework_outcomes.py",
+        "scripts/tests/test_workflow_frontend_evidence.py"
+      ],
+      "caller_evidence": "Frozen29cells/frontend dimensions and eight names with three original samples remain intact; exact29fixture/recipe map supplies transitive frontend paths."
+    },
+    "F-03": {
+      "implementation_paths": [
+        "scripts/completion_provenance.py",
+        "scripts/completion_execution.py",
+        "scripts/completion_source_snapshot.py"
+      ],
+      "test_paths": [
+        "scripts/test_completion_provenance.py",
+        "scripts/test_completion_execution.py",
+        "scripts/tests/test_completion_source_snapshot.py"
+      ],
+      "caller_evidence": "Complete candidate and source/signature checks reject stale persisted-SaaS/native binary mixtures; actual rebuild/sign/run follows global generation."
+    },
+    "F-04": {
+      "implementation_paths": [
+        "scripts/workflow_evidence.py",
+        "scripts/workflow_raw_evidence.py",
+        "scripts/completion_qualification.py"
+      ],
+      "test_paths": [
+        "scripts/test_workflow_evidence.py",
+        "scripts/tests/test_workflow_raw_evidence.py",
+        "scripts/test_completion_qualification.py"
+      ],
+      "caller_evidence": "Final join recomputes oracles from native actions, durable database bytes and exact authority/fault traces; originals and retries remain separately retained."
+    },
+    "Q-01": {
+      "implementation_paths": [
+        "scripts/completion_qualification.py",
+        "scripts/completion_execution.py",
+        "scripts/workflow_family_recipes.py"
+      ],
+      "test_paths": [
+        "scripts/test_completion_qualification.py",
+        "scripts/test_completion_execution.py",
+        "scripts/test_workflow_failures.py"
+      ],
+      "caller_evidence": "Original booking result+sixfile trace, reviewed mechanism and original clean failing/passing regression receipts bind archived before/after source; no source phase may invent cause or execution."
+    },
+    "Q-02": {
+      "implementation_paths": [
+        "scripts/workflow_raw_evidence.py",
+        "scripts/workflow_native_adapter.py",
+        "scripts/workflow_evidence.py"
+      ],
+      "test_paths": [
+        "scripts/test_workflow_commit_gates.py",
+        "scripts/test_workflow_failures.py",
+        "scripts/tests/test_workflow_raw_evidence.py"
+      ],
+      "caller_evidence": "Fault/commit/retry ledgers and native cleanup establish exact delayed-response, worker-failure, duplicate-delivery and cancellation obligations; green retry never erases an original."
+    },
+    "Q-03": {
+      "implementation_paths": [
+        "scripts/workflow_qualification.py",
+        "scripts/workflow_resources.py",
+        "scripts/qualify-workflow-q.py",
+        "scripts/run-workflow-qualification-profiles.py"
+      ],
+      "test_paths": [
+        "scripts/test_workflow_qualification.py",
+        "scripts/test_workflow_resources.py",
+        "scripts/tests/test_profile_custody.py"
+      ],
+      "caller_evidence": "Fixed210profiles, actual OS/native accounting, executable/raw-worker candidate joins and fixed thresholds prevent summary-only performance acceptance."
+    },
+    "Q-04": {
+      "implementation_paths": [
+        "scripts/workflow_contract.py",
+        "scripts/workflow_input_lock.py",
+        "scripts/workflow_evidence.py"
+      ],
+      "test_paths": [
+        "scripts/test_workflow_contract.py",
+        "scripts/tests/test_workflow_input_lock.py",
+        "scripts/test_workflow_evidence.py"
+      ],
+      "caller_evidence": "Immutable sampling plans688original observations across29cells; failed originals, missing IDs, duplicates and replacement retries reject."
+    },
+    "Q-05": {
+      "implementation_paths": [
+        "scripts/completion_provenance.py",
+        "scripts/completion_source_snapshot.py",
+        "scripts/completion_execution.py",
+        "scripts/wpt_execution_evidence.py"
+      ],
+      "test_paths": [
+        "scripts/test_completion_provenance.py",
+        "scripts/tests/test_completion_source_snapshot.py",
+        "scripts/tests/test_wpt_execution_evidence.py",
+        "scripts/tests/test_generation_lease.py"
+      ],
+      "caller_evidence": "Native/tool/fixture/profile/source artifacts are frozen and rechecked before/after use; immutable diagnosis output path avoids candidate hash cycle, completed evidence is pinned later."
+    },
+    "Q-06": {
+      "implementation_paths": [
+        "scripts/completion_qualification.py",
+        "scripts/generation_gate.py",
+        "scripts/wpt_full_qualification.py",
+        "scripts/workflow_raw_evidence.py"
+      ],
+      "test_paths": [
+        "scripts/test_completion_qualification.py",
+        "scripts/test_generation_barrier.py",
+        "scripts/tests/test_wpt_full_qualification.py",
+        "scripts/tests/test_workflow_raw_evidence.py"
+      ],
+      "caller_evidence": "Exact11finalcomponents, full Core IDs, family/framework/Q/security/media/topology and original input hashes gate qualification; all51source declaration remains a separate reviewed admission barrier."
+    }
+  },
+  "latest_review": {
+    "status": "source_declaration_pending",
+    "completed_source_deliveries": [
+      "DOM variadic and historical source inventories",
+      "embedded response and request-policy integration",
+      "auxiliary navigation and recovery",
+      "protocol source cutover 17/50/19"
+    ],
+    "remaining_source_work": [
+      "navigation timing metadata reservation and caller integration",
+      "final coordinator reconciliation of all implementation/regression source evidence"
+    ],
+    "execution": "not started"
+  }
+}

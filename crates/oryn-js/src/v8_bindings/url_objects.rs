@@ -45,55 +45,6 @@ fn serialize(entries: &[(String, String)]) -> String {
         .finish()
 }
 
-// Convert each item while the iterator is active, so conversion side effects,
-// abrupt completions, and IteratorClose retain their specified ordering.
-fn consume<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    object: v8::Local<v8::Object>,
-    method: v8::Local<v8::Function>,
-    mut convert: impl FnMut(&mut v8::PinScope<'s, '_>, v8::Local<'s, v8::Value>) -> Result<()>,
-) -> Result<()> {
-    let iterator = method
-        .call(scope, object.into(), &[])
-        .ok_or(V8BindingError::JavaScriptException)?;
-    let iterator = v8::Local::<v8::Object>::try_from(iterator).map_err(|_| type_error())?;
-    let next = v8::Local::<v8::Function>::try_from(field(scope, iterator, "next")?)
-        .map_err(|_| type_error())?;
-    loop {
-        let step = next
-            .call(scope, iterator.into(), &[])
-            .ok_or(V8BindingError::JavaScriptException)?;
-        let step = v8::Local::<v8::Object>::try_from(step).map_err(|_| type_error())?;
-        if field(scope, step, "done")?.boolean_value(scope) {
-            return Ok(());
-        }
-        let value = field(scope, step, "value")?;
-        let (result, exception) = {
-            v8::tc_scope!(let tc, scope);
-            let result = convert(tc, value);
-            let exception = tc.exception().map(|e| v8::Global::new(tc, e));
-            tc.reset();
-            (result, exception)
-        };
-        if let Err(error) = result {
-            {
-                v8::tc_scope!(let tc, scope);
-                if let Ok(value) = field(tc, iterator, "return")
-                    && let Ok(close) = v8::Local::<v8::Function>::try_from(value)
-                {
-                    close.call(tc, iterator.into(), &[]);
-                }
-            }
-            if let Some(exception) = exception {
-                let exception = v8::Local::new(scope, exception);
-                scope.throw_exception(exception);
-                return Err(V8BindingError::JavaScriptException);
-            }
-            return Err(error);
-        }
-    }
-}
-
 pub(super) fn initialize(
     scope: &mut v8::PinScope,
     value: v8::Local<v8::Value>,
@@ -109,7 +60,7 @@ pub(super) fn initialize(
             .ok_or(V8BindingError::JavaScriptException)?;
         if !method.is_null_or_undefined() {
             let method = v8::Local::<v8::Function>::try_from(method).map_err(|_| type_error())?;
-            consume(scope, object, method, |scope, value| {
+            iterable_conversion::consume(scope, object, method, |scope, value| {
                 let object = v8::Local::<v8::Object>::try_from(value).map_err(|_| type_error())?;
                 let key = v8::Symbol::get_iterator(scope);
                 let method = object
@@ -118,7 +69,7 @@ pub(super) fn initialize(
                 let method =
                     v8::Local::<v8::Function>::try_from(method).map_err(|_| type_error())?;
                 let mut pair = Vec::new();
-                consume(scope, object, method, |scope, value| {
+                iterable_conversion::consume(scope, object, method, |scope, value| {
                     pair.push(string(scope, value)?);
                     Ok(())
                 })?;
@@ -274,7 +225,7 @@ pub(super) fn operation<'s>(
         let PlatformObjectRecord::UrlSearchParams(params) = &*record else {
             return Err(type_error());
         };
-        return Ok(Some(v8_string(scope, &serialize(&params.entries))?));
+        return Ok(Some(v8_scalar_string(scope, &serialize(&params.entries))?));
     }
     let name = if member == "sort" {
         String::new()
@@ -302,7 +253,7 @@ pub(super) fn operation<'s>(
             "get" => {
                 return Ok(Some(
                     match params.entries.iter().find(|(key, _)| key == &name) {
-                        Some((_, value)) => v8_string(scope, value)?,
+                        Some((_, value)) => v8_scalar_string(scope, value)?,
                         None => v8::null(scope).into(),
                     },
                 ));
@@ -312,7 +263,7 @@ pub(super) fn operation<'s>(
                     .entries
                     .iter()
                     .filter(|(key, _)| key == &name)
-                    .map(|(_, value)| v8_string(scope, value))
+                    .map(|(_, value)| v8_scalar_string(scope, value))
                     .collect::<Result<Vec<_>>>()?;
                 return Ok(Some(v8::Array::new_with_elements(scope, &values).into()));
             }
@@ -406,8 +357,8 @@ fn iterable_operation<'s>(
             v8::Local::<v8::Function>::try_from(args.get(0)).map_err(|_| type_error())?;
         let mut index = 0;
         while let Some((key, value)) = entry(&state, id, index)? {
-            let value = v8_string(scope, &value)?;
-            let key = v8_string(scope, &key)?;
+            let value = v8_scalar_string(scope, &value)?;
+            let key = v8_scalar_string(scope, &key)?;
             callback
                 .call(scope, args.get(1), &[value, key, object.into()])
                 .ok_or(V8BindingError::JavaScriptException)?;
@@ -445,7 +396,9 @@ fn iterator_prototype<'s>(
     state: &V8BindingState,
 ) -> Result<v8::Local<'s, v8::Object>> {
     if let Some(prototype) = state.url_iterator_prototype.borrow().as_ref() {
-        return Ok(v8::Local::new(scope, prototype));
+        return prototype
+            .to_local(scope)
+            .ok_or(V8BindingError::Allocation("iterator prototype"));
     }
     let holder = v8::ObjectTemplate::new(scope);
     let key = v8::String::new(scope, "parent")
@@ -479,7 +432,7 @@ fn iterator_prototype<'s>(
         .create_data_property(scope, name.into(), function.into())
         .ok_or(V8BindingError::Allocation("iterator next property"))?;
     let tag = v8::Symbol::get_to_string_tag(scope);
-    let value = v8_string(scope, "URLSearchParams Iterator")?;
+    let value = v8_scalar_string(scope, "URLSearchParams Iterator")?;
     prototype
         .define_own_property(
             scope,
@@ -488,10 +441,9 @@ fn iterator_prototype<'s>(
             v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_ENUM,
         )
         .ok_or(V8BindingError::Allocation("iterator tag"))?;
-    state
-        .url_iterator_prototype
-        .borrow_mut()
-        .replace(v8::Global::new(scope, prototype));
+    let retained =
+        context_intrinsics::retain_object_for(scope, state, "url-iterator-prototype", prototype)?;
+    state.url_iterator_prototype.borrow_mut().replace(retained);
     Ok(prototype)
 }
 fn next_callback(
@@ -533,11 +485,11 @@ fn next<'s>(
             iterator.index += 1;
         }
         match kind {
-            1 => v8_string(scope, &key)?,
-            2 => v8_string(scope, &value)?,
+            1 => v8_scalar_string(scope, &key)?,
+            2 => v8_scalar_string(scope, &value)?,
             _ => {
-                let key = v8_string(scope, &key)?;
-                let value = v8_string(scope, &value)?;
+                let key = v8_scalar_string(scope, &key)?;
+                let value = v8_scalar_string(scope, &value)?;
                 v8::Array::new_with_elements(scope, &[key, value]).into()
             }
         }
@@ -549,4 +501,44 @@ fn next<'s>(
     let done = v8::Boolean::new(scope, done);
     set_object_property(scope, result, "done", done.into())?;
     Ok(result.into())
+}
+
+#[cfg(test)]
+mod scalar_string_regressions {
+    use super::*;
+    #[test]
+    fn query_getters_iterators_and_callbacks_preserve_literal_dom_storage_markers() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let script=v8::String::new(scope,r#"(()=>{
+            const literal='\u{f0000}oryn-wtf16:[55296]',p=new URLSearchParams();
+            p.append(literal,literal);p.append(literal,'second');
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            check(p.get(literal)===literal,'get');check(p.getAll(literal).join('|')===literal+'|second','getAll');
+            check([...p.keys()][0]===literal&&[...p.values()][0]===literal,'key/value iterators');
+            check([...p][0][0]===literal&&[...p][0][1]===literal,'entries iterator');
+            let seen;p.forEach((value,key)=>{if(seen===undefined)seen=[key,value]});
+            check(seen[0]===literal&&seen[1]===literal,'forEach');
+            const url=new URL('https://example.test/?'+p);check(url.searchParams.get(literal)===literal,'URL-linked parse');
+            const copy=new URLSearchParams(p);check(copy.get(literal)===literal,'iterable copy');
+            p.append('surrogate','\ud800');check(p.get('surrogate')==='\ufffd','USV conversion');
+            return true;
+        })()"#).unwrap();
+        assert!(
+            v8::Script::compile(scope, script, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
 }

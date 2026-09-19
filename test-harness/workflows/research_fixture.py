@@ -151,8 +151,8 @@ class Fixture:
             return status, body, headers
 
 
-def serve(database):
-    fixture = Fixture(database)
+def serve(database, fixture_type=Fixture, extra_paths=(), configure_server=None):
+    fixture = fixture_type(database)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -165,7 +165,8 @@ def serve(database):
         def do_GET(self):
             path, _, query = self.path.partition("?")
             match = re.fullmatch(
-                r"/research/([0-9a-f]{32})/(start|search|api|old-alpha|gone|article/alpha|article/beta)",
+                r"/research/([0-9a-f]{32})/(" + "|".join(re.escape(route) for route in
+                    ("start", "search", "api", "old-alpha", "gone", "article/alpha", "article/beta", *extra_paths)) + r")",
                 path,
             )
             status, body, headers = (
@@ -176,7 +177,8 @@ def serve(database):
             payload = body.encode()
             self.send_response(status)
             for key, value in [
-                ("Content-Type", "text/html; charset=utf-8"),
+                *([] if any(key.lower() == "content-type" for key, _ in headers)
+                  else [("Content-Type", "text/html; charset=utf-8")]),
                 ("Content-Length", str(len(payload))),
                 ("Cache-Control", "no-store"),
                 *headers,
@@ -187,6 +189,7 @@ def serve(database):
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = False
+    cleanup_extra = configure_server(fixture, server) if configure_server else None
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
     print(json.dumps({"event": "ready", "port": server.server_port}), flush=True)
@@ -201,6 +204,9 @@ def serve(database):
                     break
                 if message.get("command") == "seal":
                     if not sealed:
+                        if cleanup_extra:
+                            cleanup_extra()
+                            cleanup_extra = None
                         server.shutdown()
                         server.server_close()
                         thread.join(timeout=10)
@@ -216,6 +222,8 @@ def serve(database):
             except (ValueError, KeyError, TypeError, sqlite3.Error) as error:
                 print(json.dumps({"ok": False, "error": str(error)}), flush=True)
     finally:
+        if cleanup_extra:
+            cleanup_extra()
         server.shutdown()
         server.server_close()
         thread.join(timeout=10)

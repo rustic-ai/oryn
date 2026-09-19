@@ -129,14 +129,15 @@ class SignedSessionTests(unittest.TestCase):
         self.assertEqual(shutdown['returncode'], 0, shutdown)
         self.assertTrue(shutdown['shutdown_acknowledged'], shutdown)
 
-    @unittest.skipUnless(os.environ.get('ORYN_WPT_NODE'), 'requires Node for Chromium differential')
+    @unittest.skipUnless(os.environ.get('ORYN_WPT_NODE') and os.environ.get('ORYN_WPT_CHROMIUM'),
+                         'requires explicit Node and Chromium for differential')
     def test_chromium_fixture_completion_parity(self):
         session = WptSession(Path(os.environ['ORYN_WPT_BINARY']))
         try:
             for name in ('ready', 'dynamic', 'redirect', 'csp', 'module', 'frame'):
                 url = self.base + '/' + name + '.html'
                 reference = subprocess.run([os.environ['ORYN_WPT_NODE'], str(ROOT / 'scripts/wpt-chromium-canary.mjs'),
-                    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', url, '15000'],
+                    os.environ['ORYN_WPT_CHROMIUM'], url, '15000'],
                     capture_output=True, text=True, timeout=360)
                 self.assertEqual(reference.returncode, 0, f'{name}: {reference.stderr}')
                 chromium = json.loads(reference.stdout)['completion']
@@ -152,12 +153,13 @@ class SignedSessionTests(unittest.TestCase):
             shutdown = session.close()
         self.assertEqual(shutdown['returncode'], 0, shutdown)
 
-    @unittest.skipUnless(os.environ.get('ORYN_WPT_NODE'), 'requires Node for Chromium focus')
+    @unittest.skipUnless(os.environ.get('ORYN_WPT_NODE') and os.environ.get('ORYN_WPT_CHROMIUM'),
+                         'requires explicit Node and Chromium for focus')
     def test_chromium_parser_time_focus_is_verified_before_tests(self):
         def run(_):
             result = subprocess.run([os.environ['ORYN_WPT_NODE'],
                 str(ROOT / 'scripts/wpt-chromium-canary.mjs'),
-                os.environ.get('ORYN_WPT_CHROMIUM', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+                os.environ['ORYN_WPT_CHROMIUM'],
                 self.base + '/focus-entry.html', '5000'], capture_output=True, text=True, timeout=345)
             self.assertEqual(result.returncode, 0, result.stderr)
             data = json.loads(result.stdout)
@@ -169,11 +171,12 @@ class SignedSessionTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as executor:
             list(executor.map(run, range(4)))
 
-    @unittest.skipUnless(os.environ.get('ORYN_WPT_NODE'), 'requires Node for Chromium focus')
+    @unittest.skipUnless(os.environ.get('ORYN_WPT_NODE') and os.environ.get('ORYN_WPT_CHROMIUM'),
+                         'requires explicit Node and Chromium for focus')
     def test_chromium_rejects_completion_without_test_entry_focus(self):
         result = subprocess.run([os.environ['ORYN_WPT_NODE'],
             str(ROOT / 'scripts/wpt-chromium-canary.mjs'),
-            os.environ.get('ORYN_WPT_CHROMIUM', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+            os.environ['ORYN_WPT_CHROMIUM'],
             self.base + '/unreported-focus.html', '5000'], capture_output=True, text=True, timeout=345)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Chromium document-entry focus unverified (missing observation)', result.stderr)

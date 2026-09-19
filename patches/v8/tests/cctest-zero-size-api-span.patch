@@ -1,0 +1,11 @@
+--- a/test/cctest/test-api.cc
++++ b/test/cctest/test-api.cc
+@@ -31661,7 +31661,7 @@
+       CompileRun("new Uint8Array()").As<v8::Uint8Array>();
+ 
+   uint8_t buffer[i::JSTypedArray::kMaxSizeInHeap];
+-  v8::MemorySpan<uint8_t> storage(buffer);
++  v8::MemorySpan<uint8_t> storage(buffer, sizeof(buffer));
+   v8::MemorySpan<uint8_t> contents = ta->GetContents(storage);
+   CHECK_EQ(contents.data(), nullptr);
+   CHECK_EQ(contents.size(), 0);

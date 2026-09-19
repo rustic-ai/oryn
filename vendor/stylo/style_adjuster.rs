@@ -858,7 +858,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
     /// NOTE(emilio): If we ever perform the interleaving dance, this could / should probably move
     /// around to the specific properties' to_computed_value implementations, but that seems
     /// overkill for now.
-    fn adjust_for_try_tactic(&mut self, tactic: &PositionTryFallbacksTryTactic) {
+    pub(crate) fn adjust_for_try_tactic(&mut self, tactic: &PositionTryFallbacksTryTactic) {
         debug_assert!(!tactic.is_empty());
         // TODO: This is supposed to use the containing block's WM (bug 1995256).
         let wm = self.style.writing_mode;

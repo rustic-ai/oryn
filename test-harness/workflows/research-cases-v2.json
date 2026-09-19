@@ -1,0 +1,150 @@
+{
+  "schema_version": 2,
+  "family": "research_extraction",
+  "scope": "Hydrated and client-rendered chunked search; frame, stale-reference and concurrency qualification remain open",
+  "cases": [
+    {
+      "id": "hydrated_pagination",
+      "scenario": "normal",
+      "steps": [
+        "goto \"{base}/search?q=energy\"",
+        "wait visible css(#research-app[data-state=\"ready\"])",
+        "extract links --selector \"#results\"",
+        "click \"Next results\"",
+        "wait visible css(#research-app[data-state=\"ready\"][data-page=\"2\"])",
+        "extract links --selector \"#results\"",
+        "observe"
+      ],
+      "expected": [
+        [
+          {
+            "text": "Alpha report",
+            "href": "{base}/article/alpha"
+          },
+          {
+            "text": "Next results",
+            "href": "{base}/search?q=energy&page=2"
+          }
+        ],
+        [
+          {
+            "text": "Beta report",
+            "href": "{base}/article/beta"
+          }
+        ]
+      ],
+      "sources": [],
+      "visits": [
+        {
+          "path": "search",
+          "query": {
+            "q": [
+              "energy"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "research-client.mjs",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "research-search.mjs",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "api",
+          "query": {
+            "q": [
+              "energy"
+            ],
+            "page": [
+              "2"
+            ]
+          },
+          "status": 200
+        }
+      ],
+      "final": "search?q=energy&page=2"
+    },
+    {
+      "id": "client_search_empty_recovery",
+      "scenario": "normal",
+      "steps": [
+        "goto \"{base}/start\"",
+        "wait visible css(#research-app[data-state=\"ready\"])",
+        "type \"Search sources\" \"absent\"",
+        "click \"Search reports\"",
+        "wait visible css(#research-app[data-state=\"ready\"])",
+        "wait visible css(#empty)",
+        "extract text --selector \"#empty\"",
+        "extract links --selector \"#results\"",
+        "type \"Search sources\" \"energy\"",
+        "click \"Search reports\"",
+        "wait visible css(#research-app[data-state=\"ready\"])",
+        "wait visible css(#results a)",
+        "extract links --selector \"#results\"",
+        "observe"
+      ],
+      "expected": [
+        "No matching sources",
+        [],
+        [
+          {
+            "text": "Alpha report",
+            "href": "{base}/article/alpha"
+          },
+          {
+            "text": "Next results",
+            "href": "{base}/search?q=energy&page=2"
+          }
+        ]
+      ],
+      "sources": [],
+      "visits": [
+        {
+          "path": "start",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "research-client.mjs",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "research-search.mjs",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "api",
+          "query": {
+            "q": [
+              "absent"
+            ],
+            "page": [
+              "1"
+            ]
+          },
+          "status": 200
+        },
+        {
+          "path": "api",
+          "query": {
+            "q": [
+              "energy"
+            ],
+            "page": [
+              "1"
+            ]
+          },
+          "status": 200
+        }
+      ],
+      "final": "search?q=energy&page=1"
+    }
+  ]
+}

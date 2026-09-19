@@ -7,8 +7,10 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from evidence_protocols import validate_protocol_pair
 import secrets
 import signal
+from generation_gate import check_execution_generation
 import subprocess
 import sys
 import time
@@ -37,6 +39,13 @@ def task_lines(contract, case, base):
 def validate(case, lines, base, frames, data):
     """Compare native OIL output with independent persisted application state."""
     errors = []
+    if case.get('isolation_probe'):
+        data=dict(data)
+        denied=[row for row in data['requests'] if row['action']=='update' and row['outcome']==401 and row['authorized']==0]
+        views=[row for row in data['views'] if row['page']=='records' and row['authorized']==0]
+        if len(denied)!=1 or len(views)!=1:errors.append('isolated context did not produce exact denied read/write history')
+        data['requests']=[row for row in data['requests'] if row not in denied]
+        data['views']=[row for row in data['views'] if row not in views]
     if not frames or any(not isinstance(frame, dict) or frame.get("kind") in ("error", "unsupported") for frame in frames):
         return ["missing or failed OIL frames"]
     actions = [frame.get("result", {}) for frame in frames if frame.get("kind") == "action"]
@@ -53,7 +62,7 @@ def validate(case, lines, base, frames, data):
         errors.append("extracted record/version mismatch")
     observations = [frame.get("observation", {}) for frame in frames if frame.get("kind") == "observation"]
     if (not observations or any(not isinstance(obs, dict) or not isinstance(obs.get("page"), dict) for obs in observations)
-        or observations[-1]["page"].get("url") != base + "/" + case["final"]):
+        or (observations[-1]["page"].get("url", "").split("?")[0] if case.get("final_allow_query") else observations[-1]["page"].get("url")) != base + "/" + case["final"]):
         errors.append("final application location mismatch")
     case_id = base.rsplit("/", 1)[-1]
     expected_case = dict(case_id=case_id, authenticated=case["expected_authenticated"], logins=case["expected_logins"])
@@ -79,6 +88,13 @@ def validate(case, lines, base, frames, data):
         errors.append("persisted view isolation mismatch")
     elif [{key: row.get(key) for key in ("page", "authorized")} for row in data.get("views", [])] != case["expected_views"]:
         errors.append("persisted page authorization sequence mismatch")
+    if "expected_oauth" in case:
+        if data.get("concurrent_edits") != case.get("expected_concurrent_edits", []):
+            errors.append("persisted concurrent writer history mismatch")
+        if data.get("oauth") != case["expected_oauth"]:
+            errors.append("persisted OAuth code/token/authorization sequence mismatch")
+        if data.get("login_events") != case["expected_login_events"]:
+            errors.append("persisted callback state lifecycle mismatch")
     return errors
 
 
@@ -103,6 +119,7 @@ def run_case(oracle, contract, case, sample, binary, worker, output):
     started = time.monotonic()
     try:
         oracle.request("create", case_id, scenario=case.get("scenario", "normal"))
+        check_execution_generation()
         process = subprocess.Popen(
             [str(binary), "--file", str(task), "native", "--allow-loopback"],
             stdout=subprocess.PIPE,
@@ -145,6 +162,7 @@ def run_case(oracle, contract, case, sample, binary, worker, output):
 
 
 def main():
+    global receiver
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=ROOT / "target/release/oryn")
     parser.add_argument(
@@ -156,15 +174,26 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--samples", type=int, choices=range(1, 9), default=3)
     parser.add_argument("--jobs", type=int, choices=range(1, 5), default=3)
+    frontend = parser.add_mutually_exclusive_group()
+    frontend.add_argument("--frontend-v2", action="store_true")
+    frontend.add_argument("--frontend-v3", action="store_true")
     args = parser.parse_args()
+    from generation_gate import inherited_generation_lease
+    admission = inherited_generation_lease()
+    frontend_enabled = args.frontend_v2 or args.frontend_v3
     args.output, args.binary, args.worker = (
         args.output.resolve(),
         args.binary.resolve(),
         args.worker.resolve(),
     )
+    admission.check()
     args.output.mkdir(parents=True, exist_ok=False)
     database = args.output / "saas.sqlite3"
-    contract = json.loads((FIXTURES / "saas-cases.json").read_text())
+    fixture_path = FIXTURES / ("saas_fixture_v2.py" if frontend_enabled else "saas_fixture.py")
+    contract_path = FIXTURES / ("saas-cases-v3.json" if args.frontend_v3 else "saas-cases-v2.json" if frontend_enabled else "saas-cases.json")
+    if frontend_enabled:
+        receiver = load_module("saas_receiver_v2", fixture_path)
+    contract = json.loads(contract_path.read_text())
     report = dict(
         schema_version=1,
         goal_complete=False,
@@ -195,7 +224,8 @@ def main():
                 Path(__file__),
                 ROOT / "scripts/run-oil-forms-outcomes.py",
                 FIXTURES / "saas_fixture.py",
-                FIXTURES / "saas-cases.json",
+                FIXTURES / "saas-cases.json", fixture_path, contract_path,
+                *([FIXTURES / "oauth_provider_v2.py", FIXTURES / "oauth_http_v2.py", FIXTURES / "v2/requirements.txt", FIXTURES / "v2/saas-client.mjs"] if frontend_enabled else []),
             ]
         }
         runtime = subprocess.run(
@@ -209,13 +239,14 @@ def main():
         (args.output / "runtime-info.stderr").write_bytes(runtime.stderr)
         runtime.check_returncode()
         report["runtime"] = json.loads(runtime.stdout)
+        validate_protocol_pair(report["runtime"], report["worker_manifest"], ROOT)
         if (
             not report["runtime"].get("sandboxed")
             or report["runtime"].get("worker_binary_sha256") != report["worker_sha256"]
         ):
             raise ValueError("signed runtime identity mismatch")
         oracle = support.Oracle(
-            args.output, FIXTURES / "saas_fixture.py", ["--database", database]
+            args.output, fixture_path, ["--database", database]
         )
         report["origin"] = oracle.origin
         with ThreadPoolExecutor(max_workers=args.jobs) as executor:
@@ -263,6 +294,8 @@ def main():
             record["final_database_verified"] = True
             (directory / "result.json").write_text(json.dumps(record, indent=2) + "\n")
         report["database_sha256"] = support.digest(database)
+        if frontend_enabled:
+            report["oauth_database_sha256"] = support.digest(Path(str(database) + ".oauth"))
         report["artifact_identities_unchanged"] = (
             report["parent_sha256"] == support.digest(args.binary)
             and report["worker_sha256"] == support.digest(args.worker)

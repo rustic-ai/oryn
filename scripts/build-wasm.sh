@@ -1,7 +1,14 @@
 #!/bin/bash
 set -e
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 echo "Building Oryn-W WASM module..."
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+wasm_output="${ORYN_WASM_OUTPUT_DIR:-$repo_root/extension-w/wasm}"
+mkdir -p "$wasm_output"
+wasm_output="$(cd "$wasm_output" && pwd)"
 
 # Check if wasm-pack is installed
 if ! command -v wasm-pack &> /dev/null; then
@@ -11,36 +18,37 @@ if ! command -v wasm-pack &> /dev/null; then
 fi
 
 # Create extension-w directory if it doesn't exist
-mkdir -p extension-w/wasm
+mkdir -p "$wasm_output"
 
-cd crates/oryn-core
+cd "$repo_root/crates/oryn-core"
 
 # Build WASM module
 echo "Running wasm-pack build..."
+python3 "$repo_root/scripts/generation_gate.py"
 wasm-pack build \
     --target web \
-    --out-dir ../../extension-w/wasm \
+    --out-dir "$wasm_output" \
     --release \
     --no-typescript
 
-cd ../..
+cd "$repo_root"
 
 # Check WASM size
-if [ -f extension-w/wasm/oryn_core_bg.wasm ]; then
+if [ -f "$wasm_output/oryn_core_bg.wasm" ]; then
     echo ""
     echo "WASM build successful!"
     echo "WASM size:"
-    ls -lh extension-w/wasm/oryn_core_bg.wasm | awk '{print $5, $9}'
+    ls -lh "$wasm_output/oryn_core_bg.wasm" | awk '{print $5, $9}'
 
     # Optimize with wasm-opt if available
     if command -v wasm-opt &> /dev/null; then
         echo ""
         echo "Optimizing with wasm-opt..."
         wasm-opt -Oz \
-            extension-w/wasm/oryn_core_bg.wasm \
-            -o extension-w/wasm/oryn_core_bg.wasm
+            "$wasm_output/oryn_core_bg.wasm" \
+            -o "$wasm_output/oryn_core_bg.wasm"
         echo "Optimized size:"
-        ls -lh extension-w/wasm/oryn_core_bg.wasm | awk '{print $5, $9}'
+        ls -lh "$wasm_output/oryn_core_bg.wasm" | awk '{print $5, $9}'
     else
         echo ""
         echo "Note: wasm-opt not found. Install for better compression:"
@@ -49,7 +57,7 @@ if [ -f extension-w/wasm/oryn_core_bg.wasm ]; then
     fi
 
     echo ""
-    echo "WASM module ready at: extension-w/wasm/"
+    echo "WASM module ready at: $wasm_output/"
 else
     echo "Error: WASM build failed"
     exit 1

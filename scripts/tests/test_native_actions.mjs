@@ -1,3 +1,5 @@
+// Historical adapter unit fixture: native authority is explicitly supplied by
+// the test VM mocks. Production event/default coverage lives in native Rust tests.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
@@ -9,21 +11,28 @@ test('element click uses the native pointer sequence and rejects interception',a
   const click=r.events.find(e=>e.type==='click');
   assert.equal(click.pointerType,'mouse');assert.equal(click.pointerId,1);
   assert.equal(click.detail,1);assert.equal(click.buttons,0);
-  r.context.document.elementFromPoint=()=>({nodeType:1});
-  r.element.contains=()=>false;
+  r.setHit({nodeType:1});
   const count=r.events.length;
   await assert.rejects(r.context.__oryn_testdriver_click(r.element),/intercepted/);
   assert.equal(r.events.length,count);
 });
 function realm() {
-  const events=[],handlers={};
+  const events=[],handlers={},dragCalls=[];
   const doc={};
-  const element={nodeType:1,isConnected:true,ownerDocument:doc,
-    getClientRects:()=>[{left:0,right:100,top:0,bottom:100}]};
-  doc.activeElement=doc.body=element;doc.elementFromPoint=()=>element;
+  class Node {contains(other){return this===other;}}
+  class Element extends Node {getClientRects(){return [this.nativeRect];}}
+  const element=Object.assign(new Element(),{nodeType:1,isConnected:true,ownerDocument:doc,
+    nativeRect:{left:0,right:100,top:0,bottom:100}});
+  let hit=element,acceptDrag=false;
+  doc.activeElement=doc.body=element;doc.elementFromPoint=()=>hit;
   class Input {constructor(type,init){this.type=type;Object.assign(this,init)}}
   const context=vm.createContext({document:doc,innerWidth:800,innerHeight:600,performance,setTimeout,
-    MouseEvent:Input,PointerEvent:Input,addEventListener:(name,fn)=>handlers[name]=fn,
+    Node,Element,MouseEvent:Input,PointerEvent:Input,WheelEvent:Input,addEventListener:(name,fn)=>handlers[name]=fn,
+    __oryn_pointer_boundary_snapshot:(old,target)=>[old?[old]:[],target?[target]:[],old===target?target:null],
+    __oryn_native_drag_input:(operation,target,x,y,flags)=>{
+      dragCalls.push({operation,target,x,y,flags});
+      return acceptDrag&&(operation==='begin'||operation==='advance');
+    },
     __oryn_focus_from_pointer:()=>{},
     __oryn_dispatch_user_input:(target,type,passive,event)=>{events.push(event);return true},
     __oryn_testdriver_keyboard:(target,key,down)=>{
@@ -32,7 +41,8 @@ function realm() {
       events.push({type:down?'keydown':'keyup',key});
     }});
   vm.runInContext(source,context);
-  return {context,events,handlers,element,doc,send:context.__oryn_testdriver_actions};
+  return {context,events,handlers,element,doc,dragCalls,setHit:value=>hit=value,
+    enableDrag:()=>acceptDrag=true,send:context.__oryn_testdriver_actions};
 }
 const mouse=actions=>[{id:'mouse',type:'pointer',actions}];
 test('invalid late variant rejects without partial input',async()=>{
@@ -58,9 +68,9 @@ test('tick pauses use wall time and do not add per-source durations',async()=>{
 });
 test('element positions are resolved at execution time',async()=>{
   const r=realm();
-  r.element.getClientRects=()=>[{left:-100,right:100,top:-100,bottom:100}];
+  r.element.nativeRect={left:-100,right:200,top:-100,bottom:100};
   await r.send(mouse([{type:'pointerMove',origin:r.element,x:5,y:10}]));
-  const e=r.events.find(e=>e.type==='mousemove');assert.deepEqual([e.clientX,e.clientY],[55,60]);
+  const e=r.events.find(e=>e.type==='mousemove');assert.deepEqual([e.clientX,e.clientY],[105,60]);
 });
 test('boundary enter and leave events are non-composed',async()=>{
   const r=realm();
@@ -92,4 +102,22 @@ test('request snapshots prevent queued mutation',async()=>{
   const r=realm(),actions=mouse([{type:'pointerMove',x:10,y:20}]);
   const pending=r.send(actions);actions[0].actions[0].x=500;
   await pending;assert.equal(r.events.find(e=>e.type==='mousemove').clientX,10);
+});
+test('native drag routing consumes the mouse gesture and carries physical coordinates',async()=>{
+  const r=realm();r.enableDrag();
+  await r.send(mouse([{type:'pointerMove',x:10,y:10},{type:'pointerDown',button:0},
+    {type:'pointerMove',x:30,y:40},{type:'pointerUp',button:0}]));
+  assert.deepEqual(r.dragCalls.map(call=>call.operation),['begin','advance','drop']);
+  assert.deepEqual(r.dragCalls.map(call=>[call.x,call.y]),[[30,40],[30,40],[30,40]]);
+  assert.equal(r.events.filter(event=>event.type==='pointercancel').length,1);
+  assert.equal(r.events.filter(event=>event.type==='click'||event.type==='mouseup').length,0);
+});
+test('Escape routes cancellation once and suppresses subsequent drop and click',async()=>{
+  const r=realm();r.enableDrag();
+  await r.send([...mouse([{type:'pointerMove',x:10,y:10},{type:'pointerDown',button:0},
+    {type:'pointerMove',x:30,y:40},{type:'pause'},{type:'pointerUp',button:0}]),
+    {id:'keyboard',type:'key',actions:[{type:'pause'},{type:'pause'},{type:'pause'},
+      {type:'keyDown',value:'\uE00C'},{type:'keyUp',value:'\uE00C'}]}]);
+  assert.deepEqual(r.dragCalls.map(call=>call.operation),['begin','advance','cancel']);
+  assert.equal(r.events.filter(event=>event.type==='click').length,0);
 });

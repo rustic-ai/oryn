@@ -1873,7 +1873,7 @@ impl Size {
         parse_fit_content_function!(Size, input, context, allow_quirks);
 
         let allow_anchor = allow_anchor_functions == ParseAnchorFunctions::Yes
-            && static_prefs::pref!("layout.css.anchor-positioning.enabled");
+            && crate::anchor_positioning_enabled();
         match input
             .try_parse(|i| NonNegativeLengthPercentage::parse_quirky(context, i, allow_quirks))
         {
@@ -1969,7 +1969,7 @@ impl MaxSize {
             .try_parse(|i| NonNegativeLengthPercentage::parse_quirky(context, i, allow_quirks))
         {
             Ok(length) => return Ok(GenericMaxSize::LengthPercentage(length)),
-            Err(e) if !static_prefs::pref!("layout.css.anchor-positioning.enabled") => {
+            Err(e) if !crate::anchor_positioning_enabled() => {
                 return Err(e.into())
             },
             Err(_) => (),
@@ -2010,7 +2010,7 @@ impl Margin {
         }
         match input.try_parse(|i| i.expect_ident_matching("auto")) {
             Ok(_) => return Ok(Self::Auto),
-            Err(e) if !static_prefs::pref!("layout.css.anchor-positioning.enabled") => {
+            Err(e) if !crate::anchor_positioning_enabled() => {
                 return Err(e.into())
             },
             Err(_) => (),

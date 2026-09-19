@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from evidence_protocols import validate_protocols
+
 
 def load_json(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as handle:
@@ -89,6 +91,9 @@ def main() -> int:
     if production.get("outcome", {}).get("status") != "passed":
         raise ValueError("production gate did not pass")
     runtime = load_json(artifact_root / "runtime.json")
+    validate_protocols(runtime, repo_root)
+    if runtime.get("contract_version") != 4:
+        raise ValueError("current runtime contract must be v4")
     sandbox_worker_result = load_json(
         artifact_root / "benchmarks/sandbox-worker/result.json"
     )
@@ -232,6 +237,8 @@ def main() -> int:
                 "sha256": sha256(worker),
                 "bytes": worker.stat().st_size,
                 "protocol_version": runtime["worker_protocol_version"],
+                "context_service_protocol_version": runtime["context_service_protocol_version"],
+                "agent_ipc_protocol_version": runtime["agent_ipc_protocol_version"],
                 "contract_version": runtime["contract_version"],
                 "native_v8": runtime["native_v8"],
                 "v8_version": runtime["v8_version"],

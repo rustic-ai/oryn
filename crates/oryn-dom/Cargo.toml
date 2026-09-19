@@ -6,6 +6,9 @@ license = "MIT OR Apache-2.0"
 description = "Rust-owned live DOM and mutation journal for Oryn"
 
 [dependencies]
+oryn-common = { path = "../oryn-common" }
+encoding_rs = "=0.8.35"
+color = "=0.3.3"
 icu_properties = "=2.1.2"
 markup5ever = "0.39"
 html5ever = "0.39"
@@ -14,3 +17,6 @@ thiserror = "2"
 xml = "1.4"
 url = "2"
 num-bigint = "=0.4.6"
+
+[dev-dependencies]
+serde_json = "1"

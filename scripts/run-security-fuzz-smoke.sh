@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_dir="${1:-$repo_root/artifacts/security-v1/fuzz}"
 if [[ "$output_dir" != /* ]]; then output_dir="$repo_root/$output_dir"; fi
@@ -15,6 +18,7 @@ trap cleanup EXIT
 
 mkdir -p "$output_dir/crashes"
 rustup run "$toolchain" rustc --version >"$output_dir/toolchain.txt"
+python3 "$repo_root/scripts/generation_gate.py"
 cargo fuzz --version >"$output_dir/cargo-fuzz.txt"
 
 for target in "${targets[@]}"; do
@@ -26,6 +30,7 @@ for target in "${targets[@]}"; do
   cp -R "$seed_dir/." "$corpus_dir/"
   (
     cd "$repo_root/fuzz"
+    python3 "$repo_root/scripts/generation_gate.py"
     cargo "+$toolchain" fuzz run "$target" "$corpus_dir" -- \
       -max_total_time="$seconds" \
       -timeout=2 \

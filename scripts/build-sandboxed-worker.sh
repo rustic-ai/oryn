@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_output="${CARGO_TARGET_DIR:-$repo_root/target}/release"
+worker_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field worker)"
+expected_context_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field context)"
+expected_agent_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field agent)"
 worker="$build_output/oryn-page-worker"
 app="$build_output/OrynPageWorker.app"
 app_worker="$app/Contents/MacOS/oryn-page-worker"
@@ -14,39 +20,32 @@ identity="${ORYN_CODESIGN_IDENTITY:-}"
 expected_bundle_id="${ORYN_EXPECTED_BUNDLE_ID:-ai.rustic.oryn.page-worker}"
 expected_team_id="${ORYN_APPLE_TEAM_ID:-5HVA9VFF8K}"
 v8_profile_manifest="${ORYN_V8_PROFILE_MANIFEST:-}"
-
-if [[ -n "$v8_profile_manifest" ]]; then
-  if ! jq -e '
-    .schema_version == 1 and
-    (["rusty_v8_archive", "rusty_v8_archive_sha256", "src_binding_path",
-      "src_binding_sha256", "startup_snapshot", "startup_snapshot_sha256",
-      "icu_data", "icu_data_sha256"] - keys | length == 0)
-  ' "$v8_profile_manifest" >/dev/null; then
-    echo "ORYN_V8_PROFILE_MANIFEST is invalid or incomplete" >&2
-    exit 2
-  fi
-  verify_profile_artifact() {
-    local path_field="$1"
-    local hash_field="$2"
-    local artifact_path expected_hash actual_hash
-    artifact_path="$(jq -r --arg field "$path_field" '.[$field]' "$v8_profile_manifest")"
-    expected_hash="$(jq -r --arg field "$hash_field" '.[$field]' "$v8_profile_manifest")"
-    if [[ ! -f "$artifact_path" ]]; then
-      echo "V8 profile artifact does not exist: $artifact_path" >&2
-      exit 2
-    fi
-    actual_hash="$(shasum -a 256 "$artifact_path" | awk '{print $1}')"
-    if [[ "$actual_hash" != "$expected_hash" ]]; then
-      echo "V8 profile artifact hash mismatch: $artifact_path" >&2
-      exit 2
-    fi
-    printf '%s' "$artifact_path"
-  }
-  export RUSTY_V8_ARCHIVE="$(verify_profile_artifact rusty_v8_archive rusty_v8_archive_sha256)"
-  export RUSTY_V8_SRC_BINDING_PATH="$(verify_profile_artifact src_binding_path src_binding_sha256)"
-  export ORYN_STARTUP_SNAPSHOT="$(verify_profile_artifact startup_snapshot startup_snapshot_sha256)"
-  export ORYN_ICU_DATA_FINGERPRINT_PATH="$(verify_profile_artifact icu_data icu_data_sha256)"
+prebuilt_candidate="${ORYN_SECURITY_PREBUILT_CANDIDATE:-}"
+if [[ -n "$prebuilt_candidate" ]]; then
+  python3 "$repo_root/scripts/security_prebuilt.py" check
+  # Only validated candidate paths may enter the no-build/no-sign branch.
+  parent="$(python3 "$repo_root/scripts/security_prebuilt.py" path runtime)"
+  worker="$(python3 "$repo_root/scripts/security_prebuilt.py" path engine_worker)"
+  app_worker="$(python3 "$repo_root/scripts/security_prebuilt.py" path worker)"
+  app="$(dirname "$(dirname "$(dirname "$app_worker")")")"
+  resources="$app/Contents/Resources"
+  manifest="$(python3 "$repo_root/scripts/security_prebuilt.py" path worker_manifest)"
+  v8_profile_manifest="$(python3 "$repo_root/scripts/security_prebuilt.py" path engine_profile)"
+else
+  parent="$build_output/oryn"
 fi
+
+if [[ -z "$v8_profile_manifest" ]]; then
+  echo "Set ORYN_V8_PROFILE_MANIFEST to the current core-full manifest from build-v8-runtime-profile.sh." >&2
+  exit 2
+fi
+python3 "$repo_root/scripts/validate-v8-runtime-profile.py" "$v8_profile_manifest" \
+  --profile core-full --target "$(rustc -vV | awk '/host:/ {print $2}')"
+export RUSTY_V8_ARCHIVE="$(jq -r '.archive_path' "$v8_profile_manifest")"
+export RUSTY_V8_SRC_BINDING_PATH="$(jq -r '.binding_path' "$v8_profile_manifest")"
+export ORYN_STARTUP_SNAPSHOT="$(jq -r '.startup_snapshot_path' "$v8_profile_manifest")"
+export ORYN_ICU_DATA_FINGERPRINT_PATH="$(jq -r '.icu_data_path' "$v8_profile_manifest")"
+export ORYN_V8_BRIDGE_ABI="$(jq -r '.bridge_abi_path' "$v8_profile_manifest")"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "App Sandbox worker signing is only available on macOS" >&2
@@ -66,16 +65,44 @@ fi
 
 plutil -lint "$info_plist" >/dev/null
 
+if [[ -z "$prebuilt_candidate" ]]; then
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 cargo build --locked --release -p oryn \
   --bin oryn --no-default-features --features "native core-full"
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 cargo build --locked --release -p oryn-native --features v8-host,v8-sandbox,core-full --bin oryn-page-worker
 mkdir -p "$app/Contents/MacOS" "$resources"
 cp "$worker" "$app_worker"
 cp "$info_plist" "$app/Contents/Info.plist"
+fi
 # The bundle is temporarily invalid after replacing a previously signed
 # executable. Read build metadata from the linker-signed build output; never
 # launch the replaced bundle until codesign has sealed it again below.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 runtime="$("$worker" --runtime-info)"
+runtime_file="$build_output/rusty-v8-worker-runtime.json"
+if [[ -n "$prebuilt_candidate" ]]; then
+  runtime_file="$(mktemp -t oryn-prebuilt-runtime.XXXXXX)"
+  trap 'rm -f "$runtime_file"' EXIT
+fi
+printf '%s\n' "$runtime" > "$runtime_file"
+python3 "$repo_root/scripts/validate-v8-rust-runtime.py" "$v8_profile_manifest" "$runtime_file" --binding "$RUSTY_V8_SRC_BINDING_PATH" --archive "$RUSTY_V8_ARCHIVE"
+if [[ -n "$prebuilt_candidate" ]]; then rm -f "$runtime_file"; fi
+# Verify compiled metadata before creating a manifest or invoking codesign.
+jq -e --argjson expected_context_protocol "$expected_context_protocol" --argjson expected_agent_protocol "$expected_agent_protocol" '
+  .context_service_protocol_version == $expected_context_protocol and
+  .agent_ipc_protocol_version == $expected_agent_protocol
+' <<<"$runtime" >/dev/null
+if ! jq -e --arg archive "$(jq -r '.archive_sha256' "$v8_profile_manifest")" '
+  .v8_archive_sha256 == $archive and
+  (.v8_patch_chain_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+' <<<"$runtime" >/dev/null; then
+  echo "Built worker does not attest the selected V8 archive and current patch chain" >&2
+  exit 2
+fi
+if [[ -z "$prebuilt_candidate" ]]; then
+cp "$v8_profile_manifest" "$resources/v8-profile-manifest.json"
+
 worker_build_sha256="$(shasum -a 256 "$app_worker" | awk '{print $1}')"
 worker_build_bytes="$(wc -c < "$app_worker" | tr -d '[:space:]')"
 source_tree_sha256="$($repo_root/scripts/source-tree-hash.sh)"
@@ -93,9 +120,20 @@ policy_sha256="$(
 )"
 
 jq -n \
+  --argjson worker_protocol "$worker_protocol" --argjson expected_context_protocol "$expected_context_protocol" --argjson expected_agent_protocol "$expected_agent_protocol" \
+  --argjson render_contract "$(jq -er .render_contract_version <<<"$runtime")" \
+  --argjson local_effects_contract "$(jq -er .local_effects_contract_version <<<"$runtime")" \
   --arg bundle_id "$expected_bundle_id" \
   --arg team_id "$expected_team_id" \
   --arg signing_cert_sha1 "$identity" \
+  --arg v8_archive_sha256 "$(jq -r '.v8_archive_sha256' <<<"$runtime")" \
+  --arg rusty_v8_source_manifest_sha256 "$(jq -er '.rusty_v8_source_manifest_sha256' <<<"$runtime")" \
+  --arg rusty_v8_source_tree_sha256 "$(jq -er '.rusty_v8_source_tree_sha256' <<<"$runtime")" \
+  --arg rusty_v8_weak_teardown_patch_sha256 "$(jq -er '.rusty_v8_weak_teardown_patch_sha256' <<<"$runtime")" \
+  --arg rusty_v8_patch_metadata_sha256 "$(jq -er '.rusty_v8_patch_metadata_sha256' <<<"$runtime")" \
+  --arg v8_binding_sha256 "$(jq -er '.v8_binding_sha256' <<<"$runtime")" \
+  --arg v8_patch_chain_sha256 "$(jq -r '.v8_patch_chain_sha256' <<<"$runtime")" \
+  --arg v8_profile_sha256 "$(shasum -a 256 "$resources/v8-profile-manifest.json" | awk '{print $1}')" \
   --arg v8_version "$(jq -r '.v8_version' <<<"$runtime")" \
   --arg worker_build_sha256 "$worker_build_sha256" \
   --argjson worker_build_bytes "$worker_build_bytes" \
@@ -111,8 +149,21 @@ jq -n \
     bundle_id: $bundle_id,
     team_id: $team_id,
     signing_cert_sha1: $signing_cert_sha1,
-    protocol_version: 10,
+    protocol_version: $worker_protocol,
+    context_service_protocol_version: $expected_context_protocol,
+    agent_ipc_protocol_version: $expected_agent_protocol,
+    render_contract_version: $render_contract,
+    local_effects_contract_version: $local_effects_contract,
     v8_version: $v8_version,
+    v8_archive_sha256: $v8_archive_sha256,
+    v8_patch_chain_sha256: $v8_patch_chain_sha256,
+    rusty_v8_source_manifest_sha256: $rusty_v8_source_manifest_sha256,
+    rusty_v8_source_tree_sha256: $rusty_v8_source_tree_sha256,
+    rusty_v8_weak_teardown_patch_sha256: $rusty_v8_weak_teardown_patch_sha256,
+    rusty_v8_patch_metadata_sha256: $rusty_v8_patch_metadata_sha256,
+    v8_binding_sha256: $v8_binding_sha256,
+
+    v8_profile_sha256: $v8_profile_sha256,
     worker_build_sha256: $worker_build_sha256,
     worker_build_bytes: $worker_build_bytes,
     entitlement_sha256: $entitlement_sha256,
@@ -141,6 +192,7 @@ jq -n \
   }' > "$manifest"
 
 codesign --force --options runtime --timestamp=none --sign "$identity" --entitlements "$entitlements" "$app"
+fi
 codesign --verify --strict --verbose=2 "$app"
 
 cert_dir="$(mktemp -d -t oryn-worker-cert.XXXXXX)"
@@ -223,15 +275,15 @@ if ! jq -e '
 fi
 
 runtime_report="$(
-  ORYN_PAGE_WORKER="$app_worker" "$build_output/oryn" native --runtime-info
+  ORYN_PAGE_WORKER="$app_worker" "$parent" native --runtime-info
 )"
-if ! jq -e '
+if ! jq -e --argjson worker_protocol "$worker_protocol" --argjson expected_context_protocol "$expected_context_protocol" --argjson expected_agent_protocol "$expected_agent_protocol" '
   .native_v8 == true and
   .build_profile == "release" and
   .execution_mode == "sandboxed_worker" and
   .sandboxed == true and
   .sandbox_state == "app_sandbox" and
-  .worker_protocol_version == 10 and
+  .worker_protocol_version == $worker_protocol and .context_service_protocol_version == $expected_context_protocol and .agent_ipc_protocol_version == $expected_agent_protocol and
   .worker_bundle_id == "ai.rustic.oryn.page-worker" and
   .worker_team_id == "5HVA9VFF8K"
 ' <<<"$runtime_report" >/dev/null; then
@@ -241,7 +293,7 @@ fi
 
 mutation_output="$(
   printf '%s\n' 'observe' 'click "Mutate"' 'observe' 'exit' |
-    ORYN_PAGE_WORKER="$app_worker" "$build_output/oryn" native \
+    ORYN_PAGE_WORKER="$app_worker" "$parent" native \
       --html "$repo_root/benchmarks/conformance/javascript-mutation-smoke.html"
 )"
 if ! jq -Rse '
@@ -280,7 +332,7 @@ done
 server_port="$(cat "$server_port_file")"
 broker_output="$(
   printf '%s\n' exit |
-    ORYN_PAGE_WORKER="$app_worker" "$build_output/oryn" native \
+    ORYN_PAGE_WORKER="$app_worker" "$parent" native \
       --allow-loopback --url "http://127.0.0.1:$server_port/" \
       --evaluate 'document.title'
 )"
@@ -297,3 +349,6 @@ printf '%s\n' "$response"
 printf '%s\n' "$security_probe"
 printf '%s\n' "$runtime_report"
 printf '%s\n' "$signature_details"
+if [[ -n "$prebuilt_candidate" ]]; then
+  python3 "$repo_root/scripts/security_prebuilt.py" check
+fi

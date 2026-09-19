@@ -196,6 +196,59 @@ impl WrapperRegistry {
         self.by_identity.get(&(arena, realm, node)).copied()
     }
 
+    /// Reserve wrapper identity capacity before native node relocation. No DOM
+    /// leases move here, and failure leaves both registries unchanged.
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn preflight_migration(&self, count: usize) -> Result<(), BindingError> {
+        let count = u64::try_from(count).map_err(|_| BindingError::IdentityExhausted)?;
+        self.next_id
+            .checked_add(count)
+            .ok_or(BindingError::IdentityExhausted)?;
+        Ok(())
+    }
+
+    /// Rehome an already-moved native wrapper lease. The native migration
+    /// transfers its root counter; this must neither retain nor release it.
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn accept_migrated(
+        &mut self,
+        mut metadata: WrapperMetadata,
+        arena: ArenaId,
+        realm: RealmId,
+        generation: u64,
+        node: NodeId,
+    ) -> Result<WrapperId, BindingError> {
+        let next = self
+            .next_id
+            .checked_add(1)
+            .ok_or(BindingError::IdentityExhausted)?;
+        let id = WrapperId(self.next_id);
+        self.next_id = next;
+        metadata.id = id;
+        metadata.arena = arena;
+        metadata.realm = realm;
+        metadata.document_generation = generation;
+        metadata.node = node;
+        self.by_identity.insert((arena, realm, node), id);
+        self.wrappers.insert(id, metadata);
+        Ok(id)
+    }
+
+    #[cfg(feature = "v8-host")]
+    pub(crate) fn remove_migrated(
+        &mut self,
+        id: WrapperId,
+    ) -> Result<WrapperMetadata, BindingError> {
+        let metadata = self
+            .wrappers
+            .remove(&id)
+            .ok_or(BindingError::UnknownWrapper(id))?;
+        self.by_identity
+            .remove(&(metadata.arena, metadata.realm, metadata.node));
+        self.cancel_weak_release(id);
+        Ok(metadata)
+    }
+
     pub fn metadata(&self, wrapper: WrapperId) -> Option<WrapperMetadata> {
         self.wrappers.get(&wrapper).copied()
     }

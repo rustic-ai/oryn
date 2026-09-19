@@ -1,0 +1,449 @@
+{
+  "schema_version": 4,
+  "family": "authenticated_saas",
+  "cases": [
+    {
+      "id": "oauth_reject_state",
+      "scenario": "normal",
+      "steps": [
+        "goto \"{base}/negative\"",
+        "click \"Test state rejection\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "click \"Continue with altered state\"",
+        "extract text --selector \"#protocol\"",
+        "observe"
+      ],
+      "expected_extractions": [
+        "state_rejected"
+      ],
+      "expected_authenticated": 0,
+      "expected_logins": 0,
+      "expected_record": null,
+      "expected_requests": [],
+      "expected_views": [],
+      "expected_expirations": [],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 0
+          }
+        ],
+        "tokens": []
+      },
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "callback_rejected",
+          "outcome": 400
+        }
+      ],
+      "expected_concurrent_edits": [],
+      "final": "callback",
+      "final_allow_query": true
+    },
+    {
+      "id": "oauth_reject_redirect",
+      "scenario": "normal",
+      "steps": [
+        "goto \"{base}/negative\"",
+        "click \"Test redirect rejection\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "extract text --selector \"#protocol\"",
+        "observe"
+      ],
+      "expected_extractions": [
+        "invalid_grant"
+      ],
+      "expected_authenticated": 0,
+      "expected_logins": 0,
+      "expected_record": null,
+      "expected_requests": [],
+      "expected_views": [],
+      "expected_expirations": [],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 400
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 0
+          }
+        ],
+        "tokens": []
+      },
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "exchange_rejected",
+          "outcome": 400
+        }
+      ],
+      "expected_concurrent_edits": [],
+      "final": "callback",
+      "final_allow_query": true
+    },
+    {
+      "id": "oauth_reject_verifier",
+      "scenario": "normal",
+      "steps": [
+        "goto \"{base}/negative\"",
+        "click \"Test verifier rejection\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "extract text --selector \"#protocol\"",
+        "observe"
+      ],
+      "expected_extractions": [
+        "invalid_grant"
+      ],
+      "expected_authenticated": 0,
+      "expected_logins": 0,
+      "expected_record": null,
+      "expected_requests": [],
+      "expected_views": [],
+      "expected_expirations": [],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 400
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 0
+          }
+        ],
+        "tokens": []
+      },
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "exchange_rejected",
+          "outcome": 400
+        }
+      ],
+      "expected_concurrent_edits": [],
+      "final": "callback",
+      "final_allow_query": true
+    },
+    {
+      "id": "oauth_reject_replay",
+      "scenario": "normal",
+      "steps": [
+        "goto \"{base}/negative\"",
+        "click \"Test replay rejection\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "extract text --selector \"#protocol\"",
+        "observe"
+      ],
+      "expected_extractions": [
+        "invalid_grant"
+      ],
+      "expected_authenticated": 0,
+      "expected_logins": 0,
+      "expected_record": null,
+      "expected_requests": [],
+      "expected_views": [],
+      "expected_expirations": [],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 200
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 400
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 1
+          }
+        ],
+        "tokens": [
+          {
+            "revoked": 1
+          }
+        ]
+      },
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "exchange_rejected",
+          "outcome": 400
+        }
+      ],
+      "expected_concurrent_edits": [],
+      "final": "callback",
+      "final_allow_query": true
+    },
+    {
+      "id": "oauth_reject_expiry",
+      "scenario": "normal",
+      "steps": [
+        "goto \"{base}/negative\"",
+        "click \"Test expiry rejection\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "extract text --selector \"#protocol\"",
+        "observe"
+      ],
+      "expected_extractions": [
+        "invalid_grant"
+      ],
+      "expected_authenticated": 0,
+      "expected_logins": 0,
+      "expected_record": null,
+      "expected_requests": [],
+      "expected_views": [],
+      "expected_expirations": [],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "grant_expired",
+            "outcome": 200
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 400
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 0
+          }
+        ],
+        "tokens": []
+      },
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "exchange_rejected",
+          "outcome": 400
+        }
+      ],
+      "expected_concurrent_edits": [],
+      "final": "callback",
+      "final_allow_query": true
+    },
+    {
+      "id": "pkce_isolated_records",
+      "steps": [
+        "goto \"{base}/login\"",
+        "click \"Sign in with test identity\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "type \"Record title\" \"Draft\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Create record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"1\"])",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "type \"Record title\" \"Approved\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Save changes\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "click \"Reload record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Sign out\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"0\"])",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Draft",
+        "Approved",
+        "2"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 2
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 1,
+      "expected_requests": [
+        {
+          "action": "oauth_login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "login",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        }
+      ],
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "authenticated",
+          "outcome": 303
+        }
+      ],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 200
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 1
+          }
+        ],
+        "tokens": [
+          {
+            "revoked": 0
+          }
+        ]
+      },
+      "isolation_probe": true
+    }
+  ]
+}

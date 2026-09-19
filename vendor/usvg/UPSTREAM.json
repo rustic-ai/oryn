@@ -1,0 +1,177 @@
+{
+  "repository": "https://github.com/linebender/resvg",
+  "tag": "v0.45.1",
+  "commit": "1b6c2fddbcbeffa8135df4323b02aaae84890907",
+  "files": [
+    {
+      "path": "Cargo.toml",
+      "upstream_git_blob": "a092a28d0cf54858f57b35f7ebf5ead90ef8d261",
+      "upstream_bytes": 1694
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "upstream_git_blob": "d9a10c0d8e868ebf8da0b3dc95bb0be634c34bfe",
+      "upstream_bytes": 10173
+    },
+    {
+      "path": "LICENSE-MIT",
+      "upstream_git_blob": "6f7cc66b2d01d78765215a19f3673cbc5821d0dd",
+      "upstream_bytes": 1057
+    },
+    {
+      "path": "README.md",
+      "upstream_git_blob": "1e6ba6d28111d8a39d2428cdd3fb7810b3f09203",
+      "upstream_bytes": 3011
+    },
+    {
+      "path": "src/lib.rs",
+      "upstream_git_blob": "b608319802b7f787def5c382abe7e7534422399f",
+      "upstream_bytes": 2584
+    },
+    {
+      "path": "src/main.rs",
+      "upstream_git_blob": "84ae50250e8564c6875a931220657a6f7a6ff985",
+      "upstream_bytes": 19172
+    },
+    {
+      "path": "src/parser/clippath.rs",
+      "upstream_git_blob": "03f6b91f7884b528a042564310a46ee5f178b886",
+      "upstream_bytes": 3661
+    },
+    {
+      "path": "src/parser/converter.rs",
+      "upstream_git_blob": "abd41c89605cedc6928a9bc5ddea25ac5038a928",
+      "upstream_bytes": 30660
+    },
+    {
+      "path": "src/parser/filter.rs",
+      "upstream_git_blob": "e359adf031265cf34244549f2f4f174dd2652897",
+      "upstream_bytes": 42355
+    },
+    {
+      "path": "src/parser/image.rs",
+      "upstream_git_blob": "37787291c84bfd05a001e34e0e02c801a0ea578f",
+      "upstream_bytes": 13354
+    },
+    {
+      "path": "src/parser/marker.rs",
+      "upstream_git_blob": "d577ae0907f2b9d09efff1d331cbb56d05f6ab4a",
+      "upstream_bytes": 15776
+    },
+    {
+      "path": "src/parser/mask.rs",
+      "upstream_git_blob": "14c9f5cca00714f7fa64b4b8a24b20bd4cd3116b",
+      "upstream_bytes": 4731
+    },
+    {
+      "path": "src/parser/mod.rs",
+      "upstream_git_blob": "93db15c2329fdfd0979e5310da9f6e44dccbc13f",
+      "upstream_bytes": 4076
+    },
+    {
+      "path": "src/parser/options.rs",
+      "upstream_git_blob": "fcf70b11469fbb9e25eac3673831adca9e121f48",
+      "upstream_bytes": 4716
+    },
+    {
+      "path": "src/parser/paint_server.rs",
+      "upstream_git_blob": "5f23a19b3d3be145aa4d4ee0562215ebe3dbdb75",
+      "upstream_bytes": 34922
+    },
+    {
+      "path": "src/parser/shapes.rs",
+      "upstream_git_blob": "6cfbfb3051070e08827ceb17d9688f220095b20d",
+      "upstream_bytes": 9991
+    },
+    {
+      "path": "src/parser/style.rs",
+      "upstream_git_blob": "1bedb8a7d524a1f1eec933a70c2081d745e456e0",
+      "upstream_bytes": 9322
+    },
+    {
+      "path": "src/parser/svgtree/mod.rs",
+      "upstream_git_blob": "30308dcb808b7018c82287f080ff0f99daa8a6d3",
+      "upstream_bytes": 31435
+    },
+    {
+      "path": "src/parser/svgtree/names.rs",
+      "upstream_git_blob": "1e6e2590ccb4e3970f3293528b438e3667e796be",
+      "upstream_bytes": 18892
+    },
+    {
+      "path": "src/parser/svgtree/parse.rs",
+      "upstream_git_blob": "2eae321b6f585951ce29166276fceb5b3f688ef2",
+      "upstream_bytes": 25274
+    },
+    {
+      "path": "src/parser/svgtree/text.rs",
+      "upstream_git_blob": "11877da3f31264932a2964f9cdddc5a5deb31b71",
+      "upstream_bytes": 12157
+    },
+    {
+      "path": "src/parser/switch.rs",
+      "upstream_git_blob": "9825598ef39420b4ff54b1f995a96a6ce10d8fe5",
+      "upstream_bytes": 4975
+    },
+    {
+      "path": "src/parser/text.rs",
+      "upstream_git_blob": "92ca1da9aae5ddd751fd76d2678fd582e6f9c7f0",
+      "upstream_bytes": 28751
+    },
+    {
+      "path": "src/parser/units.rs",
+      "upstream_git_blob": "ce2c7dd247382d20e6e78e68e1acf12ecbefede9",
+      "upstream_bytes": 4543
+    },
+    {
+      "path": "src/parser/use_node.rs",
+      "upstream_git_blob": "74e540f465bd036d351d2368f880e3e4747e473c",
+      "upstream_bytes": 13025
+    },
+    {
+      "path": "src/text/colr.rs",
+      "upstream_git_blob": "b0562c48861fd6515eeb1a355fe8b7e27f6262c4",
+      "upstream_bytes": 12327
+    },
+    {
+      "path": "src/text/flatten.rs",
+      "upstream_git_blob": "f08fb8728c71363ffda692da3fb6c89f5efd2fa2",
+      "upstream_bytes": 11943
+    },
+    {
+      "path": "src/text/layout.rs",
+      "upstream_git_blob": "3e9ced0e471fe580566abee27e9bc8dfc73e5e45",
+      "upstream_bytes": 60011
+    },
+    {
+      "path": "src/text/mod.rs",
+      "upstream_git_blob": "0205a7a78a58b2d9a351350734a7f8f52e596da5",
+      "upstream_bytes": 8647
+    },
+    {
+      "path": "src/tree/filter.rs",
+      "upstream_git_blob": "f89d399d3937f445d55a959482134eb7f70e98b7",
+      "upstream_bytes": 24340
+    },
+    {
+      "path": "src/tree/geom.rs",
+      "upstream_git_blob": "32ad8e79311cb181102311baba09d6cf827e23f7",
+      "upstream_bytes": 4913
+    },
+    {
+      "path": "src/tree/mod.rs",
+      "upstream_git_blob": "f9203dda58a4cd801b0eb6c70579ad2bf830ab84",
+      "upstream_bytes": 50710
+    },
+    {
+      "path": "src/tree/text.rs",
+      "upstream_git_blob": "22f9a854075b9ea7cd4e98e2246b19120fc0a0e5",
+      "upstream_bytes": 17105
+    },
+    {
+      "path": "src/writer.rs",
+      "upstream_git_blob": "dc3ed983d0b66450d0cf31faaeaee2724dc4bf38",
+      "upstream_bytes": 59489
+    }
+  ]
+}

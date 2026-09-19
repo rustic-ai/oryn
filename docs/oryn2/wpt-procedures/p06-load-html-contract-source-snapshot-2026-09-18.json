@@ -1,0 +1,22 @@
+{
+  "status": "source_review_only_execution_pending",
+  "source_versions": {
+    "worker": 18,
+    "context_service": 51,
+    "agent_ipc": 19
+  },
+  "previous_snapshot": {
+    "path": "docs/oryn2/wpt-procedures/p06-final-contract-source-snapshot-2026-09-18.json",
+    "sha256": "070547f70842652f849013ef3c892a21c60ebfd51334f3fe66b190193a55ad0f"
+  },
+  "scope": "LoadHtml token forwarding, exact one-use native source/body policy commit, abandonment and retirement, source protocol bumps. Not a full candidate archive or passing result.",
+  "sources": {
+    "crates/oryn-native/src/runtime.rs": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2",
+    "crates/oryn-native/src/context_service.rs": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16",
+    "crates/oryn-native/src/worker.rs": "d86b8da04af613d4bb5e553ff09d9c500cb2f85db1726a209253e03576825050",
+    "crates/oryn-native/src/worker_client.rs": "a9bc402b5eb99edec55b7efeb8b0ddb62fef315dcdab55757dfdce46fa81bbf3",
+    "crates/oryn-native/src/page_actor_turn.rs": "ca848f4375e7ea4f08163a03aa0c4e78af73f24efcf6525eef207e820b0705dc",
+    "docs/oryn2/P06-PENDING-CONTRACT-BATCH-2026-09-18.md": "8b1ce6ee8443b0e7f1892c836973fd558ca8f72247c19b6c5e65e2e33567439d",
+    "docs/oryn2/P03-W05-OPERATION-AUTHORITY-INVENTORY-2026-09-16.md": "2e4eb66762ff3d1835f59842ddcb2615b1b67ac8dd73d8c65605ffd7ee9e2bee"
+  }
+}

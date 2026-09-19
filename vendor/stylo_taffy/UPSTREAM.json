@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/DioxusLabs/blitz",
+  "revision": "9d5cef2fa3d01423081681843d91b76ef593443e",
+  "package": "packages/stylo_taffy",
+  "upstream_sha256": {
+    "packages/stylo_taffy/Cargo.toml": "8bee43b7e716da13a6bd457340361065594a0b920473cce96dce36349a39557a",
+    "packages/stylo_taffy/src/convert.rs": "371200c309b866e9bf174e58bb1f9e0f9a83fcb0d1f85c1f0e8b17a44ccd3c1b",
+    "packages/stylo_taffy/src/lib.rs": "6ef2dde94a9111b9db8c4e2bba89be6a840caba8bcfbbaea271c44431617a8ed",
+    "packages/stylo_taffy/src/wrapper.rs": "51b0bb48522983cba07ce81036306f96ea7b071d4b16b89907dc06d6fe3b77ca"
+  },
+  "manifest": "Expanded upstream workspace metadata and exact dependency options; versions unchanged",
+  "lock_change": "Only stylo_taffy git source removed to select vendored path patch"
+}

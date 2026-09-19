@@ -311,8 +311,8 @@ class Fixture:
             return outcome, self.conflict(case_id, reason), []
 
 
-def serve(database):
-    fixture = Fixture(database)
+def serve(database, fixture_type=Fixture, extra_paths=(), configure_server=None):
+    fixture = fixture_type(database)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -327,7 +327,8 @@ def serve(database):
             body = body.encode("utf-8")
             self.send_response(status)
             for key, value in [
-                ("Content-Type", "text/html; charset=utf-8"),
+                *([] if any(key.lower() == "content-type" for key, _ in headers)
+                  else [("Content-Type", "text/html; charset=utf-8")]),
                 ("Content-Length", str(len(body))),
                 ("Cache-Control", "no-store"),
                 *headers,
@@ -339,7 +340,8 @@ def serve(database):
         def route(self):
             parsed = urlsplit(self.path)
             match = re.fullmatch(
-                r"/shop/([0-9a-f]{32})/(start|catalog|product/field|product/desk|cart|review|checkout|order)",
+                r"/shop/([0-9a-f]{32})/(" + "|".join(re.escape(route) for route in
+                    ("start", "catalog", "product/field", "product/desk", "cart", "review", "checkout", "order", *extra_paths)) + r")",
                 parsed.path,
             )
             cookies = SimpleCookie()
@@ -374,6 +376,7 @@ def serve(database):
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = False
+    close_extra = configure_server(fixture, server) if configure_server else None
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print(json.dumps({"event": "ready", "port": server.server_port}), flush=True)
     sealed = False
@@ -389,6 +392,9 @@ def serve(database):
                     if not sealed:
                         server.shutdown()
                         server.server_close()
+                        if close_extra is not None:
+                            close_extra()
+                            close_extra = None
                         sealed = True
                     result = {"sealed": True}
                 else:
@@ -401,6 +407,8 @@ def serve(database):
     finally:
         server.shutdown()
         server.server_close()
+        if close_extra is not None:
+            close_extra()
         fixture.db.close()
 
 

@@ -1,0 +1,148 @@
+{
+  "schema_version": 2,
+  "family": "shopping",
+  "scope": "Hydrated persisted shop with real cross-origin controlled payment frame; native frame routing is a required runtime dependency",
+  "browse": [
+    "goto \"{base}/start\"",
+    "wait visible css(#search)",
+    "click \"Inspect desk set\"",
+    "wait visible css(#desk-spec)",
+    "observe",
+    "click \"Browse catalog\"",
+    "type \"Search catalog\" \"field\"",
+    "select \"Category\" \"outdoor\"",
+    "click \"Filter catalog\"",
+    "observe",
+    "click \"Inspect field kit\"",
+    "wait visible css(#field-spec)",
+    "observe",
+    "select \"Variant\" \"blue\"",
+    "click \"Add to cart\"",
+    "type \"Cart quantity\" \"2\"",
+    "click \"Update cart\"",
+    "click \"Reload cart\"",
+    "observe",
+    "click \"Review checkout\""
+  ],
+  "details": [
+    "type \"Recipient\" \"Zo\u00eb Test\"",
+    "type \"Contact email\" \"zoe@example.test\""
+  ],
+  "cases": [
+    {
+      "id": "framed_persisted_checkout",
+      "scenario": "normal",
+      "fill": true,
+      "recovery": null,
+      "duplicate": false,
+      "orders": 1,
+      "variant": "blue",
+      "unit_price": 2500,
+      "checkout_outcomes": [
+        303
+      ],
+      "frontend_v2": true
+    },
+    {
+      "id": "framed_required_blocks",
+      "scenario": "normal",
+      "fill": false,
+      "recovery": null,
+      "duplicate": false,
+      "orders": 0,
+      "variant": "blue",
+      "unit_price": 2500,
+      "checkout_outcomes": [],
+      "frontend_v2": true
+    },
+    {
+      "id": "framed_price_change_blocks",
+      "scenario": "price",
+      "fill": true,
+      "recovery": null,
+      "duplicate": false,
+      "orders": 0,
+      "variant": "blue",
+      "unit_price": 3000,
+      "checkout_outcomes": [
+        409
+      ],
+      "frontend_v2": true
+    },
+    {
+      "id": "framed_price_change_recovery",
+      "scenario": "price",
+      "fill": true,
+      "recovery": "price",
+      "duplicate": false,
+      "orders": 1,
+      "variant": "blue",
+      "unit_price": 3000,
+      "checkout_outcomes": [
+        409,
+        303
+      ],
+      "frontend_v2": true
+    },
+    {
+      "id": "framed_stock_change_blocks",
+      "scenario": "stock",
+      "fill": true,
+      "recovery": null,
+      "duplicate": false,
+      "orders": 0,
+      "variant": "blue",
+      "unit_price": 2500,
+      "checkout_outcomes": [
+        409
+      ],
+      "frontend_v2": true
+    },
+    {
+      "id": "framed_stock_change_recovery",
+      "scenario": "stock",
+      "fill": true,
+      "recovery": "stock",
+      "duplicate": false,
+      "orders": 1,
+      "variant": "green",
+      "unit_price": 2500,
+      "checkout_outcomes": [
+        409,
+        303
+      ],
+      "frontend_v2": true
+    },
+    {
+      "id": "framed_duplicate_checkout",
+      "scenario": "normal",
+      "fill": true,
+      "recovery": null,
+      "duplicate": true,
+      "orders": 1,
+      "variant": "blue",
+      "unit_price": 2500,
+      "checkout_outcomes": [
+        303,
+        303
+      ],
+      "frontend_v2": true
+    }
+  ],
+  "frontend_v2": true,
+  "payment_steps": [
+    "wait visible css(#payment-frame)",
+    "frame css(#payment-frame)",
+    "wait visible css(form)",
+    "click \"Authorize test payment\"",
+    "wait visible css(#payment-authorized)",
+    "frame main",
+    "wait visible css(#payment-status[data-state=\"authorized\"])"
+  ],
+  "frame_ready": [
+    "wait visible css(#payment-frame)",
+    "frame css(#payment-frame)",
+    "wait visible css(form)",
+    "frame main"
+  ]
+}

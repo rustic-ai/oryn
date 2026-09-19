@@ -529,6 +529,12 @@ impl<'a> Context<'a> {
     }
 
     /// The current tree scope.
+    /// Absolute native scope survives inheritance across hosts and slots.
+    pub fn native_tree_scope(&self)->usize {
+        self.rule_cache_conditions.borrow_mut().set_uncacheable();
+        self.element_context.native_tree_scope(self.current_scope())
+    }
+    /// The cascade level of the declaration currently being computed.
     pub fn current_scope(&self) -> CascadeLevel {
         self.scope
     }
@@ -1139,3 +1145,5 @@ impl ClipRect {
         Rect::new(clip_origin, clip_size).translate(border_box.origin.to_vector())
     }
 }
+
+pub use self::time::InterestDelay;

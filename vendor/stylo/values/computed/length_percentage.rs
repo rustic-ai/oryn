@@ -638,6 +638,15 @@ impl From<&CalcAnchorSide> for AnchorSide {
 }
 
 impl CalcLengthPercentage {
+    /// Tree-scoped anchor references retained for native layout adapters.
+    pub fn anchor_references(&self) -> Vec<crate::values::generics::position::TreeScoped<crate::values::DashedIdent>> {
+        let mut references=Vec::new();let mut node=self.node.clone();
+        node.visit_depth_first(|node|match node {
+            crate::values::generics::calc::GenericCalcNode::Anchor(value)=>references.push(value.target_element.clone()),
+            crate::values::generics::calc::GenericCalcNode::AnchorSize(value)=>references.push(value.target_element.clone()),
+            _=>{},
+        });references
+    }
     /// Resolves the percentage.
     #[inline]
     pub fn resolve(&self, basis: Length) -> Length {

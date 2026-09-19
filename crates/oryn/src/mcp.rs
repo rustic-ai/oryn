@@ -98,7 +98,15 @@ impl McpServer {
                             "isError": false
                         }))
                     }
-                    Err(error) => Ok(tool_error(error.to_string())),
+                    Err(error) => {
+                        let message = error.to_string();
+                        let runtime = error
+                            .into_runtime()
+                            .map_err(|error| RpcError::new(-32603, error.to_string()))?;
+                        let mut result = tool_error(message);
+                        result["structuredContent"] = json!({"error": runtime});
+                        Ok(result)
+                    }
                 }
             }
             _ => Err(RpcError::new(-32602, format!("unknown tool: {name}"))),

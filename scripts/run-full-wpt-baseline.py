@@ -8,6 +8,7 @@ import importlib.util
 from collections import Counter
 import json
 from pathlib import Path
+from generation_gate import check_execution_generation
 import subprocess
 import sys
 import time
@@ -115,6 +116,7 @@ def run_cohort(args, plan, shards):
                '--jobs', str(args.jobs), '--harness-profile', 'upstream',
                '--parent-mode', 'persistent', '--resume']
     with (args.output / 'cohort.log').open('a') as log:
+        check_execution_generation()
         process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
         while True:
             try:
@@ -150,6 +152,8 @@ def run_cohort(args, plan, shards):
 
 
 def main():
+    from generation_gate import inherited_generation_lease
+    admission = inherited_generation_lease()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--checkout", type=Path, required=True)
@@ -226,6 +230,7 @@ def main():
             returncode = 0
         else:
             with (args.output / (name + ".log")).open("a") as log:
+                check_execution_generation()
                 result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
             returncode = result.returncode
         data = json.loads(result_path.read_text()) if result_path.exists() else {}

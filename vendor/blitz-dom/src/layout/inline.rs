@@ -330,10 +330,8 @@ impl BaseDocument {
             .px();
         inline_layout.layout.set_text_indent(
             resolved_text_indent,
-            // NOTE: hanging and each_line don't current work because parsing them is cfg'd out in Stylo
-            // due to Servo not yet supporting those features. They should start to "just work" in Blitz
-            // once support is enabled in Stylo.
             IndentOptions {
+                skip_first_line: false,
                 each_line: text_indent.each_line,
                 hanging: text_indent.hanging,
             },
@@ -643,6 +641,7 @@ impl BaseDocument {
             alignment,
             AlignmentOptions {
                 align_when_overflowing: false,
+                ..Default::default()
             },
         );
 

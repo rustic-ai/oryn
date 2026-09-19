@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "core-profile-aggregate-v2.schema.json",
+  "title": "Independent full Core profile aggregate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "aggregation",
+    "candidate_sha256",
+    "registry_sha256",
+    "primary_profile_id",
+    "required_profile_ids",
+    "profile_count",
+    "core_total_per_profile",
+    "profiles",
+    "complete",
+    "errors",
+    "single_profile_conformance",
+    "prerequisite_equivalence",
+    "non_core_scope"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "aggregation": {
+      "const": "independent_required_profiles"
+    },
+    "candidate_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "registry_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "primary_profile_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "required_profile_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+      }
+    },
+    "profile_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "core_total_per_profile": {
+      "const": 16737
+    },
+    "profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "ledger",
+          "counts",
+          "raw_pass_count",
+          "qualified_pass_count",
+          "reviewed_disposition_count",
+          "open_count",
+          "controls",
+          "profile_sha256",
+          "original_report_sha256"
+        ],
+        "properties": {
+          "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^/"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "ledger": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^/"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "enum": [
+                "qualified_pass",
+                "satisfied_by_reviewed_disposition"
+              ]
+            }
+          },
+          "raw_pass_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 15985
+          },
+          "qualified_pass_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16737
+          },
+          "reviewed_disposition_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16737
+          },
+          "open_count": {
+            "const": 0
+          },
+          "controls": {
+            "type": "object"
+          },
+          "profile_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "original_report_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "complete": {
+      "const": true
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "single_profile_conformance": {
+      "type": "boolean"
+    },
+    "prerequisite_equivalence": {
+      "type": "object"
+    },
+    "non_core_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflows",
+        "frameworks",
+        "q",
+        "security",
+        "architecture",
+        "reliability",
+        "booking_resolution",
+        "native_prerequisites",
+        "fixture_topology",
+        "native_media"
+      ],
+      "properties": {
+        "workflows": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "frameworks": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "q": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "security": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "architecture": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "reliability": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "booking_resolution": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "native_prerequisites": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "fixture_topology": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "native_media": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        }
+      }
+    }
+  },
+  "description": "Successful on-disk aggregate. Final validation rehashes each ledger and summary and re-derives full profile accounting; rows are never unioned. Generated artifact custody added to the enclosing qualification result is not part of this self-hash-free file."
+}

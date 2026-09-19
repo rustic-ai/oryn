@@ -1,0 +1,94 @@
+{
+  "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "status": "source-generated-unexecuted",
+  "fixtures": [
+    {
+      "path": "domparsing/tentative/stream-append-html-unsafe.html",
+      "sha256": "3b02e4c9e3f946219876bc479e7df2d18be2aba226c33174ebbdc98800405231",
+      "core": [
+        {
+          "inventory": "artifacts/wpt-full-baseline/inventory-v3/core-domparsing-0000.inventory.json",
+          "entry": {
+            "globals": [
+              "window"
+            ],
+            "kind": "html",
+            "path": "domparsing/tentative/stream-append-html-unsafe.html",
+            "root": "domparsing",
+            "sha256": "3b02e4c9e3f946219876bc479e7df2d18be2aba226c33174ebbdc98800405231",
+            "variants": [
+              ""
+            ],
+            "workstream": "core"
+          }
+        }
+      ]
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/stream-append-with-template-for.html",
+      "sha256": "1a21c058941800f84c008d53ed04ee2b335b52965883428636644d6aaa6a15e9",
+      "core": [
+        {
+          "inventory": "artifacts/wpt-full-baseline/inventory-v3/core-html-0006.inventory.json",
+          "entry": {
+            "globals": [
+              "window"
+            ],
+            "kind": "html",
+            "path": "html/dom/partial-updates/tentative/stream-append-with-template-for.html",
+            "root": "html",
+            "sha256": "1a21c058941800f84c008d53ed04ee2b335b52965883428636644d6aaa6a15e9",
+            "variants": [
+              ""
+            ],
+            "workstream": "core"
+          }
+        }
+      ]
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/stream-append-has-invalidation.html",
+      "sha256": "8e839da34b163fce6002594618c0fab142a6fed05f850bb34948fd396767de2d",
+      "core": [
+        {
+          "inventory": "artifacts/wpt-full-baseline/inventory-v3/core-html-0006.inventory.json",
+          "entry": {
+            "globals": [
+              "window"
+            ],
+            "kind": "html",
+            "path": "html/dom/partial-updates/tentative/stream-append-has-invalidation.html",
+            "root": "html",
+            "sha256": "8e839da34b163fce6002594618c0fab142a6fed05f850bb34948fd396767de2d",
+            "variants": [
+              ""
+            ],
+            "workstream": "core"
+          }
+        }
+      ]
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/stream-append-positional-pseudo-class-invalidation.html",
+      "sha256": "16fcd199e62ec1cefdc350525a26a88dd29305d330075104cddfe81a7a089854",
+      "core": [
+        {
+          "inventory": "artifacts/wpt-full-baseline/inventory-v3/core-html-0006.inventory.json",
+          "entry": {
+            "globals": [
+              "window"
+            ],
+            "kind": "html",
+            "path": "html/dom/partial-updates/tentative/stream-append-positional-pseudo-class-invalidation.html",
+            "root": "html",
+            "sha256": "16fcd199e62ec1cefdc350525a26a88dd29305d330075104cddfe81a7a089854",
+            "variants": [
+              ""
+            ],
+            "workstream": "core"
+          }
+        }
+      ]
+    }
+  ]
+}

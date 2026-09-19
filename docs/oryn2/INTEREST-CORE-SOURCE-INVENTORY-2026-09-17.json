@@ -1,0 +1,272 @@
+{
+  "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "status": "source inventory; execution deferred",
+  "files": [
+    {
+      "path": "html/semantics/interestfor/idlharness.tentative.html",
+      "sha256": "3b803a369a884c91b9715b5df350eb77fa5993d6d144fef109e06549806f1070",
+      "reference": false,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestelement-interface.tentative.html",
+      "sha256": "9086320fe5ed2c57438f444532c700400d1c41a1b2c30d13fbf48b3a0838a041",
+      "reference": false,
+      "variants": [],
+      "assertions": 16
+    },
+    {
+      "path": "html/semantics/interestfor/interestevent-dispatch-shadow.tentative.html",
+      "sha256": "ff700163a156be9b772dbd87e9605e80cadf929336ac5b2c64cc5966a6974a50",
+      "reference": false,
+      "variants": [],
+      "assertions": 8
+    },
+    {
+      "path": "html/semantics/interestfor/interestevent-interface.tentative.html",
+      "sha256": "75afb28fe4775d8a54b49efca6ace007022abfa257994bc8fd5ca7698ccb3c5e",
+      "reference": false,
+      "variants": [],
+      "assertions": 11
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-anchor-event-dispatch.tentative.html",
+      "sha256": "d739e00bf5f676cff58fab37e67aff8e67e8b2e1e3485c14fdf708e359814d34",
+      "reference": false,
+      "variants": [],
+      "assertions": 17
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-area-event-dispatch.tentative.html",
+      "sha256": "7f1ede1142e103fc85eab7b9c42f7e1e0e1f147ad0d7c1d86b2369a318784ce1",
+      "reference": false,
+      "variants": [],
+      "assertions": 12
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-basic-behavior.tentative.html",
+      "sha256": "2fb2e2f3c30684a36b668c7d7f770b7214ef3fc6129f112c8b8887e125208abe",
+      "reference": false,
+      "variants": [],
+      "assertions": 15
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-basic-delays.tentative.html",
+      "sha256": "a3f470ca4165567176e5d940bf3f30c8044205e0b1e3945b5b8d24e99a42c649",
+      "reference": false,
+      "variants": [],
+      "assertions": 5
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-button-event-dispatch.tentative.html",
+      "sha256": "e0c01644d9c55729bc952f67a5c44a56a0eed5e2ee2239e65d68a3c33a01911d",
+      "reference": false,
+      "variants": [],
+      "assertions": 15
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-css-properties.tentative.html",
+      "sha256": "a6c2b8f00d24e0d70bb2bd2fc159622e2ff2b2ae06369a1a98af65851cdf8870",
+      "reference": false,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-css-shorthands.tentative.html",
+      "sha256": "81cf39ee041ae758433d87f610e8fe6b2ee53fcd7e219cf46875a1f4575c71a9",
+      "reference": false,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-delay-end.tentative.html",
+      "sha256": "5f3470cd2c171bdb3b157a724549e51c5d1024b8e5df813ef98669f484e70984",
+      "reference": false,
+      "variants": [],
+      "assertions": 14
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-delay-start.tentative.html",
+      "sha256": "377d63102479715732841534d9cef68cb117a4aea1f5ccd59f683aa9cf37456f",
+      "reference": false,
+      "variants": [],
+      "assertions": 27
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-event-timing.tentative.html",
+      "sha256": "24b0646637cf65758bbec76f71c033fbd35d19b8b3e29ddc85f6e22fa507f00e",
+      "reference": false,
+      "variants": [],
+      "assertions": 19
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-iframe-popover.tentative.html",
+      "sha256": "c2e32e5c84d53e63ee6583793c00a506b3ff750a16c0327f4cf183a2e814cf07",
+      "reference": false,
+      "variants": [],
+      "assertions": 30
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-implicit-anchor.tentative.html",
+      "sha256": "7968e0d67fe678899862282a1549c746d5012319343f1269096b39ea7f80d683",
+      "reference": false,
+      "variants": [],
+      "assertions": 3
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-input-invalid.tentative.html",
+      "sha256": "1fc8c9620429e374f4c12cd183c1052c3c4dcffcc1343142c3d975e4824353cb",
+      "reference": false,
+      "variants": [],
+      "assertions": 3
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-invoker-descendants.tentative.html",
+      "sha256": "7999d5edf87111b5a045a68f1104ed95c3a5bb3dd992e78c0da960dde62f4db8",
+      "reference": false,
+      "variants": [],
+      "assertions": 49
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-keyboard-behavior.tentative.html",
+      "sha256": "65a232dfe31e23fe756f880e7de79ce82e4cd2688b748add58e43072c0a2ca6f",
+      "reference": false,
+      "variants": [],
+      "assertions": 35
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-keyboard-invalidation-ref.html",
+      "sha256": "58174bf80d894c37401c3dc1554f49a6e3bbadc7a45e42ac10a9037d4fa39bcb",
+      "reference": true,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-keyboard-invalidation.tentative.html",
+      "sha256": "2adea6a2a6939691bd7d5aab891904646d35a80f5881ca78ff24e86360755eb9",
+      "reference": false,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-on-popover-behavior.tentative.html",
+      "sha256": "07de9fe67918e99e4b712a5823078ea9ce2997841968a36ae04e4cf2df539ded",
+      "reference": false,
+      "variants": [],
+      "assertions": 4
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-plain-inline-element.tentative.html",
+      "sha256": "cabfc9c333b9361c463e5094cd87b279259730c58b25f311fc824c11ed5c35b6",
+      "reference": false,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-classes.tentative.html",
+      "sha256": "b1961f68635c4d5874b053e84403112655bf60310fd1d67f838f3d47ddab17eb",
+      "reference": false,
+      "variants": [],
+      "assertions": 19
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-element-anchor-pos-ref.html",
+      "sha256": "28201c3994a789e1bd0b7a5c651435bcc7a62ab5a02c5f51da4d5c70f0b7a153",
+      "reference": true,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-element-anchor-pos.tentative.html",
+      "sha256": "9d0c3ef791470a784ac4be5d309d14e7eafa96be0425464c64b349298c3a2375",
+      "reference": false,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-element-appearance-ref.html",
+      "sha256": "d3ba0ad5da826154ef33c24261f316323fda9ef910aaa5416372936985bc523a",
+      "reference": true,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-element-appearance.tentative.html",
+      "sha256": "2c19e46c14c8b5bad124f060d993dd0316f5cfb0d955bd5ac5792b7baf55d661",
+      "reference": false,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-element-crash.html",
+      "sha256": "604c4a05d7e803ef64708589b04c79c0c090b4338ea9c2b5bc16f35066d7b2f1",
+      "reference": false,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-element-dynamic-ref.html",
+      "sha256": "a9fa66dfeea448a4d43406de70bfd6c6167ab2ed008ff010f3f4adcaad71c918",
+      "reference": true,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-element-dynamic.tentative.html",
+      "sha256": "d4999c7a5fc13c99574adf014b2a07199f5d93004a9e42e53e0938aedf1b1418",
+      "reference": false,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-element-insertion-order-ref.html",
+      "sha256": "5301324ebc3b2014a43ee17589cb6118d35a6603b769e19a8f32027b738dd770",
+      "reference": true,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-element-insertion-order.tentative.html",
+      "sha256": "c3e2c321ff8aaeb749ea341ba8f0215b73303dd1b599de598535b0344a049b65",
+      "reference": false,
+      "variants": [],
+      "assertions": 0
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-pseudo-element.tentative.html",
+      "sha256": "0eed2eaff4262762d6e1ebe3286184f3367d673bb4dd088eb33e0a8da36ddc8d",
+      "reference": false,
+      "variants": [],
+      "assertions": 9
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-retrigger-on-esc.tentative.html",
+      "sha256": "adeee6dff7ce50d2a918ddc9ea9de2ded5cf70f6a872626ad52cf717daacee71",
+      "reference": false,
+      "variants": [],
+      "assertions": 7
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-svg-a-event-dispatch.tentative.html",
+      "sha256": "3c2aef32cfdfd56c25092160b31665c43c9fedacec8356d820bf23cad09f0383",
+      "reference": false,
+      "variants": [],
+      "assertions": 11
+    },
+    {
+      "path": "html/semantics/interestfor/interestfor-user-select.tentative.html",
+      "sha256": "9bba0703c0cf4a9951f2cd36b81c8df5922c61044d75e5e3d215a6edbe649d5d",
+      "reference": false,
+      "variants": [],
+      "assertions": 4
+    },
+    {
+      "path": "shadow-dom/reference-target/tentative/interestfor.tentative.html",
+      "sha256": "5ebd9e906d4fed7a2aa32d7b63090c1221cc12b2b6a06d31680a531c4493efc0",
+      "reference": false,
+      "variants": [],
+      "assertions": 6
+    }
+  ]
+}

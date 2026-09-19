@@ -181,6 +181,61 @@ class ShoppingOracleTests(unittest.TestCase):
                     data["orders"] = []
                 self.assertTrue(runner.validate(case, lines, BASE, frames, data))
 
+    def test_ownership_join_rejects_foreign_and_unbacked_durable_rows(self):
+        case, lines, frames, original = self.valid_outcome()
+        mutations = [
+            lambda d: d["orders"][0].update(case_id="b" * 32),
+            lambda d: d["quotes"][0].update(case_id="b" * 32),
+            lambda d: d["requests"][0].update(case_id="b" * 32),
+            lambda d: d["views"][0].update(case_id="b" * 32),
+            lambda d: d["cases"].append(copy.deepcopy(d["cases"][0])),
+            lambda d: d["cases"][0].update(scenario="price"),
+            lambda d: d["quotes"].append(copy.deepcopy(d["quotes"][0])),
+            lambda d: d["quotes"][0].update(unit_price=1, total=2),
+            lambda d: d["cases"][0].update(quote_count=2),
+            lambda d: d["requests"][-1].update(fields=json.dumps(dict(quote=["foreign"], name=["Zoë Test"], email=["zoe@example.test"]))),
+            lambda d: d["requests"][-1].update(fields=json.dumps(dict(quote=[d["orders"][0]["quote"]], name=["Another recipient"], email=["zoe@example.test"]))),
+        ]
+        for index, mutation in enumerate(mutations):
+            with self.subTest(index=index):
+                changed = copy.deepcopy(original)
+                mutation(changed)
+                self.assertTrue(runner.validate(case, lines, BASE, frames, changed))
+
+    def test_shape_errors_are_retained_instead_of_raising(self):
+        case, lines, frames, original = self.valid_outcome()
+        mutations = [
+            lambda d: d.update(orders=None),
+            lambda d: d["orders"].append(None),
+            lambda d: d["orders"][0].update(order_id=[]),
+            lambda d: d["cases"].clear(),
+            lambda d: d["quotes"][0].update(quantity=True),
+            lambda d: d["requests"][0].update(cookie_valid=True),
+            lambda d: d["requests"][0].update(fields="invalid JSON"),
+            lambda d: d["requests"][0].update(fields="[]"),
+            lambda d: d["requests"][0].update(fields='{"variant": "blue"}'),
+        ]
+        for index, mutation in enumerate(mutations):
+            with self.subTest(index=index):
+                changed = copy.deepcopy(original)
+                mutation(changed)
+                self.assertTrue(runner.validate(case, lines, BASE, frames, changed))
+        for frame in (dict(kind="action", result=None), dict(kind="action", result=[]),
+                      dict(kind="action", result=dict(action_id=[], execution_domain="native")),
+                      dict(kind="observation", observation=None),
+                      dict(kind="observation", observation=dict(page=None, nodes=[])),
+                      dict(kind="observation", observation=dict(page=dict(url=[]), nodes=[])),
+                      dict(kind="observation", observation=dict(page=dict(url=BASE), nodes=[None]))):
+            with self.subTest(frame=frame):
+                self.assertTrue(runner.validate(case, lines, BASE, frames + [frame], original))
+
+    def test_owned_duplicate_acceptance_retains_one_durable_order(self):
+        case, lines, frames, data = self.valid_outcome()
+        # The ownership join allows repeated accepted requests for the same order;
+        # the outer case validator still enforces each recipe's exact request count.
+        data["requests"].append(copy.deepcopy(data["requests"][-1]))
+        self.assertEqual(runner.validate_persisted_ownership(case, BASE, data), [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 artifact_dir="${ORYN_LAYOUT_ARTIFACT_DIR:-$repo_root/artifacts/layout-v1/software}"
 mkdir -p "$artifact_dir"

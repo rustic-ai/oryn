@@ -1,6 +1,10 @@
 //! Native HTML activation shared by dispatchEvent, device clicks and click().
 use super::*;
+#[path = "retained_activation_finish.rs"]
+mod retained;
+pub(super) use retained::Finish;
 
+#[derive(Clone)]
 enum Previous {
     Checkbox {
         checked: bool,
@@ -12,29 +16,165 @@ enum Previous {
     },
     Label,
     Submit,
+    Link,
 }
 
+#[derive(Clone)]
 pub(super) struct Activation {
-    dom: Rc<RefCell<DomRuntime>>,
-    node: NodeId,
+    lease: Rc<oryn_dom::TrackedNodeLease>,
+    selected: Option<Rc<oryn_dom::TrackedNodeLease>>,
+    object: v8::Global<v8::Object>,
     previous: Previous,
 }
-
-impl Drop for Activation {
-    fn drop(&mut self) {
-        let mut dom = self.dom.borrow_mut();
-        let _ = dom.release_native(self.node);
-        if let Previous::Radio {
-            selected: Some(node),
-            ..
-        } = self.previous
-        {
-            let _ = dom.release_native(node);
+impl Activation {
+    pub(super) fn link_target(
+        &self,
+        scope: &mut v8::PinScope,
+    ) -> Result<Option<(Rc<V8BindingState>, NodeId)>, V8BindingError> {
+        if !matches!(self.previous, Previous::Link) {
+            return Ok(None);
+        }
+        let object = v8::Local::new(scope, &self.object);
+        let resolved = node_identity::argument(scope, object.into())?;
+        let (owner, node) = self.lease.current();
+        Ok(resolved.filter(|(state, target)| Rc::ptr_eq(&owner, &state.dom) && node == *target))
+    }
+    pub(super) fn cancel_native(&self) {
+        let (owner, node) = self.lease.current();
+        let selected = self.selected.as_ref().and_then(|lease| {
+            let (dom, node) = lease.current();
+            Rc::ptr_eq(&dom, &owner).then_some(node)
+        });
+        let mut dom = owner.borrow_mut();
+        match self.previous {
+            Previous::Checkbox {
+                checked,
+                indeterminate,
+            } => {
+                if dom
+                    .attribute_in_null_namespace(node, "type")
+                    .ok()
+                    .flatten()
+                    .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox"))
+                {
+                    let _ = dom.set_checkedness(node, checked);
+                    let _ = dom.set_indeterminate(node, indeterminate);
+                }
+            }
+            Previous::Radio { .. } => {
+                if dom.is_radio(node) {
+                    let selected = selected.filter(|selected| {
+                        *selected == node || dom.same_radio_group(node, *selected).unwrap_or(false)
+                    });
+                    let _ = dom.set_checkedness(selected.unwrap_or(node), selected.is_some());
+                }
+            }
+            _ => {}
         }
     }
 }
 
-fn mouse_payload<'s>(
+fn retain(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+    previous: Previous,
+) -> Result<Option<Activation>, V8BindingError> {
+    let lease = Rc::new(oryn_dom::TrackedNodeLease::new(&state.dom, node)?);
+    let selected = match &previous {
+        Previous::Radio {
+            selected: Some(node),
+            ..
+        } => Some(Rc::new(oryn_dom::TrackedNodeLease::new(&state.dom, *node)?)),
+        _ => None,
+    };
+    let object = wrap_node(scope, state, node)?;
+    Ok(Some(Activation {
+        lease,
+        selected,
+        object: v8::Global::new(scope, object),
+        previous,
+    }))
+}
+
+pub(super) fn prepare_auxiliary(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    target: NodeId,
+    object: v8::Local<v8::Object>,
+) -> Result<Option<Activation>, V8BindingError> {
+    let id = event_id(scope, object)?;
+    let event_owner = binding_state_for_receiver(scope, object)
+        .ok_or(V8BindingError::Allocation("auxclick event owner"))?;
+    let (bubbles, composed) = {
+        let records = event_owner.events.borrow();
+        let event = records
+            .get(&id)
+            .ok_or(V8BindingError::Allocation("auxclick event"))?;
+        if event.event_type != "auxclick" || !event.is_trusted {
+            return Ok(None);
+        }
+        (event.bubbles, event.composed)
+    };
+    if mouse_payload(scope, object).is_none()
+        || native_input_property(scope, object, "MouseEvent", "button")?.integer_value(scope)
+            != Some(1)
+    {
+        return Ok(None);
+    }
+    let related = native_event_related_node(scope, state, object);
+    let dom = state.dom.borrow();
+    if related.is_some_and(|related| {
+        related != target && dom.retarget_node(related, Some(target)).ok() == Some(target)
+    }) {
+        return Ok(None);
+    }
+    let root = dom.control_tree_root(target)?;
+    let mut cursor = Some(target);
+    while let Some(node) = cursor {
+        if dom.is_element(node, "http://www.w3.org/1999/xhtml", "a")
+            || dom.is_element(node, "http://www.w3.org/1999/xhtml", "area")
+            || dom.is_element(node, "http://www.w3.org/2000/svg", "a")
+        {
+            drop(dom);
+            return retain(scope, state, node, Previous::Link);
+        }
+        if dom.is_interactive_content(node)
+            || !bubbles
+            || (!composed
+                && node == root
+                && matches!(dom.arena().get(node)?.kind, NodeKind::ShadowRoot { .. }))
+        {
+            break;
+        }
+        let parent = dom.assigned_slot(node, false)?.or(dom.parent(node)?);
+        if let (Some(parent), Some(related)) = (parent, related) {
+            if related != target
+                && dom.retarget_node(target, Some(parent))?
+                    == dom.retarget_node(related, Some(parent))?
+            {
+                break;
+            }
+        }
+        cursor = parent;
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+thread_local! {static FAIL_PREACTIVATION:Cell<bool>=const{Cell::new(false)};}
+#[cfg(test)]
+fn fail_preactivation_allocation() -> Result<(), V8BindingError> {
+    if FAIL_PREACTIVATION.with(|slot| slot.replace(false)) {
+        Err(V8BindingError::Allocation(
+            "injected activation custody allocation",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+pub(super) fn mouse_payload<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     object: v8::Local<v8::Object>,
 ) -> Option<v8::Local<'s, v8::Array>> {
@@ -54,29 +194,34 @@ pub(super) fn prepare(
     object: v8::Local<v8::Object>,
     id: u64,
 ) -> Result<Option<Activation>, V8BindingError> {
-    let bubbles = {
-        let events = state.events.borrow();
+    let event_state = binding_state_for_receiver(scope, object)
+        .ok_or(V8BindingError::Allocation("event owner"))?;
+    let (bubbles, composed) = {
+        let events = event_state.events.borrow();
         let event = &events[&id];
         if event.event_type != "click" {
             return Ok(None);
         }
-        event.bubbles
+        (event.bubbles, event.composed)
     };
     if mouse_payload(scope, object).is_none() {
         return Ok(None);
     }
+    let related_node = native_event_related_node(scope, state, object);
     let mut dom = state.dom.borrow_mut();
+    if let Some(related) = related_node {
+        if related != target && dom.retarget_node(related, Some(target))? == target {
+            return Ok(None);
+        }
+    }
+    let origin_root = dom.control_tree_root(target)?;
     let mut cursor = Some(target);
     while let Some(node) = cursor {
         if dom.is_element(node, "http://www.w3.org/1999/xhtml", "button")
             || validation::is_submit_button(&dom, node)?
         {
-            dom.retain_native(node)?;
-            return Ok(Some(Activation {
-                dom: state.dom.clone(),
-                node,
-                previous: Previous::Submit,
-            }));
+            drop(dom);
+            return retain(scope, state, node, Previous::Submit);
         }
         if dom.is_element(node, "http://www.w3.org/1999/xhtml", "input")
             && !dom
@@ -92,8 +237,6 @@ pub(super) fn prepare(
                 "checkbox" => {
                     let checked = dom.checked(node)?;
                     let indeterminate = dom.arena().get(node)?.indeterminate;
-                    dom.set_checked(node, !checked)?;
-                    dom.set_indeterminate(node, false)?;
                     Previous::Checkbox {
                         checked,
                         indeterminate,
@@ -108,40 +251,66 @@ pub(super) fn prepare(
                             break;
                         }
                     }
-                    if let Some(peer) = selected {
-                        dom.retain_native(peer)?;
-                    }
-                    dom.set_checked(node, true)?;
                     Previous::Radio { selected, changed }
                 }
                 // The activation target is chosen before dispatch, but its
                 // activation behavior observes the type after click handlers.
                 _ => Previous::Submit,
             };
-            dom.retain_native(node)?;
-            return Ok(Some(Activation {
-                dom: state.dom.clone(),
-                node,
-                previous,
-            }));
+            drop(dom);
+            // All fallible wrapper/lease allocation precedes legacy checkedness
+            // publication. Failure cannot leave an unowned preactivation toggle.
+            let activation = retain(scope, state, node, previous)?;
+            #[cfg(test)]
+            fail_preactivation_allocation()?;
+            if let Some(activation) = activation.as_ref() {
+                let mut dom = state.dom.borrow_mut();
+                match &activation.previous {
+                    Previous::Checkbox { checked, .. } => {
+                        dom.set_checked(node, !*checked)?;
+                        dom.set_indeterminate(node, false)?;
+                    }
+                    Previous::Radio { .. } => dom.set_checked(node, true)?,
+                    _ => {}
+                }
+            }
+            return Ok(activation);
         }
         if dom.is_element(node, "http://www.w3.org/1999/xhtml", "label") {
-            dom.retain_native(node)?;
-            return Ok(Some(Activation {
-                dom: state.dom.clone(),
-                node,
-                previous: Previous::Label,
-            }));
+            drop(dom);
+            return retain(scope, state, node, Previous::Label);
+        }
+        if dom.is_element(node, "http://www.w3.org/1999/xhtml", "a")
+            || dom.is_element(node, "http://www.w3.org/1999/xhtml", "area")
+            || dom.is_element(node, "http://www.w3.org/2000/svg", "a")
+        {
+            drop(dom);
+            return retain(scope, state, node, Previous::Link);
         }
         if dom.is_interactive_content(node) || !bubbles {
             break;
         }
-        cursor = dom.parent(node)?;
+        if !composed
+            && node == origin_root
+            && matches!(dom.arena().get(node)?.kind, NodeKind::ShadowRoot { .. })
+        {
+            break;
+        }
+        let parent = dom.assigned_slot(node, false)?.or(dom.parent(node)?);
+        if let (Some(parent), Some(related)) = (parent, related_node) {
+            if related != target
+                && dom.retarget_node(target, Some(parent))?
+                    == dom.retarget_node(related, Some(parent))?
+            {
+                break;
+            }
+        }
+        cursor = parent;
     }
     Ok(None)
 }
 
-pub(super) fn finish(
+fn finish_legacy(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     activation: Option<Activation>,
@@ -149,10 +318,34 @@ pub(super) fn finish(
     source: v8::Local<v8::Object>,
     accepted: bool,
 ) -> Result<(), V8BindingError> {
+    if accepted && permission_prompt::click(scope, state, target, source)? {
+        return Ok(());
+    }
+    if accepted && file_picker::click(scope, state, target, source)? {
+        return Ok(());
+    }
+    if accepted && temporal_picker::click(scope, state, target, source)? {
+        return Ok(());
+    }
+    if accepted && select_picker::click(scope, state, target, source)? {
+        return Ok(());
+    }
     let Some(activation) = activation else {
         return Ok(());
     };
-    let node = activation.node;
+    let object = v8::Local::new(scope, &activation.object);
+    let (owner, node) = node_identity::argument(scope, object.into())?
+        .ok_or(V8BindingError::Allocation("activation node owner"))?;
+    let (target_dom, target_node) = activation.lease.current();
+    if target_node != node || !Rc::ptr_eq(&target_dom, &owner.dom) {
+        return Err(V8BindingError::Allocation("activation lease owner"));
+    }
+    let same_target_arena = Rc::ptr_eq(&state.dom, &owner.dom);
+    let state = &owner;
+    let previous_selected = activation.selected.as_ref().and_then(|lease| {
+        let (dom, node) = lease.current();
+        Rc::ptr_eq(&dom, &state.dom).then_some(node)
+    });
     if !accepted {
         let mut dom = state.dom.borrow_mut();
         match activation.previous {
@@ -166,8 +359,8 @@ pub(super) fn finish(
                 dom.set_checkedness(node, checked)?;
                 dom.set_indeterminate(node, indeterminate)?;
             }
-            Previous::Radio { selected, .. } if dom.is_radio(node) => {
-                if let Some(selected) = selected.filter(|peer| {
+            Previous::Radio { .. } if dom.is_radio(node) => {
+                if let Some(selected) = previous_selected.filter(|peer| {
                     *peer == node || dom.same_radio_group(node, *peer).unwrap_or(false)
                 }) {
                     dom.set_checkedness(selected, true)?;
@@ -176,6 +369,64 @@ pub(super) fn finish(
                 }
             }
             _ => {}
+        }
+        return Ok(());
+    }
+    if matches!(activation.previous, Previous::Link) {
+        let source_id = event_id(scope, source)?;
+        let source_owner = binding_state_for_receiver(scope, source)
+            .ok_or(V8BindingError::Allocation("link activation event owner"))?;
+        let trusted = source_owner
+            .events
+            .borrow()
+            .get(&source_id)
+            .is_some_and(|event| event.is_trusted);
+        let suffix = if same_target_arena
+            && state
+                .dom
+                .borrow()
+                .is_element(node, "http://www.w3.org/1999/xhtml", "a")
+        {
+            image_map_suffix(scope, state, target, source, trusted)?
+        } else {
+            None
+        };
+        return submissions::queue_click_with_involvement(
+            scope,
+            state,
+            node,
+            trusted,
+            suffix.as_deref(),
+        );
+    }
+    if let Some(mut command) = command::Job::new(scope, state, node)? {
+        if !command.poll(scope)? {
+            return Err(V8BindingError::JavaScriptException);
+        }
+        return Ok(());
+    }
+    if top_layer::invoke(scope, state, node)? {
+        return Ok(());
+    }
+    let reset_form_owner = {
+        let dom = state.dom.borrow();
+        if (dom.is_element(node, "http://www.w3.org/1999/xhtml", "input")
+            || dom.is_element(node, "http://www.w3.org/1999/xhtml", "button"))
+            && dom
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("reset"))
+        {
+            if dom.control_disabled(node)? {
+                return Ok(());
+            }
+            Some(dom.form_owner(node)?)
+        } else {
+            None
+        }
+    };
+    if let Some(form) = reset_form_owner {
+        if let Some(form) = form {
+            reset_form(scope, state, form)?;
         }
         return Ok(());
     }
@@ -189,15 +440,21 @@ pub(super) fn finish(
         };
         if let Some(form) = form {
             select_image_coordinate(scope, state, node, source)?;
-            if !validation::request_submit(scope, state, form, Some(node))? {
-                return Ok(());
-            }
-            submissions::queue(
+            let source_id = event_id(scope, source)?;
+            let source_owner = binding_state_for_receiver(scope, source)
+                .ok_or(V8BindingError::Allocation("activation source owner"))?;
+            let trusted = source_owner
+                .events
+                .borrow()
+                .get(&source_id)
+                .is_some_and(|event| event.is_trusted);
+            submissions::request_submit_with_involvement(
                 scope,
                 state,
                 form,
                 Some(node),
                 submissions::SubmissionSource::Activation,
+                trusted,
             )?;
         }
         return Ok(());
@@ -205,7 +462,7 @@ pub(super) fn finish(
     if let Previous::Label = activation.previous {
         let control = {
             let dom = state.dom.borrow();
-            let mut cursor = Some(target);
+            let mut cursor = same_target_arena.then_some(target);
             while let Some(current) = cursor.filter(|current| *current != node) {
                 if dom.is_interactive_content(current) {
                     return Ok(());
@@ -216,13 +473,14 @@ pub(super) fn finish(
                 .filter(|control| !dom.control_disabled(*control).unwrap_or(true))
         };
         if let Some(control) = control {
-            if control == target
-                || state
-                    .dom
-                    .borrow()
-                    .arena()
-                    .ancestors(target)?
-                    .contains(&control)
+            if same_target_arena
+                && (control == target
+                    || state
+                        .dom
+                        .borrow()
+                        .arena()
+                        .ancestors(target)?
+                        .contains(&control))
             {
                 return Ok(());
             }
@@ -232,16 +490,21 @@ pub(super) fn finish(
             }
             let source_id = event_id(scope, source)?;
             let id = event_id(scope, event)?;
-            let trusted = state.events.borrow()[&source_id].is_trusted;
+            let source_state = binding_state_for_receiver(scope, source)
+                .ok_or(V8BindingError::Allocation("source event owner"))?;
+            let trusted = source_state.events.borrow()[&source_id].is_trusted;
             state.events.borrow_mut().get_mut(&id).unwrap().is_trusted = trusted;
-            if !state.click_in_progress.borrow_mut().insert(control) {
+            if retained_activation::active(state, control)
+                || !state.click_in_progress.borrow_mut().insert(control)
+            {
                 return Ok(());
             }
+            let target = wrap_node(scope, state, control)?;
             let result = dispatch_event(scope, state, control, event);
-            state.click_in_progress.borrow_mut().remove(&control);
-            if result? {
-                submissions::queue_click(state, control)?;
-            }
+            let (owner, control) = node_identity::argument(scope, target.into())?
+                .ok_or(V8BindingError::Allocation("label control owner"))?;
+            owner.click_in_progress.borrow_mut().remove(&control);
+            result?;
         }
         return Ok(());
     }
@@ -255,11 +518,16 @@ pub(super) fn finish(
                 Previous::Radio { changed, .. } => {
                     changed && dom.is_radio(node) && dom.checked(node)?
                 }
-                Previous::Label | Previous::Submit => false,
+                Previous::Label | Previous::Submit | Previous::Link => false,
             }
     };
     if fire {
+        state.dom.borrow_mut().set_user_validity(node, true)?;
         for event_type in ["input", "change"] {
+            let target = v8::Local::new(scope, &activation.object);
+            let (owner, node) = node_identity::argument(scope, target.into())?
+                .ok_or(V8BindingError::Allocation("activation event target"))?;
+            let state = &owner;
             let event = create_event_object(scope, state, event_type, true, false)?;
             let id = event_id(scope, event)?;
             {
@@ -272,6 +540,48 @@ pub(super) fn finish(
         }
     }
     Ok(())
+}
+
+pub(super) fn image_map_suffix(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    target: NodeId,
+    event: v8::Local<v8::Object>,
+    trusted: bool,
+) -> Result<Option<String>, V8BindingError> {
+    {
+        let dom = state.dom.borrow();
+        if !dom.is_element(target, "http://www.w3.org/1999/xhtml", "img")
+            || dom.attribute_in_null_namespace(target, "ismap")?.is_none()
+        {
+            return Ok(None);
+        }
+    }
+    if !trusted {
+        return Ok(Some("?0,0".into()));
+    }
+    let x = native_input_property(scope, event, "MouseEvent", "clientX")?
+        .number_value(scope)
+        .ok_or(V8BindingError::JavaScriptException)?;
+    let y = native_input_property(scope, event, "MouseEvent", "clientY")?
+        .number_value(scope)
+        .ok_or(V8BindingError::JavaScriptException)?;
+    let rect = match geometry_for_node(state, target)? {
+        BindingGeometry::Available(rect) => rect,
+        BindingGeometry::Hidden => return Ok(Some("?0,0".into())),
+        BindingGeometry::Unsupported(detail) => {
+            return Err(V8BindingError::Unsupported {
+                interface: "HTMLImageElement".into(),
+                member: format!("image map activation: {detail}"),
+            });
+        }
+    };
+    let coordinate = |point: f64, start: f64| (point - start).max(0.).round() as u64;
+    Ok(Some(format!(
+        "?{},{}",
+        coordinate(x, rect.x),
+        coordinate(y, rect.y)
+    )))
 }
 
 fn select_image_coordinate(
@@ -354,6 +664,9 @@ mod tests {
     use super::*;
 
     fn run(source: &str) {
+        run_at(source, None);
+    }
+    fn run_at(source: &str, url: Option<&str>) {
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(
             oryn_dom::html::parse("<body>").into_runtime().unwrap(),
@@ -362,7 +675,10 @@ mod tests {
         v8::scope!(let scope, &mut isolate);
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
-        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        if let Some(url) = url {
+            state.commit_location(url).unwrap();
+        }
         v8::tc_scope!(let scope, scope);
         let source = v8::String::new(scope, source).unwrap();
         let script = v8::Script::compile(scope, source, None).unwrap();
@@ -374,8 +690,55 @@ mod tests {
     }
 
     #[test]
+    fn allocation_failure_before_preactivation_preserves_checkbox_and_radio_group() {
+        super::super::tests::initialize_v8();
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<input id=c type=checkbox><input id=a type=radio name=g checked><input id=b type=radio name=g>").into_runtime().unwrap()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(224), 1).unwrap();
+        for name in ["c", "b"] {
+            let target = state
+                .dom
+                .borrow()
+                .get_element_by_id(state.document_root(), name)
+                .unwrap()
+                .unwrap();
+            let before = {
+                let dom = state.dom.borrow();
+                ["c", "a", "b"].map(|name| {
+                    dom.checked(
+                        dom.get_element_by_id(state.document_root(), name)
+                            .unwrap()
+                            .unwrap(),
+                    )
+                    .unwrap()
+                })
+            };
+            let event = create_synthetic_click_event(scope, &state).unwrap();
+            let id = event_id(scope, event).unwrap();
+            FAIL_PREACTIVATION.with(|slot| slot.set(true));
+            assert!(prepare(scope, &state, target, event, id).is_err());
+            let after = {
+                let dom = state.dom.borrow();
+                ["c", "a", "b"].map(|name| {
+                    dom.checked(
+                        dom.get_element_by_id(state.document_root(), name)
+                            .unwrap()
+                            .unwrap(),
+                    )
+                    .unwrap()
+                })
+            };
+            assert_eq!(before, after);
+        }
+    }
+
+    #[test]
     fn submission_properties_reflect_native_content_attributes() {
-        run(r#"
+        run_at(
+            r#"
             const check=(v,m)=>{if(!v)throw Error(m)};
             const form=document.createElement('form'); document.body.append(form);
             for(const [property,attribute,value] of [
@@ -395,7 +758,6 @@ mod tests {
             form.enctype='invalid';check(form.enctype==='application/x-www-form-urlencoded','invalid enctype');
             form.noValidate=true;check(form.hasAttribute('novalidate')&&form.noValidate,'noValidate true');
             form.noValidate=false;check(!form.hasAttribute('novalidate')&&!form.noValidate,'noValidate false');
-            location.href='https://forms.test/document';
             const base=document.createElement('base');base.href='https://base.test/path/';document.body.prepend(base);
             check(base instanceof HTMLBaseElement&&base.getAttribute('href')==='https://base.test/path/','base reflection');
             const otherBase=document.createElement('base');
@@ -431,7 +793,9 @@ mod tests {
                 submitter.setAttributeNS('urn:not-html','formtarget','foreign');check(submitter.formTarget==='','namespace isolation');
             }
             'ok'
-        "#);
+        "#,
+            Some("https://forms.test/document"),
+        );
     }
 
     #[test]
@@ -445,6 +809,26 @@ mod tests {
                 b.addEventListener('click',()=>{b.type='submit'});
                 b.click();check(submitted===1,tag+' '+type+' becomes submit');f.remove();
             }
+            'ok'
+        "#);
+    }
+
+    #[test]
+    fn user_validity_submission_reset_and_script_changes_share_native_state() {
+        run(r#"
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            const f=document.createElement('form');f.innerHTML='<input required><select required><option value="">Choose</option></select><button>Go</button>';document.body.append(f);
+            const i=f.querySelector('input'),s=f.querySelector('select');f.addEventListener('submit',e=>e.preventDefault());
+            check(!i.matches(':user-invalid')&&!i.matches(':user-valid'),'initial');
+            i.value='script';check(!i.matches(':user-valid'),'script assignment does not interact');i.value='';
+            i.addEventListener('invalid',e=>e.preventDefault());
+            i.checkValidity();check(!i.matches(':user-invalid'),'checkValidity preserves untouched state');
+            i.addEventListener('invalid',()=>check(i.matches(':user-invalid'),'state before invalid callback'));
+            f.requestSubmit();check(i.matches(':user-invalid')&&s.matches(':user-invalid'),'submission marks controls');
+            i.value='ok';check(i.matches(':user-valid'),'subsequent script changes preserve eligibility');
+            f.addEventListener('reset',e=>e.preventDefault(),{once:true});f.reset();check(i.matches(':user-valid'),'cancelled reset preserves state');
+            f.reset();check(!i.matches(':user-valid')&&!i.matches(':user-invalid')&&!s.matches(':user-invalid'),'reset clears user validity');
+            f.noValidate=true;f.requestSubmit();check(i.matches(':user-invalid'),'novalidate still records submission');
             'ok'
         "#);
     }
@@ -1245,6 +1629,29 @@ mod tests {
     }
 
     #[test]
+    fn reset_controls_share_native_reset_and_cancelable_activation() {
+        run(r#"
+            const check=(v,m)=>{if(!v)throw Error(m)};
+            for(const tag of ['button','input']){
+                document.body.innerHTML=`<form id=f><input id=value value=seed><${tag} id=reset type=reset></${tag}></form>`;
+                const f=document.getElementById('f'),value=document.getElementById('value'),button=document.getElementById('reset');
+                let calls=0;f.addEventListener('reset',()=>calls++);
+                f.reset=()=>{throw Error('author reset method invoked')};
+                value.value='edited';button.click();check(value.value==='seed'&&calls===1,'native reset activation');
+                value.value='edited';button.addEventListener('click',e=>e.preventDefault(),{once:true});button.click();
+                check(value.value==='edited'&&calls===1,'cancelled click');
+                f.addEventListener('reset',e=>e.preventDefault(),{once:true});button.click();
+                check(value.value==='edited'&&calls===2,'cancelled reset');
+                button.disabled=true;button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+                check(value.value==='edited'&&calls===2,'disabled reset');
+                button.disabled=false;button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+                check(value.value==='seed'&&calls===3,'dispatch activation');
+            }
+            'ok'
+        "#);
+    }
+
+    #[test]
     fn form_reset_restores_defaults_after_cancelable_event_and_external_controls() {
         run(r#"
             const check=(v,m)=>{if(!v)throw Error(m)};
@@ -1259,5 +1666,662 @@ mod tests {
             c.checked=false;check(!new FormData(f).has('c'),'FormData excludes unchecked default');
             'ok'
         "#);
+    }
+}
+
+// Script dispatch has no caller-held native receipt; retain its interrupted
+// default separately after the dispatch itself has completed.
+enum DefaultJob {
+    Activation(Box<Finish>),
+    Reset(retained_form_reset::Reset),
+    ForcedClick(Box<retained_activation::Click>),
+}
+impl DefaultJob {
+    fn poll(&mut self, scope: &mut v8::PinScope) -> Result<bool, V8BindingError> {
+        match self {
+            Self::Activation(job) => job.poll(scope),
+            Self::Reset(job) => job.poll(scope),
+            Self::ForcedClick(job) => job.poll(scope).map(|result| result.is_some()),
+        }
+    }
+    fn cancel(&mut self) {
+        match self {
+            Self::Activation(job) => job.cancel(),
+            Self::Reset(job) => job.cancel(),
+            Self::ForcedClick(job) => job.cancel(),
+        }
+    }
+    fn retry_safe(&self) -> bool {
+        match self {
+            Self::Activation(job) => job.retry_safe(),
+            Self::Reset(_) => true,
+            Self::ForcedClick(job) => job.retry_safe(),
+        }
+    }
+}
+#[derive(Default)]
+pub(super) struct Registry {
+    reserved: usize,
+    queue: VecDeque<(u64, u64, DefaultJob)>,
+    retry: Option<std::time::Instant>,
+    polling: bool,
+}
+fn is_click(
+    scope: &mut v8::PinScope,
+    source: v8::Local<v8::Object>,
+) -> Result<bool, V8BindingError> {
+    let id = event_id(scope, source)?;
+    let owner = binding_state_for_receiver(scope, source)
+        .ok_or(V8BindingError::Allocation("activation event owner"))?;
+    let click = owner
+        .events
+        .borrow()
+        .get(&id)
+        .is_some_and(|event| event.event_type == "click");
+    Ok(click && mouse_payload(scope, source).is_some())
+}
+// Keep the continuation off the native callback stack. Each synchronous
+// nested click retains this owner through its NavigateEvent callbacks.
+pub(super) struct ScriptDefault {
+    owner: Rc<V8BindingState>,
+    generation: u64,
+    epoch: u64,
+    job: Option<Box<Finish>>,
+}
+impl ScriptDefault {
+    pub(super) fn new(
+        scope: &mut v8::PinScope,
+        state: &Rc<V8BindingState>,
+        target: NodeId,
+        source: v8::Local<v8::Object>,
+    ) -> Result<Option<Self>, V8BindingError> {
+        if !is_click(scope, source)? {
+            return Ok(None);
+        }
+        {
+            let mut registry = state.activation_jobs.borrow_mut();
+            if registry.queue.len().saturating_add(registry.reserved) >= 64 {
+                return Err(V8BindingError::Allocation("retained activation limit"));
+            }
+            let additional = registry.reserved + 1;
+            registry
+                .queue
+                .try_reserve(additional)
+                .map_err(|_| V8BindingError::Allocation("retained activation queue"))?;
+            registry.reserved += 1;
+        }
+        let mut pending = Self {
+            owner: state.clone(),
+            generation: state.document_generation(),
+            epoch: state.document_stream_epoch(),
+            job: None,
+        };
+        pending.job = Some(Box::new(Finish::new(
+            scope, state, None, target, source, false,
+        )?));
+        Ok(Some(pending))
+    }
+    pub(super) fn activation(&mut self, activation: Option<Activation>) {
+        self.job.as_mut().unwrap().set_activation(activation);
+    }
+    pub(super) fn finish(
+        mut self,
+        scope: &mut v8::PinScope,
+        accepted: bool,
+    ) -> Result<(), V8BindingError> {
+        let mut job = self.job.take().unwrap();
+        job.set_accepted(accepted);
+        let result = job.poll(scope);
+        if !matches!(result, Ok(true))
+            && job.retry_safe()
+            && queue_owner_current(&self.owner, self.generation, self.epoch)
+        {
+            let mut registry = self.owner.activation_jobs.borrow_mut();
+            registry
+                .queue
+                .push_back((self.generation, self.epoch, DefaultJob::Activation(job)));
+            registry.retry = Some(std::time::Instant::now() + std::time::Duration::from_millis(10));
+        }
+        match result {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(V8BindingError::JavaScriptException),
+            Err(error) => Err(error),
+        }
+    }
+}
+impl Drop for ScriptDefault {
+    fn drop(&mut self) {
+        self.owner.activation_jobs.borrow_mut().reserved -= 1;
+        if let Some(job) = &mut self.job {
+            job.cancel();
+        }
+    }
+}
+pub(super) fn finish(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    activation: Option<Activation>,
+    target: NodeId,
+    source: v8::Local<v8::Object>,
+    accepted: bool,
+) -> Result<(), V8BindingError> {
+    if let Some(mut pending) = ScriptDefault::new(scope, state, target, source)? {
+        pending.activation(activation);
+        pending.finish(scope, accepted)
+    } else {
+        Ok(())
+    }
+}
+/// Script reset shares the exact control/event continuation used by trusted
+/// activation. Reserve the retry slot before dispatch can run author code.
+pub(super) fn reset(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+) -> Result<(), V8BindingError> {
+    {
+        let mut registry = state.activation_jobs.borrow_mut();
+        if registry.queue.len().saturating_add(registry.reserved) >= 64 {
+            return Err(V8BindingError::Allocation("retained activation limit"));
+        }
+        let additional = registry.reserved + 1;
+        registry
+            .queue
+            .try_reserve(additional)
+            .map_err(|_| V8BindingError::Allocation("retained activation queue"))?;
+        registry.reserved += 1;
+    }
+    struct Reservation<'a>(&'a V8BindingState);
+    impl Drop for Reservation<'_> {
+        fn drop(&mut self) {
+            self.0.activation_jobs.borrow_mut().reserved -= 1;
+        }
+    }
+    let _reservation = Reservation(state);
+    let generation = state.document_generation();
+    let epoch = state.document_stream_epoch();
+    let mut job = retained_form_reset::Reset::new(scope, state, node)?;
+    let result = job.poll(scope);
+    if !matches!(result, Ok(true)) && queue_owner_current(state, generation, epoch) {
+        let mut registry = state.activation_jobs.borrow_mut();
+        registry
+            .queue
+            .push_back((generation, epoch, DefaultJob::Reset(job)));
+        registry.retry = Some(std::time::Instant::now() + std::time::Duration::from_millis(10));
+    }
+    match result {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(V8BindingError::JavaScriptException),
+        Err(error) => Err(error),
+    }
+}
+/// Explicit driver force bypasses geometry, never native identity or disabledness.
+/// The exact click event/default cursor survives interrupted publication.
+pub(super) fn forced_click(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    node: NodeId,
+) -> Result<(), V8BindingError> {
+    if !queue_owner_current(
+        state,
+        state.document_generation(),
+        state.document_stream_epoch(),
+    ) || state.execution_suspended()
+    {
+        return Err(V8BindingError::Allocation(
+            "retired forced activation document",
+        ));
+    }
+    {
+        let dom = state.dom.borrow();
+        if !dom.is_connected(node)?
+            || dom.node_document(node)? != Some(state.document_root())
+            || dom.control_disabled(node)?
+        {
+            return Err(V8BindingError::Allocation(
+                "invalid forced activation target",
+            ));
+        }
+    }
+    {
+        let mut registry = state.activation_jobs.borrow_mut();
+        if registry.queue.len().saturating_add(registry.reserved) >= 64 {
+            return Err(V8BindingError::Allocation("retained activation limit"));
+        }
+        let additional = registry.reserved + 1;
+        registry
+            .queue
+            .try_reserve(additional)
+            .map_err(|_| V8BindingError::Allocation("retained activation queue"))?;
+        registry.reserved += 1;
+    }
+    struct Reservation<'a>(&'a V8BindingState);
+    impl Drop for Reservation<'_> {
+        fn drop(&mut self) {
+            self.0.activation_jobs.borrow_mut().reserved -= 1;
+        }
+    }
+    let _reservation = Reservation(state);
+    let generation = state.document_generation();
+    let epoch = state.document_stream_epoch();
+    let Some(job) = retained_activation::Click::new(scope, state, node)? else {
+        return Ok(());
+    };
+    let mut job = Box::new(job);
+    state.notify_user_activation();
+    let result = job.poll(scope);
+    if !matches!(result, Ok(Some(_)))
+        && job.retry_safe()
+        && queue_owner_current(state, generation, epoch)
+    {
+        let mut registry = state.activation_jobs.borrow_mut();
+        registry
+            .queue
+            .push_back((generation, epoch, DefaultJob::ForcedClick(job)));
+        registry.retry = Some(std::time::Instant::now() + std::time::Duration::from_millis(10));
+    }
+    match result {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(V8BindingError::JavaScriptException),
+        Err(error) => Err(error),
+    }
+}
+fn queue_owner_current(state: &V8BindingState, generation: u64, epoch: u64) -> bool {
+    !state.execution_retired()
+        && !state.execution_tasks_stopped()
+        && state.document_generation() == generation
+        && state.document_stream_epoch() == epoch
+}
+pub(super) fn delay(state: &V8BindingState) -> Option<std::time::Duration> {
+    let registry = state.activation_jobs.borrow();
+    (!registry.queue.is_empty() && !state.execution_suspended()).then(|| {
+        registry
+            .retry
+            .map_or(std::time::Duration::ZERO, |deadline| {
+                deadline.saturating_duration_since(std::time::Instant::now())
+            })
+    })
+}
+pub(super) fn poll(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+) -> Result<usize, V8BindingError> {
+    if state.activation_jobs.borrow().polling || !delay(state).is_some_and(|delay| delay.is_zero())
+    {
+        return Ok(0);
+    }
+    let Some((generation, epoch, mut job)) = state.activation_jobs.borrow_mut().queue.pop_front()
+    else {
+        return Ok(0);
+    };
+    if !queue_owner_current(state, generation, epoch) {
+        job.cancel();
+        return Ok(1);
+    }
+    state.activation_jobs.borrow_mut().polling = true;
+    struct Guard<'a>(&'a V8BindingState);
+    impl Drop for Guard<'_> {
+        fn drop(&mut self) {
+            self.0.activation_jobs.borrow_mut().polling = false
+        }
+    }
+    let _guard = Guard(state);
+    match job.poll(scope) {
+        Ok(true) => {
+            state.activation_jobs.borrow_mut().retry = None;
+            Ok(1)
+        }
+        result => {
+            if job.retry_safe() && queue_owner_current(state, generation, epoch) {
+                let mut registry = state.activation_jobs.borrow_mut();
+                registry.queue.push_front((generation, epoch, job));
+                registry.retry =
+                    Some(std::time::Instant::now() + std::time::Duration::from_millis(10));
+            }
+            result.map(|_| 0)
+        }
+    }
+}
+pub(super) fn retire(state: &V8BindingState) {
+    let jobs = std::mem::take(&mut state.activation_jobs.borrow_mut().queue);
+    for (_, _, mut job) in jobs {
+        job.cancel();
+    }
+    state.activation_jobs.borrow_mut().retry = None;
+}
+
+#[cfg(test)]
+mod script_default_retention_tests {
+    use super::*;
+    fn eval(scope: &mut v8::PinScope, source: &str) {
+        super::super::test_eval::eval(scope, source);
+    }
+    #[test]
+    fn nested_script_links_keep_synchronous_order_and_latest_native_admission() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse(
+                "<a id=a href=/a>A</a><a id=b href=/b>B</a><a id=c href=/c>C</a>",
+            )
+            .into_runtime()
+            .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(253), 1).unwrap();
+        state.commit_location("https://links.test/start").unwrap();
+        crate::navigation_api::sync_history(
+            scope,
+            vec![crate::navigation_api::NavigationHistorySnapshot {
+                scroll: Default::default(),
+                key: "initial-key".into(),
+                id: "initial-entry".into(),
+                url: "https://links.test/start".into(),
+                document_id: "initial-document".into(),
+                state: None,
+                history_state: None,
+            }],
+            0,
+            "push",
+        )
+        .unwrap();
+        eval(
+            scope,
+            "globalThis.order=[];globalThis.errors=[];addEventListener('error',e=>errors.push(e.message));navigation.onnavigate=e=>{const id=e.sourceElement.id;order.push('enter:'+id);if(id==='a')b.click();else if(id==='b')c.click();order.push('leave:'+id)};a.click()",
+        );
+        assert!(super::super::test_eval::eval(scope,"order.join(',')==='enter:a,enter:b,enter:c,leave:c,leave:b,leave:a'&&errors.length===0").is_true());
+        assert_eq!(state.activation_jobs.borrow().reserved, 0);
+        assert!(state.activation_jobs.borrow().queue.is_empty());
+        assert_eq!(state.reserved_default_actions.get(), 0);
+        let actions = state.pending_default_actions.borrow();
+        assert_eq!(actions.len(), 1);
+        let crate::v8_bindings::PendingDefaultAction::Click(target) = actions.front().unwrap()
+        else {
+            panic!("missing latest link")
+        };
+        let navigation = target.navigation.as_ref().unwrap();
+        assert_eq!(navigation.url, "https://links.test/c");
+        let admission = navigation.admission.as_ref().unwrap();
+        assert!(admission.operation.as_ref().is_some_and(|token| {
+            crate::navigation_api::native_navigation_matches(&state, token)
+        }));
+        drop(actions);
+        state.pending_default_actions.borrow_mut().clear();
+        eval(
+            scope,
+            "navigation.onnavigate=e=>e.preventDefault();a.click()",
+        );
+        assert!(state.pending_default_actions.borrow().is_empty());
+        assert_eq!(state.activation_jobs.borrow().reserved, 0);
+    }
+    #[test]
+    fn script_form_reset_retains_event_and_control_suffix_without_replay() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse(
+                "<form id=f><input id=t value=default><input id=c type=checkbox checked></form>",
+            )
+            .into_runtime()
+            .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(254), 1).unwrap();
+        eval(
+            scope,
+            "t.value='changed';c.checked=false;globalThis.trace=[];f.addEventListener('reset',e=>{globalThis.original=e;trace.push('first');f.reset()});f.addEventListener('reset',e=>{if(e!==original)throw Error('reset event replaced');trace.push('second')})",
+        );
+        native_platform::publication::fail_after_next_callback();
+        eval(
+            scope,
+            "try{f.reset()}catch{};if(t.value!=='changed'||c.checked||trace.join()!=='first')throw Error('reset advanced after interruption')",
+        );
+        assert_eq!(state.activation_jobs.borrow().queue.len(), 1);
+        assert_eq!(state.activation_jobs.borrow().reserved, 0);
+        assert_eq!(state.reset_in_progress.borrow().len(), 1);
+        state.activation_jobs.borrow_mut().retry = None;
+        assert_eq!(poll(scope, &state).unwrap(), 1);
+        assert_eq!(poll(scope, &state).unwrap(), 0);
+        eval(
+            scope,
+            "if(t.value!=='default'||!c.checked||trace.join()!=='first,second')throw Error('reset suffix lost or repeated')",
+        );
+        assert!(state.reset_in_progress.borrow().is_empty());
+    }
+    struct RetireResetOwner(Rc<V8BindingState>);
+    fn retire_reset_owner(
+        scope: &mut v8::PinScope,
+        _args: v8::FunctionCallbackArguments,
+        _rv: v8::ReturnValue,
+    ) {
+        scope
+            .get_current_context()
+            .get_slot::<RetireResetOwner>()
+            .unwrap()
+            .0
+            .retire_execution();
+    }
+    #[test]
+    fn callback_retirement_cannot_requeue_an_interrupted_reset() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<form id=f><input id=t value=default></form>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(254), 1).unwrap();
+        context.set_slot(Rc::new(RetireResetOwner(state.clone())));
+        let callback = v8::Function::new(scope, retire_reset_owner).unwrap();
+        let key = v8::String::new(scope, "retireResetOwner").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), callback.into());
+        eval(
+            scope,
+            "t.value='changed';f.addEventListener('reset',retireResetOwner)",
+        );
+        native_platform::publication::fail_after_next_callback();
+        let form = state.dom.borrow().find_by_id("f").unwrap();
+        assert!(reset(scope, &state, form).is_err());
+        assert!(state.execution_retired());
+        assert!(state.activation_jobs.borrow().queue.is_empty());
+        assert_eq!(state.activation_jobs.borrow().reserved, 0);
+        assert!(state.reset_in_progress.borrow().is_empty());
+        let control = state.dom.borrow().find_by_id("t").unwrap();
+        assert_eq!(
+            state.dom.borrow().control_value(control).unwrap(),
+            "changed"
+        );
+    }
+    #[test]
+    fn cancelled_script_reset_releases_guard_and_never_applies_control_suffix() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<form id=f><input id=t value=default></form>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(254), 1).unwrap();
+        eval(
+            scope,
+            "t.value='changed';globalThis.calls=0;f.addEventListener('reset',()=>calls++,{once:true})",
+        );
+        native_platform::publication::fail_after_next_callback();
+        eval(scope, "try{f.reset()}catch{}");
+        assert_eq!(state.activation_jobs.borrow().queue.len(), 1);
+        retire(&state);
+        assert!(state.activation_jobs.borrow().queue.is_empty());
+        assert!(state.reset_in_progress.borrow().is_empty());
+        assert_eq!(poll(scope, &state).unwrap(), 0);
+        eval(
+            scope,
+            "if(t.value!=='changed'||calls!==1)throw Error('retired reset committed');f.reset();if(t.value!=='default'||calls!==1)throw Error('reset guard leaked')",
+        );
+    }
+    #[test]
+    fn unrelated_trusted_input_cannot_open_file_picker() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<input id=t type=file>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(252), 1).unwrap();
+        let target = state.dom.borrow().find_by_id("t").unwrap();
+        let event = create_event_object(scope, &state, "input", true, false).unwrap();
+        let id = event_id(scope, event).unwrap();
+        state.events.borrow_mut().get_mut(&id).unwrap().is_trusted = true;
+        dispatch_event(scope, &state, target, event).unwrap();
+        assert!(
+            state
+                .dom
+                .borrow()
+                .file_picker_snapshot(target)
+                .unwrap()
+                .is_none()
+        );
+        assert!(state.activation_jobs.borrow().queue.is_empty());
+    }
+    #[test]
+    fn default_slot_failure_precedes_checkbox_preactivation_and_listeners() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<input id=t type=checkbox>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom, RealmId(253), 1).unwrap();
+        eval(scope, "globalThis.clicks=0;t.onclick=()=>clicks++");
+        state.activation_jobs.borrow_mut().reserved = 64;
+        eval(
+            scope,
+            "try{t.click()}catch{};if(t.checked||clicks)throw Error('preflight was after activation')",
+        );
+        state.activation_jobs.borrow_mut().reserved = 0;
+    }
+    #[test]
+    fn details_interface_reflects_native_state() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<details id=d></details>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        install_generated_bindings(scope, context, dom, RealmId(254), 1).unwrap();
+        eval(
+            scope,
+            "if(!(d instanceof HTMLDetailsElement)||d.open||d.name!=='')throw Error('details defaults');d.open=true;if(!d.hasAttribute('open'))throw Error('open reflected');d.removeAttribute('open');if(d.open)throw Error('open content reflection');d.name='group';if(d.getAttribute('name')!=='group')throw Error('name reflected')",
+        );
+    }
+    #[test]
+    fn script_command_default_retains_suffix_after_dispatch_has_returned() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<button id=b type=button command=toggle commandfor=d>toggle</button><details id=d></details>").into_runtime().unwrap()));
+        let state = install_generated_bindings(scope, context, dom, RealmId(254), 1).unwrap();
+        eval(
+            scope,
+            "globalThis.trace=[];d.addEventListener('command',e=>{globalThis.original=e;trace.push('first')});d.addEventListener('command',e=>{if(e!==original)throw Error('event replaced');trace.push('second')})",
+        );
+        native_platform::publication::fail_after_next_callback();
+        eval(
+            scope,
+            "try{b.click()}catch{};if(d.open||trace.join()!=='first')throw Error('command default advanced')",
+        );
+        assert_eq!(state.activation_jobs.borrow().queue.len(), 1);
+        assert_eq!(state.activation_jobs.borrow().reserved, 0);
+        state.activation_jobs.borrow_mut().retry = None;
+        assert_eq!(poll(scope, &state).unwrap(), 1);
+        assert_eq!(poll(scope, &state).unwrap(), 0);
+        eval(
+            scope,
+            "if(!d.open||trace.join()!=='first,second')throw Error('script default replay')",
+        );
+    }
+}
+
+#[cfg(test)]
+mod forced_activation_tests {
+    use super::*;
+    #[test]
+    fn forced_hidden_target_uses_native_event_and_preserves_canceled_defaults() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom=Rc::new(RefCell::new(oryn_dom::html::parse("<input id=target type=checkbox hidden><button id=disabled disabled></button><button id=outside></button>").into_runtime().unwrap()));
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let target = dom.borrow().find_by_id("target").unwrap();
+        let disabled = dom.borrow().find_by_id("disabled").unwrap();
+        super::super::test_eval::eval(
+            scope,
+            "globalThis.events=[];target.click=()=>{throw Error('author method invoked')};target.addEventListener('click',e=>{events.push([e.isTrusted,target.checked,e.target===target].join(':'));e.preventDefault()});outside.onclick=()=>{throw Error('wrong target')}",
+        );
+        forced_click(scope, &state, target).unwrap();
+        assert!(
+            super::super::test_eval::eval(
+                scope,
+                "events.join()==='true:true:true'&&!target.checked"
+            )
+            .is_true()
+        );
+        assert!(forced_click(scope, &state, disabled).is_err());
+        super::super::test_eval::eval(scope, "target.remove()");
+        assert!(forced_click(scope, &state, target).is_err());
+    }
+    #[test]
+    fn forced_interruption_keeps_original_click_and_remaining_listeners() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<button id=b hidden></button>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let state = install_generated_bindings(scope, context, dom.clone(), RealmId(0), 1).unwrap();
+        let b = dom.borrow().find_by_id("b").unwrap();
+        super::super::test_eval::eval(
+            scope,
+            "globalThis.log=[];b.addEventListener('click',e=>{globalThis.first=e;log.push('first')});b.addEventListener('click',e=>{if(e!==first)throw Error('replayed click');log.push('second')})",
+        );
+        native_platform::publication::fail_after_next_callback();
+        assert!(forced_click(scope, &state, b).is_err());
+        assert!(super::super::test_eval::eval(scope, "log.join()==='first'").is_true());
+        state.activation_jobs.borrow_mut().retry = None;
+        poll(scope, &state).unwrap();
+        assert!(super::super::test_eval::eval(scope, "log.join()==='first,second'").is_true());
+        assert_eq!(poll(scope, &state).unwrap(), 0);
     }
 }

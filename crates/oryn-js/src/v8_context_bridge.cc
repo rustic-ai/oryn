@@ -4,6 +4,9 @@
 #include "v8-isolate.h"
 #include "v8-version.h"
 #include "v8-template.h"
+#include "v8-function.h"
+#include "v8-proxy.h"
+#include "v8-external.h"
 
 static_assert(sizeof(v8::Local<v8::Context>) == sizeof(void*));
 
@@ -14,6 +17,10 @@ extern "C" const v8::Context* oryn_v8_incumbent_context(v8::Isolate* isolate) {
 
 extern "C" void oryn_v8_detach_global(v8::Context* context) {
   context->DetachGlobal();
+}
+
+extern "C" bool oryn_v8_reattach_global(v8::Context* context) {
+  return context->ReattachGlobal().FromMaybe(false);
 }
 
 extern "C" bool oryn_v8_set_global_object_prototype(
@@ -75,6 +82,40 @@ extern "C" void oryn_v8_set_cross_context_handlers(
           h->indexed_descriptor));
 }
 
+// Parent-authorized remote platform objects cannot use local security tokens:
+// their document can navigate in another actor while this wrapper stays alive.
+using OrynDynamicAccessCheck = bool (*)(v8::Local<v8::Context>, v8::Local<v8::Object>);
+static bool dynamic_remote_access(v8::Local<v8::Context> caller,
+                                  v8::Local<v8::Object> receiver,
+                                  v8::Local<v8::Value> data) {
+  auto callback = reinterpret_cast<OrynDynamicAccessCheck>(
+      data.As<v8::External>()->Value(v8::kExternalPointerTypeTagDefault));
+  return callback(caller, receiver);
+}
+extern "C" void oryn_v8_set_dynamic_remote_handlers(
+    v8::Isolate* isolate, v8::ObjectTemplate* object_template,
+    OrynDynamicAccessCheck callback, const OrynCrossContextHandlers* h) {
+  object_template->SetAccessCheckCallbackAndHandler(
+      dynamic_remote_access,
+      v8::NamedPropertyHandlerConfiguration(
+          h->named_getter, h->named_setter, h->named_query, h->named_deleter,
+          h->named_enumerator, h->named_definer, h->named_descriptor),
+      v8::IndexedPropertyHandlerConfiguration(
+          h->indexed_getter, h->indexed_setter, h->indexed_query,
+          h->indexed_deleter, h->indexed_enumerator, h->indexed_definer,
+          h->indexed_descriptor),
+      v8::External::New(isolate, reinterpret_cast<void*>(callback),
+                        v8::kExternalPointerTypeTagDefault));
+  object_template->SetWindowProxyStructuralSemantics();
+}
+
+extern "C" void oryn_v8_set_location_structural_semantics(
+    v8::ObjectTemplate* object_template) {
+  // Location shares Window's immutable-prototype/non-extensible-operation
+  // algorithms. The native template bit also applies to these API instances.
+  object_template->SetWindowProxyStructuralSemantics();
+}
+
 extern "C" void oryn_v8_window_access_denied(v8::Local<v8::Context>, v8::Local<v8::Object>);
 static void window_access_denied(v8::Local<v8::Object> target, v8::AccessType,
                                  v8::Local<v8::Value>) {
@@ -113,4 +154,48 @@ extern "C" void oryn_v8_configure_html_all_collection(
     v8::ObjectTemplate* object_template, v8::FunctionCallback callback) {
   object_template->MarkAsUndetectable();
   object_template->SetCallAsFunctionHandler(callback);
+}
+
+extern "C" bool oryn_v8_suspend_microtasks(v8::Context* context, v8::MicrotaskQueue* queue) {
+  return context->SuspendMicrotasks(queue).FromMaybe(false);
+}
+extern "C" bool oryn_v8_resume_microtasks(v8::Context* context, v8::MicrotaskQueue* queue, bool discard) {
+  return context->ResumeMicrotasks(queue, discard).FromMaybe(false);
+}
+extern "C" void oryn_v8_detach_global_preserving_microtasks(v8::Context* context) {
+  context->DetachGlobalPreservingMicrotasks();
+}
+
+extern "C" bool oryn_v8_has_microtask_queue(v8::Context* context, v8::MicrotaskQueue* queue) {
+  return context->GetMicrotaskQueue() == queue;
+}
+
+extern "C" bool oryn_v8_is_constructor(const v8::Object* object) {
+  return object->IsConstructor();
+}
+
+extern "C" const v8::Context* oryn_v8_constructor_realm(const v8::Value* value) {
+  auto current = *reinterpret_cast<const v8::Local<v8::Value>*>(&value);
+  // Bound targets and proxy targets are immutable and cannot form a cycle.
+  // Follow their native internal slots without invoking author getters/traps.
+  for (;;) {
+    if (current->IsProxy()) {
+      auto proxy = current.As<v8::Proxy>();
+      if (proxy->IsRevoked()) return nullptr;
+      current = proxy->GetTarget();
+      continue;
+    }
+    if (current->IsFunction()) {
+      auto bound = current.As<v8::Function>()->GetBoundFunction();
+      if (!bound->IsUndefined()) { current = bound; continue; }
+    }
+    if (!current->IsObject()) return nullptr;
+    v8::Local<v8::Context> context;
+    return current.As<v8::Object>()->GetCreationContext().ToLocal(&context)
+               ? *context : nullptr;
+  }
+}
+
+extern "C" void oryn_v8_defer_html_constructor_prototype(const v8::FunctionTemplate* value) {
+  const_cast<v8::FunctionTemplate*>(value)->SetOrynDeferredPrototype(true);
 }

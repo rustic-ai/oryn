@@ -420,6 +420,18 @@ where
         })
     }
 
+    /// Cascade a nested pseudo against a native mirror of its originating pseudo.
+    /// The caller supplies the already cascaded origin, preserving inheritance
+    /// without recomputing its primary style as an ordinary element.
+    pub fn resolve_nested_pseudo_style(
+        &mut self,
+        pseudo: &PseudoElement,
+        origin: Arc<ComputedValues>,
+    ) -> Option<Arc<ComputedValues>> {
+        let primary = PrimaryStyle { style: ResolvedStyle(origin), reused_via_rule_node: false };
+        self.resolve_pseudo_style(pseudo, &primary, Some(primary.style())).map(|style| style.0)
+    }
+
     fn resolve_pseudo_style(
         &mut self,
         pseudo: &PseudoElement,

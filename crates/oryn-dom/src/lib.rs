@@ -13,23 +13,88 @@ use markup5ever::{LocalName, Namespace, Prefix, QualName};
 use serde::{Deserialize, Serialize};
 
 mod attributes;
+pub mod document_refresh;
+pub mod document_url;
+mod document_urls;
+pub mod event_handlers;
+mod namespaces;
+pub mod render_blocking;
+pub mod sanitizer;
+pub use render_blocking::RenderBlocker;
+mod embedded_content;
+mod frame_policy;
+mod image_intrinsics;
+mod interest;
+pub mod language;
+mod media_state;
+mod selector_states;
+pub mod webvtt;
+pub use embedded_content::EmbeddedContentKind;
+pub use image_intrinsics::ImageIntrinsics;
+mod output;
+mod submit_behavior;
+pub use selector_states::valid_custom_element_name;
+pub use submit_behavior::SubmitButtonBehavior;
+pub mod boundary_journal;
 pub mod directionality;
+mod document_scope;
 pub mod dom_string;
 use attributes::AttributeKey;
 pub use attributes::{AttributeList, ContentAttribute};
+mod control_locale;
+pub use control_locale::ControlLocale;
+mod color_controls;
+pub use color_controls::{input_color_components, input_color_rgba8, serialize_input_color};
+mod autocomplete;
 mod form_controls;
 mod numeric_controls;
+mod slots;
+pub use numeric_controls::parse_html_floating_point;
+mod insertion;
+mod selected_content;
+mod top_layer;
+pub use top_layer::{TopLayerEntry, TopLayerKind};
+mod file_picker;
 mod pattern_controls;
+mod temporal_edit;
+mod temporal_picker;
 mod text_controls;
+pub use file_picker::FilePicker;
+mod permission_prompt;
+pub use permission_prompt::PermissionPrompt;
+pub use temporal_edit::{TemporalAction, TemporalEdit, TemporalEditOutcome};
+pub use temporal_picker::{TemporalPicker, TemporalPickerItem};
+mod style_sets;
+mod xml_stylesheets;
 pub use numeric_controls::NumericValidity;
 pub use pattern_controls::PatternMatcher;
+pub use xml_stylesheets::{XmlStyleSheet, parse_xml_stylesheet};
 pub mod html;
 mod identity;
+mod node_migration;
+mod tracked_lease;
+pub use tracked_lease::{TrackedNodeLease, drain_tracked_node_leases};
+mod clone_tree;
+mod node_iterators;
 pub use identity::{ArenaId, DocumentId, NodeRef};
+pub use node_iterators::{NodeIteratorId, NodeIteratorState, drain_node_iterator_releases};
+pub use node_migration::{
+    NodeMigration, NodeMigrationPlan, PreparedNodeMigration, drain_node_migration_pins,
+};
 pub mod opaque_ranges;
 mod option_controls;
 pub use opaque_ranges::{OpaqueRange, OpaqueRangeError, OpaqueRangeId, OpaqueRangeStore};
+mod serialization;
 pub mod xml;
+mod xml_serialization;
+pub mod xpath;
+pub use serialization::{
+    HtmlSerializationOptions, SerializationResolver, serialize_html_with_options,
+    serialize_html_with_resolver,
+};
+pub use xml_serialization::{
+    WellFormedError, serialize_xml_well_formed_with_resolver, serialize_xml_with_resolver,
+};
 
 /// Thread-affine ownership shared by html5ever and the page's V8 isolate.
 ///
@@ -57,7 +122,7 @@ pub enum SelectorOperation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LiveRangeId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoundaryPoint {
     pub container: NodeId,
     /// A DOM offset: UTF-16 code units for character data and child index for
@@ -116,9 +181,103 @@ pub enum NodeKind {
 }
 
 /// Native document identity and parser mode, preserved by cloning and import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DocumentReadyState {
+    Loading,
+    Interactive,
+    #[default]
+    Complete,
+}
+
+impl DocumentReadyState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Loading => "loading",
+            Self::Interactive => "interactive",
+            Self::Complete => "complete",
+        }
+    }
+}
+
+/// Immutable native provenance. The sealed capability is authenticated by the
+/// browser parent; author properties and URL strings cannot grant its authority.
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DocumentProvenance {
+    pub capability: Vec<u8>,
+    pub origin: String,
+    pub origin_key: String,
+    pub inert: bool,
+}
+impl std::fmt::Debug for DocumentProvenance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DocumentProvenance")
+            .field("origin", &self.origin)
+            .field("inert", &self.inert)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RegisteredCustomProperty {
+    pub name: String,
+    pub syntax: String,
+    pub inherits: bool,
+    pub initial_value: Option<String>,
+    pub base_url: String,
+}
+
+/// Native mutable origin-domain component. Cloned Documents retain this cell;
+/// strict origin and frozen navigation capabilities are stored independently.
+#[derive(Debug, Clone, Default)]
+pub struct DocumentDomainCell(pub std::sync::Arc<std::sync::RwLock<Option<String>>>);
+impl DocumentDomainCell {
+    pub fn get(&self) -> Option<String> {
+        self.0
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+    pub fn set(&self, value: Option<String>) {
+        *self.0.write().unwrap_or_else(|error| error.into_inner()) = value;
+    }
+    pub fn is_some(&self) -> bool {
+        self.0
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_some()
+    }
+}
+impl PartialEq for DocumentDomainCell {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0) || self.get() == other.get()
+    }
+}
+impl Eq for DocumentDomainCell {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentMetadata {
+    /// Optional DOM-access domain; never replaces the strict origin capability.
+    pub relaxed_domain: DocumentDomainCell,
+    pub registered_custom_properties: Vec<RegisteredCustomProperty>,
+    pub provenance: Option<std::sync::Arc<DocumentProvenance>>,
+    /// Header-delivered CSP on an active native browsing-context Document.
+    pub hide_nonces: bool,
+    pub content_language: Option<String>,
+    pub pragma_language: Option<String>,
+    pub preferred_style_set: Option<String>,
+    pub last_style_set: Option<String>,
+    pub design_mode: bool,
+    /// Successful native CSS image resources for this Document only.
+    pub css_image_intrinsics: BTreeMap<String, (u32, u32)>,
+    /// Bounded successful native SVG image responses; not authored resource data.
+    pub css_svg_resources: Vec<oryn_common::v4::PaintImageResource>,
+    pub ready_state: DocumentReadyState,
     pub url: Option<String>,
+    /// Referrer of the request that created this Document, never a Window global.
+    pub referrer: String,
+    /// Creator base retained by about:blank/srcdoc Documents independently of
+    /// whichever Document subsequently occupies their Window.
+    pub inherited_base_url: Option<String>,
     pub encoding: String,
     pub content_type: String,
     pub is_html: bool,
@@ -128,8 +287,22 @@ pub struct DocumentMetadata {
 impl Default for DocumentMetadata {
     fn default() -> Self {
         Self {
+            relaxed_domain: DocumentDomainCell::default(),
+            provenance: None,
+            hide_nonces: false,
+            content_language: None,
+            pragma_language: None,
+            preferred_style_set: None,
+            last_style_set: None,
+            design_mode: false,
+            css_image_intrinsics: BTreeMap::new(),
+            css_svg_resources: Vec::new(),
+            registered_custom_properties: Vec::new(),
+            ready_state: DocumentReadyState::Complete,
             content_type: "application/xml".into(),
             url: None,
+            referrer: String::new(),
+            inherited_base_url: None,
             encoding: "UTF-8".into(),
             is_html: false,
             quirks: false,
@@ -160,6 +333,17 @@ pub struct SelectedFile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
     pub kind: NodeKind,
+    /// HTML script scheduling state; never an authored attribute.
+    pub script_force_async: bool,
+    pub script_already_started: bool,
+    /// Last script text accepted by a script-specific setter or the parser.
+    /// Compare actual child text at preparation; splitting/normalizing text
+    /// does not discard trust when the resulting source is unchanged.
+    pub script_trusted_text: String,
+    pub script_parser_document: Option<NodeRef>,
+    pub parser_open_document: Option<NodeRef>,
+    pub cryptographic_nonce: Option<String>,
+    pub parser_duplicate_attributes: bool,
     /// Native node-document identity, independent of parentage and realms.
     pub owner_document: Option<NodeId>,
     pub document_metadata: Option<Box<DocumentMetadata>>,
@@ -179,22 +363,64 @@ pub struct Node {
     pub stylesheet_override: Option<String>,
     /// Native CSSOM media text, independent of the owner element attribute.
     pub stylesheet_media: Option<String>,
+    /// Explicit CSSOM disabled override, separate from owner attributes.
+    pub stylesheet_disabled: Option<bool>,
+    /// Native CSP state; author stylesheet enablement cannot override this.
+    pub stylesheet_policy_allowed: bool,
+    pub stylesheet_parser_ready: bool,
+    pub style_attribute_policy_allowed: bool,
+    pub style_attribute_cssom: bool,
+    pub style_attribute_revision: u64,
+    /// Native response/construction URL used by CSS parsing and resource resolution.
+    pub stylesheet_base_url: Option<String>,
     /// Inert template contents, outside the light DOM tree.
     pub template_content: Option<NodeId>,
     /// Host-including ancestry for template fragments, never parentNode or
     /// connectivity ancestry. Adoption of the fragment preserves this edge.
     pub template_host: Option<NodeId>,
     pub value: Option<String>,
+    /// Output value-mode default; None keeps descendant text authoritative.
+    pub(crate) output_default: Option<String>,
+    pub submit_behavior: Option<SubmitButtonBehavior>,
+    /// Native custom-element registry identity: None is not initialized,
+    /// Some(None) is an explicitly null scoped association.
+    pub custom_element_registry: Option<Option<u64>>,
+    /// Declarative shadow construction keeps a null registry through adoption.
+    pub custom_element_registry_keep_null: bool,
+    /// Creation-time is value, independent of subsequent attribute mutation.
+    pub custom_element_is: Option<String>,
+    /// Synchronous autonomous construction fallback; authored clones construct afresh.
+    pub custom_element_creation_failed: bool,
+    /// Captured definition policy; None permits legacy native parser policy.
+    pub custom_element_shadow_disabled: Option<bool>,
     /// Script/user assignment differs from native value sanitization.
     pub dirty_value: bool,
     /// Whether the current value was last changed by native user editing.
     pub user_edited_value: bool,
+    pub temporal_edit: Option<TemporalEdit>,
+    pub temporal_picker: Option<TemporalPicker>,
+    pub file_picker: Option<FilePicker>,
+    pub permission_prompt: Option<PermissionPrompt>,
+    /// HTML user validity is independent of dirty value and survives script assignment.
+    pub user_validity: bool,
     pub pending_edit_value: Option<String>,
     pub selected_files: Arc<Vec<SelectedFile>>,
     /// Last selected image-button coordinate; not an authored attribute.
     pub image_coordinates: (i32, i32),
     /// Decoded resource dimensions, separate from authored width/height.
     pub image_dimensions: Option<(u32, u32)>,
+    pub image_intrinsics: Option<ImageIntrinsics>,
+    /// Selected picture source presentation hints; never authored img attributes.
+    pub image_source_size: Option<(Option<u32>, Option<u32>)>,
+    /// Native MediaStream frame PNG; never an authored attribute.
+    pub media_frame: Option<Vec<u8>>,
+    pub media_poster: Option<Vec<u8>>,
+    pub media_poster_is_svg: bool,
+    /// Native object/embed Document representation; independent of image pixels.
+    pub embedded_document_active: bool,
+    pub embedded_load_failed: bool,
+    pub media_poster_dimensions: Option<(u32, u32)>,
+    pub showing_poster: bool,
     /// None means the parser-provided checked attribute is still authoritative.
     /// Radio-group updates may supply an override without making it dirty.
     pub checkedness: Option<bool>,
@@ -203,8 +429,27 @@ pub struct Node {
     pub selectedness: Option<bool>,
     pub dirty_selectedness: bool,
     pub custom_validity_message: String,
+    pub dialog_return_value: String,
+    default_accessibility: BTreeMap<String, String>,
+    default_accessibility_references: BTreeMap<String, Vec<NodeId>>,
+    explicit_accessibility_references: BTreeMap<String, Vec<NodeId>>,
+    accessibility_reference_revision: u64,
     pub indeterminate: bool,
+    pub custom_element_defined: bool,
+    pub permission_granted: bool,
+    pub(crate) interest_source: bool,
+    pub(crate) media_selector_state: Option<u8>,
+    pub(crate) interest_target: bool,
     pub sensitive_value: bool,
+    pub manual_slot_assignment: bool,
+    /// Resolved native assignment for immutable semantic/layout snapshots.
+    pub native_resolved_slot_nodes: Option<Vec<NodeId>>,
+    pub delegates_focus: bool,
+    pub shadow_serializable: bool,
+    /// Original declarative stylesheet specifiers; absent and authored empty differ.
+    pub shadow_adopted_stylesheet_specifiers: Option<String>,
+    pub(crate) shadow_reference_target: Option<String>,
+    pub declarative_shadow_root: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -215,6 +460,20 @@ struct Slot {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DomError {
+    #[error("native top-layer capacity exceeded")]
+    TopLayerCapacity,
+    #[error(
+        "state-preserving move requires an eligible node in the same document and connection state"
+    )]
+    InvalidStatePreservingMove,
+    #[error("child text source exceeds native capacity")]
+    ChildTextCapacity,
+    #[error("DOM migration destination capacity exceeded")]
+    MigrationCapacity,
+    #[error("DOM migration inputs changed after preparation")]
+    MigrationChanged,
+    #[error("invalid native UI locale")]
+    InvalidUiLocale,
     #[error("pattern validation failed: {0}")]
     PatternEvaluation(&'static str),
     #[error("node belongs to arena {actual:?}, not {expected:?}")]
@@ -251,6 +510,8 @@ pub enum DomError {
     },
     #[error("unknown live range {0:?}")]
     UnknownRange(LiveRangeId),
+    #[error("unknown node iterator {0:?}")]
+    UnknownIterator(NodeIteratorId),
     #[error(transparent)]
     OpaqueRange(#[from] OpaqueRangeError),
 }
@@ -267,6 +528,12 @@ pub struct DomArena {
     /// Host associations are projection/lifetime edges, never DOM tree edges.
     hosted_documents: BTreeMap<NodeId, NodeId>,
     retired_documents: BTreeSet<NodeId>,
+    // Projection-only generated speech; never authored DOM text or attributes.
+    accessibility_generated_content: BTreeMap<NodeId, (String, String)>,
+    accessibility_computed_visibility: BTreeMap<NodeId, (bool, bool)>,
+    accessibility_computed_text_style: BTreeMap<NodeId, (String, String)>,
+    /// Native successful FACE definitions, retained in semantic snapshots.
+    form_associated_custom_elements: BTreeSet<NodeId>,
 }
 
 impl Default for DomArena {
@@ -281,6 +548,10 @@ impl Default for DomArena {
             name_attribute_revisions: BTreeMap::new(),
             hosted_documents: BTreeMap::new(),
             retired_documents: BTreeSet::new(),
+            accessibility_generated_content: BTreeMap::new(),
+            accessibility_computed_visibility: BTreeMap::new(),
+            accessibility_computed_text_style: BTreeMap::new(),
+            form_associated_custom_elements: BTreeSet::new(),
         }
     }
 }
@@ -289,16 +560,30 @@ impl Clone for DomArena {
     fn clone(&self) -> Self {
         // A snapshot can evolve independently. Local NodeIds are preserved for
         // projection, but it must never accept the source arena's live handles.
+        let id = ArenaId::fresh();
+        let mut slots = self.slots.clone();
+        for slot in &mut slots {
+            if let Some(record) = slot.node.as_mut()
+                && let Some(parser) = record.script_parser_document.as_mut()
+                && parser.arena == self.id
+            {
+                parser.arena = id;
+            }
+        }
         Self {
-            id: ArenaId::fresh(),
+            id,
             allocation_document: self.allocation_document,
-            slots: self.slots.clone(),
+            slots,
             free: self.free.clone(),
             attribute_nodes: self.attribute_nodes.clone(),
             stylesheet_revisions: self.stylesheet_revisions.clone(),
             name_attribute_revisions: self.name_attribute_revisions.clone(),
             hosted_documents: self.hosted_documents.clone(),
             retired_documents: self.retired_documents.clone(),
+            accessibility_generated_content: self.accessibility_generated_content.clone(),
+            accessibility_computed_visibility: self.accessibility_computed_visibility.clone(),
+            accessibility_computed_text_style: self.accessibility_computed_text_style.clone(),
+            form_associated_custom_elements: self.form_associated_custom_elements.clone(),
         }
     }
 }
@@ -436,6 +721,10 @@ impl DomArena {
         let mut arena = Self {
             hosted_documents: BTreeMap::new(),
             retired_documents: BTreeSet::new(),
+            accessibility_generated_content: BTreeMap::new(),
+            accessibility_computed_visibility: BTreeMap::new(),
+            accessibility_computed_text_style: BTreeMap::new(),
+            form_associated_custom_elements: BTreeSet::new(),
             id: ArenaId::fresh(),
             allocation_document: None,
             slots: previous
@@ -565,31 +854,7 @@ impl DomArena {
     }
 
     fn assign_node_document(&mut self, root: NodeId, document: NodeId) -> Result<(), DomError> {
-        self.document_id(document)?;
-        let mut pending = vec![(root, document)];
-        let mut seen = BTreeSet::new();
-        while let Some((node, document)) = pending.pop() {
-            if !seen.insert(node) {
-                return Err(DomError::Cycle);
-            }
-            if matches!(self.get(node)?.kind, NodeKind::Document) {
-                // Never change a Document's identity or cross a host edge.
-                continue;
-            }
-            pending.extend(
-                self.attribute_node_ids(node)
-                    .into_iter()
-                    .map(|id| (id, document)),
-            );
-            let record = self.get_mut(node)?;
-            record.owner_document = Some(document);
-            pending.extend(record.children.iter().copied().map(|id| (id, document)));
-            if let Some(content) = record.template_content {
-                let owner = self.template_contents_owner_document(document)?;
-                pending.push((content, owner));
-            }
-        }
-        Ok(())
+        insertion::DocumentAssignment::new(self.id(), root, document).resume(self)
     }
 
     fn template_contents_owner_document(&mut self, document: NodeId) -> Result<NodeId, DomError> {
@@ -665,6 +930,8 @@ impl DomArena {
             self.assign_node_document(child, document)?;
         }
         self.invalidate_stylesheet_subtree(child)?;
+        self.initialize_preferred_style_set(child)?;
+        self.process_language_pragmas(child)?;
         Ok(())
     }
 
@@ -701,6 +968,8 @@ impl DomArena {
         if let Some(document) = self.node_document(parent)? {
             self.assign_node_document(node, document)?;
         }
+        self.initialize_preferred_style_set(node)?;
+        self.process_language_pragmas(node)?;
         Ok(())
     }
 
@@ -726,6 +995,7 @@ impl DomArena {
         }
         self.stylesheet_revisions.remove(&id);
         self.name_attribute_revisions.remove(&id);
+        self.form_associated_custom_elements.remove(&id);
         self.hosted_documents
             .retain(|frame, document| *frame != id && *document != id);
         self.retired_documents.remove(&id);
@@ -805,6 +1075,38 @@ impl DomArena {
         })
     }
 
+    /// Source eligibility, independent of connection, loading and disabled state.
+    pub fn is_css_stylesheet_owner(&self, id: NodeId) -> Result<bool, DomError> {
+        let node = self.get(id)?;
+        if matches!(node.kind, NodeKind::ProcessingInstruction { .. }) {
+            return Ok(self.xml_stylesheet(id)?.is_some());
+        }
+        let NodeKind::Element { name } = &node.kind else {
+            return Ok(false);
+        };
+        let html = name.ns.as_ref() == "http://www.w3.org/1999/xhtml";
+        let svg = name.ns.as_ref() == "http://www.w3.org/2000/svg";
+        if !node
+            .attributes
+            .get_null("type")
+            .is_none_or(|value| value.is_empty() || value.eq_ignore_ascii_case("text/css"))
+        {
+            return Ok(false);
+        }
+        Ok(((html || svg) && name.local.as_ref() == "style")
+            || (html
+                && name.local.as_ref() == "link"
+                && node.attributes.get_null("rel").is_some_and(|value| {
+                    value
+                        .split_ascii_whitespace()
+                        .any(|token| token.eq_ignore_ascii_case("stylesheet"))
+                })
+                && node
+                    .attributes
+                    .get_null("href")
+                    .is_some_and(|value| !value.trim().is_empty())))
+    }
+
     /// Effective source consumed by the style engine after CSSOM edits.
     pub fn stylesheet_text(&self, id: NodeId) -> Result<String, DomError> {
         match &self.get(id)?.stylesheet_override {
@@ -815,6 +1117,11 @@ impl DomArena {
 
     pub fn stylesheet_media(&self, id: NodeId) -> Result<String, DomError> {
         let node = self.get(id)?;
+        if node.stylesheet_media.is_none()
+            && let Some(sheet) = self.xml_stylesheet(id)?
+        {
+            return Ok(sheet.media);
+        }
         Ok(node.stylesheet_media.clone().unwrap_or_else(|| {
             node.attributes
                 .get_null("media")
@@ -835,53 +1142,45 @@ impl DomArena {
     }
 
     fn invalidate_stylesheet_subtree(&mut self, root: NodeId) -> Result<(), DomError> {
-        let mut pending = vec![root];
-        while let Some(node) = pending.pop() {
-            let record = self.get_mut(node)?;
-            let sheet = matches!(&record.kind, NodeKind::Element { name } if matches!(name.local.as_ref(), "style" | "link"));
-            if sheet {
-                record.stylesheet_override = None;
-                record.stylesheet_media = None;
-            }
-            pending.extend(record.children.iter().copied());
-            if sheet {
-                self.bump_stylesheet_revision(node);
-            }
-        }
-        Ok(())
+        insertion::StyleInvalidation::subtree(self, root)?.resume(self)
     }
 
-    fn invalidate_stylesheet_ancestors(
-        &mut self,
-        mut node: Option<NodeId>,
-    ) -> Result<(), DomError> {
-        while let Some(id) = node {
-            let record = self.get_mut(id)?;
-            record.stylesheet_override = None;
-            let sheet = matches!(&record.kind, NodeKind::Element { name } if matches!(name.local.as_ref(), "style" | "link"));
-            node = record.parent;
-            if sheet {
-                self.get_mut(id)?.stylesheet_media = None;
-                self.bump_stylesheet_revision(id);
-            }
-        }
-        Ok(())
+    fn invalidate_stylesheet_ancestors(&mut self, node: Option<NodeId>) -> Result<(), DomError> {
+        insertion::StyleInvalidation::ancestors(self, node)?.resume(self)
     }
 
+    /// Character data for a character-data node; otherwise descendant text
+    /// in light-tree order. Document callers use this internal extraction
+    /// helper; the public Document.textContent getter returns null.
     pub fn text_content(&self, id: NodeId) -> Result<String, DomError> {
         let node = self.get(id)?;
-        if let NodeKind::Text { data }
-        | NodeKind::CDataSection { data }
-        | NodeKind::ProcessingInstruction { data, .. }
-        | NodeKind::Comment { data } = &node.kind
-        {
-            return Ok(data.clone());
+        match &node.kind {
+            NodeKind::Text { data }
+            | NodeKind::CDataSection { data }
+            | NodeKind::ProcessingInstruction { data, .. }
+            | NodeKind::Comment { data } => return Ok(data.clone()),
+            NodeKind::Attribute { data, .. } => return Ok(data.value.clone()),
+            _ => {}
         }
-        let mut result = String::new();
-        for child in &node.children {
-            result.push_str(&self.text_content(*child)?);
+        let mut result = Vec::new();
+        let mut pending = node.children.iter().rev().copied().collect::<Vec<_>>();
+        let mut seen = BTreeSet::from([id]);
+        while let Some(child) = pending.pop() {
+            if !seen.insert(child) {
+                return Err(DomError::Cycle);
+            }
+            let record = self.get(child)?;
+            match &record.kind {
+                NodeKind::Text { data } | NodeKind::CDataSection { data } => {
+                    result.extend(dom_string::units(data))
+                }
+                NodeKind::Element { .. } => pending.extend(record.children.iter().rev().copied()),
+                // Internal shadow and browsing-document edges are not DOM
+                // children for descendant text, nor are template contents.
+                _ => {}
+            }
         }
-        Ok(result)
+        Ok(dom_string::from_units(&result))
     }
 
     fn slot(&self, id: NodeId) -> Option<&Slot> {
@@ -899,7 +1198,16 @@ impl DomArena {
 fn new_node(kind: NodeKind) -> Node {
     let document_metadata =
         matches!(kind, NodeKind::Document).then(|| Box::new(DocumentMetadata::default()));
+    let script_force_async = matches!(&kind, NodeKind::Element { name }
+        if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "script");
     Node {
+        script_force_async,
+        script_already_started: false,
+        script_trusted_text: String::new(),
+        script_parser_document: None,
+        parser_open_document: None,
+        cryptographic_nonce: None,
+        parser_duplicate_attributes: false,
         owner_document: None,
         document_metadata,
         associated_inert_document: None,
@@ -911,22 +1219,67 @@ fn new_node(kind: NodeKind) -> Node {
         adopted_stylesheets: Vec::new(),
         stylesheet_override: None,
         stylesheet_media: None,
+        stylesheet_disabled: None,
+        stylesheet_policy_allowed: true,
+        stylesheet_parser_ready: true,
+        style_attribute_policy_allowed: true,
+        style_attribute_cssom: false,
+        style_attribute_revision: 0,
+        stylesheet_base_url: None,
         template_content: None,
         template_host: None,
         value: None,
+        output_default: None,
+        submit_behavior: None,
+        custom_element_registry: None,
+        custom_element_registry_keep_null: false,
+        custom_element_is: None,
+        custom_element_creation_failed: false,
+        custom_element_shadow_disabled: None,
         dirty_value: false,
         user_edited_value: false,
+        temporal_edit: None,
+        temporal_picker: None,
+        file_picker: None,
+        permission_prompt: None,
+        user_validity: false,
         pending_edit_value: None,
         selected_files: Arc::new(Vec::new()),
         image_coordinates: (0, 0),
         image_dimensions: None,
+        image_intrinsics: None,
+        image_source_size: None,
+        media_frame: None,
+        media_poster: None,
+        media_poster_is_svg: false,
+        embedded_document_active: false,
+        embedded_load_failed: false,
+        media_poster_dimensions: None,
+        showing_poster: true,
         checkedness: None,
         dirty_checkedness: false,
         selectedness: None,
         dirty_selectedness: false,
         custom_validity_message: String::new(),
+        dialog_return_value: String::new(),
+        default_accessibility: BTreeMap::new(),
+        default_accessibility_references: BTreeMap::new(),
+        explicit_accessibility_references: BTreeMap::new(),
+        accessibility_reference_revision: 0,
         indeterminate: false,
+        custom_element_defined: false,
+        permission_granted: false,
+        media_selector_state: None,
+        interest_source: false,
+        interest_target: false,
         sensitive_value: false,
+        manual_slot_assignment: false,
+        native_resolved_slot_nodes: None,
+        delegates_focus: false,
+        shadow_serializable: false,
+        shadow_adopted_stylesheet_specifiers: None,
+        shadow_reference_target: None,
+        declarative_shadow_root: false,
     }
 }
 
@@ -934,6 +1287,41 @@ fn new_node(kind: NodeKind) -> Node {
 pub struct MutationSiblings {
     pub previous: Option<NodeId>,
     pub next: Option<NodeId>,
+    /// Native moveBefore provenance; serialized observations cannot forge it.
+    #[serde(skip)]
+    pub state_preserving_move: bool,
+}
+
+/// Native custody for exactly one removal. Serialization intentionally drops
+/// authority; cloned in-process batches share the consumed bit.
+#[derive(Debug, Clone, Default)]
+pub struct MutationRemovalLease(Option<Arc<std::sync::atomic::AtomicBool>>);
+impl PartialEq for MutationRemovalLease {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+impl Eq for MutationRemovalLease {}
+impl MutationRemovalLease {
+    fn new() -> Self {
+        Self(Some(Arc::new(std::sync::atomic::AtomicBool::new(false))))
+    }
+    fn consumed(&self) -> bool {
+        self.0
+            .as_ref()
+            .is_none_or(|state| state.load(std::sync::atomic::Ordering::Relaxed))
+    }
+    fn consume(&self) {
+        if let Some(state) = &self.0 {
+            state.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    fn same(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -948,6 +1336,8 @@ pub enum Mutation {
         observer_suppressed: bool,
     },
     Removed {
+        #[serde(skip)]
+        lease: MutationRemovalLease,
         node: NodeId,
         former_parent: Option<NodeId>,
         #[serde(default)]
@@ -991,6 +1381,10 @@ pub enum Mutation {
     },
     DocumentOwnership {
         node: NodeId,
+        /// Native adoption provenance; initial owner assignment must not rebind
+        /// an explicitly null custom-element registry.
+        #[serde(skip)]
+        previous_document: Option<NodeId>,
     },
     EventListener {
         node: NodeId,
@@ -1026,7 +1420,10 @@ struct MutationJournal {
     entries: VecDeque<(u64, Mutation)>,
     next: u64,
     observer: MutationCursor,
-    discarded_removed_roots: Vec<NodeId>,
+    discarded_removed_roots: Vec<(NodeId, MutationRemovalLease)>,
+    // Custody survives observer draining and bounded entry eviction.
+    outstanding_removed_roots: BTreeMap<NodeId, u32>,
+    removed_leases: BTreeMap<NodeId, Vec<MutationRemovalLease>>,
 }
 
 impl Default for MutationJournal {
@@ -1036,6 +1433,8 @@ impl Default for MutationJournal {
             next: 1,
             observer: MutationCursor::default(),
             discarded_removed_roots: Vec::new(),
+            outstanding_removed_roots: BTreeMap::new(),
+            removed_leases: BTreeMap::new(),
         }
     }
 }
@@ -1043,18 +1442,27 @@ impl Default for MutationJournal {
 impl MutationJournal {
     const MAX_ENTRIES: usize = 16_384;
 
-    fn push(&mut self, mutation: Mutation) {
+    fn push(&mut self, mut mutation: Mutation) {
+        if let Mutation::Removed { node, lease, .. } = &mut mutation {
+            *lease = MutationRemovalLease::new();
+            self.removed_leases
+                .entry(*node)
+                .or_default()
+                .push(lease.clone());
+            *self.outstanding_removed_roots.entry(*node).or_default() += 1;
+        }
         let sequence = self.next;
         self.next = self.next.saturating_add(1);
         self.entries.push_back((sequence, mutation));
         while self.entries.len() > Self::MAX_ENTRIES {
-            if let Some((sequence, Mutation::Removed { node, .. })) = self.entries.pop_front()
+            if let Some((sequence, Mutation::Removed { node, lease, .. })) =
+                self.entries.pop_front()
                 && sequence > self.observer.0
             {
                 // The bounded journal no longer exposes this entry, but its
                 // lease must still be released at a safe delivery checkpoint.
                 // Entries already drained transfer that lease to their batch.
-                self.discarded_removed_roots.push(node);
+                self.discarded_removed_roots.push((node, lease));
             }
         }
     }
@@ -1124,24 +1532,62 @@ struct NodeRoots {
     native: u32,
 }
 
-#[derive(Debug, Default, Clone)]
+/// A native, callback-free registry admission checkpoint. It must be restored
+/// only before exposing the staged associations to author code.
+pub struct CustomRegistryAdmission {
+    arena: ArenaId,
+    associations: Vec<(NodeId, Option<Option<u64>>)>,
+    documents: BTreeMap<(u64, NodeId), u64>,
+}
+
+/// Live leases, iterators and mutation consumers belong to one runtime.
+/// Use `snapshot` and `from_parsed` to create independent document state.
+#[derive(Debug, Default)]
 pub struct DomRuntime {
+    render_blocking: render_blocking::State,
+    parser_shadow_disabled: BTreeMap<NodeId, BTreeSet<String>>,
+    global_custom_element_registries: BTreeSet<u64>,
+    custom_registry_documents: BTreeMap<(u64, NodeId), u64>,
+    native_ui_locale: Option<String>,
+    control_locales: BTreeMap<String, ControlLocale>,
+    top_layer: Vec<TopLayerEntry>,
+    popover_transitions: BTreeSet<NodeId>,
+    popover_pointer_down: Option<Option<NodeId>>,
+    selected_content_updating: bool,
+    slot_elements: BTreeSet<NodeId>,
+    slot_assignment_snapshots: BTreeMap<NodeId, Vec<NodeId>>,
+    pending_slot_changes: Vec<NodeId>,
+    manual_slot_nodes: BTreeMap<NodeId, Vec<NodeId>>,
+    manual_node_slots: BTreeMap<NodeId, NodeId>,
     pattern_matcher: Option<Rc<dyn PatternMatcher>>,
     arena: DomArena,
     document: Option<NodeId>,
     connected: BTreeSet<NodeId>,
     frame_context_generations: BTreeMap<NodeId, u64>,
+    frame_navigation_identities: BTreeMap<NodeId, std::sync::Arc<()>>,
     roots: BTreeMap<NodeId, NodeRoots>,
+    pending_cursor_releases: Vec<NodeId>,
+    pending_tree_tails: VecDeque<crate::insertion::CommittedTreeTail>,
+    draining_tree_tails: bool,
+    pending_stylesheet_reclaims: BTreeSet<NodeId>,
     /// Conservative targets of internal non-tree edges. Used only to avoid
     /// full graph tracing for ordinary detached tree components.
     internal_targets: BTreeSet<NodeId>,
     mutations: MutationJournal,
+    xpath_revisions: BTreeMap<NodeId, Rc<()>>,
     focused: Option<NodeId>,
     focus_ring_suppressed: bool,
     next_range: u64,
     ranges: BTreeMap<LiveRangeId, LiveRange>,
+    composed_selection_ranges: BTreeSet<LiveRangeId>,
+    range_shadow_removals: BTreeMap<LiveRangeId, u64>,
+    next_iterator: u64,
+    node_iterators: BTreeMap<NodeIteratorId, Rc<node_iterators::NodeIteratorRecord>>,
+    boundary_journal: boundary_journal::Journal,
     opaque_ranges: OpaqueRangeStore,
     radio_form_owners: BTreeMap<NodeId, Option<NodeId>>,
+    /// Native validity flags for registered form-associated custom elements.
+    custom_element_validity: BTreeMap<NodeId, BTreeSet<String>>,
 }
 
 impl DomRuntime {
@@ -1182,11 +1628,27 @@ impl DomRuntime {
         document: NodeId,
     ) -> Result<(), DomError> {
         arena.get(document)?;
+        self.slot_assignment_snapshots.clear();
+        self.pending_slot_changes.clear();
+        self.top_layer.clear();
+        self.popover_transitions.clear();
+        self.popover_pointer_down = None;
+        self.selected_content_updating = false;
+        self.manual_slot_nodes.clear();
+        self.manual_node_slots.clear();
+        self.xpath_revisions.clear();
+        self.render_blocking = Default::default();
+        self.retire_node_iterators();
         self.arena = arena;
         self.document = Some(document);
         self.connected.clear();
         self.frame_context_generations.clear();
+        self.frame_navigation_identities.clear();
         self.roots.clear();
+        self.pending_tree_tails.clear();
+        self.draining_tree_tails = false;
+        self.pending_cursor_releases.clear();
+        self.pending_stylesheet_reclaims.clear();
         self.internal_targets.clear();
         self.index_internal_targets();
         self.mutations.clear();
@@ -1194,8 +1656,14 @@ impl DomRuntime {
         self.focus_ring_suppressed = false;
         self.next_range = 0;
         self.ranges.clear();
+        self.composed_selection_ranges.clear();
+        self.range_shadow_removals.clear();
+        self.next_iterator = 0;
+        self.boundary_journal = boundary_journal::Journal::default();
         self.opaque_ranges = OpaqueRangeStore::default();
         self.radio_form_owners.clear();
+        self.arena.form_associated_custom_elements.clear();
+        self.custom_element_validity.clear();
         self.rebuild_document_indexes()?;
         self.initialize_checkedness()?;
         self.initialize_selects()?;
@@ -1210,12 +1678,36 @@ impl DomRuntime {
         &mut self.arena
     }
 
+    pub fn node_document(&self, node: NodeId) -> Result<Option<NodeId>, DomError> {
+        self.arena.node_document(node)
+    }
+
     /// Ordinary reparenting discards a browsing context even when removal and
     /// insertion happen in one call; state-preserving moveBefore does not.
     pub fn track_frame_context(&mut self, frame: NodeId) -> u64 {
         *self.frame_context_generations.entry(frame).or_insert(1)
     }
 
+    pub fn frame_navigation_identity(&mut self, frame: NodeId) -> std::sync::Arc<()> {
+        self.frame_navigation_identities
+            .entry(frame)
+            .or_default()
+            .clone()
+    }
+    pub fn frame_navigation_identity_is_current(
+        &self,
+        frame: NodeId,
+        identity: &std::sync::Arc<()>,
+    ) -> bool {
+        self.frame_navigation_identities
+            .get(&frame)
+            .is_some_and(|current| std::sync::Arc::ptr_eq(current, identity))
+    }
+    pub fn invalidate_frame_navigation_identity(&mut self, frame: NodeId) {
+        if let Some(identity) = self.frame_navigation_identities.get_mut(&frame) {
+            *identity = std::sync::Arc::new(());
+        }
+    }
     pub fn frame_context_generation(&self, frame: NodeId) -> Option<u64> {
         self.frame_context_generations.get(&frame).copied()
     }
@@ -1225,8 +1717,23 @@ impl DomRuntime {
     }
 
     fn index_internal_targets(&mut self) {
+        self.index_slot_elements();
         for (_, record) in self.arena.iter() {
             self.internal_targets.extend(record.template_content);
+            self.internal_targets.extend(
+                record
+                    .default_accessibility_references
+                    .values()
+                    .flatten()
+                    .copied(),
+            );
+            self.internal_targets.extend(
+                record
+                    .explicit_accessibility_references
+                    .values()
+                    .flatten()
+                    .copied(),
+            );
             self.internal_targets
                 .extend(record.adopted_stylesheets.iter().copied());
         }
@@ -1240,6 +1747,26 @@ impl DomRuntime {
         let previous = self.ownership_before_adoption(node, Some(document))?;
         self.arena.assign_node_document(node, document)?;
         self.publish_ownership_changes(previous)?;
+        Ok(())
+    }
+
+    /// Fresh clone/import ownership is initialization, not adoption. Preserve
+    /// copied registry slots until the caller applies cloning's fallback rules.
+    pub fn initialize_cloned_node_document(
+        &mut self,
+        node: NodeId,
+        document: NodeId,
+    ) -> Result<(), DomError> {
+        self.arena.document_id(document)?;
+        let previous = self.ownership_before_adoption(node, Some(document))?;
+        self.arena.assign_node_document(node, document)?;
+        for (node, _) in previous {
+            self.note_custom_registry_document(node)?;
+            self.record_mutation(Mutation::DocumentOwnership {
+                node,
+                previous_document: None,
+            });
+        }
         Ok(())
     }
 
@@ -1267,11 +1794,158 @@ impl DomRuntime {
         &mut self,
         previous: Vec<(NodeId, Option<NodeId>)>,
     ) -> Result<(), DomError> {
-        for (node, document) in previous {
-            if self.arena.node_document(node)? != document {
-                self.mutations.push(Mutation::DocumentOwnership { node });
-            }
+        insertion::OwnershipPublication::new(self.arena.id(), previous).resume(self)
+    }
+
+    /// Registry classification is installed by the native binding realm; no
+    /// authored property can turn a scoped registry into a global registry.
+    pub fn register_global_custom_element_registry(&mut self, id: u64) {
+        self.global_custom_element_registries.insert(id);
+    }
+    pub fn has_non_global_shadow_registry(&self, node: NodeId) -> Result<bool, DomError> {
+        Ok(match self.arena.get(node)?.custom_element_registry {
+            None => false,
+            Some(None) => true,
+            Some(Some(id)) => !self.global_custom_element_registries.contains(&id),
+        })
+    }
+
+    /// First association order is shared across native arenas in this process.
+    /// Entries do not root Documents; stale native identities are ignored.
+    pub fn note_custom_registry_document(&mut self, node: NodeId) -> Result<(), DomError> {
+        let record = self.arena.get(node)?;
+        if !matches!(
+            record.kind,
+            NodeKind::Document | NodeKind::Element { .. } | NodeKind::ShadowRoot { .. }
+        ) {
+            return Ok(());
         }
+        let Some(registry) = record.custom_element_registry.flatten() else {
+            return Ok(());
+        };
+        let Some(document) = self.arena.node_document(node)? else {
+            return Ok(());
+        };
+        if self
+            .custom_registry_documents
+            .contains_key(&(registry, document))
+        {
+            return Ok(());
+        }
+        static NEXT_ASSOCIATION: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(1);
+        let sequence = NEXT_ASSOCIATION
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |value| value.checked_add(1),
+            )
+            .map_err(|_| DomError::MigrationCapacity)?;
+        self.custom_registry_documents
+            .insert((registry, document), sequence);
+        Ok(())
+    }
+    pub fn checkpoint_custom_registry_admission(
+        &self,
+        nodes: &[NodeId],
+    ) -> Result<CustomRegistryAdmission, DomError> {
+        let associations = nodes
+            .iter()
+            .map(|node| Ok((*node, self.arena.get(*node)?.custom_element_registry)))
+            .collect::<Result<Vec<_>, DomError>>()?;
+        Ok(CustomRegistryAdmission {
+            arena: self.arena.id(),
+            associations,
+            documents: self.custom_registry_documents.clone(),
+        })
+    }
+    pub fn rollback_custom_registry_admission(&mut self, checkpoint: CustomRegistryAdmission) {
+        assert_eq!(
+            self.arena.id(),
+            checkpoint.arena,
+            "registry admission arena"
+        );
+        // No native tree mutation or author callback occurs during admission.
+        for (node, association) in checkpoint.associations {
+            self.arena
+                .get_mut(node)
+                .expect("retained registry admission node")
+                .custom_element_registry = association;
+        }
+        self.custom_registry_documents = checkpoint.documents;
+    }
+    pub fn set_custom_element_registry(
+        &mut self,
+        node: NodeId,
+        registry: Option<u64>,
+    ) -> Result<(), DomError> {
+        let previous = self.arena.get(node)?.custom_element_registry;
+        self.arena.get_mut(node)?.custom_element_registry = Some(registry);
+        if let Err(error) = self.note_custom_registry_document(node) {
+            self.arena.get_mut(node)?.custom_element_registry = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+    pub fn custom_registry_documents(&self, registry: u64) -> Vec<(u64, NodeId)> {
+        self.custom_registry_documents
+            .iter()
+            .filter_map(|((id, document), sequence)| {
+                (*id == registry
+                    && matches!(
+                        self.arena.get(*document).map(|node| &node.kind),
+                        Ok(NodeKind::Document)
+                    ))
+                .then_some((*sequence, *document))
+            })
+            .collect()
+    }
+
+    fn rebind_adopted_custom_registry(
+        &mut self,
+        node: NodeId,
+        root: Option<NodeId>,
+    ) -> Result<(), DomError> {
+        let record = self.arena.get(node)?;
+        let association = record.custom_element_registry.flatten();
+        let global =
+            association.is_some_and(|id| self.global_custom_element_registries.contains(&id));
+        if association.is_some() && !global {
+            return Ok(());
+        }
+        let document = self.arena.node_document(node)?;
+        let document_registry = document
+            .and_then(|document| self.arena.get(document).ok())
+            .and_then(|record| record.custom_element_registry.flatten());
+        let registry = match record.kind {
+            NodeKind::ShadowRoot { .. } => {
+                if association.is_none() && record.custom_element_registry_keep_null {
+                    return Ok(());
+                }
+                document_registry
+            }
+            NodeKind::Element { .. } => {
+                let parent = record.parent.filter(|_| Some(node) != root);
+                if association.is_some()
+                    || parent.is_none()
+                    || parent.is_some_and(|parent| {
+                        matches!(
+                            self.arena.get(parent).map(|record| &record.kind),
+                            Ok(NodeKind::DocumentFragment)
+                        )
+                    })
+                {
+                    document_registry
+                } else {
+                    parent
+                        .and_then(|parent| self.arena.get(parent).ok())
+                        .and_then(|record| record.custom_element_registry.flatten())
+                }
+            }
+            _ => return Ok(()),
+        };
+        self.arena.get_mut(node)?.custom_element_registry =
+            Some(registry.filter(|id| self.global_custom_element_registries.contains(id)));
         Ok(())
     }
 
@@ -1324,7 +1998,7 @@ impl DomRuntime {
         frame: NodeId,
         document: Option<NodeId>,
     ) -> Result<(), DomError> {
-        if !self.is_element(frame, "http://www.w3.org/1999/xhtml", "iframe") {
+        if self.embedded_content_kind(frame).is_none() {
             return Err(DomError::NotAnElement(frame));
         }
         if self.arena.hosted_document(frame) == document {
@@ -1357,7 +2031,73 @@ impl DomRuntime {
                 self.mark_connected(document)?;
             }
         }
-        self.mutations.push(Mutation::HostedDocument { frame });
+        self.record_mutation(Mutation::HostedDocument { frame });
+        Ok(())
+    }
+
+    pub fn set_embedded_document_active(
+        &mut self,
+        node: NodeId,
+        active: bool,
+    ) -> Result<(), DomError> {
+        let record = self.arena.get_mut(node)?;
+        if record.embedded_document_active != active {
+            record.embedded_document_active = active;
+            self.record_mutation(Mutation::ImageResource { node });
+        }
+        Ok(())
+    }
+    pub fn set_media_poster(
+        &mut self,
+        node: NodeId,
+        png: Option<Vec<u8>>,
+        svg: bool,
+        dimensions: Option<(u32, u32)>,
+    ) -> Result<(), DomError> {
+        let record = self.arena.get_mut(node)?;
+        record.media_poster = png;
+        record.media_poster_is_svg = svg;
+        record.media_poster_dimensions = dimensions;
+        self.record_mutation(Mutation::ImageResource { node });
+        Ok(())
+    }
+    pub fn set_showing_poster(&mut self, node: NodeId, showing: bool) -> Result<(), DomError> {
+        let record = self.arena.get_mut(node)?;
+        if record.showing_poster != showing {
+            record.showing_poster = showing;
+            self.record_mutation(Mutation::ImageResource { node });
+        }
+        Ok(())
+    }
+    pub fn set_media_frame(&mut self, node: NodeId, png: Option<Vec<u8>>) -> Result<(), DomError> {
+        self.arena.get_mut(node)?.media_frame = png;
+        self.record_mutation(Mutation::ImageResource { node });
+        Ok(())
+    }
+
+    pub fn set_image_source_size(
+        &mut self,
+        node: NodeId,
+        size: Option<(Option<u32>, Option<u32>)>,
+    ) -> Result<(), DomError> {
+        let record = self.arena.get_mut(node)?;
+        if record.image_source_size != size {
+            record.image_source_size = size;
+            self.record_mutation(Mutation::ImageResource { node });
+        }
+        Ok(())
+    }
+
+    pub fn set_image_intrinsics(
+        &mut self,
+        node: NodeId,
+        intrinsics: Option<ImageIntrinsics>,
+    ) -> Result<(), DomError> {
+        let record = self.arena.get_mut(node)?;
+        if record.image_intrinsics != intrinsics {
+            record.image_intrinsics = intrinsics;
+            self.record_mutation(Mutation::ImageResource { node });
+        }
         Ok(())
     }
 
@@ -1367,9 +2107,72 @@ impl DomRuntime {
         dimensions: Option<(u32, u32)>,
     ) -> Result<(), DomError> {
         let record = self.arena.get_mut(node)?;
-        if record.image_dimensions != dimensions {
+        if record.image_dimensions != dimensions
+            || dimensions.is_none() && record.image_intrinsics.is_some()
+        {
+            if dimensions.is_none() {
+                record.image_intrinsics = None;
+            }
             record.image_dimensions = dimensions;
-            self.mutations.push(Mutation::ImageResource { node });
+            self.record_mutation(Mutation::ImageResource { node });
+        }
+        Ok(())
+    }
+
+    /// Native image completion publishes dimensions independently of author
+    /// attributes. The owning request service validates URLs, lifetime and size.
+    /// Script registrations are document-owned, survive style-sheet replacement,
+    /// and invalidate the same consumers as a native stylesheet mutation.
+    pub fn register_custom_property(
+        &mut self,
+        document: NodeId,
+        registration: RegisteredCustomProperty,
+    ) -> Result<bool, DomError> {
+        let record = self.arena.get_mut(document)?;
+        let metadata = record
+            .document_metadata
+            .get_or_insert_with(|| Box::new(DocumentMetadata::default()));
+        if metadata
+            .registered_custom_properties
+            .iter()
+            .any(|entry| entry.name == registration.name)
+        {
+            return Ok(false);
+        }
+        metadata.registered_custom_properties.push(registration);
+        self.record_mutation(Mutation::StyleSheets { node: document });
+        Ok(true)
+    }
+
+    pub fn set_css_svg_resources(
+        &mut self,
+        document: NodeId,
+        resources: Vec<oryn_common::v4::PaintImageResource>,
+    ) -> Result<(), DomError> {
+        let metadata = self
+            .arena
+            .get_mut(document)?
+            .document_metadata
+            .get_or_insert_with(|| Box::new(DocumentMetadata::default()));
+        if metadata.css_svg_resources != resources {
+            metadata.css_svg_resources = resources;
+            self.record_mutation(Mutation::ImageResource { node: document });
+        }
+        Ok(())
+    }
+
+    pub fn set_css_image_intrinsics(
+        &mut self,
+        document: NodeId,
+        images: BTreeMap<String, (u32, u32)>,
+    ) -> Result<(), DomError> {
+        let record = self.arena.get_mut(document)?;
+        let metadata = record
+            .document_metadata
+            .get_or_insert_with(|| Box::new(DocumentMetadata::default()));
+        if metadata.css_image_intrinsics != images {
+            metadata.css_image_intrinsics = images;
+            self.record_mutation(Mutation::ImageResource { node: document });
         }
         Ok(())
     }
@@ -1383,7 +2186,8 @@ impl DomRuntime {
 
     pub fn create(&mut self, kind: NodeKind) -> NodeId {
         let node = self.arena.insert(kind);
-        self.mutations.push(Mutation::Inserted {
+        self.register_slot_element(node);
+        self.record_mutation(Mutation::Inserted {
             node,
             parent: None,
             siblings: MutationSiblings::default(),
@@ -1421,6 +2225,123 @@ impl DomRuntime {
                 LocalName::from(local_name),
             ),
         })
+    }
+
+    pub fn script_already_started(&self, node: NodeId) -> Result<bool, DomError> {
+        Ok(self.arena.get(node)?.script_already_started)
+    }
+
+    pub fn mark_script_started(&mut self, node: NodeId) -> Result<(), DomError> {
+        self.arena.get_mut(node)?.script_already_started = true;
+        Ok(())
+    }
+
+    pub fn mark_parser_script(&mut self, node: NodeId) -> Result<(), DomError> {
+        let document = self.arena.node_document(node)?.unwrap_or(self.document());
+        self.mark_parser_script_in(node, document)
+    }
+    pub fn mark_parser_script_in(
+        &mut self,
+        node: NodeId,
+        document: NodeId,
+    ) -> Result<(), DomError> {
+        if !self.is_element(node, "http://www.w3.org/1999/xhtml", "script")
+            && !self.is_element(node, "http://www.w3.org/2000/svg", "script")
+        {
+            return Ok(());
+        }
+        self.arena.get(document)?;
+        let identity = NodeRef {
+            arena: self.arena.id(),
+            node: document,
+        };
+        let record = self.arena.get_mut(node)?;
+        record.script_force_async = false;
+        record.script_parser_document = Some(identity);
+        Ok(())
+    }
+    /// A parser script moved before preparation is consumed without fetch,
+    /// evaluation or load/error publication, including if it later moves back.
+    pub fn reject_moved_parser_script(&mut self, node: NodeId) -> Result<bool, DomError> {
+        if self.arena.get(node)?.script_parser_document.is_none() {
+            return Ok(false);
+        }
+        let record = self.arena.get(node)?;
+        let kind = crate::html::script_block_type(
+            record.attributes.get_null("type").map(String::as_str),
+            record.attributes.get_null("language").map(String::as_str),
+        );
+        let has_source = self.script_external_source(node)?.is_some()
+            || !self
+                .arena
+                .child_text_source(node, 8 * 1024 * 1024)?
+                .is_empty();
+        if !has_source
+            || !self.is_document_connected(node)?
+            || !(kind == "module"
+                || kind == "importmap"
+                || crate::html::is_javascript_mime_type(&kind))
+        {
+            let record = self.arena.get_mut(node)?;
+            record.script_parser_document = None;
+            if !record.attributes.contains_null("async") {
+                record.script_force_async = true;
+            }
+            return Ok(false);
+        }
+        let document = self.arena.node_document(node)?;
+        if document.is_some_and(|document| {
+            self.script_parser_document_matches(node, document)
+                .unwrap_or(false)
+        }) {
+            return Ok(false);
+        }
+        self.mark_script_started(node)?;
+        Ok(true)
+    }
+    pub fn script_parser_document_matches(
+        &self,
+        node: NodeId,
+        document: NodeId,
+    ) -> Result<bool, DomError> {
+        Ok(self
+            .arena
+            .get(node)?
+            .script_parser_document
+            .is_none_or(|identity| {
+                identity
+                    == NodeRef {
+                        arena: self.arena.id(),
+                        node: document,
+                    }
+            }))
+    }
+
+    /// SVG href takes precedence over the legacy XLink href, including an
+    /// explicitly empty href. HTML scripts use only their null-namespace src.
+    pub fn script_external_source(&self, node: NodeId) -> Result<Option<&str>, DomError> {
+        if self.is_element(node, "http://www.w3.org/2000/svg", "script") {
+            if let Some(value) = self.attribute_in_null_namespace(node, "href")? {
+                return Ok(Some(value));
+            }
+            self.attribute_ns(node, Some("http://www.w3.org/1999/xlink"), "href")
+        } else {
+            self.attribute_in_null_namespace(node, "src")
+        }
+    }
+
+    pub fn script_async(&self, node: NodeId) -> Result<bool, DomError> {
+        let node = self.arena.get(node)?;
+        Ok(node.script_force_async || node.attributes.get_null("async").is_some())
+    }
+
+    pub fn set_script_async(&mut self, node: NodeId, asynchronous: bool) -> Result<(), DomError> {
+        self.arena.get_mut(node)?.script_force_async = false;
+        if asynchronous {
+            self.set_attribute_ns(node, None, "async", "")
+        } else {
+            self.remove_attribute_ns(node, None, "async").map(|_| ())
+        }
     }
 
     pub fn create_text(&mut self, data: impl Into<String>) -> NodeId {
@@ -1474,64 +2395,234 @@ impl DomRuntime {
     }
 
     pub fn import_subtree(&mut self, source: &DomArena, node: NodeId) -> Result<NodeId, DomError> {
+        self.import_graph_from(source, node, true, true)
+    }
+
+    pub fn import_node_from(
+        &mut self,
+        source: &DomArena,
+        node: NodeId,
+        deep: bool,
+    ) -> Result<NodeId, DomError> {
+        self.import_graph_from(source, node, deep, false)
+    }
+
+    fn import_graph_from(
+        &mut self,
+        source: &DomArena,
+        node: NodeId,
+        deep: bool,
+        all_shadow: bool,
+    ) -> Result<NodeId, DomError> {
+        // Validate the complete imported graph before allocating destination nodes.
+        // Template contents are separate tree edges; hosted Documents are not
+        // imported DOM children. Reject malformed cycles without native recursion.
+        let mut pending = vec![(node, deep)];
+        let mut seen = BTreeSet::new();
+        while let Some((current, deep)) = pending.pop() {
+            if !seen.insert(current) {
+                return Err(DomError::Cycle);
+            }
+            let record = source.get(current)?;
+            for attribute in source.attribute_node_ids(current) {
+                source.get(attribute)?;
+            }
+            if let Some(content) = record.template_content {
+                pending.push((content, deep));
+            }
+            for child in &record.children {
+                if matches!(source.get(*child)?.kind, NodeKind::ShadowRoot { clonable, .. } if clonable||all_shadow)
+                    || (deep
+                        && !matches!(
+                            source.get(*child)?.kind,
+                            NodeKind::Document | NodeKind::ShadowRoot { .. }
+                        ))
+                {
+                    pending.push((*child,deep || matches!(source.get(*child)?.kind,NodeKind::ShadowRoot{clonable,..}if clonable||all_shadow)));
+                }
+            }
+        }
+
+        enum ImportTask {
+            Expand(NodeId, NodeId, bool),
+            Copy(NodeId, NodeId, bool, bool),
+            Attach(NodeId, NodeId, bool),
+        }
+        let mut allocations = crate::insertion::CursorRoots::new(None, self);
+        let result = (|| {
+            let imported = self.import_shallow_node(source, node)?;
+            allocations.retain(self, imported)?;
+            if !all_shadow {
+                let record = self.arena.get_mut(imported)?;
+                record.declarative_shadow_root = false;
+                record.output_default = None;
+                record.submit_behavior = None;
+            }
+            let mut tasks = vec![ImportTask::Expand(node, imported, deep)];
+            while let Some(task) = tasks.pop() {
+                match task {
+                    ImportTask::Expand(original, target, deep) => {
+                        let record = source.get(original)?;
+                        // LIFO order preserves template-first copying and sibling order.
+                        for child in record.children.iter().rev() {
+                            if matches!(source.get(*child)?.kind, NodeKind::ShadowRoot { clonable, .. } if clonable||all_shadow)
+                                || (deep
+                                    && !matches!(
+                                        source.get(*child)?.kind,
+                                        NodeKind::Document | NodeKind::ShadowRoot { .. }
+                                    ))
+                            {
+                                tasks.push(ImportTask::Copy(*child, target, false, deep || matches!(source.get(*child)?.kind,NodeKind::ShadowRoot{clonable,..}if clonable||all_shadow)));
+                            }
+                        }
+                        if let Some(content) = record.template_content {
+                            tasks.push(ImportTask::Copy(content, target, true, deep));
+                        }
+                    }
+                    ImportTask::Copy(original, parent, template, deep) => {
+                        let target = self.import_shallow_node(source, original)?;
+                        allocations.retain(self, target)?;
+                        if !all_shadow {
+                            let record = self.arena.get_mut(target)?;
+                            record.declarative_shadow_root = false;
+                            record.output_default = None;
+                            record.submit_behavior = None;
+                        }
+                        // Attach only after descendants, preserving adoption and form
+                        // reconciliation behavior of the former recursive import.
+                        tasks.push(ImportTask::Attach(target, parent, template));
+                        tasks.push(ImportTask::Expand(original, target, deep));
+                    }
+                    ImportTask::Attach(target, parent, false) => {
+                        self.append_child(parent, target)?;
+                    }
+                    ImportTask::Attach(target, parent, true) => {
+                        self.arena.get_mut(parent)?.template_content = Some(target);
+                        self.arena.get_mut(target)?.template_host = Some(parent);
+                        self.internal_targets.insert(target);
+                        if let Some(document) = self.arena.node_document(parent)? {
+                            let owner = self.arena.template_contents_owner_document(document)?;
+                            self.arena.assign_node_document(target, owner)?;
+                        }
+                    }
+                }
+            }
+            Ok(imported)
+        })();
+        match result {
+            Ok(imported) => {
+                let handoff = self.with_native_node_handoff([imported], |dom| {
+                    allocations.release(dom)?;
+                    #[cfg(test)]
+                    crate::insertion::checkpoint()?;
+                    Ok(imported)
+                });
+                if handoff.is_err() {
+                    self.reclaim_if_unrooted(imported)?;
+                }
+                handoff
+            }
+            Err(error) => {
+                let _ = allocations.release(self);
+                Err(error)
+            }
+        }
+    }
+
+    pub fn import_shallow_node(
+        &mut self,
+        source: &DomArena,
+        node: NodeId,
+    ) -> Result<NodeId, DomError> {
         let source_node = source.get(node)?;
         let mut kind = source_node.kind.clone();
         if let NodeKind::Attribute { owner, .. } = &mut kind {
             *owner = None;
         }
         let imported = self.create(kind);
-        {
-            let target = self.arena.get_mut(imported)?;
-            target
-                .document_metadata
-                .clone_from(&source_node.document_metadata);
-            target.attributes.clone_from(&source_node.attributes);
-            target.value.clone_from(&source_node.value);
-            target
-                .selected_files
-                .clone_from(&source_node.selected_files);
-            target.checkedness = source_node.checkedness;
-            target.dirty_checkedness = source_node.dirty_checkedness;
-            target.selectedness = source_node.selectedness;
-            target.dirty_selectedness = source_node.dirty_selectedness;
-            target.indeterminate = source_node.indeterminate;
-            target.sensitive_value = source_node.sensitive_value;
-        }
-        for attribute in source.attribute_node_ids(node) {
-            if let NodeKind::Attribute { data, .. } = &source.get(attribute)?.kind {
-                self.set_attribute_ns(
-                    imported,
-                    data.namespace.clone(),
-                    data.name.clone(),
-                    data.value.clone(),
-                )?;
+        let result = self.with_native_node_handoff([imported], |dom| {
+            #[cfg(test)]
+            crate::insertion::checkpoint()?;
+            {
+                let target = dom.arena.get_mut(imported)?;
+                target
+                    .document_metadata
+                    .clone_from(&source_node.document_metadata);
+                target.script_already_started = source_node.script_already_started;
+                target
+                    .cryptographic_nonce
+                    .clone_from(&source_node.cryptographic_nonce);
+                target.parser_duplicate_attributes = source_node.parser_duplicate_attributes;
+                if matches!(target.kind, NodeKind::Document)
+                    && let Some(metadata) = target.document_metadata.as_mut()
+                {
+                    metadata.hide_nonces = false;
+                    metadata.registered_custom_properties.clear();
+                }
+                target.attributes.clone_from(&source_node.attributes);
+                target.value.clone_from(&source_node.value);
+                target
+                    .output_default
+                    .clone_from(&source_node.output_default);
+                target
+                    .submit_behavior
+                    .clone_from(&source_node.submit_behavior);
+                target.custom_element_registry = source_node.custom_element_registry;
+                target.custom_element_registry_keep_null =
+                    source_node.custom_element_registry_keep_null;
+                target
+                    .custom_element_is
+                    .clone_from(&source_node.custom_element_is);
+                target.dirty_value = source_node.dirty_value;
+                target.user_edited_value = source_node.user_edited_value;
+                target
+                    .selected_files
+                    .clone_from(&source_node.selected_files);
+                target.checkedness = source_node.checkedness;
+                target.dirty_checkedness = source_node.dirty_checkedness;
+                target.selectedness = source_node.selectedness;
+                target.dirty_selectedness = source_node.dirty_selectedness;
+                target.indeterminate = source_node.indeterminate;
+                target.sensitive_value = source_node.sensitive_value;
+                target.manual_slot_assignment = source_node.manual_slot_assignment;
+                target.delegates_focus = source_node.delegates_focus;
+                target.shadow_serializable = source_node.shadow_serializable;
+                target
+                    .shadow_adopted_stylesheet_specifiers
+                    .clone_from(&source_node.shadow_adopted_stylesheet_specifiers);
+                target.shadow_reference_target = source_node.shadow_reference_target.clone();
+                target.declarative_shadow_root = source_node.declarative_shadow_root;
             }
-        }
-        self.arena.get_mut(imported)?.checkedness = source_node.checkedness;
-        self.arena.get_mut(imported)?.dirty_checkedness = source_node.dirty_checkedness;
-        self.arena.get_mut(imported)?.selectedness = source_node.selectedness;
-        self.arena.get_mut(imported)?.dirty_selectedness = source_node.dirty_selectedness;
-        if let Some(content) = source_node.template_content {
-            let imported_content = self.import_subtree(source, content)?;
-            self.arena.get_mut(imported)?.template_content = Some(imported_content);
-            self.arena.get_mut(imported_content)?.template_host = Some(imported);
-            self.internal_targets.insert(imported_content);
-            if let Some(document) = self.arena.node_document(imported)? {
-                let owner = self.arena.template_contents_owner_document(document)?;
-                self.arena.assign_node_document(imported_content, owner)?;
+            for attribute in source.attribute_node_ids(node) {
+                if let NodeKind::Attribute { data, .. } = &source.get(attribute)?.kind {
+                    dom.set_attribute_ns(
+                        imported,
+                        data.namespace.clone(),
+                        data.name.clone(),
+                        data.value.clone(),
+                    )?;
+                    #[cfg(test)]
+                    crate::insertion::checkpoint()?;
+                }
             }
-        }
-        for child in &source_node.children {
-            // A hosted frame Document is not DOM content. Until frame hosting
-            // finishes migrating away from tree edges, never import its live
-            // document when importing the embedding element.
-            if matches!(source.get(*child)?.kind, NodeKind::Document) {
-                continue;
+            dom.arena.get_mut(imported)?.checkedness = source_node.checkedness;
+            dom.arena.get_mut(imported)?.dirty_checkedness = source_node.dirty_checkedness;
+            dom.arena.get_mut(imported)?.selectedness = source_node.selectedness;
+            dom.arena.get_mut(imported)?.dirty_selectedness = source_node.dirty_selectedness;
+            // Input cloning copies the exposed sanitized value, not an unfinished
+            // native number/date edit that is not representable by the value IDL.
+            if dom.control_bad_input(imported)? {
+                let value = dom.control_value(imported)?;
+                dom.arena.get_mut(imported)?.value = Some(value);
             }
-            let imported_child = self.import_subtree(source, *child)?;
-            self.append_child(imported, imported_child)?;
+            Ok(imported)
+        });
+        // A failed initialization has no caller to receive this allocation.
+        // Relinquish the protected handoff and collect its partial Attr graph.
+        if result.is_err() {
+            self.reclaim_if_unrooted(imported)?;
         }
-        Ok(imported)
+        result
     }
 
     pub fn set_inner_html(&mut self, node: NodeId, markup: &str) -> Result<(), DomError> {
@@ -1550,7 +2641,22 @@ impl DomRuntime {
             NodeKind::DocumentFragment => "div".into(),
             _ => return Err(DomError::NotAnElement(node)),
         };
-        let parsed = html::parse_fragment(markup, &context_name);
+        self.set_inner_html_with_context(node, markup, &context_name)
+    }
+
+    pub fn set_inner_html_with_context(
+        &mut self,
+        node: NodeId,
+        markup: &str,
+        context_name: &str,
+    ) -> Result<(), DomError> {
+        if !matches!(
+            self.arena.get(node)?.kind,
+            NodeKind::Element { .. } | NodeKind::ShadowRoot { .. } | NodeKind::DocumentFragment
+        ) {
+            return Err(DomError::NotAnElement(node));
+        }
+        let parsed = html::parse_fragment(markup, context_name);
         let document_children = parsed.dom.get(parsed.document)?.children.clone();
         let fragment_children = document_children
             .first()
@@ -1647,8 +2753,20 @@ impl DomRuntime {
     ) -> Result<(), DomError> {
         self.arena.document_id(document)?;
         let parsed = html::parse(markup);
-        self.arena.get_mut(document)?.document_metadata =
-            parsed.dom.get(parsed.document)?.document_metadata.clone();
+        let previous_metadata = self.arena.get(document)?.document_metadata.clone();
+        let mut metadata = parsed.dom.get(parsed.document)?.document_metadata.clone();
+        if let (Some(previous), Some(current)) = (previous_metadata, metadata.as_mut()) {
+            // Replacing children parses a new tree inside the same Document.
+            // URL/base identity and loading state belong to that Document;
+            // the temporary parser's defaults are not a navigation commit.
+            current.url = previous.url;
+            current.referrer = previous.referrer;
+            current.inherited_base_url = previous.inherited_base_url;
+            current.encoding = previous.encoding;
+            current.ready_state = previous.ready_state;
+            current.registered_custom_properties = previous.registered_custom_properties;
+        }
+        self.arena.get_mut(document)?.document_metadata = metadata;
         for child in self.arena.get(document)?.children.clone() {
             self.remove_child(document, child)?;
         }
@@ -1663,16 +2781,22 @@ impl DomRuntime {
     /// node. A subsequent html5ever driver can then rebuild that same live
     /// document for `document.open()` without importing a second tree.
     pub fn clear_document(&mut self) -> Result<(), DomError> {
-        let document = self.document();
+        self.clear_document_in(self.document())
+    }
+
+    /// Clear only the selected native Document, including an imported frame.
+    pub fn clear_document_in(&mut self, document: NodeId) -> Result<(), DomError> {
+        if !matches!(self.arena.get(document)?.kind, NodeKind::Document) {
+            return Err(DomError::NotADocument(document));
+        }
+        let clear_focus = self
+            .focused
+            .is_some_and(|node| self.arena.node_document(node).ok().flatten() == Some(document));
         for child in self.arena.get(document)?.children.clone() {
             self.remove_child(document, child)?;
         }
-        let previous = self.focused.take();
-        if previous.is_some() {
-            self.mutations.push(Mutation::Focus {
-                previous,
-                current: None,
-            });
+        if clear_focus {
+            self.focus(None)?;
         }
         Ok(())
     }
@@ -1693,52 +2817,12 @@ impl DomRuntime {
         Ok(MutationSiblings {
             previous: children[..index].iter().rev().find(light).copied(),
             next: children[index + 1..].iter().find(light).copied(),
+            state_preserving_move: false,
         })
     }
 
     pub fn append_child(&mut self, parent: NodeId, child: NodeId) -> Result<(), DomError> {
-        self.arena.validate_tree_edge(parent, child)?;
-        let previous_ownership =
-            self.ownership_before_adoption(child, self.arena.node_document(parent)?)?;
-        let option_owners = self.option_owners_in_subtree(child)?;
-        let former_parent = self.arena.get(child)?.parent;
-        let mut removed_siblings = MutationSiblings::default();
-        if let Some(former_parent) = former_parent {
-            let former_index = self.child_index(former_parent, child)?;
-            removed_siblings = self.mutation_siblings_at(former_parent, former_index)?;
-            self.adjust_ranges_for_removal(former_parent, former_index, child)?;
-        }
-        let was_connected = self.connected.contains(&child);
-        self.arena.append_child(parent, child)?;
-        let inserted_index = self.child_index(parent, child)?;
-        let inserted_siblings = self.mutation_siblings_at(parent, inserted_index)?;
-        self.adjust_ranges_for_insertion(parent, inserted_index, 1)?;
-        if was_connected {
-            self.mark_disconnected(child)?;
-        }
-        if self.connected.contains(&parent) {
-            self.mark_connected(child)?;
-        }
-        if former_parent.is_some() {
-            self.retain_native(child)?;
-            self.disconnect_opaque_subtree(child)?;
-            self.mutations.push(Mutation::Removed {
-                node: child,
-                former_parent,
-                siblings: removed_siblings,
-                observer_suppressed: false,
-            });
-        }
-        self.publish_ownership_changes(previous_ownership)?;
-        self.mutations.push(Mutation::Inserted {
-            node: child,
-            parent: Some(parent),
-            siblings: inserted_siblings,
-            observer_suppressed: false,
-        });
-        self.reconcile_inserted_radios(child)?;
-        self.reconcile_option_owners(option_owners)?;
-        Ok(())
+        self.insert_before_with_focus(parent, child, None, false)
     }
 
     pub fn insert_before(
@@ -1758,6 +2842,19 @@ impl DomRuntime {
         child: NodeId,
         reference: Option<NodeId>,
     ) -> Result<(), DomError> {
+        if self.arena.node_document(parent)? != self.arena.node_document(child)?
+            || self.is_connected(parent)? != self.is_connected(child)?
+            || !matches!(
+                self.arena.get(child)?.kind,
+                NodeKind::Element { .. }
+                    | NodeKind::Text { .. }
+                    | NodeKind::CDataSection { .. }
+                    | NodeKind::ProcessingInstruction { .. }
+                    | NodeKind::Comment { .. }
+            )
+        {
+            return Err(DomError::InvalidStatePreservingMove);
+        }
         self.insert_before_with_focus(parent, child, reference, true)
     }
 
@@ -1768,69 +2865,32 @@ impl DomRuntime {
         reference: Option<NodeId>,
         preserve_focus: bool,
     ) -> Result<(), DomError> {
-        self.arena.validate_tree_edge(parent, child)?;
-        if let Some(reference) = reference
-            && self.arena.get(reference)?.parent != Some(parent)
-        {
-            return Err(DomError::NotAChild(reference, parent));
-        }
-        // The DOM insertion algorithms define inserting a node immediately
-        // before itself as a no-op. Resolve this before detaching the node or
-        // the reference ceases to be a child and its stable identity can be
-        // reclaimed as stale.
-        if reference == Some(child) {
-            return Ok(());
-        }
-        let previous_ownership =
-            self.ownership_before_adoption(child, self.arena.node_document(parent)?)?;
-        let option_owners = self.option_owners_in_subtree(child)?;
-        let former_parent = self.arena.get(child)?.parent;
-        let mut removed_siblings = MutationSiblings::default();
-        if let Some(former_parent) = former_parent {
-            let former_index = self.child_index(former_parent, child)?;
-            removed_siblings = self.mutation_siblings_at(former_parent, former_index)?;
-            self.adjust_ranges_for_removal(former_parent, former_index, child)?;
-        }
-        let was_connected = self.connected.contains(&child);
-        if let Some(reference) = reference {
-            self.arena.insert_before(reference, child)?;
-        } else {
-            self.arena.append_child(parent, child)?;
-        }
-        let inserted_index = self.child_index(parent, child)?;
-        let inserted_siblings = self.mutation_siblings_at(parent, inserted_index)?;
-        self.adjust_ranges_for_insertion(parent, inserted_index, 1)?;
-        if was_connected {
-            self.mark_disconnected_with_focus(
-                child,
-                preserve_focus && self.connected.contains(&parent),
-            )?;
-        }
-        if self.connected.contains(&parent) {
-            self.mark_connected(child)?;
-        }
-        if former_parent.is_some() {
-            self.retain_native(child)?;
-            if !preserve_focus {
-                self.disconnect_opaque_subtree(child)?;
-            }
-            self.mutations.push(Mutation::Removed {
-                node: child,
-                former_parent,
-                siblings: removed_siblings,
-                observer_suppressed: false,
-            });
-        }
-        self.publish_ownership_changes(previous_ownership)?;
-        self.mutations.push(Mutation::Inserted {
-            node: child,
-            parent: Some(parent),
-            siblings: inserted_siblings,
-            observer_suppressed: false,
-        });
-        self.reconcile_inserted_radios(child)?;
-        self.reconcile_option_owners(option_owners)?;
-        Ok(())
+        self.with_native_node_handoff(
+            std::iter::once(parent)
+                .chain(std::iter::once(child))
+                .chain(reference),
+            |dom| {
+                dom.prepare_tree_tail_capacity()?;
+                let mut cursor = crate::insertion::TreeInsertion::new(
+                    None,
+                    dom,
+                    parent,
+                    child,
+                    reference,
+                    preserve_focus,
+                )?;
+                let result = cursor.resume(dom);
+                if result.is_err() && cursor.committed_tail() {
+                    dom.pending_tree_tails
+                        .push_back(crate::insertion::CommittedTreeTail::Insert(Box::new(
+                            cursor,
+                        )));
+                } else {
+                    cursor.abort(dom);
+                }
+                result
+            },
+        )
     }
 
     pub fn remove_child(&mut self, parent: NodeId, child: NodeId) -> Result<(), DomError> {
@@ -1838,6 +2898,202 @@ impl DomRuntime {
             return Err(DomError::NotAChild(child, parent));
         }
         self.remove(child)
+    }
+
+    /// Expand a fragment using the DOM removal algorithm. Structural consumers
+    /// retain every primitive journal entry; observers receive one fragment row.
+    fn take_dom_insertion_nodes(&mut self, node: NodeId) -> Result<Vec<NodeId>, DomError> {
+        if !matches!(self.arena.get(node)?.kind, NodeKind::DocumentFragment) {
+            if self.arena.get(node)?.parent.is_some() {
+                self.remove(node)?;
+            }
+            return Ok(vec![node]);
+        }
+        let nodes = self
+            .arena
+            .get(node)?
+            .children
+            .iter()
+            .copied()
+            .filter(|child| {
+                !matches!(
+                    self.arena.get(*child).map(|record| &record.kind),
+                    Ok(NodeKind::ShadowRoot { .. })
+                )
+            })
+            .collect::<Vec<_>>();
+        let cursor = self.mutation_cursor();
+        for child in &nodes {
+            self.remove_child(node, *child)?;
+        }
+        self.mutations.suppress_tree_observers_since(cursor, node);
+        if !nodes.is_empty() {
+            self.record_mutation(Mutation::ChildrenReplaced {
+                node,
+                added_nodes: Vec::new(),
+                removed_nodes: nodes.clone(),
+                siblings: MutationSiblings::default(),
+            });
+        }
+        Ok(nodes)
+    }
+
+    /// The caller performs DOM pre-insertion validity before this mutation.
+    pub fn insert_dom_node(
+        &mut self,
+        parent: NodeId,
+        node: NodeId,
+        mut reference: Option<NodeId>,
+    ) -> Result<Vec<NodeId>, DomError> {
+        if reference == Some(node) {
+            let siblings = &self.arena.get(parent)?.children;
+            reference = siblings
+                .iter()
+                .position(|child| *child == node)
+                .and_then(|i| {
+                    siblings[i + 1..].iter().copied().find(|child| {
+                        !matches!(
+                            self.arena.get(*child).map(|r| &r.kind),
+                            Ok(NodeKind::ShadowRoot { .. })
+                        )
+                    })
+                });
+        }
+        // Let a single-node TreeInsertion observe both old and new owners.
+        // Eager removal would normalize select controls in an intermediate tree.
+        let nodes = if matches!(self.arena.get(node)?.kind, NodeKind::DocumentFragment) {
+            self.take_dom_insertion_nodes(node)?
+        } else {
+            vec![node]
+        };
+        let index = match reference {
+            Some(reference) => self.child_index(parent, reference)?,
+            None => self.arena.get(parent)?.children.len() as u32,
+        };
+        let previous = self.arena.get(parent)?.children[..index as usize]
+            .iter()
+            .rev()
+            .copied()
+            .find(|child| {
+                !nodes.contains(child)
+                    && !matches!(
+                        self.arena.get(*child).map(|r| &r.kind),
+                        Ok(NodeKind::ShadowRoot { .. })
+                    )
+            });
+        let siblings = MutationSiblings {
+            previous,
+            next: reference,
+            state_preserving_move: false,
+        };
+        let cursor = self.mutation_cursor();
+        for child in &nodes {
+            self.insert_before(parent, *child, reference)?;
+        }
+        self.mutations.suppress_tree_observers_since(cursor, parent);
+        if !nodes.is_empty() {
+            self.record_mutation(Mutation::ChildrenReplaced {
+                node: parent,
+                added_nodes: nodes.clone(),
+                removed_nodes: Vec::new(),
+                siblings,
+            });
+        }
+        Ok(nodes)
+    }
+
+    /// Replace all light children while preserving attached shadow roots and
+    /// recording incoming adoption removals before the grouped target mutation.
+    pub fn replace_dom_children(
+        &mut self,
+        parent: NodeId,
+        node: NodeId,
+    ) -> Result<Vec<NodeId>, DomError> {
+        let nodes = self.take_dom_insertion_nodes(node)?;
+        let removed = self
+            .arena
+            .get(parent)?
+            .children
+            .iter()
+            .copied()
+            .filter(|child| {
+                !matches!(
+                    self.arena.get(*child).map(|r| &r.kind),
+                    Ok(NodeKind::ShadowRoot { .. })
+                )
+            })
+            .collect::<Vec<_>>();
+        let cursor = self.mutation_cursor();
+        for child in &removed {
+            self.remove_child(parent, *child)?;
+        }
+        for child in &nodes {
+            self.append_child(parent, *child)?;
+        }
+        self.mutations.suppress_tree_observers_since(cursor, parent);
+        if !nodes.is_empty() || !removed.is_empty() {
+            self.record_mutation(Mutation::ChildrenReplaced {
+                node: parent,
+                added_nodes: nodes.clone(),
+                removed_nodes: removed,
+                siblings: MutationSiblings::default(),
+            });
+        }
+        Ok(nodes)
+    }
+
+    pub fn replace_dom_child(
+        &mut self,
+        parent: NodeId,
+        node: NodeId,
+        child: NodeId,
+        reference: Option<NodeId>,
+    ) -> Result<Vec<NodeId>, DomError> {
+        let nodes = self.take_dom_insertion_nodes(node)?;
+        let removed = if self.arena.get(child)?.parent == Some(parent) {
+            vec![child]
+        } else {
+            Vec::new()
+        };
+        let index = if !removed.is_empty() {
+            self.child_index(parent, child)?
+        } else {
+            match reference {
+                Some(reference) => self.child_index(parent, reference)?,
+                None => self.arena.get(parent)?.children.len() as u32,
+            }
+        };
+        let previous = self.arena.get(parent)?.children[..index as usize]
+            .iter()
+            .rev()
+            .copied()
+            .find(|child| {
+                !matches!(
+                    self.arena.get(*child).map(|r| &r.kind),
+                    Ok(NodeKind::ShadowRoot { .. })
+                )
+            });
+        let cursor = self.mutation_cursor();
+        for child in &removed {
+            self.remove_child(parent, *child)?;
+        }
+        for child in &nodes {
+            self.insert_before(parent, *child, reference)?;
+        }
+        self.mutations.suppress_tree_observers_since(cursor, parent);
+        if !nodes.is_empty() || !removed.is_empty() {
+            self.record_mutation(Mutation::ChildrenReplaced {
+                node: parent,
+                added_nodes: nodes.clone(),
+                removed_nodes: removed,
+                siblings: MutationSiblings {
+                    previous,
+                    next: reference,
+                    state_preserving_move: false,
+                },
+            });
+        }
+        Ok(nodes)
     }
 
     pub fn replace_child(
@@ -1876,29 +3132,40 @@ impl DomRuntime {
         }
         self.insert_before(parent, replacement, reference)?;
         self.mutations.suppress_tree_observers_since(cursor, parent);
-        self.mutations.push(Mutation::ChildrenReplaced {
+        self.record_mutation(Mutation::ChildrenReplaced {
             node: parent,
             added_nodes: vec![replacement],
             removed_nodes,
             siblings: MutationSiblings {
                 previous,
                 next: reference,
+                state_preserving_move: false,
             },
         });
         Ok(())
     }
 
     /// Publish CSSOM media without changing HTML attributes or DOM records.
+    pub fn set_stylesheet_disabled(
+        &mut self,
+        node: NodeId,
+        disabled: bool,
+    ) -> Result<(), DomError> {
+        self.arena.get_mut(node)?.stylesheet_disabled = Some(disabled);
+        self.record_mutation(Mutation::StyleSheets { node });
+        Ok(())
+    }
+
     pub fn set_stylesheet_media(&mut self, node: NodeId, media: String) -> Result<(), DomError> {
         self.arena.get_mut(node)?.stylesheet_media = Some(media);
-        self.mutations.push(Mutation::StyleSheets { node });
+        self.record_mutation(Mutation::StyleSheets { node });
         Ok(())
     }
 
     /// Publish CSSOM source without rewriting DOM text or emitting DOM records.
     pub fn set_stylesheet_text(&mut self, node: NodeId, source: String) -> Result<(), DomError> {
         self.arena.get_mut(node)?.stylesheet_override = Some(source);
-        self.mutations.push(Mutation::StyleSheets { node });
+        self.record_mutation(Mutation::StyleSheets { node });
         Ok(())
     }
 
@@ -1911,21 +3178,39 @@ impl DomRuntime {
         sheets: Vec<NodeId>,
     ) -> Result<(), DomError> {
         let previous = self.arena.get(node)?.adopted_stylesheets.clone();
-        if previous == sheets {
-            return Ok(());
+        if previous != sheets {
+            for sheet in &sheets {
+                self.arena.get(*sheet)?;
+            }
+            let old = previous.into_iter().collect::<BTreeSet<_>>();
+            let new = sheets.iter().copied().collect::<BTreeSet<_>>();
+            self.pending_stylesheet_reclaims
+                .extend(old.difference(&new).copied());
+            self.arena.get_mut(node)?.adopted_stylesheets = sheets;
+            self.internal_targets.extend(new);
+            // Observable style invalidation belongs to the list commit, even
+            // if reclaiming an independent old sheet subsequently fails.
+            self.record_mutation(Mutation::StyleSheets { node });
         }
-        for sheet in &sheets {
-            self.arena.get(*sheet)?;
+        self.retry_pending_stylesheet_reclaims()
+    }
+    /// Reclamation has no root decrement to replay. Keep only failures for the
+    /// next native checkpoint and attempt every independent suffix each time.
+    pub fn retry_pending_stylesheet_reclaims(&mut self) -> Result<(), DomError> {
+        let pending = std::mem::take(&mut self.pending_stylesheet_reclaims);
+        let mut first = None;
+        for node in pending {
+            if self.arena.get(node).is_err() {
+                continue;
+            }
+            if let Err(error) = self.reclaim_if_unrooted(node) {
+                self.pending_stylesheet_reclaims.insert(node);
+                if first.is_none() {
+                    first = Some(error);
+                }
+            }
         }
-        let old = previous.into_iter().collect::<BTreeSet<_>>();
-        let new = sheets.iter().copied().collect::<BTreeSet<_>>();
-        self.arena.get_mut(node)?.adopted_stylesheets = sheets;
-        self.internal_targets.extend(new.iter().copied());
-        for sheet in old.difference(&new) {
-            self.reclaim_if_unrooted(*sheet)?;
-        }
-        self.mutations.push(Mutation::StyleSheets { node });
-        Ok(())
+        first.map_or(Ok(()), Err)
     }
 
     pub fn set_attribute(
@@ -1966,6 +3251,14 @@ impl DomRuntime {
         } else {
             (None, name.clone())
         };
+        if namespace.is_none() && local_name == "style" {
+            let record = self.arena.get_mut(node)?;
+            record.style_attribute_cssom = false;
+            record.style_attribute_revision = record
+                .style_attribute_revision
+                .checked_add(1)
+                .expect("style attribute revision exhausted");
+        }
         let value = value.into();
         // Setting an existing expanded name changes only its value. Replacing
         // an Attr node is a separate operation and may supply a new prefix.
@@ -1987,12 +3280,57 @@ impl DomRuntime {
         self.write_attribute_record(node, data)
     }
 
+    fn invalidate_stylesheet_attribute(
+        &mut self,
+        node: NodeId,
+        namespace: Option<&str>,
+        local_name: &str,
+    ) -> Result<(), DomError> {
+        if namespace.is_some() {
+            return Ok(());
+        }
+        if local_name == "disabled" {
+            self.arena.get_mut(node)?.stylesheet_disabled = None;
+        }
+        let invalidates = match &self.arena.get(node)?.kind {
+            NodeKind::Element { name } => {
+                let html = name.ns.as_ref() == "http://www.w3.org/1999/xhtml";
+                let svg = name.ns.as_ref() == "http://www.w3.org/2000/svg";
+                (html
+                    && name.local.as_ref() == "link"
+                    && matches!(local_name, "href" | "rel" | "type"))
+                    || ((html || svg) && name.local.as_ref() == "style" && local_name == "type")
+            }
+            _ => false,
+        };
+        if invalidates {
+            let record = self.arena.get_mut(node)?;
+            record.stylesheet_override = None;
+            record.stylesheet_disabled = None;
+            record.stylesheet_media = None;
+            self.arena.bump_stylesheet_revision(node);
+        }
+        Ok(())
+    }
+
     fn write_attribute_record(
         &mut self,
         node: NodeId,
         data: Arc<ContentAttribute>,
     ) -> Result<(), DomError> {
         let key = data.key();
+        if key.namespace.is_none() && key.local_name == "nonce" {
+            self.arena.get_mut(node)?.cryptographic_nonce = Some(data.value.clone());
+        }
+        if key.namespace.is_none() {
+            self.clear_explicit_accessibility_reference(node, &key.local_name)?;
+        }
+        if key.namespace.is_none()
+            && key.local_name == "async"
+            && self.is_element(node, "http://www.w3.org/1999/xhtml", "script")
+        {
+            self.arena.get_mut(node)?.script_force_async = false;
+        }
         let name = data.name.clone();
         let namespace = data.namespace.clone();
         let value = data.value.clone();
@@ -2003,6 +3341,16 @@ impl DomRuntime {
             .attributes
             .insert(data.clone())
             .map(|entry| entry.value.clone());
+        if old_value.as_deref() != Some(value.as_str()) {
+            self.invalidate_stylesheet_attribute(node, namespace.as_deref(), &data.local_name)?;
+        }
+        if name == "type" && namespace.is_none() {
+            self.close_file_picker(node)?;
+            self.arena.get_mut(node)?.temporal_edit = None;
+            if self.arena.get(node)?.temporal_picker.is_some() {
+                self.remove_from_top_layer(node);
+            }
+        }
         if name == "type"
             && namespace.is_none()
             && self.is_element(node, "http://www.w3.org/1999/xhtml", "input")
@@ -2050,11 +3398,14 @@ impl DomRuntime {
             let revision = self.arena.name_attribute_revisions.entry(node).or_default();
             *revision = revision.saturating_add(1);
         }
+        if namespace.is_none() && name == "value" && !self.arena.get(node)?.dirty_value {
+            self.arena.get_mut(node)?.temporal_edit = None;
+        }
         if namespace.is_none() {
             self.checked_attribute_changed(node, &name)?;
             self.option_attribute_changed(node, &name)?;
         }
-        self.mutations.push(Mutation::Attribute {
+        self.record_mutation(Mutation::Attribute {
             node,
             name: key.local_name,
             namespace,
@@ -2088,14 +3439,27 @@ impl DomRuntime {
         if !matches!(self.arena.get(node)?.kind, NodeKind::Element { .. }) {
             return Err(DomError::NotAnElement(node));
         }
+        if key.namespace.is_none() {
+            self.clear_explicit_accessibility_reference(node, &key.local_name)?;
+        }
         let old_email_value =
             self.text_input_attribute_transition_value(node, &key.local_name, "")?;
         let Some(entry) = self.arena.get_mut(node)?.attributes.remove(&key) else {
             return Ok(());
         };
+        if entry.namespace.is_none() && entry.local_name == "nonce" {
+            self.arena.get_mut(node)?.cryptographic_nonce = None;
+        }
         let name = entry.name.as_str();
+        if entry.namespace.is_none() && name == "value" && !self.arena.get(node)?.dirty_value {
+            self.arena.get_mut(node)?.temporal_edit = None;
+        }
         let old_value = Some(entry.value.clone());
         let namespace = entry.namespace.clone();
+        if namespace.is_none() && matches!(entry.local_name.as_str(), "open" | "popover") {
+            self.remove_from_top_layer(node);
+        }
+        self.invalidate_stylesheet_attribute(node, namespace.as_deref(), &entry.local_name)?;
         if namespace.is_none() {
             self.sanitize_after_input_attribute(node, name, old_email_value)?;
         }
@@ -2124,7 +3488,7 @@ impl DomRuntime {
                 let revision = self.arena.name_attribute_revisions.entry(node).or_default();
                 *revision = revision.saturating_add(1);
             }
-            self.mutations.push(Mutation::Attribute {
+            self.record_mutation(Mutation::Attribute {
                 node,
                 name: entry.local_name.clone(),
                 namespace,
@@ -2344,15 +3708,23 @@ impl DomRuntime {
                     )
                 })
                 .collect::<Vec<_>>();
-            let mut appended = String::new();
+            let mut appended = Vec::new();
             for sibling in &siblings {
                 if let NodeKind::Text { data } = &self.arena.get(*sibling)?.kind {
-                    appended.push_str(data);
+                    appended.extend(dom_string::units(data));
                 }
             }
-            self.replace_character_data(node, length, 0, appended)?;
+            self.replace_character_data(node, length, 0, dom_string::from_units(&appended))?;
             for sibling in &siblings {
                 let index = self.child_index(parent, *sibling)?;
+                self.boundary_journal
+                    .push(boundary_journal::Change::Normalize {
+                        from: *sibling,
+                        to: node,
+                        parent,
+                        index,
+                        target_offset: length,
+                    });
                 let mut root_changes = Vec::new();
                 for range in self.ranges.values_mut() {
                     for boundary in [&mut range.start, &mut range.end] {
@@ -2380,6 +3752,62 @@ impl DomRuntime {
             }
         }
         Ok(())
+    }
+
+    /// Normalize's live-range remapping phase, after concatenation and its
+    /// children-changed callbacks. Re-read current siblings before remapping.
+    pub fn normalize_text_boundaries(
+        &mut self,
+        node: NodeId,
+        mut length: u32,
+    ) -> Result<Vec<NodeId>, DomError> {
+        let Some(parent) = self.arena.get(node)?.parent else {
+            return Ok(Vec::new());
+        };
+        let index = self.child_index(parent, node)? as usize;
+        let siblings = self.arena.get(parent)?.children[index + 1..]
+            .iter()
+            .copied()
+            .take_while(|sibling| {
+                matches!(
+                    self.arena.get(*sibling).map(|record| &record.kind),
+                    Ok(NodeKind::Text { .. })
+                )
+            })
+            .collect::<Vec<_>>();
+        for sibling in &siblings {
+            let index = self.child_index(parent, *sibling)?;
+            self.boundary_journal
+                .push(boundary_journal::Change::Normalize {
+                    from: *sibling,
+                    to: node,
+                    parent,
+                    index,
+                    target_offset: length,
+                });
+            let mut roots = Vec::new();
+            for range in self.ranges.values_mut() {
+                for boundary in [&mut range.start, &mut range.end] {
+                    if boundary.container == *sibling {
+                        roots.push((boundary.container, node));
+                        boundary.container = node;
+                        boundary.offset = boundary.offset.saturating_add(length);
+                    } else if boundary.container == parent && boundary.offset == index {
+                        roots.push((boundary.container, node));
+                        boundary.container = node;
+                        boundary.offset = length;
+                    }
+                }
+            }
+            for (old, new) in roots {
+                self.retain_native(new)?;
+                self.release_native(old)?;
+            }
+            if let NodeKind::Text { data } = &self.arena.get(*sibling)?.kind {
+                length = length.saturating_add(utf16_len(data));
+            }
+        }
+        Ok(siblings)
     }
 
     pub fn set_text(&mut self, node: NodeId, value: impl Into<String>) -> Result<(), DomError> {
@@ -2414,14 +3842,14 @@ impl DomRuntime {
             _ => return Err(DomError::StaleNode(node)),
         };
         self.arena.invalidate_stylesheet_ancestors(Some(node))?;
-        let mut units = old_value.encode_utf16().collect::<Vec<_>>();
+        let mut units = dom_string::units(&old_value);
         let start = (offset as usize).min(units.len());
         let end = start.saturating_add(count as usize).min(units.len());
-        let inserted = replacement.encode_utf16().collect::<Vec<_>>();
+        let inserted = dom_string::units(&replacement);
         let inserted_length = inserted.len() as u32;
         let removed_length = (end - start) as u32;
         units.splice(start..end, inserted);
-        let value = String::from_utf16_lossy(&units);
+        let value = dom_string::from_units(&units);
         let data = match &mut self.arena.get_mut(node)?.kind {
             NodeKind::Text { data }
             | NodeKind::CDataSection { data }
@@ -2430,6 +3858,13 @@ impl DomRuntime {
             _ => return Err(DomError::StaleNode(node)),
         };
         *data = value.clone();
+        self.boundary_journal
+            .push(boundary_journal::Change::Replace {
+                node,
+                offset,
+                removed: removed_length,
+                inserted: inserted_length,
+            });
         let removed_end = offset.saturating_add(removed_length);
         for range in self.ranges.values_mut() {
             for boundary in [&mut range.start, &mut range.end] {
@@ -2446,12 +3881,75 @@ impl DomRuntime {
                 }
             }
         }
-        self.mutations.push(Mutation::CharacterData {
+        self.record_mutation(Mutation::CharacterData {
             node,
             old_value,
             new_value: value,
         });
         Ok(())
+    }
+
+    /// Split Text/CDATA and migrate every native live range, including ranges
+    /// owned by assistive-technology consumers rather than JS wrappers.
+    pub fn split_text(&mut self, node: NodeId, offset: u32) -> Result<NodeId, DomError> {
+        let record = self.arena.get(node)?;
+        let (parent, cdata, data) = match &record.kind {
+            NodeKind::Text { data } => (record.parent, false, data.clone()),
+            NodeKind::CDataSection { data } => (record.parent, true, data.clone()),
+            _ => return Err(DomError::StaleNode(node)),
+        };
+        let units = dom_string::units(&data);
+        let length = units.len().try_into().unwrap_or(u32::MAX);
+        if offset > length {
+            return Err(DomError::InvalidBoundaryOffset {
+                node,
+                offset,
+                maximum: length,
+            });
+        }
+        let tail = dom_string::from_units(&units[offset as usize..]);
+        let originals = self.ranges.clone();
+        let revision = self.boundary_revision();
+        self.replace_character_data(node, offset, length - offset, "")?;
+        let created = if cdata {
+            self.create_cdata_section(tail)
+        } else {
+            self.create_text(tail)
+        };
+        let parent_boundary = if let Some(parent) = parent {
+            let siblings = self.children(parent)?.to_vec();
+            let index = siblings
+                .iter()
+                .position(|candidate| *candidate == node)
+                .ok_or(DomError::StaleNode(node))?;
+            self.insert_before(parent, created, siblings.get(index + 1).copied())?;
+            Some((parent, index as u32 + 1))
+        } else {
+            None
+        };
+        let change = boundary_journal::Change::Split {
+            node,
+            created,
+            offset,
+            parent: parent_boundary,
+        };
+        for (id, original) in originals {
+            let mut current = self.live_range(id)?;
+            for (before, after) in [
+                (original.start, &mut current.start),
+                (original.end, &mut current.end),
+            ] {
+                let mut corrected = before;
+                change.apply(&mut corrected);
+                if corrected != before {
+                    *after = corrected;
+                }
+            }
+            self.set_live_range(id, current.start, current.end)?;
+        }
+        self.boundary_journal
+            .finish_split(revision, node, created, offset, parent_boundary);
+        Ok(created)
     }
 
     fn replace_with_new_children(
@@ -2480,8 +3978,20 @@ impl DomRuntime {
             self.append_child(node, *child)?;
         }
         self.mutations.suppress_tree_observers_since(cursor, node);
+        // Native storage includes attached shadow roots alongside light
+        // children. They are not DOM children and never belong in a host's
+        // childList record, even when a declarative fragment imports them.
+        let added_nodes = added_nodes
+            .into_iter()
+            .filter(|child| {
+                !matches!(
+                    self.arena.get(*child).map(|record| &record.kind),
+                    Ok(NodeKind::ShadowRoot { .. })
+                )
+            })
+            .collect::<Vec<_>>();
         if !added_nodes.is_empty() || !removed_nodes.is_empty() {
-            self.mutations.push(Mutation::ChildrenReplaced {
+            self.record_mutation(Mutation::ChildrenReplaced {
                 node,
                 added_nodes,
                 removed_nodes,
@@ -2514,87 +4024,24 @@ impl DomRuntime {
         self.replace_with_new_children(node, children)
     }
 
-    pub fn clone_node(&mut self, node: NodeId, deep: bool) -> Result<NodeId, DomError> {
-        let source = self.arena.get(node)?.clone();
-        let attributes = self
-            .arena
-            .attribute_node_ids(node)
-            .into_iter()
-            .map(|attribute| self.arena.get(attribute).map(|record| record.kind.clone()))
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut kind = source.kind;
-        if let NodeKind::Attribute { owner, .. } = &mut kind {
-            *owner = None;
-        }
-        let clone = self.create(kind);
-        self.arena.get_mut(clone)?.owner_document = source.owner_document;
-        {
-            let record = self.arena.get_mut(clone)?;
-            record.document_metadata = source.document_metadata;
-            record.attributes = source.attributes;
-            record.value = source.value;
-            record.dirty_value = source.dirty_value;
-            record.user_edited_value = source.user_edited_value;
-            record.selected_files = source.selected_files;
-            record.checkedness = source.checkedness;
-            record.dirty_checkedness = source.dirty_checkedness;
-            record.selectedness = source.selectedness;
-            record.dirty_selectedness = source.dirty_selectedness;
-            record.indeterminate = source.indeterminate;
-            record.sensitive_value = source.sensitive_value;
-        }
-        for attribute in attributes {
-            if let NodeKind::Attribute { data, .. } = attribute {
-                self.set_attribute_ns(
-                    clone,
-                    data.namespace.clone(),
-                    data.name.clone(),
-                    data.value.clone(),
-                )?;
-            }
-        }
-        self.arena.get_mut(clone)?.checkedness = source.checkedness;
-        self.arena.get_mut(clone)?.dirty_checkedness = source.dirty_checkedness;
-        self.arena.get_mut(clone)?.selectedness = source.selectedness;
-        self.arena.get_mut(clone)?.dirty_selectedness = source.dirty_selectedness;
-        if let Some(content) = source.template_content {
-            let cloned_content = self.clone_node(content, deep)?;
-            self.arena.get_mut(clone)?.template_content = Some(cloned_content);
-            self.arena.get_mut(cloned_content)?.template_host = Some(clone);
-            self.internal_targets.insert(cloned_content);
-            if let Some(document) = self.arena.node_document(clone)? {
-                let owner = self.arena.template_contents_owner_document(document)?;
-                self.arena.assign_node_document(cloned_content, owner)?;
-            }
-        }
-        if deep {
-            for child in source.children {
-                // Clone the embedding element's content, not its hosted
-                // browsing context or the active Document in that context.
-                if matches!(self.arena.get(child)?.kind, NodeKind::Document) {
-                    continue;
-                }
-                // Shadow roots are not light-DOM children and cloneNode does
-                // not copy an ordinary (non-clonable) attached shadow tree.
-                if let NodeKind::ShadowRoot { clonable, .. } = self.arena.get(child)?.kind
-                    && !clonable
-                {
-                    continue;
-                }
-                let child_clone = self.clone_node(child, true)?;
-                self.append_child(clone, child_clone)?;
-            }
-        }
-        Ok(clone)
-    }
-
     /// DOM equality compares structure and expanded attribute names, not markup
     /// serialization (which loses namespaces and exposes attribute order).
     pub fn is_equal_node(&self, left: NodeId, right: NodeId) -> Result<bool, DomError> {
+        self.is_equal_node_from(left, self, right)
+    }
+
+    /// Compare native nodes in independent document arenas without importing or
+    /// mutating either tree. The ordinary equality entry point shares this walk.
+    pub fn is_equal_node_from(
+        &self,
+        left: NodeId,
+        other: &DomRuntime,
+        right: NodeId,
+    ) -> Result<bool, DomError> {
         let mut pending = vec![(left, right)];
         while let Some((left, right)) = pending.pop() {
             let left = self.arena.get(left)?;
-            let right = self.arena.get(right)?;
+            let right = other.arena.get(right)?;
             let kind_equal = match (&left.kind, &right.kind) {
                 (NodeKind::Attribute { data: a, .. }, NodeKind::Attribute { data: b, .. }) => {
                     (&a.namespace, &a.local_name, &a.value)
@@ -2614,19 +4061,19 @@ impl DomRuntime {
                     return Ok(false);
                 }
             }
-            let children = |node: &Node| {
+            let children = |arena: &DomArena, node: &Node| {
                 node.children
                     .iter()
                     .copied()
                     .filter(|child| {
-                        self.arena
+                        arena
                             .get(*child)
                             .is_ok_and(|child| !matches!(child.kind, NodeKind::ShadowRoot { .. }))
                     })
                     .collect::<Vec<_>>()
             };
-            let a = children(left);
-            let b = children(right);
+            let a = children(&self.arena, left);
+            let b = children(&other.arena, right);
             if a.len() != b.len() {
                 return Ok(false);
             }
@@ -2636,32 +4083,28 @@ impl DomRuntime {
     }
 
     pub fn remove(&mut self, node: NodeId) -> Result<(), DomError> {
-        let option_owners = self.option_owners_in_subtree(node)?;
         let parent = self.arena.get(node)?.parent;
-        let mut siblings = MutationSiblings::default();
-        if let Some(parent) = parent {
-            let index = self.child_index(parent, node)?;
-            siblings = self.mutation_siblings_at(parent, index)?;
-            self.adjust_ranges_for_removal(parent, index, node)?;
-        }
-        // Mutation delivery may expose the removed subtree to JavaScript.
-        // Keep one native lease until every realm has consumed this journal
-        // entry; wrapper leases then decide its ordinary detached lifetime.
-        self.retain_native(node)?;
-        self.arena.detach(node)?;
-        self.mark_disconnected(node)?;
-        self.refresh_radio_owners()?;
-        self.reconcile_option_owners(option_owners)?;
-        if parent.is_some() {
-            self.disconnect_opaque_subtree(node)?;
-        }
-        self.mutations.push(Mutation::Removed {
-            node,
-            former_parent: parent,
-            siblings,
-            observer_suppressed: false,
-        });
-        self.reclaim_if_unrooted(node)
+        self.with_native_node_handoff(std::iter::once(node).chain(parent), |dom| {
+            dom.prepare_tree_tail_capacity()?;
+            let mut cursor = crate::insertion::TreeRemoval::new(None, dom, node)?;
+            let result = cursor.resume(dom);
+            if result.is_err() && cursor.committed_tail() {
+                dom.pending_tree_tails
+                    .push_back(crate::insertion::CommittedTreeTail::Remove(Box::new(
+                        cursor,
+                    )));
+            } else {
+                cursor.abort(dom);
+            }
+            result
+        })
+    }
+
+    pub fn boundary_revision(&self) -> u64 {
+        self.boundary_journal.revision()
+    }
+    pub fn boundary_snapshot(&self) -> boundary_journal::Snapshot {
+        self.boundary_journal.snapshot()
     }
 
     pub fn create_live_range(
@@ -2672,13 +4115,46 @@ impl DomRuntime {
         self.validate_boundary(start)?;
         self.validate_boundary(end)?;
         let id = LiveRangeId(self.next_range.max(1));
-        self.next_range = id.0.saturating_add(1);
+        if id.0 > (1_u64 << 53) - 1 {
+            return Err(DomError::MigrationCapacity);
+        }
+        let next = id.0.checked_add(1).ok_or(DomError::MigrationCapacity)?;
+        let start_roots = self
+            .roots
+            .get(&start.container)
+            .map_or(0, |roots| roots.native);
+        let end_roots = self
+            .roots
+            .get(&end.container)
+            .map_or(0, |roots| roots.native);
+        let start_increment = if start.container == end.container {
+            2
+        } else {
+            1
+        };
+        start_roots
+            .checked_add(start_increment)
+            .ok_or(DomError::MigrationCapacity)?;
+        if start.container != end.container {
+            end_roots
+                .checked_add(1)
+                .ok_or(DomError::MigrationCapacity)?;
+        }
         self.retain_native(start.container)?;
         self.retain_native(end.container)?;
         self.ranges.insert(id, LiveRange { start, end });
+        self.next_range = next;
         Ok(id)
     }
 
+    pub fn mark_composed_selection_range(&mut self, id: LiveRangeId) -> Result<(), DomError> {
+        self.live_range(id)?;
+        self.composed_selection_ranges.insert(id);
+        Ok(())
+    }
+    pub fn range_shadow_removal_revision(&self, id: LiveRangeId) -> u64 {
+        self.range_shadow_removals.get(&id).copied().unwrap_or(0)
+    }
     pub fn live_range(&self, id: LiveRangeId) -> Result<LiveRange, DomError> {
         self.ranges
             .get(&id)
@@ -2704,6 +4180,8 @@ impl DomRuntime {
 
     pub fn drop_live_range(&mut self, id: LiveRangeId) -> Result<(), DomError> {
         let range = self.ranges.remove(&id).ok_or(DomError::UnknownRange(id))?;
+        self.composed_selection_ranges.remove(&id);
+        self.range_shadow_removals.remove(&id);
         self.release_native(range.start.container)?;
         self.release_native(range.end.container)
     }
@@ -2744,6 +4222,12 @@ impl DomRuntime {
         count: u32,
     ) -> Result<(), DomError> {
         self.arena.get(parent)?;
+        self.boundary_journal
+            .push(boundary_journal::Change::Insert {
+                parent,
+                index,
+                count,
+            });
         for range in self.ranges.values_mut() {
             for boundary in [&mut range.start, &mut range.end] {
                 if boundary.container == parent && boundary.offset > index {
@@ -2754,70 +4238,17 @@ impl DomRuntime {
         Ok(())
     }
 
-    fn adjust_ranges_for_removal(
-        &mut self,
-        parent: NodeId,
-        index: u32,
-        removed: NodeId,
-    ) -> Result<(), DomError> {
-        self.arena.get(parent)?;
-        self.arena.get(removed)?;
-        // Shadow-tree boundary points belong to a different tree and remain
-        // anchored there when the host (or one of its light-tree ancestors)
-        // is removed. Walk only the removed light subtree for Range migration.
-        let mut descendant_set = BTreeSet::new();
-        let mut pending = vec![removed];
-        while let Some(candidate) = pending.pop() {
-            let record = self.arena.get(candidate)?;
-            if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
-                continue;
-            }
-            descendant_set.insert(candidate);
-            pending.extend(record.children.iter().copied());
-        }
-        let mut root_changes = Vec::new();
-        for range in self.ranges.values_mut() {
-            for boundary in [&mut range.start, &mut range.end] {
-                if descendant_set.contains(&boundary.container) {
-                    root_changes.push((boundary.container, parent));
-                    *boundary = BoundaryPoint {
-                        container: parent,
-                        offset: index,
-                    };
-                } else if boundary.container == parent && boundary.offset > index {
-                    boundary.offset -= 1;
-                }
-            }
-        }
-        for (old, new) in root_changes {
-            self.retain_native(new)?;
-            self.release_native(old)?;
-        }
-        Ok(())
-    }
-
     /// Detach a node for an html5ever tree-builder reparenting operation.
     ///
     /// The parser may immediately insert the handle elsewhere. Preserve it
     /// with the removal journal's lease until the normal delivery checkpoint,
     /// without attempting reclamation during the tree-builder operation.
+    #[cfg(test)]
     pub(crate) fn parser_detach(&mut self, node: NodeId) -> Result<(), DomError> {
-        let parent = self.arena.get(node)?.parent;
-        if parent.is_none() {
+        if self.arena.get(node)?.parent.is_none() {
             return Ok(());
         }
-        let siblings =
-            self.mutation_siblings_at(parent.unwrap(), self.child_index(parent.unwrap(), node)?)?;
-        self.arena.detach(node)?;
-        self.mark_disconnected(node)?;
-        self.retain_native(node)?;
-        self.mutations.push(Mutation::Removed {
-            node,
-            former_parent: parent,
-            siblings,
-            observer_suppressed: false,
-        });
-        Ok(())
+        self.remove(node)
     }
 
     pub fn retain_wrapper(&mut self, node: NodeId) -> Result<(), DomError> {
@@ -2845,13 +4276,138 @@ impl DomRuntime {
         Ok(())
     }
 
+    /// Whether this node itself has native custody, excluding wrapper leases.
+    /// Callers may memoize ancestry within one immutable DOM observation.
+    pub fn is_native_root(&self, node: NodeId) -> Result<bool, DomError> {
+        Ok(self.native_root_count(node)? != 0)
+    }
+
+    /// Exact native lease count, excluding wrapper custody. Read-only embedders
+    /// can distinguish traced object leases from independent native owners.
+    pub fn native_root_count(&self, node: NodeId) -> Result<u32, DomError> {
+        self.arena.get(node)?;
+        Ok(self.roots.get(&node).map_or(0, |roots| roots.native))
+    }
+
+    /// Native task/parser/document custody, excluding JavaScript wrapper
+    /// leases so a callback closing over a detached wrapper is collectible.
+    pub fn retained_by_native_root(&self, node: NodeId) -> Result<bool, DomError> {
+        let mut current = Some(node);
+        let mut visited = BTreeSet::new();
+        while let Some(node) = current {
+            if !visited.insert(node) {
+                return Ok(false);
+            }
+            if self.roots.get(&node).is_some_and(|roots| roots.native != 0) {
+                return Ok(true);
+            }
+            current = self.retention_parent(node)?;
+        }
+        Ok(false)
+    }
+
+    // Synchronous native APIs return their bare NodeId arguments to their
+    // caller. Cursor cleanup must not collect them during that handoff. These
+    // temporary counts are removed without a collection point, just like the
+    // fresh-root handoff in clone_node; no permanent native lease is created.
+    fn with_native_node_handoff<T>(
+        &mut self,
+        nodes: impl IntoIterator<Item = NodeId>,
+        action: impl FnOnce(&mut Self) -> Result<T, DomError>,
+    ) -> Result<T, DomError> {
+        let mut retained = Vec::new();
+        let result = (|| {
+            for node in nodes {
+                self.retain_native(node)?;
+                retained.push(node);
+            }
+            action(self)
+        })();
+        let mut cleanup = Ok(());
+        for node in retained.into_iter().rev() {
+            let released = (|| {
+                let roots = self
+                    .roots
+                    .get_mut(&node)
+                    .ok_or(DomError::NativeRootUnderflow(node))?;
+                roots.native = roots
+                    .native
+                    .checked_sub(1)
+                    .ok_or(DomError::NativeRootUnderflow(node))?;
+                Ok(())
+            })();
+            if cleanup.is_ok() {
+                cleanup = released;
+            }
+        }
+        result.and_then(|value| cleanup.map(|_| value))
+    }
+
     pub fn retain_native(&mut self, node: NodeId) -> Result<(), DomError> {
         self.arena.get(node)?;
-        self.roots.entry(node).or_default().native += 1;
+        let roots = self.roots.entry(node).or_default();
+        roots.native = roots
+            .native
+            .checked_add(1)
+            .ok_or(DomError::MigrationCapacity)?;
+        Ok(())
+    }
+
+    fn prepare_tree_tail_capacity(&mut self) -> Result<(), DomError> {
+        self.drain_committed_tree_tails()?;
+        if self.pending_tree_tails.len() >= 256 {
+            return Err(DomError::MigrationCapacity);
+        }
+        self.pending_tree_tails
+            .try_reserve(1)
+            .map_err(|_| DomError::MigrationCapacity)
+    }
+    pub fn drain_committed_tree_tails(&mut self) -> Result<(), DomError> {
+        if self.draining_tree_tails {
+            return Ok(());
+        }
+        self.draining_tree_tails = true;
+        let result = (|| {
+            while let Some(mut tail) = self.pending_tree_tails.pop_front() {
+                match tail.resume(self) {
+                    Ok(()) => tail.abort(self),
+                    Err(error) => {
+                        self.pending_tree_tails.push_front(tail);
+                        return Err(error);
+                    }
+                }
+            }
+            Ok(())
+        })();
+        self.draining_tree_tails = false;
+        result
+    }
+
+    /// Aborted synchronous native cursors keep pre-decrement obligations in
+    /// their runtime; mutation checkpoints and later operations retry them.
+    pub(crate) fn drain_cursor_releases(&mut self) -> Result<(), DomError> {
+        while let Some(node) = self.pending_cursor_releases.last().copied() {
+            let mut committed = false;
+            let result = self.release_native_with_commit(node, || committed = true);
+            if committed {
+                self.pending_cursor_releases.pop();
+            }
+            result?;
+        }
         Ok(())
     }
 
     pub fn release_native(&mut self, node: NodeId) -> Result<(), DomError> {
+        self.release_native_with_commit(node, || {})
+    }
+
+    // Accounting commits before fallible graph reclamation. Scoped custodians
+    // must observe that commit even if reclamation subsequently reports an error.
+    fn release_native_with_commit(
+        &mut self,
+        node: NodeId,
+        committed: impl FnOnce(),
+    ) -> Result<(), DomError> {
         let owner = self.arena.get(node)?.owner_document;
         let roots = self
             .roots
@@ -2861,6 +4417,7 @@ impl DomRuntime {
             .native
             .checked_sub(1)
             .ok_or(DomError::NativeRootUnderflow(node))?;
+        committed();
         self.reclaim_if_unrooted(node)?;
         if let Some(owner) = owner
             && self.arena.get(owner).is_ok()
@@ -2870,9 +4427,32 @@ impl DomRuntime {
         Ok(())
     }
 
-    /// Explicit inertness follows the flat tree, including assignment into
-    /// named/default slots. This is intentionally not modal-dialog blocking.
+    /// Explicit and modal inertness follow the native flat tree. A modal
+    /// dialog escapes ancestor inertness but its own inert attribute applies.
     pub fn is_inert(&self, node: NodeId) -> Result<bool, DomError> {
+        let document = self.arena.node_document(node)?;
+        let modal = self
+            .top_layer()
+            .filter(|entry| {
+                entry.kind == TopLayerKind::ModalDialog
+                    && self.arena.node_document(entry.node).ok() == Some(document)
+            })
+            .last()
+            .map(|entry| entry.node);
+        if let Some(modal) = modal {
+            let mut ancestor = Some(node);
+            let mut inside = false;
+            while let Some(current) = ancestor {
+                if current == modal {
+                    inside = true;
+                    break;
+                }
+                ancestor = self.flat_tree_parent(current)?;
+            }
+            if !inside {
+                return Ok(true);
+            }
+        }
         let mut current = Some(node);
         while let Some(node) = current {
             let record = self.arena.get(node)?;
@@ -2882,57 +4462,83 @@ impl DomRuntime {
             {
                 return Ok(true);
             }
-            current = self.inert_flat_parent(node)?;
+            if Some(node) == modal {
+                break;
+            }
+            current = self.flat_tree_parent(node)?;
         }
         Ok(false)
     }
 
-    fn inert_flat_parent(&self, node: NodeId) -> Result<Option<NodeId>, DomError> {
+    /// Children in the rendered flat tree. Shadow contents replace light
+    /// children; slots expose assigned nodes, or fallback children when empty.
+    pub fn flat_tree_children(&self, node: NodeId) -> Result<Vec<NodeId>, DomError> {
+        if let Some(root) = self.attached_shadow_root(node, false)? {
+            return Ok(self.arena.get(root)?.children.clone());
+        }
+        if self.is_element(node, "http://www.w3.org/1999/xhtml", "slot") {
+            let assigned = self.assigned_nodes(node, false)?;
+            if !assigned.is_empty() {
+                return Ok(assigned);
+            }
+        }
+        Ok(self.arena.get(node)?.children.clone())
+    }
+
+    /// Element paint participants before CSS order/stacking, paired with their
+    /// nearest rendered element parent. Slot assignments retain native identity.
+    pub fn flat_tree_elements(
+        &self,
+        root: NodeId,
+    ) -> Result<Vec<(NodeId, Option<NodeId>)>, DomError> {
+        let mut result = Vec::new();
+        let mut pending = vec![(root, None)];
+        let mut seen = BTreeSet::new();
+        while let Some((id, parent)) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let record = self.arena.get(id)?;
+            let element = matches!(record.kind, NodeKind::Element { .. });
+            if element {
+                result.push((id, parent));
+            }
+            let next_parent = if element { Some(id) } else { parent };
+            pending.extend(
+                self.flat_tree_children(id)?
+                    .into_iter()
+                    .rev()
+                    .map(|child| (child, next_parent)),
+            );
+        }
+        Ok(result)
+    }
+
+    /// Parent in the rendered flat tree. Unassigned light children and fallback
+    /// children hidden by an assignment have no flat-tree parent.
+    pub fn flat_tree_parent(&self, node: NodeId) -> Result<Option<NodeId>, DomError> {
         let record = self.arena.get(node)?;
+        if matches!(record.kind, NodeKind::Document) {
+            return Ok(None);
+        }
+        if let Some(slot) = self.assigned_slot(node, false)? {
+            return Ok(Some(slot));
+        }
         let Some(parent) = record.parent else {
             return Ok(None);
         };
-        if !matches!(
-            record.kind,
-            NodeKind::Element { .. } | NodeKind::Text { .. }
-        ) {
-            return Ok(Some(parent));
+        if matches!(self.arena.get(parent)?.kind, NodeKind::ShadowRoot { .. }) {
+            return Ok(self.arena.get(parent)?.parent);
         }
-        let shadow = self
-            .arena
-            .get(parent)?
-            .children
-            .iter()
-            .copied()
-            .find(|child| {
-                self.arena
-                    .get(*child)
-                    .is_ok_and(|record| matches!(record.kind, NodeKind::ShadowRoot { .. }))
-            });
-        if let Some(shadow) = shadow {
-            let name = record
-                .attributes
-                .get_null("slot")
-                .map_or("", String::as_str);
-            let mut pending = self.arena.get(shadow)?.children.clone();
-            pending.reverse();
-            while let Some(candidate) = pending.pop() {
-                let record = self.arena.get(candidate)?;
-                if matches!(record.kind, NodeKind::ShadowRoot { .. }) {
-                    continue;
-                }
-                if matches!(&record.kind, NodeKind::Element { name }
-                    if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" && name.local.as_ref() == "slot")
-                    && record
-                        .attributes
-                        .get_null("name")
-                        .map_or("", String::as_str)
-                        == name
-                {
-                    return Ok(Some(candidate));
-                }
-                pending.extend(record.children.iter().rev().copied());
-            }
+        if self.attached_shadow_root(parent, false)?.is_some()
+            && !matches!(record.kind, NodeKind::ShadowRoot { .. })
+        {
+            return Ok(None);
+        }
+        if self.is_element(parent, "http://www.w3.org/1999/xhtml", "slot")
+            && !self.assigned_nodes(parent, false)?.is_empty()
+        {
+            return Ok(None);
         }
         Ok(Some(parent))
     }
@@ -2944,8 +4550,21 @@ impl DomRuntime {
                 return Ok(());
             }
         }
-        let previous = std::mem::replace(&mut self.focused, current);
-        self.mutations.push(Mutation::Focus { previous, current });
+        let previous = self.focused;
+        let close_picker = previous
+            .filter(|previous| Some(*previous) != current)
+            .map(|node| {
+                self.arena
+                    .get(node)
+                    .map(|record| record.temporal_picker.is_some())
+            })
+            .transpose()?
+            .unwrap_or(false);
+        self.focused = current;
+        if close_picker {
+            self.remove_from_top_layer(previous.unwrap());
+        }
+        self.record_mutation(Mutation::Focus { previous, current });
         Ok(())
     }
 
@@ -3052,7 +4671,7 @@ impl DomRuntime {
         }
         self.focus_ring_suppressed = suppressed;
         if self.focused.is_some() {
-            self.mutations.push(Mutation::Focus {
+            self.record_mutation(Mutation::Focus {
                 previous: self.focused,
                 current: self.focused,
             });
@@ -3073,7 +4692,7 @@ impl DomRuntime {
             listeners.remove(&event_type)
         };
         if changed {
-            self.mutations.push(Mutation::EventListener {
+            self.record_mutation(Mutation::EventListener {
                 node,
                 event_type,
                 present,
@@ -3102,7 +4721,7 @@ impl DomRuntime {
         }
         self.arena.get_mut(node)?.selected_files = files;
         self.arena.get_mut(node)?.value = None;
-        self.mutations.push(Mutation::FormState { node });
+        self.record_mutation(Mutation::FormState { node });
         Ok(())
     }
 
@@ -3231,12 +4850,39 @@ impl DomRuntime {
             .map_err(|_| OpaqueRangeError::InvalidOffset)?;
         units.splice(start as usize..end as usize, dom_string::units(replacement));
         let value = self.sanitized_input_value(node, &dom_string::from_units(&units))?;
+        let final_length =
+            u32::try_from(dom_string::len(&value)).map_err(|_| OpaqueRangeError::InvalidOffset)?;
         self.opaque_ranges
             .replace(node, start, end - start, inserted, old_length)?;
+        let unfiltered = dom_string::from_units(&units);
+        if self.arena.get(node)?.sensitive_value
+            || self
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("password"))
+        {
+            self.boundary_journal
+                .push(boundary_journal::Change::ControlValueReset { node });
+        } else if value == unfiltered {
+            self.boundary_journal
+                .push(boundary_journal::Change::ControlValueReplace {
+                    node,
+                    offset: start,
+                    removed: end - start,
+                    inserted,
+                });
+        } else {
+            self.boundary_journal
+                .push(boundary_journal::Change::ControlValueReplace {
+                    node,
+                    offset: 0,
+                    removed: old_length,
+                    inserted: final_length,
+                });
+        }
         self.arena.get_mut(node)?.value = Some(value);
         self.arena.get_mut(node)?.dirty_value = true;
         self.arena.get_mut(node)?.user_edited_value = false;
-        self.mutations.push(Mutation::FormState { node });
+        self.record_mutation(Mutation::FormState { node });
         Ok(())
     }
 
@@ -3273,6 +4919,35 @@ impl DomRuntime {
             units.retain(|unit| !matches!(unit, 10 | 13));
         }
         let value = dom_string::from_units(&units);
+        let value = if self.is_element(node, "http://www.w3.org/1999/xhtml", "input")
+            && self
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("color"))
+        {
+            self.sanitize_color_value(node, &value)?
+        } else {
+            value
+        };
+        let previous = self.control_value(node)?;
+        let marker_change = if previous == value {
+            None
+        } else if sensitive
+            || self.arena.get(node)?.sensitive_value
+            || self
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("password"))
+        {
+            Some(boundary_journal::Change::ControlValueReset { node })
+        } else {
+            Some(boundary_journal::Change::ControlValueReplace {
+                node,
+                offset: 0,
+                removed: u32::try_from(dom_string::len(&previous))
+                    .map_err(|_| OpaqueRangeError::InvalidOffset)?,
+                inserted: u32::try_from(dom_string::len(&value))
+                    .map_err(|_| OpaqueRangeError::InvalidOffset)?,
+            })
+        };
         if self.opaque_ranges.has_owner(node) {
             let previous = self.control_value(node)?;
             if previous != value {
@@ -3284,12 +4959,16 @@ impl DomRuntime {
                     .replace(node, 0, old_length, new_length, old_length)?;
             }
         }
+        if let Some(change) = marker_change {
+            self.boundary_journal.push(change);
+        }
         let record = self.arena.get_mut(node)?;
         record.value = Some(value);
         record.dirty_value = true;
         record.user_edited_value = false;
+        record.temporal_edit = None;
         record.sensitive_value = sensitive;
-        self.mutations.push(Mutation::FormState { node });
+        self.record_mutation(Mutation::FormState { node });
         Ok(())
     }
 
@@ -3452,62 +5131,183 @@ impl DomRuntime {
     }
 
     pub fn serialize(&self, node: NodeId) -> Result<String, DomError> {
-        let record = self.arena.get(node)?;
-        match &record.kind {
-            NodeKind::Document | NodeKind::DocumentFragment | NodeKind::ShadowRoot { .. } => {
-                let mut output = String::new();
-                for child in &record.children {
-                    output.push_str(&self.serialize(*child)?);
-                }
-                Ok(output)
+        serialize_html_with_resolver(
+            NodeRef {
+                arena: self.arena.id(),
+                node,
+            },
+            &serialization::LocalResolver(self),
+        )
+    }
+
+    fn record_mutation(&mut self, mutation: Mutation) {
+        self.render_mutation(&mutation);
+        // Default-value/type changes have no exact edit interval. Invalidate
+        // only markers in that control, never ordinary DOM source boundaries.
+        if let Mutation::Attribute {
+            node,
+            namespace: None,
+            name,
+            old_value,
+            new_value,
+        } = &mutation
+            && old_value != new_value
+            && self.is_element(*node, "http://www.w3.org/1999/xhtml", "input")
+            && (name == "type"
+                || matches!(name.as_str(), "alpha" | "colorspace")
+                || (name == "value"
+                    && self
+                        .arena
+                        .get(*node)
+                        .is_ok_and(|record| !record.dirty_value)))
+        {
+            self.boundary_journal
+                .push(boundary_journal::Change::ControlValueReset { node: *node });
+        }
+        let value_ancestor = match &mutation {
+            Mutation::CharacterData { node, .. } | Mutation::ChildrenReplaced { node, .. } => {
+                Some(*node)
             }
-            NodeKind::DocumentType { name, .. } => Ok(format!("<!DOCTYPE {name}>")),
-            NodeKind::Text { data } => {
-                // HTML fragment serialization preserves text under raw-text
-                // elements. The namespace guard matters for SVG script/style.
-                let raw = record.parent.and_then(|parent| self.arena.get(parent).ok())
-                    .is_some_and(|parent| matches!(&parent.kind,
-                        NodeKind::Element { name }
-                        if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
-                            && matches!(name.local.as_ref(), "script" | "style" | "xmp" | "iframe" | "noembed" | "noframes" | "plaintext")));
-                Ok(if raw { data.clone() } else { escape_text(data) })
+            Mutation::Inserted { parent, .. } => *parent,
+            Mutation::Removed { former_parent, .. } => *former_parent,
+            _ => None,
+        };
+        let mut ancestor = value_ancestor;
+        while let Some(node) = ancestor {
+            let Ok(record) = self.arena.get(node) else {
+                break;
+            };
+            if self.is_element(node, "http://www.w3.org/1999/xhtml", "textarea") {
+                if !record.dirty_value {
+                    self.boundary_journal
+                        .push(boundary_journal::Change::ControlValueReset { node });
+                }
+                break;
             }
-            NodeKind::CDataSection { data } => Ok(format!("<![CDATA[{data}]]>")),
-            NodeKind::ProcessingInstruction { target, data } => Ok(format!("<?{target} {data}?>")),
-            NodeKind::Comment { data } => Ok(format!("<!--{data}-->")),
-            NodeKind::Attribute { data, .. } => Ok(escape_attribute(&data.value)),
-            NodeKind::Element { name } => {
-                let mut output = format!("<{}", name.local);
-                for (key, value) in &record.attributes {
-                    output.push(' ');
-                    output.push_str(key);
-                    output.push_str("=\"");
-                    output.push_str(&escape_attribute(value));
-                    output.push('"');
+            ancestor = record.parent;
+        }
+        if let Mutation::Attribute {
+            node,
+            namespace: None,
+            name,
+            ..
+        } = &mutation
+            && matches!(name.as_str(), "http-equiv" | "content")
+        {
+            let _ = self.arena.process_language_pragmas(*node);
+        }
+        if let Mutation::Attribute {
+            node,
+            namespace: None,
+            name,
+            ..
+        } = &mutation
+        {
+            let embedded_kind = self.embedded_content_kind(*node);
+            let embedded_selection_changed = match name.as_str() {
+                "data" => embedded_kind == Some(EmbeddedContentKind::Object),
+                "type" => {
+                    embedded_kind.is_some_and(EmbeddedContentKind::selects_response_representation)
                 }
-                output.push('>');
-                let children = match record.template_content {
-                    Some(content) => &self.arena.get(content)?.children,
-                    None => &record.children,
-                };
-                for child in children {
-                    if matches!(self.arena.get(*child)?.kind, NodeKind::ShadowRoot { .. }) {
-                        continue;
-                    }
-                    output.push_str(&self.serialize(*child)?);
-                }
-                if !is_void_html_element(&name.local) {
-                    output.push_str("</");
-                    output.push_str(name.local.as_ref());
-                    output.push('>');
-                }
-                Ok(output)
+                _ => false,
+            };
+            if matches!(name.as_str(), "src" | "srcdoc" | "sandbox") || embedded_selection_changed {
+                self.invalidate_frame_navigation_identity(*node);
+            }
+        }
+        // XPath iterators invalidate on structural mutations in their document,
+        // including mutations whose nodes are later reclaimed. Identity tokens
+        // cannot wrap and do not depend on the bounded journal retaining nodes.
+        let changed: Vec<NodeId> = match &mutation {
+            Mutation::Inserted { node, parent, .. } => {
+                std::iter::once(*node).chain(*parent).collect()
+            }
+            Mutation::Removed {
+                node,
+                former_parent,
+                ..
+            } => std::iter::once(*node).chain(*former_parent).collect(),
+            Mutation::ChildrenReplaced { node, .. }
+            | Mutation::Attribute { node, .. }
+            | Mutation::CharacterData { node, .. }
+            | Mutation::DocumentOwnership { node, .. } => vec![*node],
+            _ => Vec::new(),
+        };
+        if matches!(
+            &mutation,
+            Mutation::Attribute { .. }
+                | Mutation::CharacterData { .. }
+                | Mutation::DocumentOwnership { .. }
+        ) {
+            for node in &changed {
+                let _ = self.arena.initialize_preferred_style_set(*node);
+            }
+        }
+        let documents = changed
+            .into_iter()
+            .filter_map(|node| {
+                self.arena
+                    .get(node)
+                    .ok()
+                    .map(|record| record.owner_document.unwrap_or(node))
+            })
+            .collect::<BTreeSet<_>>();
+        for document in documents {
+            if let Some(revision) = self.xpath_revisions.get_mut(&document) {
+                *revision = Rc::new(());
+            }
+        }
+
+        let affects_assignment = match &mutation {
+            Mutation::Inserted { .. }
+            | Mutation::Removed { .. }
+            | Mutation::ChildrenReplaced { .. } => true,
+            Mutation::Attribute {
+                namespace: None,
+                name,
+                ..
+            } => name == "slot" || name == "name",
+            _ => false,
+        };
+        let fallback_parent = match &mutation {
+            Mutation::Inserted { parent, .. } => *parent,
+            Mutation::Removed { former_parent, .. } => *former_parent,
+            Mutation::ChildrenReplaced { node, .. } => Some(*node),
+            _ => None,
+        };
+        self.mutations.push(mutation);
+        if affects_assignment {
+            self.refresh_slot_assignments()
+                .expect("live slot assignment state");
+            if let Some(parent) = fallback_parent {
+                self.signal_slot_fallback_change(parent)
+                    .expect("live fallback slot state");
             }
         }
     }
 
     pub fn drain_mutations(&mut self) -> Vec<Mutation> {
         self.mutations.drain_observer()
+    }
+
+    pub fn xpath_document_revision(&mut self, document: NodeId) -> Result<Rc<()>, DomError> {
+        self.arena.get(document)?;
+        if !self.xpath_revisions.contains_key(&document) {
+            self.xpath_revisions
+                .retain(|node, _| self.arena.get(*node).is_ok());
+        }
+        Ok(self
+            .xpath_revisions
+            .entry(document)
+            .or_insert_with(|| Rc::new(()))
+            .clone())
+    }
+    pub fn xpath_document_revision_matches(&self, document: NodeId, revision: &Rc<()>) -> bool {
+        self.arena.get(document).is_ok()
+            && self
+                .xpath_revisions
+                .get(&document)
+                .is_some_and(|current| Rc::ptr_eq(current, revision))
     }
 
     pub fn mutation_cursor(&self) -> MutationCursor {
@@ -3519,40 +5319,81 @@ impl DomRuntime {
     }
 
     pub fn release_mutation_roots(&mut self, mutations: &[Mutation]) -> Result<(), DomError> {
-        for node in std::mem::take(&mut self.mutations.discarded_removed_roots) {
-            self.release_native(node)?;
+        self.drain_committed_tree_tails()?;
+        self.drain_cursor_releases()?;
+        while let Some((node, lease)) = self.mutations.discarded_removed_roots.last().cloned() {
+            let result = self.release_removed_root(node, &lease);
+            if lease.consumed() {
+                self.mutations.discarded_removed_roots.pop();
+            }
+            result?;
         }
         for mutation in mutations {
-            if let Mutation::Removed { node, .. } = mutation {
-                self.release_native(*node)?;
+            if let Mutation::Removed { node, lease, .. } = mutation {
+                self.release_removed_root(*node, lease)?;
             }
         }
         Ok(())
     }
 
+    fn release_removed_root(
+        &mut self,
+        node: NodeId,
+        lease: &MutationRemovalLease,
+    ) -> Result<(), DomError> {
+        if lease.consumed()
+            || !self
+                .mutations
+                .removed_leases
+                .get(&node)
+                .is_some_and(|leases| leases.iter().any(|candidate| candidate.same(lease)))
+        {
+            return Ok(());
+        }
+        let result = self.release_native_with_commit(node, || lease.consume());
+        // Reclamation can fail after the native decrement. Retire that exact
+        // token even on error; retry must not consume a later removal's lease.
+        if lease.consumed() {
+            let leases = self
+                .mutations
+                .removed_leases
+                .get_mut(&node)
+                .expect("validated removal lease");
+            leases.retain(|candidate| !candidate.same(lease));
+            if leases.is_empty() {
+                self.mutations.removed_leases.remove(&node);
+                self.mutations.outstanding_removed_roots.remove(&node);
+            } else {
+                *self
+                    .mutations
+                    .outstanding_removed_roots
+                    .get_mut(&node)
+                    .expect("removal count") -= 1;
+            }
+        }
+        result
+    }
+
     fn rebuild_document_indexes(&mut self) -> Result<(), DomError> {
         let document = self.document();
         let mut pending = vec![document];
+        let mut connected = BTreeSet::new();
         while let Some(node) = pending.pop() {
-            self.connected.insert(node);
+            // Validate a parsed/snapshot graph before publishing its index.
+            // A repeated retention edge is invalid, including a hosted cycle.
+            if !connected.insert(node) {
+                return Err(DomError::Cycle);
+            }
             let record = self.arena.get(node)?;
             pending.extend(record.children.iter().rev().copied());
             pending.extend(self.arena.hosted_document(node));
         }
+        self.connected.extend(connected);
         Ok(())
     }
 
     fn mark_connected(&mut self, node: NodeId) -> Result<(), DomError> {
-        self.connected.insert(node);
-        for child in self.arena.get(node)?.children.clone() {
-            self.mark_connected(child)?;
-        }
-        if let Some(document) = self.arena.hosted_document(node) {
-            self.mark_connected(document)?;
-            self.mutations
-                .push(Mutation::HostedDocument { frame: node });
-        }
-        Ok(())
+        insertion::ConnectionUpdate::new(self, node, true, false)?.resume(self)
     }
 
     fn mark_disconnected(&mut self, node: NodeId) -> Result<(), DomError> {
@@ -3564,25 +5405,7 @@ impl DomRuntime {
         node: NodeId,
         preserve_focus: bool,
     ) -> Result<(), DomError> {
-        let was_connected = self.connected.remove(&node);
-        if was_connected
-            && !preserve_focus
-            && let Some(generation) = self.frame_context_generations.get_mut(&node)
-        {
-            *generation = generation.saturating_add(1);
-        }
-        if !preserve_focus && self.focused == Some(node) {
-            self.focus(None)?;
-        }
-        for child in self.arena.get(node)?.children.clone() {
-            self.mark_disconnected_with_focus(child, preserve_focus)?;
-        }
-        if let Some(document) = self.arena.hosted_document(node) {
-            self.mark_disconnected_with_focus(document, preserve_focus)?;
-            self.mutations
-                .push(Mutation::HostedDocument { frame: node });
-        }
-        Ok(())
+        insertion::ConnectionUpdate::new(self, node, false, preserve_focus)?.resume(self)
     }
 
     fn is_gc_root(&self, node: NodeId) -> bool {
@@ -3610,14 +5433,59 @@ impl DomRuntime {
     }
 
     fn reclaim_if_unrooted(&mut self, node: NodeId) -> Result<(), DomError> {
+        enum ReclaimTask {
+            Check(NodeId),
+            Expand(NodeId),
+            Remove(NodeId),
+        }
+        let mut tasks = vec![ReclaimTask::Check(node)];
+        while let Some(task) = tasks.pop() {
+            let node = match &task {
+                ReclaimTask::Check(node)
+                | ReclaimTask::Expand(node)
+                | ReclaimTask::Remove(node) => *node,
+            };
+            // Releasing an internal edge can collect another pending target.
+            if self.arena.get(node).is_err() {
+                continue;
+            }
+            match task {
+                ReclaimTask::Check(node) => {
+                    if let Some(root) = self.unrooted_tree_root(node)? {
+                        tasks.push(ReclaimTask::Expand(root));
+                    }
+                }
+                ReclaimTask::Expand(node) => {
+                    tasks.push(ReclaimTask::Remove(node));
+                    tasks.extend(
+                        self.retention_children(node)?
+                            .into_iter()
+                            .rev()
+                            .map(ReclaimTask::Expand),
+                    );
+                }
+                ReclaimTask::Remove(node) => {
+                    let targets = self.reclaim_unrooted_node(node)?;
+                    tasks.extend(targets.into_iter().rev().map(ReclaimTask::Check));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn unrooted_tree_root(&self, node: NodeId) -> Result<Option<NodeId>, DomError> {
         // A retained DOM node exposes both its ancestors and descendants.
         // Collection must not detach a retained child or erase an unwrapped
         // child from a retained parent. Reclaim the whole detached tree only
         // when none of its nodes has a wrapper or native lease.
         let mut root = node;
+        let mut ancestors = BTreeSet::new();
         loop {
+            if !ancestors.insert(root) {
+                return Err(DomError::Cycle);
+            }
             if self.is_gc_root(root) {
-                return Ok(());
+                return Ok(None);
             }
             match self.retention_parent(root)? {
                 Some(parent) => root = parent,
@@ -3628,9 +5496,13 @@ impl DomRuntime {
             || self.arena.get(root)?.template_content.is_some()
             || self.internal_targets.contains(&root);
         let mut pending = self.retention_children(root)?;
+        let mut descendants = BTreeSet::from([root]);
         while let Some(child) = pending.pop() {
+            if !descendants.insert(child) {
+                return Err(DomError::Cycle);
+            }
             if self.is_gc_root(child) {
-                return Ok(());
+                return Ok(None);
             }
             graph_target |= matches!(self.arena.get(child)?.kind, NodeKind::Document)
                 || self.arena.get(child)?.template_content.is_some()
@@ -3638,7 +5510,7 @@ impl DomRuntime {
             pending.extend(self.retention_children(child)?);
         }
         if !graph_target {
-            return self.reclaim_unrooted_tree(root);
+            return Ok(Some(root));
         }
         // Ownership and internal template/stylesheet relationships are directed
         // graph edges, not permanent native roots. Trace them from real leases
@@ -3667,17 +5539,31 @@ impl DomRuntime {
             pending.extend(record.template_content);
             pending.extend(record.template_host);
             pending.extend(record.adopted_stylesheets.iter().copied());
+            pending.extend(
+                record
+                    .default_accessibility_references
+                    .values()
+                    .flatten()
+                    .copied(),
+            );
+            pending.extend(
+                record
+                    .explicit_accessibility_references
+                    .values()
+                    .flatten()
+                    .copied(),
+            );
         }
         if reachable.contains(&root) {
-            return Ok(());
+            return Ok(None);
         }
-        self.reclaim_unrooted_tree(root)
+        Ok(Some(root))
     }
 
-    fn reclaim_unrooted_tree(&mut self, node: NodeId) -> Result<(), DomError> {
-        for child in self.retention_children(node)? {
-            self.reclaim_unrooted_tree(child)?;
-        }
+    // Descendants have already been removed by the explicit task stack.
+    // Return internal-edge targets for later reachability checks, without
+    // recursively entering reclamation through templates or accessibility links.
+    fn reclaim_unrooted_node(&mut self, node: NodeId) -> Result<Vec<NodeId>, DomError> {
         let sheets = self
             .arena
             .get(node)?
@@ -3685,38 +5571,58 @@ impl DomRuntime {
             .iter()
             .copied()
             .collect::<BTreeSet<_>>();
+        let accessibility_targets = self
+            .arena
+            .get(node)?
+            .default_accessibility_references
+            .values()
+            .chain(
+                self.arena
+                    .get(node)?
+                    .explicit_accessibility_references
+                    .values(),
+            )
+            .flatten()
+            .copied()
+            .collect::<BTreeSet<_>>();
         let template_content = self.arena.get(node)?.template_content;
         let template_host = self.arena.get(node)?.template_host;
         let inert_document = self.arena.get(node)?.associated_inert_document;
-        let _ = self.arena.remove(node)?;
-        if let Some(content) = template_content {
-            self.reclaim_if_unrooted(content)?;
-        }
-        for sheet in sheets {
-            if self.arena.get(sheet).is_ok() {
-                self.reclaim_if_unrooted(sheet)?;
+        self.slot_elements.remove(&node);
+        self.slot_assignment_snapshots.remove(&node);
+        if let Some(nodes) = self.manual_slot_nodes.remove(&node) {
+            for child in nodes {
+                self.manual_node_slots.remove(&child);
             }
         }
+        if let Some(slot) = self.manual_node_slots.remove(&node)
+            && let Some(nodes) = self.manual_slot_nodes.get_mut(&slot)
+        {
+            nodes.retain(|child| *child != node);
+        }
+        self.arena.form_associated_custom_elements.remove(&node);
+        self.custom_element_validity.remove(&node);
+        self.parser_shadow_disabled.remove(&node);
+        if matches!(self.arena.get(node)?.kind, NodeKind::Document) {
+            self.custom_registry_documents
+                .retain(|(_, document), _| *document != node);
+        }
+        let _ = self.arena.remove(node)?;
+        let mut targets = accessibility_targets.into_iter().collect::<Vec<_>>();
+        targets.extend(template_content);
+        targets.extend(sheets);
         self.roots.remove(&node);
         self.frame_context_generations.remove(&node);
+        self.frame_navigation_identities.remove(&node);
         self.internal_targets.remove(&node);
-        if let Some(host) = template_host
-            && self.arena.get(host).is_ok()
-        {
-            self.reclaim_if_unrooted(host)?;
-        }
-        if let Some(inert) = inert_document
-            && inert != node
-            && self.arena.get(inert).is_ok()
-        {
-            self.reclaim_if_unrooted(inert)?;
-        }
-        Ok(())
+        targets.extend(template_host);
+        targets.extend(inert_document.filter(|inert| *inert != node));
+        Ok(targets)
     }
 }
 
 fn utf16_len(value: &str) -> u32 {
-    value.encode_utf16().count().try_into().unwrap_or(u32::MAX)
+    dom_string::len(value).try_into().unwrap_or(u32::MAX)
 }
 
 /// Split descendant compounds without splitting quoted attribute values or
@@ -3871,6 +5777,41 @@ fn matches_compound_selector(node: &Node, selector: &str) -> bool {
                 }
             }
             b':' => match token {
+                "paused" => {
+                    name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                        && matches!(name.local.as_ref(), "audio" | "video")
+                        && (node.media_selector_state.unwrap_or(2) & 2) != 0
+                }
+                "playing" => {
+                    name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                        && matches!(name.local.as_ref(), "audio" | "video")
+                        && (node.media_selector_state.unwrap_or(2) & 4) != 0
+                }
+                "seeking" => {
+                    name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                        && matches!(name.local.as_ref(), "audio" | "video")
+                        && (node.media_selector_state.unwrap_or(2) & 8) != 0
+                }
+                "buffering" => {
+                    name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                        && matches!(name.local.as_ref(), "audio" | "video")
+                        && (node.media_selector_state.unwrap_or(2) & 16) != 0
+                }
+                "stalled" => {
+                    name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                        && matches!(name.local.as_ref(), "audio" | "video")
+                        && (node.media_selector_state.unwrap_or(2) & 32) != 0
+                }
+                "interest-source" => node.interest_source,
+                "interest-target" => node.interest_target,
+                "granted" => {
+                    node.permission_granted
+                        && name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                        && matches!(
+                            name.local.as_ref(),
+                            "geolocation" | "usermedia" | "camera" | "microphone"
+                        )
+                }
                 "checked" => matches!(&node.kind, NodeKind::Element { name }
                     if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
                     && ((name.local.as_ref() == "input"
@@ -3893,18 +5834,6 @@ fn matches_compound_selector(node: &Node, selector: &str) -> bool {
         };
     }
     true
-}
-
-fn escape_text(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('\u{a0}', "&nbsp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-fn escape_attribute(value: &str) -> String {
-    escape_text(value).replace('"', "&quot;")
 }
 
 fn is_void_html_element(name: &LocalName) -> bool {
@@ -3930,6 +5859,28 @@ fn is_void_html_element(name: &LocalName) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn state_preserving_move_rejects_cross_document_before_mutation() {
+        let mut dom = html::parse("<main id=target></main><iframe id=frame></iframe>")
+            .into_runtime()
+            .unwrap();
+        let parent = dom.find_by_id("target").unwrap();
+        let frame = dom.find_by_id("frame").unwrap();
+        let document = dom.create(NodeKind::Document);
+        let child = dom.create_element("div");
+        dom.append_child(document, child).unwrap();
+        dom.set_hosted_document(frame, Some(document)).unwrap();
+        assert!(dom.is_connected(child).unwrap());
+        let cursor = dom.mutation_cursor();
+        assert_eq!(
+            dom.move_before(parent, child, None),
+            Err(DomError::InvalidStatePreservingMove)
+        );
+        assert_eq!(dom.parent(child).unwrap(), Some(document));
+        assert_eq!(dom.mutation_cursor(), cursor);
+        assert_eq!(dom.arena().node_document(child).unwrap(), Some(document));
+    }
 
     #[test]
     fn frame_context_generation_observes_atomic_moves_and_preserves_move_before() {
@@ -4077,6 +6028,103 @@ mod tests {
     }
 
     #[test]
+    fn native_adoption_commits_effective_registry_before_any_journal_consumer() {
+        let mut dom = DomRuntime::new();
+        let source = dom.document();
+        let destination = dom.create(NodeKind::Document);
+        dom.retain_native(destination).unwrap();
+        dom.register_global_custom_element_registry(1);
+        dom.register_global_custom_element_registry(2);
+        dom.arena_mut()
+            .get_mut(source)
+            .unwrap()
+            .custom_element_registry = Some(Some(1));
+        dom.arena_mut()
+            .get_mut(destination)
+            .unwrap()
+            .custom_element_registry = Some(Some(2));
+        let source_body = dom.create_element("body");
+        dom.append_child(source, source_body).unwrap();
+        let destination_body = dom.create_element("body");
+        dom.append_child(destination, destination_body).unwrap();
+        for parent_registry in [None, Some(1), Some(3)] {
+            for child_registry in [None, Some(1), Some(3)] {
+                let parent = dom.create_element("div");
+                let child = dom.create_element("x-child");
+                dom.append_child(source_body, parent).unwrap();
+                dom.append_child(parent, child).unwrap();
+                dom.arena_mut()
+                    .get_mut(parent)
+                    .unwrap()
+                    .custom_element_registry = Some(parent_registry);
+                dom.arena_mut()
+                    .get_mut(child)
+                    .unwrap()
+                    .custom_element_registry = Some(child_registry);
+                dom.retain_native(parent).unwrap();
+                let identity = dom.arena().node_ref(parent).unwrap();
+                let document = dom.arena().document_id(destination).unwrap();
+                dom.adopt_node(document, identity).unwrap();
+                assert_eq!(
+                    dom.arena().get(parent).unwrap().custom_element_registry,
+                    Some(if parent_registry == Some(3) {
+                        Some(3)
+                    } else {
+                        Some(2)
+                    })
+                );
+                let expected = if child_registry == Some(3) {
+                    Some(3)
+                } else if child_registry.is_none() && parent_registry == Some(3) {
+                    None
+                } else {
+                    Some(2)
+                };
+                assert_eq!(
+                    dom.arena().get(child).unwrap().custom_element_registry,
+                    Some(expected)
+                );
+                // Later mutations cannot change the already-committed adoption result.
+                dom.append_child(destination_body, child).unwrap();
+                assert_eq!(
+                    dom.arena().get(child).unwrap().custom_element_registry,
+                    Some(expected)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn custom_registry_document_association_retains_first_use_and_adoption_order() {
+        let mut dom = DomRuntime::new();
+        let first = dom.document();
+        let second = dom.create(NodeKind::Document);
+        let third = dom.create(NodeKind::Document);
+        let a = dom.create_element("div");
+        dom.set_node_document(a, second).unwrap();
+        dom.set_custom_element_registry(a, Some(41)).unwrap();
+        let b = dom.create_element("div");
+        dom.set_node_document(b, first).unwrap();
+        dom.set_custom_element_registry(b, Some(41)).unwrap();
+        dom.set_custom_element_registry(a, None).unwrap();
+        dom.set_custom_element_registry(a, Some(41)).unwrap();
+        dom.set_node_document(a, third).unwrap();
+        let mut associations = dom.custom_registry_documents(41);
+        associations.sort_by_key(|(sequence, _)| *sequence);
+        assert_eq!(
+            associations
+                .iter()
+                .map(|(_, document)| *document)
+                .collect::<Vec<_>>(),
+            vec![second, first, third]
+        );
+        assert_eq!(
+            dom.arena().get(a).unwrap().custom_element_registry,
+            Some(Some(41))
+        );
+    }
+
+    #[test]
     fn native_adoption_preserves_identity_and_updates_descendant_and_attr_ownership() {
         let mut dom = DomRuntime::new();
         let source_document = dom.document();
@@ -4190,6 +6238,43 @@ mod tests {
             Err(DomError::NotADocument(parent))
         );
         assert_eq!(dom.mutation_cursor(), cursor);
+    }
+
+    #[test]
+    fn replacing_document_tree_preserves_identity_encoding_and_readiness() {
+        let mut dom = html::parse("<p>old</p>").into_runtime().unwrap();
+        let document = dom.document();
+        {
+            let metadata = dom
+                .arena_mut()
+                .get_mut(document)
+                .unwrap()
+                .document_metadata
+                .as_mut()
+                .unwrap();
+            metadata.url = Some("about:srcdoc".into());
+            metadata.inherited_base_url = Some("https://example.test/directory/".into());
+            metadata.encoding = "windows-1252".into();
+            metadata.ready_state = DocumentReadyState::Loading;
+        }
+        dom.replace_document_contents_in(document, "<!doctype html><p id=new>new</p>")
+            .unwrap();
+        let metadata = dom
+            .arena()
+            .get(document)
+            .unwrap()
+            .document_metadata
+            .as_ref()
+            .unwrap();
+        assert_eq!(metadata.url.as_deref(), Some("about:srcdoc"));
+        assert_eq!(
+            metadata.inherited_base_url.as_deref(),
+            Some("https://example.test/directory/")
+        );
+        assert_eq!(metadata.encoding, "windows-1252");
+        assert_eq!(metadata.ready_state, DocumentReadyState::Loading);
+        assert!(!metadata.quirks);
+        assert!(dom.get_element_by_id(document, "new").unwrap().is_some());
     }
 
     #[test]
@@ -4375,6 +6460,224 @@ mod tests {
     }
 
     #[test]
+    fn every_native_embedding_kind_preserves_document_custody() {
+        for tag in ["iframe", "frame", "object", "embed"] {
+            let mut dom = DomRuntime::new();
+            let owner = dom.create_element(tag);
+            let other = dom.create_element(tag);
+            dom.append_child(dom.document(), owner).unwrap();
+            dom.append_child(dom.document(), other).unwrap();
+            let first = dom.create(NodeKind::Document);
+            let child = dom.create_element("button");
+            dom.append_child(first, child).unwrap();
+            dom.set_hosted_document(owner, Some(first)).unwrap();
+            assert_eq!(dom.arena().hosted_document(owner), Some(first));
+            assert!(dom.children(owner).unwrap().is_empty());
+            assert_eq!(dom.parent(first).unwrap(), None);
+            assert_eq!(dom.retention_parent(first).unwrap(), Some(owner));
+            assert!(dom.is_connected(child).unwrap());
+            let cursor = dom.mutation_cursor();
+            dom.set_hosted_document(owner, Some(first)).unwrap();
+            assert_eq!(dom.mutation_cursor(), cursor);
+            assert_eq!(
+                dom.set_hosted_document(other, Some(first)),
+                Err(DomError::Cycle)
+            );
+            assert_eq!(
+                dom.set_hosted_document(owner, Some(dom.document())),
+                Err(DomError::Cycle)
+            );
+            assert_eq!(dom.mutation_cursor(), cursor);
+            dom.retain_native(child).unwrap();
+            let second = dom.create(NodeKind::Document);
+            dom.set_hosted_document(owner, Some(second)).unwrap();
+            assert_eq!(dom.arena().hosted_document(owner), Some(second));
+            assert_eq!(dom.retention_parent(first).unwrap(), None);
+            assert!(!dom.is_connected(child).unwrap());
+            dom.release_native(child).unwrap();
+            assert!(dom.arena().get(first).is_err());
+            assert!(dom.arena().get(child).is_err());
+            dom.set_hosted_document(owner, None).unwrap();
+            assert_eq!(dom.arena().hosted_document(owner), None);
+            assert!(dom.arena().get(second).is_err());
+            assert!(dom.arena().get(owner).is_ok());
+        }
+        let mut dom = DomRuntime::new();
+        let ordinary = dom.create_element("div");
+        let foreign = dom.create_element_ns("http://www.w3.org/2000/svg", "object");
+        let document = dom.create(NodeKind::Document);
+        for owner in [ordinary, foreign, dom.document()] {
+            assert_eq!(
+                dom.set_hosted_document(owner, Some(document)),
+                Err(DomError::NotAnElement(owner))
+            );
+            assert_eq!(dom.arena().hosted_document(owner), None);
+        }
+        assert!(dom.arena().get(document).is_ok());
+    }
+
+    #[test]
+    fn importing_deep_subtrees_uses_an_explicit_traversal_stack() {
+        let mut source = DomRuntime::new();
+        let root = source.create_element("section");
+        let mut parent = root;
+        // Construct a deep arena without recursive parsing or serialization.
+        for _ in 0..4096 {
+            let child = source.create_element("div");
+            source.arena.get_mut(parent).unwrap().children.push(child);
+            source.arena.get_mut(child).unwrap().parent = Some(parent);
+            parent = child;
+        }
+        let leaf = source.create_text("deep leaf");
+        source.arena.get_mut(parent).unwrap().children.push(leaf);
+        source.arena.get_mut(leaf).unwrap().parent = Some(parent);
+        let mut destination = DomRuntime::new();
+        let imported = destination.import_subtree(source.arena(), root).unwrap();
+        let mut current = imported;
+        for _ in 0..4096 {
+            let children = destination.children(current).unwrap();
+            assert_eq!(children.len(), 1);
+            current = children[0];
+            assert!(destination.is_element(current, "http://www.w3.org/1999/xhtml", "div"));
+        }
+        let children = destination.children(current).unwrap();
+        assert_eq!(children.len(), 1);
+        assert!(
+            matches!(&destination.arena().get(children[0]).unwrap().kind,
+            NodeKind::Text { data } if data == "deep leaf")
+        );
+        destination.retain_native(imported).unwrap();
+        let mutations = destination.drain_mutations();
+        destination.release_mutation_roots(&mutations).unwrap();
+        destination.release_native(imported).unwrap();
+        assert!(destination.arena().get(imported).is_err());
+        assert!(destination.arena().get(current).is_err());
+    }
+
+    #[test]
+    fn deep_template_reclamation_preserves_live_leaf_then_releases_internal_edges() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("template");
+        let mut template = root;
+        let mut allocated = vec![root];
+        for _ in 0..512 {
+            let content = dom.template_content(template).unwrap();
+            let next = dom.create_element("template");
+            dom.append_child(content, next).unwrap();
+            allocated.extend([content, next]);
+            template = next;
+        }
+        dom.retain_native(root).unwrap();
+        dom.retain_wrapper(template).unwrap();
+        let mutations = dom.drain_mutations();
+        dom.release_mutation_roots(&mutations).unwrap();
+        dom.release_native(root).unwrap();
+        assert!(
+            dom.arena().get(root).is_ok(),
+            "leaf wrapper retains template hosts"
+        );
+        dom.release_wrapper(template).unwrap();
+        for node in allocated {
+            assert!(
+                dom.arena().get(node).is_err(),
+                "unreachable template edge {node:?}"
+            );
+        }
+        assert!(dom.arena().get(dom.document()).is_ok());
+    }
+
+    #[test]
+    fn importing_cyclic_template_graph_rejects_before_destination_mutation() {
+        let mut source = DomRuntime::new();
+        let template = source.create_element("template");
+        let content = source.template_content(template).unwrap();
+        // Deliberately corrupt the external arena; public DOM insertion rejects it.
+        source
+            .arena
+            .get_mut(content)
+            .unwrap()
+            .children
+            .push(template);
+        let mut destination = DomRuntime::new();
+        let retained = destination.create_element("main");
+        destination
+            .append_child(destination.document(), retained)
+            .unwrap();
+        let before = destination.arena.slots.len();
+        assert_eq!(
+            destination.import_subtree(source.arena(), template),
+            Err(DomError::Cycle)
+        );
+        assert_eq!(destination.arena.slots.len(), before);
+        assert_eq!(
+            destination.children(destination.document()).unwrap(),
+            &[retained]
+        );
+        assert!(destination.is_connected(retained).unwrap());
+    }
+
+    #[test]
+    fn cloning_and_importing_media_do_not_copy_live_capture_pixels() {
+        let mut dom = DomRuntime::new();
+        let video = dom.create_element("video");
+        dom.set_attribute(video, "width", "320").unwrap();
+        dom.arena.get_mut(video).unwrap().media_frame = Some(vec![1, 2, 3]);
+        dom.set_media_poster(video, Some(vec![4, 5]), true, Some((123, 123)))
+            .unwrap();
+        dom.set_showing_poster(video, false).unwrap();
+        dom.arena.get_mut(video).unwrap().image_dimensions = Some((640, 480));
+        for deep in [false, true] {
+            let clone = dom.clone_node(video, deep).unwrap();
+            let record = dom.arena.get(clone).unwrap();
+            assert!(record.media_frame.is_none());
+            assert!(
+                record.media_poster.is_none()
+                    && record.media_poster_dimensions.is_none()
+                    && record.showing_poster
+            );
+            assert!(record.image_dimensions.is_none());
+            assert_eq!(dom.attribute(clone, "width").unwrap(), Some("320"));
+        }
+        let mut destination = DomRuntime::new();
+        let imported = destination.import_subtree(dom.arena(), video).unwrap();
+        assert!(
+            destination
+                .arena
+                .get(imported)
+                .unwrap()
+                .media_frame
+                .is_none()
+        );
+        assert!(
+            destination
+                .arena
+                .get(imported)
+                .unwrap()
+                .image_dimensions
+                .is_none()
+        );
+        assert_eq!(
+            destination.attribute(imported, "width").unwrap(),
+            Some("320")
+        );
+        // Rendering snapshots project the original live node, unlike cloning.
+        let (snapshot, _) = dom.snapshot();
+        assert_eq!(
+            snapshot.get(video).unwrap().media_frame.as_deref(),
+            Some(&[1, 2, 3][..])
+        );
+        assert_eq!(
+            snapshot.get(video).unwrap().media_poster_dimensions,
+            Some((123, 123))
+        );
+        assert!(!snapshot.get(video).unwrap().showing_poster);
+        assert_eq!(
+            snapshot.get(video).unwrap().image_dimensions,
+            Some((640, 480))
+        );
+    }
+
+    #[test]
     fn cloning_and_importing_frames_do_not_copy_hosted_documents() {
         let mut dom = DomRuntime::new();
         let frame = dom.create_element("iframe");
@@ -4511,6 +6814,100 @@ mod tests {
             data: "rebuilt".into(),
         });
         assert_ne!(after_rebuild.slot, exhausted.slot);
+    }
+
+    #[test]
+    fn custom_property_registry_is_document_owned_and_not_cloned() {
+        let mut dom = html::parse("<p>one</p>").into_runtime().unwrap();
+        let document = dom.document();
+        let registration = RegisteredCustomProperty {
+            name: "--one".into(),
+            syntax: "*".into(),
+            inherits: false,
+            initial_value: Some("value".into()),
+            base_url: "https://example.test/".into(),
+        };
+        assert!(
+            dom.register_custom_property(document, registration.clone())
+                .unwrap()
+        );
+        assert!(
+            !dom.register_custom_property(document, registration)
+                .unwrap()
+        );
+        let clone = dom.clone_node(document, true).unwrap();
+        assert!(
+            dom.arena()
+                .get(clone)
+                .unwrap()
+                .document_metadata
+                .as_ref()
+                .unwrap()
+                .registered_custom_properties
+                .is_empty()
+        );
+        let mut other = DomRuntime::new();
+        let imported = other.import_subtree(dom.arena(), document).unwrap();
+        assert!(
+            other
+                .arena()
+                .get(imported)
+                .unwrap()
+                .document_metadata
+                .as_ref()
+                .unwrap()
+                .registered_custom_properties
+                .is_empty()
+        );
+        dom.replace_document_contents_in(document, "<p>two</p>")
+            .unwrap();
+        assert_eq!(
+            dom.arena()
+                .get(document)
+                .unwrap()
+                .document_metadata
+                .as_ref()
+                .unwrap()
+                .registered_custom_properties
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn replacing_document_children_preserves_its_request_referrer() {
+        let mut dom = html::parse("<body>old</body>").into_runtime().unwrap();
+        let document = dom.document();
+        dom.arena_mut()
+            .get_mut(document)
+            .unwrap()
+            .document_metadata
+            .as_mut()
+            .unwrap()
+            .referrer = "https://source.test/".into();
+        dom.replace_document_contents_in(document, "<!doctype html><p>new</p>")
+            .unwrap();
+        assert_eq!(
+            dom.arena()
+                .get(document)
+                .unwrap()
+                .document_metadata
+                .as_ref()
+                .unwrap()
+                .referrer,
+            "https://source.test/"
+        );
+        dom.clear_document_in(document).unwrap();
+        assert_eq!(
+            dom.arena()
+                .get(document)
+                .unwrap()
+                .document_metadata
+                .as_ref()
+                .unwrap()
+                .referrer,
+            "https://source.test/"
+        );
     }
 
     #[test]
@@ -4698,6 +7095,72 @@ mod tests {
                 .stylesheet_text(sheet)
                 .unwrap()
                 .contains("color: black")
+        );
+    }
+
+    #[test]
+    fn link_source_attribute_changes_retire_stylesheet_generations() {
+        let mut dom = html::parse("<link id='sheet' rel='stylesheet' href='/first.css'>")
+            .into_runtime()
+            .unwrap();
+        let sheet = dom.find_by_id("sheet").unwrap();
+        dom.set_stylesheet_text(sheet, "a { color: red }".into())
+            .unwrap();
+        let first = dom.arena().stylesheet_revision(sheet).unwrap();
+        dom.set_attribute(sheet, "href", "/first.css").unwrap();
+        assert_eq!(dom.arena().stylesheet_revision(sheet).unwrap(), first);
+        assert_eq!(
+            dom.arena().stylesheet_text(sheet).unwrap(),
+            "a { color: red }"
+        );
+        dom.set_attribute_ns(sheet, Some("urn:other".into()), "p:href", "/ignored.css")
+            .unwrap();
+        assert_eq!(dom.arena().stylesheet_revision(sheet).unwrap(), first);
+        let attribute = dom.attribute_node(sheet, "href").unwrap().unwrap();
+        dom.set_attribute_node_value(attribute, "/next.css")
+            .unwrap();
+        let next = dom.arena().stylesheet_revision(sheet).unwrap();
+        assert!(next > first);
+        assert!(
+            dom.arena()
+                .get(sheet)
+                .unwrap()
+                .stylesheet_override
+                .is_none()
+        );
+        dom.set_stylesheet_text(sheet, "a { color: blue }".into())
+            .unwrap();
+        dom.remove_attribute(sheet, "rel").unwrap();
+        assert!(dom.arena().stylesheet_revision(sheet).unwrap() > next);
+        assert!(
+            dom.arena()
+                .get(sheet)
+                .unwrap()
+                .stylesheet_override
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn stylesheet_media_changes_preserve_sheet_identity_but_type_changes_do_not() {
+        let mut dom = html::parse("<style id='sheet'>a { color: red }</style>")
+            .into_runtime()
+            .unwrap();
+        let sheet = dom.find_by_id("sheet").unwrap();
+        dom.set_stylesheet_text(sheet, "a { color: blue }".into())
+            .unwrap();
+        let first = dom.arena().stylesheet_revision(sheet).unwrap();
+        dom.set_attribute(sheet, "media", "print").unwrap();
+        assert_eq!(dom.arena().stylesheet_revision(sheet).unwrap(), first);
+        assert_eq!(
+            dom.arena().stylesheet_text(sheet).unwrap(),
+            "a { color: blue }"
+        );
+        dom.set_attribute(sheet, "type", "text/plain").unwrap();
+        assert!(dom.arena().stylesheet_revision(sheet).unwrap() > first);
+        assert_eq!(
+            dom.arena().stylesheet_text(sheet).unwrap(),
+            "a { color: red }"
         );
     }
 
@@ -5103,6 +7566,93 @@ mod tests {
     }
 
     #[test]
+    fn removal_batch_replay_never_consumes_a_later_same_node_lease() {
+        let mut dom = DomRuntime::new();
+        let node = dom.create_element("section");
+        dom.retain_wrapper(node).unwrap();
+        dom.append_child(dom.document(), node).unwrap();
+        dom.remove(node).unwrap();
+        let first = dom.drain_mutations();
+        let clone = first.clone();
+        dom.release_mutation_roots(&first).unwrap();
+        dom.append_child(dom.document(), node).unwrap();
+        dom.remove(node).unwrap();
+        let second = dom.drain_mutations();
+        dom.release_mutation_roots(&clone).unwrap();
+        assert_eq!(dom.roots[&node].native, 1);
+        // The actual wire round trip preserves structural data but never
+        // conveys native cleanup authority, even with a forged lease field.
+        let mut wire = serde_json::to_value(&second).unwrap();
+        for mutation in wire.as_array_mut().unwrap() {
+            assert!(mutation.get("lease").is_none());
+            if mutation["kind"] == "removed" {
+                mutation
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("lease".into(), serde_json::json!({"consumed":false}));
+            }
+        }
+        let reconstructed: Vec<Mutation> = serde_json::from_value(wire).unwrap();
+        assert_eq!(reconstructed, second);
+        dom.release_mutation_roots(&reconstructed).unwrap();
+        assert_eq!(dom.roots[&node].native, 1);
+        dom.release_mutation_roots(&second).unwrap();
+        assert_eq!(dom.roots[&node].native, 0);
+        dom.release_wrapper(node).unwrap();
+    }
+
+    #[test]
+    fn partially_failed_removal_batch_retires_committed_tokens_before_retry() {
+        let mut dom = DomRuntime::new();
+        let first = dom.create_element("section");
+        let broken = dom.create_element("section");
+        dom.retain_wrapper(first).unwrap();
+        for node in [first, broken] {
+            dom.append_child(dom.document(), node).unwrap();
+            dom.remove(node).unwrap();
+        }
+        let batch = dom.drain_mutations();
+        dom.arena.get_mut(broken).unwrap().parent = Some(broken);
+        assert!(matches!(
+            dom.release_mutation_roots(&batch),
+            Err(DomError::Cycle)
+        ));
+        assert_eq!(dom.roots[&first].native, 0);
+        assert_eq!(dom.roots[&broken].native, 0);
+        dom.arena.get_mut(broken).unwrap().parent = None;
+        dom.append_child(dom.document(), first).unwrap();
+        dom.remove(first).unwrap();
+        let later = dom.drain_mutations();
+        dom.release_mutation_roots(&batch).unwrap();
+        assert_eq!(dom.roots[&first].native, 1);
+        dom.release_mutation_roots(&later).unwrap();
+        dom.release_wrapper(first).unwrap();
+        dom.reclaim_if_unrooted(broken).unwrap();
+    }
+
+    #[test]
+    fn discarded_removal_error_consumes_only_its_exact_token() {
+        let mut dom = DomRuntime::new();
+        let node = dom.create_element("section");
+        dom.append_child(dom.document(), node).unwrap();
+        dom.remove(node).unwrap();
+        for _ in 0..MutationJournal::MAX_ENTRIES {
+            dom.focus(None).unwrap();
+        }
+        dom.arena.get_mut(node).unwrap().parent = Some(node);
+        assert!(matches!(
+            dom.release_mutation_roots(&[]),
+            Err(DomError::Cycle)
+        ));
+        assert!(dom.mutations.discarded_removed_roots.is_empty());
+        assert!(!dom.mutations.removed_leases.contains_key(&node));
+        dom.release_mutation_roots(&[]).unwrap();
+        assert_eq!(dom.roots[&node].native, 0);
+        dom.arena.get_mut(node).unwrap().parent = None;
+        dom.reclaim_if_unrooted(node).unwrap();
+    }
+
+    #[test]
     fn discarded_mutation_entries_release_their_native_roots_at_checkpoint() {
         let mut dom = DomRuntime::new();
         let removed = dom.create_element("section");
@@ -5112,7 +7662,14 @@ mod tests {
             dom.focus(None).unwrap();
         }
         assert!(dom.arena().get(removed).is_ok());
-        assert_eq!(dom.mutations.discarded_removed_roots, vec![removed]);
+        assert_eq!(
+            dom.mutations
+                .discarded_removed_roots
+                .iter()
+                .map(|(node, _)| *node)
+                .collect::<Vec<_>>(),
+            vec![removed]
+        );
         let batch = dom.drain_mutations();
         dom.release_mutation_roots(&batch).unwrap();
         assert!(matches!(
@@ -5472,6 +8029,45 @@ mod tests {
     }
 
     #[test]
+    fn html_serialization_uses_namespace_specific_names_and_void_rules() {
+        let mut dom = DomRuntime::new();
+        for (namespace, name, expected) in [
+            ("http://www.w3.org/1999/xhtml", "br", "<br>"),
+            ("http://www.w3.org/2000/svg", "br", "<br>child</br>"),
+            (
+                "http://www.w3.org/1998/Math/MathML",
+                "input",
+                "<input>child</input>",
+            ),
+            ("urn:example", "p:img", "<p:img>child</p:img>"),
+        ] {
+            let element = dom.create_element_ns(namespace, name);
+            let child = dom.create_text("child");
+            dom.append_child(element, child).unwrap();
+            assert_eq!(dom.serialize(element).unwrap(), expected);
+            assert_eq!(dom.arena().text_content(element).unwrap(), "child");
+        }
+        let element = dom.create_element_ns("http://www.w3.org/2000/svg", "svg");
+        for (namespace, name, value) in [
+            (
+                "http://www.w3.org/XML/1998/namespace",
+                "alternate:lang",
+                "en",
+            ),
+            ("http://www.w3.org/1999/xlink", "alternate:href", "#target"),
+            ("http://www.w3.org/2000/xmlns/", "xmlns:x", "urn:x"),
+            ("urn:custom", "p:data", "a&b"),
+        ] {
+            dom.set_attribute_ns(element, Some(namespace.into()), name, value)
+                .unwrap();
+        }
+        assert_eq!(
+            dom.serialize(element).unwrap(),
+            "<svg xml:lang=\"en\" xlink:href=\"#target\" xmlns:x=\"urn:x\" p:data=\"a&amp;b\"></svg>"
+        );
+    }
+
+    #[test]
     fn serialization_escapes_nonbreaking_spaces_without_changing_dom_text() {
         let parsed = html::parse("<p title='A&nbsp;B'>A&nbsp; &amp; B</p>");
         let dom = parsed.into_runtime().unwrap();
@@ -5642,6 +8238,171 @@ mod tests {
     }
 
     #[test]
+    fn character_data_and_normalize_preserve_lone_surrogates_and_native_range_offsets() {
+        let mut dom = DomRuntime::new();
+        let parent = dom.create_element("div");
+        dom.append_child(dom.document(), parent).unwrap();
+        let first = dom.create_text(dom_string::from_units(&[97, 0xd800, 98]));
+        let second = dom.create_text(dom_string::from_units(&[0xdc00, 99]));
+        dom.append_child(parent, first).unwrap();
+        dom.append_child(parent, second).unwrap();
+        let range = dom
+            .create_live_range(
+                BoundaryPoint {
+                    container: first,
+                    offset: 3,
+                },
+                BoundaryPoint {
+                    container: second,
+                    offset: 2,
+                },
+            )
+            .unwrap();
+        dom.replace_character_data(first, 1, 1, dom_string::from_units(&[0xdc01, 0xd802]))
+            .unwrap();
+        let NodeKind::Text { data } = &dom.arena().get(first).unwrap().kind else {
+            panic!("text missing")
+        };
+        assert_eq!(dom_string::units(data), vec![97, 0xdc01, 0xd802, 98]);
+        assert_eq!(dom.live_range(range).unwrap().start.offset, 4);
+        dom.normalize(parent).unwrap();
+        let NodeKind::Text { data } = &dom.arena().get(first).unwrap().kind else {
+            panic!("text missing")
+        };
+        assert_eq!(
+            dom_string::units(data),
+            vec![97, 0xdc01, 0xd802, 98, 0xdc00, 99]
+        );
+        assert_eq!(
+            dom.live_range(range).unwrap().end,
+            BoundaryPoint {
+                container: first,
+                offset: 6
+            }
+        );
+    }
+
+    #[test]
+    fn split_text_migrates_native_ranges_and_numeric_boundary_history_losslessly() {
+        let mut dom = DomRuntime::new();
+        let parent = dom.create_element("div");
+        dom.append_child(dom.document(), parent).unwrap();
+        let text = dom.create_text(dom_string::from_units(&[97, 0xd800, 98, 99]));
+        dom.append_child(parent, text).unwrap();
+        let initial = BoundaryPoint {
+            container: text,
+            offset: 3,
+        };
+        let range = dom.create_live_range(initial, initial).unwrap();
+        let revision = dom.boundary_revision();
+        let tail = dom.split_text(text, 2).unwrap();
+        let expected = BoundaryPoint {
+            container: tail,
+            offset: 1,
+        };
+        assert_eq!(dom.live_range(range).unwrap().start, expected);
+        assert_eq!(
+            dom.boundary_snapshot().rebase(initial, revision),
+            Some(expected)
+        );
+        let NodeKind::Text { data } = &dom.arena().get(text).unwrap().kind else {
+            panic!("text missing")
+        };
+        assert_eq!(dom_string::units(data), vec![97, 0xd800]);
+        dom.normalize(parent).unwrap();
+        assert_eq!(
+            dom.boundary_snapshot().rebase(initial, revision),
+            Some(BoundaryPoint {
+                container: text,
+                offset: 3
+            })
+        );
+        assert_eq!(
+            dom.live_range(range).unwrap().start,
+            BoundaryPoint {
+                container: text,
+                offset: 3
+            }
+        );
+    }
+
+    #[test]
+    fn composed_selection_range_adjusts_shadow_removal_without_mutating_script_range() {
+        let mut dom =
+            html::parse("<body><div id=container><span id=host></span><i></i></div></body>")
+                .into_runtime()
+                .unwrap();
+        let container = dom.find_by_id("container").unwrap();
+        let host = dom.find_by_id("host").unwrap();
+        let root = dom.create(NodeKind::ShadowRoot {
+            mode: ShadowMode::Closed,
+            clonable: false,
+        });
+        dom.append_child(host, root).unwrap();
+        let text = dom.create_text("abcdef");
+        dom.append_child(root, text).unwrap();
+        let point = BoundaryPoint {
+            container: text,
+            offset: 2,
+        };
+        let script = dom.create_live_range(point, point).unwrap();
+        let composed = dom
+            .create_live_range(
+                point,
+                BoundaryPoint {
+                    container,
+                    offset: 1,
+                },
+            )
+            .unwrap();
+        dom.mark_composed_selection_range(composed).unwrap();
+        dom.remove_child(container, host).unwrap();
+        assert_eq!(dom.live_range(script).unwrap().start, point);
+        assert_eq!(dom.range_shadow_removal_revision(script), 1);
+        let collapsed = BoundaryPoint {
+            container,
+            offset: 0,
+        };
+        assert_eq!(
+            dom.live_range(composed).unwrap(),
+            LiveRange {
+                start: collapsed,
+                end: collapsed
+            }
+        );
+        dom.append_child(container, host).unwrap();
+        assert_eq!(dom.range_shadow_removal_revision(script), 1);
+        dom.drop_live_range(composed).unwrap();
+        assert!(!dom.composed_selection_ranges.contains(&composed));
+    }
+    #[test]
+    fn live_range_id_exhaustion_preserves_existing_range_and_endpoint_roots() {
+        let mut dom = DomRuntime::new();
+        let text = dom.create_text("range");
+        let boundary = BoundaryPoint {
+            container: text,
+            offset: 2,
+        };
+        dom.next_range = (1_u64 << 53) - 1;
+        let last = dom.create_live_range(boundary, boundary).unwrap();
+        assert_eq!(last.0, (1_u64 << 53) - 1);
+        let roots = dom.roots.get(&text).unwrap().native;
+        assert!(matches!(
+            dom.create_live_range(boundary, boundary),
+            Err(DomError::MigrationCapacity)
+        ));
+        assert_eq!(dom.roots.get(&text).unwrap().native, roots);
+        assert_eq!(
+            dom.live_range(last).unwrap(),
+            LiveRange {
+                start: boundary,
+                end: boundary
+            }
+        );
+        assert_eq!(dom.ranges.len(), 1);
+    }
+
+    #[test]
     fn character_data_replacement_preserves_live_range_boundaries() {
         let mut dom = DomRuntime::new();
         let text = dom.create_text("abcdef");
@@ -5762,5 +8523,404 @@ mod opaque_runtime_tests {
                 end: 4
             }
         );
+    }
+}
+
+mod accessibility;
+
+mod child_text;
+mod document_head;
+mod nonces;
+mod stylesheet_adoption;
+
+#[cfg(test)]
+mod document_domain_cell_tests {
+    #[test]
+    fn inherited_domain_cells_outlive_creator_and_release_with_last_document() {
+        let creator = super::DocumentMetadata::default();
+        let inert = creator.clone();
+        let live_alias = creator.clone();
+        let weak = std::sync::Arc::downgrade(&creator.relaxed_domain.0);
+        live_alias
+            .relaxed_domain
+            .set(Some("source.example.test".into()));
+        assert_eq!(
+            inert.relaxed_domain.get().as_deref(),
+            Some("source.example.test")
+        );
+        drop(creator);
+        live_alias.relaxed_domain.set(Some("example.test".into()));
+        assert_eq!(inert.relaxed_domain.get().as_deref(), Some("example.test"));
+        assert!(
+            super::DocumentMetadata::default()
+                .relaxed_domain
+                .get()
+                .is_none()
+        );
+        drop(live_alias);
+        assert!(weak.upgrade().is_some());
+        drop(inert);
+        assert!(weak.upgrade().is_none());
+    }
+}
+
+#[cfg(test)]
+mod accessibility_control_marker_journal_tests {
+    use super::*;
+    #[test]
+    fn live_control_markers_follow_exact_edits_without_text_matching() {
+        let mut dom = html::parse("<textarea id=t>aaaa</textarea><p id=p>other</p>")
+            .into_runtime()
+            .unwrap();
+        let t = dom.find_by_id("t").unwrap();
+        let p = dom.find_by_id("p").unwrap();
+        let revision = dom.boundary_revision();
+        let point = BoundaryPoint {
+            container: t,
+            offset: 2,
+        };
+        dom.replace_control_value(t, 0, 0, "a").unwrap();
+        let unrelated_text = dom.arena().get(p).unwrap().children[0];
+        dom.set_text(unrelated_text, "changed").unwrap();
+        let text = dom.arena().get(t).unwrap().children[0];
+        dom.set_text(text, "new default").unwrap();
+        assert_eq!(dom.control_value(t).unwrap(), "aaaaa");
+        assert_eq!(
+            dom.boundary_snapshot().rebase_control(point, revision),
+            Some(BoundaryPoint {
+                container: t,
+                offset: 3
+            })
+        );
+        // DOM boundaries in the same control do not use value offsets.
+        assert_eq!(
+            dom.boundary_snapshot().rebase(
+                BoundaryPoint {
+                    container: t,
+                    offset: 0
+                },
+                revision
+            ),
+            Some(BoundaryPoint {
+                container: t,
+                offset: 0
+            })
+        );
+        let revision = dom.boundary_revision();
+        dom.set_value(t, "replacement", false).unwrap();
+        assert_eq!(
+            dom.boundary_snapshot().rebase_control(
+                BoundaryPoint {
+                    container: t,
+                    offset: 3
+                },
+                revision
+            ),
+            Some(BoundaryPoint {
+                container: t,
+                offset: 0
+            })
+        );
+    }
+    #[test]
+    fn default_changes_invalidate_only_clean_control_markers_and_passwords_hide_lengths() {
+        let mut dom = html::parse("<textarea id=t>default</textarea><input id=s type=password>")
+            .into_runtime()
+            .unwrap();
+        let t = dom.find_by_id("t").unwrap();
+        let s = dom.find_by_id("s").unwrap();
+        let revision = dom.boundary_revision();
+        let text = dom.arena().get(t).unwrap().children[0];
+        dom.set_text(text, "changed").unwrap();
+        assert!(
+            dom.boundary_snapshot()
+                .rebase_control(
+                    BoundaryPoint {
+                        container: t,
+                        offset: 2
+                    },
+                    revision
+                )
+                .is_none()
+        );
+        let revision = dom.boundary_revision();
+        dom.set_value(s, "secret", true).unwrap();
+        dom.replace_control_value(s, 1, 2, "longer secret").unwrap();
+        let snapshot = dom.boundary_snapshot();
+        assert!(snapshot.records.iter().filter(|record|record.sequence>revision).all(|record|!matches!(record.change,boundary_journal::Change::ControlValueReplace{node,..}if node==s)));
+    }
+}
+
+#[cfg(test)]
+mod deep_connection_regressions {
+    use super::*;
+    #[test]
+    fn deep_connection_walks_do_not_use_the_native_call_stack() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("div");
+        let mut last = root;
+        for _ in 0..20_000 {
+            let child = dom.create_element("div");
+            dom.arena.get_mut(last).unwrap().children.push(child);
+            dom.arena.get_mut(child).unwrap().parent = Some(last);
+            last = child;
+        }
+        dom.mark_connected(root).unwrap();
+        assert!(dom.connected.contains(&root));
+        assert!(dom.connected.contains(&last));
+        dom.frame_context_generations.insert(last, 7);
+        dom.mark_disconnected_with_focus(root, true).unwrap();
+        assert!(!dom.connected.contains(&last));
+        assert_eq!(dom.frame_context_generations[&last], 7);
+        dom.mark_connected(root).unwrap();
+        dom.mark_disconnected(root).unwrap();
+        assert!(!dom.connected.contains(&root));
+        assert!(!dom.connected.contains(&last));
+        assert_eq!(dom.frame_context_generations[&last], 8);
+    }
+    #[test]
+    fn connection_walk_rejects_native_cycles_and_root_overflow_is_non_mutating() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("div");
+        dom.arena.get_mut(root).unwrap().children.push(root);
+        assert_eq!(dom.mark_connected(root), Err(DomError::Cycle));
+        assert_eq!(dom.mark_disconnected(root), Err(DomError::Cycle));
+        dom.arena.get_mut(root).unwrap().children.clear();
+        dom.roots.entry(root).or_default().native = u32::MAX;
+        assert_eq!(dom.retain_native(root), Err(DomError::MigrationCapacity));
+        assert_eq!(dom.roots[&root].native, u32::MAX);
+    }
+}
+
+#[cfg(test)]
+mod connection_graph_order_regressions {
+    use super::*;
+
+    #[test]
+    fn hosted_notifications_follow_descendants_and_focus_survives_preserving_moves() {
+        let mut dom = DomRuntime::new();
+        let outer = dom.create_element("iframe");
+        let fallback = dom.create_element("iframe");
+        let inner = dom.create_element("iframe");
+        let outer_document = dom.create(NodeKind::Document);
+        let fallback_document = dom.create(NodeKind::Document);
+        let inner_document = dom.create(NodeKind::Document);
+        let input = dom.create_element("input");
+        dom.append_child(outer, fallback).unwrap();
+        dom.append_child(outer_document, inner).unwrap();
+        dom.append_child(inner_document, input).unwrap();
+        dom.set_hosted_document(fallback, Some(fallback_document))
+            .unwrap();
+        dom.set_hosted_document(inner, Some(inner_document))
+            .unwrap();
+        dom.set_hosted_document(outer, Some(outer_document))
+            .unwrap();
+        let cursor = dom.mutation_cursor();
+        dom.mark_connected(outer).unwrap();
+        let frames: Vec<_> = dom
+            .mutations_since(cursor)
+            .mutations
+            .iter()
+            .filter_map(|mutation| {
+                if let Mutation::HostedDocument { frame } = mutation {
+                    Some(*frame)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(frames, vec![fallback, inner, outer]);
+        for node in [
+            outer,
+            fallback,
+            inner,
+            outer_document,
+            fallback_document,
+            inner_document,
+            input,
+        ] {
+            assert!(dom.is_connected(node).unwrap());
+        }
+        dom.focus(Some(input)).unwrap();
+        dom.frame_context_generations.insert(inner, 3);
+        dom.mark_disconnected_with_focus(outer, true).unwrap();
+        assert_eq!(dom.focused(), Some(input));
+        assert_eq!(dom.frame_context_generations[&inner], 3);
+        dom.mark_connected(outer).unwrap();
+        let cursor = dom.mutation_cursor();
+        dom.mark_disconnected(outer).unwrap();
+        assert_eq!(dom.focused(), None);
+        assert_eq!(dom.frame_context_generations[&inner], 4);
+        let frames: Vec<_> = dom
+            .mutations_since(cursor)
+            .mutations
+            .iter()
+            .filter_map(|mutation| {
+                if let Mutation::HostedDocument { frame } = mutation {
+                    Some(*frame)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(frames, vec![fallback, inner, outer]);
+        assert_eq!(dom.parent(inner_document).unwrap(), None);
+    }
+
+    #[test]
+    fn malformed_snapshot_connectivity_does_not_publish_a_partial_index() {
+        let mut dom = DomRuntime::new();
+        let document = dom.document();
+        let child = dom.create_element("div");
+        dom.arena.get_mut(document).unwrap().children.push(child);
+        dom.arena.get_mut(child).unwrap().children.push(document);
+        let before = dom.connected.clone();
+        assert_eq!(dom.rebuild_document_indexes(), Err(DomError::Cycle));
+        assert_eq!(dom.connected, before);
+        dom.arena.get_mut(child).unwrap().children.clear();
+        dom.rebuild_document_indexes().unwrap();
+        assert!(dom.connected.contains(&child));
+    }
+}
+
+#[cfg(test)]
+mod synchronous_native_handoff_regressions {
+    use super::*;
+
+    #[test]
+    fn detached_native_tree_arguments_survive_cursor_cleanup_without_permanent_roots() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("div");
+        let first = dom.create_element("section");
+        let second = dom.create_text("tail");
+        dom.append_child(root, first).unwrap();
+        let text = dom.create_text("nested");
+        dom.append_child(first, text).unwrap();
+        dom.append_child(root, second).unwrap();
+        assert_eq!(dom.arena.text_content(root).unwrap(), "nestedtail");
+        dom.remove(first).unwrap();
+        assert_eq!(dom.arena.text_content(first).unwrap(), "nested");
+        assert_eq!(dom.arena.text_content(root).unwrap(), "tail");
+        for node in [root, second, text] {
+            assert_eq!(dom.roots.get(&node).map_or(0, |roots| roots.native), 0);
+        }
+        assert_eq!(
+            dom.roots.get(&first).map_or(0, |roots| roots.native),
+            1,
+            "removal journal retains exactly its own lease"
+        );
+        dom.retain_native(first).unwrap();
+        dom.retain_native(root).unwrap();
+        let mutations = dom.drain_mutations();
+        dom.release_mutation_roots(&mutations).unwrap();
+        assert_eq!(
+            dom.roots.get(&first).unwrap().native,
+            1,
+            "only the explicit test guard remains"
+        );
+        dom.release_native(first).unwrap();
+        assert!(dom.arena.get(first).is_err());
+        assert!(dom.arena.get(text).is_err());
+        assert!(dom.arena.get(root).is_ok());
+        dom.release_native(root).unwrap();
+        assert!(dom.arena.get(root).is_err());
+        assert!(dom.arena.get(second).is_err());
+    }
+
+    #[test]
+    fn imported_document_frontier_retains_template_graph_until_native_handoff() {
+        let source = html::parse(
+            "<body><template id=t><style>b{color:red}</style><b>inside</b></template><p>after</p></body>",
+        );
+        let mut dom = DomRuntime::new();
+        let imported = dom.import_subtree(&source.dom, source.document).unwrap();
+        let template = dom.get_element_by_id(imported, "t").unwrap().unwrap();
+        let content = dom.template_content(template).unwrap();
+        assert_eq!(
+            dom.arena.text_content(content).unwrap(),
+            "b{color:red}inside"
+        );
+        assert_eq!(dom.query_selector_all(imported, "p").unwrap().len(), 1);
+        assert!(dom.roots.values().all(|roots| roots.native == 0));
+        dom.retain_native(imported).unwrap();
+        dom.release_native(imported).unwrap();
+        assert!(dom.arena.get(imported).is_err());
+        assert!(dom.arena.get(content).is_err());
+    }
+
+    #[test]
+    fn failed_import_releases_allocation_frontier_after_committed_tail_cleanup() {
+        let source = html::parse("<body><div><span>child</span></div><p>sibling</p></body>");
+        for failure in 0..32 {
+            let mut dom = DomRuntime::new();
+            let original = dom.document();
+            insertion::set_failure_after(Some(failure));
+            let result = dom.import_subtree(&source.dom, source.document);
+            insertion::set_failure_after(None);
+            dom.drain_committed_tree_tails().unwrap();
+            dom.drain_cursor_releases().unwrap();
+            if let Ok(imported) = result {
+                dom.retain_native(imported).unwrap();
+                dom.release_native(imported).unwrap();
+            }
+            let mutations = dom.drain_mutations();
+            dom.release_mutation_roots(&mutations).unwrap();
+            assert!(
+                dom.roots.values().all(|roots| roots.native == 0),
+                "failure {failure} leaked a native root"
+            );
+            assert_eq!(
+                dom.arena.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+                vec![original],
+                "failure {failure} leaked an imported allocation"
+            );
+        }
+    }
+    #[test]
+    fn failed_import_final_handoff_reclaims_unpublished_text_root() {
+        let mut source = DomArena::default();
+        let text = source.insert(NodeKind::Text {
+            data: "unpublished".into(),
+        });
+        let mut dom = DomRuntime::new();
+        let original = dom.document();
+        // Text has no attributes or children: shallow allocation is checkpoint
+        // zero, and the next checkpoint is after releasing the import frontier.
+        insertion::set_failure_after(Some(1));
+        let result = dom.import_subtree(&source, text);
+        insertion::set_failure_after(None);
+        assert!(result.is_err());
+        let mutations = dom.drain_mutations();
+        dom.release_mutation_roots(&mutations).unwrap();
+        assert_eq!(
+            dom.arena.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+            vec![original]
+        );
+        assert!(dom.roots.values().all(|roots| roots.native == 0));
+    }
+
+    #[test]
+    fn failed_shallow_import_reclaims_unpublished_node_and_attribute_initialization() {
+        let mut source = DomRuntime::new();
+        let element = source.create_element("input");
+        source.set_attribute(element, "type", "text").unwrap();
+        source.set_attribute(element, "value", "saved").unwrap();
+        source.attribute_node(element, "type").unwrap();
+        source.attribute_node(element, "value").unwrap();
+        let (arena, _) = source.snapshot();
+        for failure in 0..3 {
+            let mut dom = DomRuntime::new();
+            let original = dom.document();
+            insertion::set_failure_after(Some(failure));
+            assert!(dom.import_shallow_node(&arena, element).is_err());
+            insertion::set_failure_after(None);
+            let mutations = dom.drain_mutations();
+            dom.release_mutation_roots(&mutations).unwrap();
+            assert_eq!(
+                dom.arena.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+                vec![original]
+            );
+            assert!(dom.roots.values().all(|roots| roots.native == 0));
+        }
     }
 }

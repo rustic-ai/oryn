@@ -215,6 +215,7 @@ impl NetworkBroker for ControlledNetworkBroker {
                 }
                 state.cursor += 1;
                 Ok(NetworkResponse {
+                    timing: None,
                     request_id: request.request_id,
                     status: exchange.response.status,
                     headers: exchange.response.headers,
@@ -242,10 +243,12 @@ impl NetworkBroker for ControlledNetworkBroker {
                     let length = response.body.len();
                     if sender
                         .blocking_send(NetworkEvent::Headers {
+                            timing: None,
                             request_id,
                             status: response.status,
                             headers: response.headers,
                             content_length: Some(length),
+                            upload: None,
                         })
                         .is_err()
                     {
@@ -257,9 +260,14 @@ impl NetworkBroker for ControlledNetworkBroker {
                             bytes: bytes::Bytes::from(response.body),
                         });
                     }
-                    let _ = sender.blocking_send(NetworkEvent::Complete { request_id });
+                    let _ = sender.blocking_send(NetworkEvent::Complete {
+                        encoded_body_size: None,
+                        request_id,
+                    });
                 });
                 Ok(NetworkOperation {
+                    body_demand_pending: Default::default(),
+                    prefetched: Default::default(),
                     request_id,
                     events,
                     demand: Some(demand),
@@ -276,7 +284,7 @@ impl NetworkBroker for ControlledNetworkBroker {
                     let mut status = None;
                     let mut headers = Vec::new();
                     let mut body = Vec::new();
-                    while let Some(event) = operation.events.blocking_recv() {
+                    while let Some(event) = operation.blocking_event() {
                         match &event {
                             NetworkEvent::Headers {
                                 status: value,
@@ -292,6 +300,7 @@ impl NetworkBroker for ControlledNetworkBroker {
                                     && let Ok(mut state) = controller.0.lock()
                                 {
                                     let response = NetworkResponse {
+                                        timing: None,
                                         request_id,
                                         status,
                                         headers: headers.clone(),
@@ -314,6 +323,8 @@ impl NetworkBroker for ControlledNetworkBroker {
                     }
                 });
                 Ok(NetworkOperation {
+                    body_demand_pending: Default::default(),
+                    prefetched: Default::default(),
                     request_id,
                     events,
                     demand,
@@ -581,6 +592,7 @@ mod tests {
     impl NetworkBroker for FixtureBroker {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             Ok(NetworkResponse {
+                timing: None,
                 request_id: request.request_id,
                 status: 200,
                 headers: vec![

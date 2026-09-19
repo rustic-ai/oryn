@@ -270,12 +270,7 @@ where
     if l == r {
         return true;
     }
-    let (Some(l), Some(r)) = (l, r) else {
-        return false;
-    };
-    match (l.style_data(), r.style_data()) {
-        (Some(l), Some(r)) => std::ptr::eq(l, r),
-        (None, None) => true,
-        _ => false,
-    }
+    // Native absolute tree-scoped names are inherited computed data. Equal
+    // cascade allocation alone cannot authorize sharing between distinct roots.
+    false
 }

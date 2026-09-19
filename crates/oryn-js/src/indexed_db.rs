@@ -150,6 +150,9 @@ pub fn compare_json(a: &Value, b: &Value) -> Option<Ordering> {
 
 /// Convert a stored clone value into a key, preserving its type.
 pub fn key_from_stored(value: &Value) -> Option<Key> {
+    if value.get("__oryn_clone_type").and_then(Value::as_str) == Some("storage") {
+        return key_from_stored(&storage_projection_path(value, "")?);
+    }
     match value.get("__oryn_clone_type").and_then(Value::as_str) {
         Some("date") => value
             .get("value")?
@@ -189,6 +192,9 @@ pub fn key_from_stored(value: &Value) -> Option<Key> {
 
 /// Decode both compact binary clones and legacy numeric-byte payloads.
 pub fn stored_binary_bytes(value: &Value) -> Option<Vec<u8>> {
+    if value.get("__oryn_clone_type").and_then(Value::as_str) == Some("storage") {
+        return stored_binary_bytes(&storage_projection_path(value, "")?);
+    }
     if let Some(encoded) = value.get("bodyBase64").and_then(Value::as_str) {
         let bytes = STANDARD.decode(encoded).ok()?;
         if value.get("__oryn_clone_type").and_then(Value::as_str) == Some("typed_array") {
@@ -256,6 +262,93 @@ pub fn index_keys(value: &Value, path: &str, multi_entry: bool) -> Vec<Value> {
         .collect()
 }
 
+fn projection_node<'a>(value: &'a Value, nodes: &'a [Value]) -> Option<&'a Value> {
+    match value.get("__oryn_projection_ref").and_then(Value::as_u64) {
+        Some(id) => nodes.get(usize::try_from(id).ok()?),
+        None => Some(value),
+    }
+}
+fn projection_key(value: &Value, nodes: &[Value], seen: &mut Vec<u64>) -> Option<Value> {
+    if seen.len() >= 64 {
+        return None;
+    }
+    if let Some(id) = value.get("__oryn_projection_ref").and_then(Value::as_u64) {
+        if seen.contains(&id) {
+            return None;
+        }
+        seen.push(id);
+        return projection_key(nodes.get(usize::try_from(id).ok()?)?, nodes, seen);
+    }
+    if value.get("__oryn_clone_type").and_then(Value::as_str) == Some("array") {
+        let values = value
+            .get("values")?
+            .as_array()?
+            .iter()
+            .map(|value| projection_key(value, nodes, seen))
+            .collect::<Option<Vec<_>>>()?;
+        return Some(json!({"__oryn_clone_type":"array","values":values,"properties":{}}));
+    }
+    Some(value.clone())
+}
+fn storage_projection_path(value: &Value, path: &str) -> Option<Value> {
+    let projection = value.get("projection")?;
+    let nodes = projection.get("nodes")?.as_array()?;
+    let mut current = projection.get("root")?.clone();
+    if !path.is_empty() {
+        for part in path.split('.') {
+            current = property(projection_node(&current, nodes)?, part)?;
+        }
+    }
+    projection_key(&current, nodes, &mut Vec::new())
+}
+/// Mutate only the native key projection and record an exact generated-key
+/// injection to replay into the freshly deserialized object graph on reads.
+pub fn inject_storage_key(value: &mut Value, path: &str, key: Value) -> bool {
+    if !can_inject_key_path(value, path) {
+        return false;
+    }
+    let Some(projection) = value.get_mut("projection") else {
+        return false;
+    };
+    let mut pointer = "/root".to_owned();
+    let mut parts = path.split('.').peekable();
+    while let Some(part) = parts.next() {
+        let Some(current) = projection.pointer(&pointer) else {
+            return false;
+        };
+        if let Some(id) = current.get("__oryn_projection_ref").and_then(Value::as_u64) {
+            pointer = format!("/nodes/{id}");
+        }
+        let Some(current) = projection.pointer(&pointer) else {
+            return false;
+        };
+        if matches!(
+            current.get("__oryn_clone_type").and_then(Value::as_str),
+            Some("array" | "object")
+        ) {
+            pointer.push_str("/properties");
+        }
+        let Some(object) = projection
+            .pointer_mut(&pointer)
+            .and_then(Value::as_object_mut)
+        else {
+            return false;
+        };
+        if parts.peek().is_none() {
+            object.insert(part.into(), key.clone());
+            break;
+        }
+        object.entry(part).or_insert_with(|| json!({}));
+        pointer.push('/');
+        pointer.push_str(&part.replace('~', "~0").replace('/', "~1"));
+    }
+    let Some(injections) = value.get_mut("injections").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    injections.push(json!({"path":path,"key":key}));
+    true
+}
+
 pub fn key_path(value: &Value, path: &str) -> Option<Value> {
     if let Some(paths) = path.strip_prefix("__oryn_compound_key_path__:") {
         return serde_json::from_str::<Vec<String>>(paths)
@@ -264,6 +357,9 @@ pub fn key_path(value: &Value, path: &str) -> Option<Value> {
             .map(|path| key_path(value, path))
             .collect::<Option<Vec<_>>>()
             .map(Value::Array);
+    }
+    if value.get("__oryn_clone_type").and_then(Value::as_str) == Some("storage") {
+        return storage_projection_path(value, path);
     }
     if path.is_empty() {
         return Some(value.clone());
@@ -280,6 +376,40 @@ pub fn key_path(value: &Value, path: &str) -> Option<Value> {
 /// Missing intermediate properties can be created, but primitives cannot own them.
 pub fn can_inject_key_path(value: &Value, path: &str) -> bool {
     if path.is_empty() || path.starts_with("__oryn_compound_key_path__:") {
+        return false;
+    }
+    if value.get("__oryn_clone_type").and_then(Value::as_str) == Some("storage") {
+        let Some(projection) = value.get("projection") else {
+            return false;
+        };
+        let Some(nodes) = projection.get("nodes").and_then(Value::as_array) else {
+            return false;
+        };
+        let Some(mut current) = projection.get("root").cloned() else {
+            return false;
+        };
+        let mut parts = path.split('.').peekable();
+        while let Some(part) = parts.next() {
+            let Some(node) = projection_node(&current, nodes) else {
+                return false;
+            };
+            if !node.is_object() && !node.is_array() {
+                return false;
+            }
+            if matches!(
+                node.get("__oryn_clone_type").and_then(Value::as_str),
+                Some("undefined" | "number" | "string" | "non_key")
+            ) {
+                return false;
+            }
+            if parts.peek().is_none() {
+                return true;
+            }
+            match property(node, part) {
+                Some(value) => current = value,
+                None => return true,
+            }
+        }
         return false;
     }
     let mut current = value.clone();
@@ -315,9 +445,11 @@ fn property(value: &Value, name: &str) -> Option<Value> {
             Some("array") => o.get("properties")?.get(name).cloned(),
             Some("string") if name == "length" => Some(json!(o.get("units")?.as_array()?.len())),
             Some("blob") => match name {
-                "size" => Some(json!(
-                    STANDARD.decode(o.get("bodyBase64")?.as_str()?).ok()?.len()
-                )),
+                "size" => o.get("size").cloned().or_else(|| {
+                    Some(json!(
+                        STANDARD.decode(o.get("bodyBase64")?.as_str()?).ok()?.len()
+                    ))
+                }),
                 "type" => o.get("type").cloned(),
                 "name" | "lastModified" if o.get("name")?.is_string() => o.get(name).cloned(),
                 _ => None,
@@ -435,5 +567,22 @@ mod tests {
         assert_eq!(key_path(&file, "size"), Some(json!(3)));
         assert_eq!(key_path(&file, "name.length"), Some(json!(5)));
         assert_eq!(key_path(&file, "bodyBase64"), None);
+    }
+}
+
+#[cfg(test)]
+mod storage_projection_regressions {
+    use super::*;
+    #[test]
+    fn native_projection_follows_aliases_but_does_not_accept_cycles_as_keys() {
+        let mut value = json!({"__oryn_clone_type":"storage","projection":{"root":{"__oryn_projection_ref":0},"nodes":[{"self":{"__oryn_projection_ref":0},"left":{"__oryn_projection_ref":1},"right":{"__oryn_projection_ref":1}},{"label":"index"}]},"injections":[]});
+        assert_eq!(key_path(&value, "self.left.label"), Some(json!("index")));
+        assert!(inject_storage_key(&mut value, "left.generated", json!(4)));
+        assert_eq!(key_path(&value, "right.generated"), Some(json!(4)));
+        assert!(inject_storage_key(&mut value, "self.generated", json!(5)));
+        assert_eq!(key_path(&value, "generated"), Some(json!(5)));
+        assert_eq!(value["injections"][0]["path"], json!("left.generated"));
+        let cyclic = json!({"__oryn_clone_type":"storage","projection":{"root":{"__oryn_projection_ref":0},"nodes":[{"__oryn_clone_type":"array","values":[{"__oryn_projection_ref":0}],"properties":{}}]},"injections":[]});
+        assert!(key_from_stored(&cyclic).is_none());
     }
 }

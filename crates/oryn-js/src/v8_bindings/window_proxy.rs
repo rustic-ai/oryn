@@ -30,6 +30,110 @@ pub struct WindowCrossOriginCallbacks {
 }
 pub const WINDOW_CROSS_ORIGIN_NAMES: [&str; 13] = NAMES;
 
+/// Operations whose authority belongs to the browsing-context coordinator.
+/// Property projection below never reads author-writable Window properties.
+pub struct WindowLifecycleCallbacks {
+    pub close: v8::FunctionCallback,
+    pub closed: v8::FunctionCallback,
+    pub focus: v8::FunctionCallback,
+    pub blur: v8::FunctionCallback,
+    pub opener: v8::FunctionCallback,
+    pub navigate: v8::FunctionCallback,
+}
+
+pub fn native_callbacks(lifecycle: WindowLifecycleCallbacks) -> WindowCrossOriginCallbacks {
+    WindowCrossOriginCallbacks {
+        properties: [
+            native_self.map_fn_to(),
+            native_self.map_fn_to(),
+            native_location.map_fn_to(),
+            lifecycle.close,
+            lifecycle.closed,
+            lifecycle.focus,
+            lifecycle.blur,
+            native_self.map_fn_to(),
+            native_length.map_fn_to(),
+            native_top.map_fn_to(),
+            lifecycle.opener,
+            native_parent.map_fn_to(),
+            window_messages::cross_origin_post.map_fn_to(),
+        ],
+        location_setter: lifecycle.navigate,
+    }
+}
+
+fn native_self(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    if let Some(context) = callback_context(scope, &args) {
+        rv.set(context.global(scope).into());
+    }
+}
+
+fn native_parent(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    if let Some(context) = callback_context(scope, &args) {
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let window = context.global(scope);
+        rv.set(window_document::native_parent(scope, window).into());
+    }
+}
+
+fn native_top(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    if let Some(context) = callback_context(scope, &args) {
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let window = context.global(scope);
+        rv.set(window_document::native_top(scope, window).into());
+    }
+}
+
+fn native_length(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let Some(context) = callback_context(scope, &args) else {
+        return;
+    };
+    let Some(state) = context.get_slot::<V8BindingState>() else {
+        return;
+    };
+    match window_named::children(&state) {
+        Ok(children) => rv.set_uint32(children.len().try_into().unwrap_or(u32::MAX)),
+        Err(error) => throw_binding_error(scope, &error),
+    }
+}
+
+fn native_location(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let Some(context) = callback_context(scope, &args) else {
+        return;
+    };
+    let Some(state) = context.get_slot::<V8BindingState>() else {
+        return;
+    };
+    let result = {
+        let scope = &mut v8::ContextScope::new(scope, context);
+        location::object(scope, &state).map(|object| v8::Global::new(scope, object))
+    };
+    match result {
+        Ok(object) => rv.set(v8::Local::new(scope, &object).into()),
+        Err(error) => throw_binding_error(scope, &error),
+    }
+}
+
 pub struct WindowCrossOriginState {
     callbacks: WindowCrossOriginCallbacks,
     children: RefCell<Vec<v8::Global<v8::Object>>>,
@@ -97,7 +201,7 @@ fn context_data<'s>(
     }
     v8::Local::<v8::Object>::try_from(context.get_embedder_data(scope, DESCRIPTOR_DATA_SLOT)?).ok()
 }
-fn cache_entry<'s>(
+pub(super) fn cache_entry<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     target: v8::Local<v8::Context>,
 ) -> Option<v8::Local<'s, v8::Object>> {
@@ -120,6 +224,16 @@ fn cache_entry<'s>(
     let set = v8::Local::new(scope, &intrinsics.set);
     set.call(scope, map, &[key, entry.into()])?;
     Some(entry)
+}
+
+/// Private native cache graph shared with remote Window projections. Entries
+/// are keyed by the caller realm and native target context; no authored map or
+/// constructor participates in lookup. Callers namespace their native keys.
+pub fn native_descriptor_cache<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    target: v8::Local<v8::Context>,
+) -> Option<v8::Local<'s, v8::Object>> {
+    cache_entry(scope, target)
 }
 
 pub fn install_context(
@@ -160,7 +274,7 @@ fn key_index(scope: &mut v8::PinScope, key: v8::Local<v8::Name>) -> Option<usize
         })
         .flatten()
 }
-fn fallback(scope: &mut v8::PinScope, key: v8::Local<v8::Name>) -> bool {
+pub(super) fn fallback(scope: &mut v8::PinScope, key: v8::Local<v8::Name>) -> bool {
     if key.is_string() {
         return key.to_rust_string_lossy(scope) == "then";
     }
@@ -178,6 +292,20 @@ fn target<'s>(
 ) -> Option<(v8::Local<'s, v8::Context>, Rc<WindowCrossOriginState>)> {
     let context = holder.get_creation_context(scope)?;
     Some((context, context.get_slot::<WindowCrossOriginState>()?))
+}
+fn named_child<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    holder: v8::Local<v8::Object>,
+    key: v8::Local<v8::Name>,
+) -> Option<v8::Local<'s, v8::Object>> {
+    let key = v8::Local::<v8::String>::try_from(key).ok()?;
+    let name = rust_string_preserving_utf16(scope, key).ok()?;
+    let context = holder.get_creation_context(scope)?;
+    let state = context.get_slot::<V8BindingState>()?;
+    window_named::named_child(&state, &name)
+        .ok()
+        .flatten()
+        .map(|window| v8::Local::new(scope, &window))
 }
 fn callable<'s>(
     scope: &mut v8::PinScope<'s, '_>,
@@ -237,12 +365,12 @@ fn put(
     object.create_data_property(scope, key.into(), value)?;
     Some(())
 }
-fn data_descriptor<'s>(
+pub(super) fn data_descriptor<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     value: v8::Local<v8::Value>,
     enumerable: bool,
 ) -> Option<v8::Local<'s, v8::Object>> {
-    let result = v8::Object::new(scope);
+    let result = descriptor_record(scope)?;
     put(scope, result, "value", value)?;
     let no = v8::Boolean::new(scope, false).into();
     put(scope, result, "writable", no)?;
@@ -250,6 +378,19 @@ fn data_descriptor<'s>(
     put(scope, result, "enumerable", enumerable)?;
     let yes = v8::Boolean::new(scope, true).into();
     put(scope, result, "configurable", yes)?;
+    Some(result)
+}
+pub(super) fn descriptor_record<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+) -> Option<v8::Local<'s, v8::Object>> {
+    // V8 converts interceptor results with ToPropertyDescriptor, including
+    // inherited fields. These internal records must not inherit author getters
+    // or acquire both accessor and data fields through Object.prototype.
+    let result = v8::Object::new(scope);
+    let null = v8::null(scope).into();
+    if !result.set_prototype(scope, null)? {
+        return None;
+    }
     Some(result)
 }
 fn named_descriptor(
@@ -267,7 +408,9 @@ fn named_descriptor(
                     rv.set(desc.into());
                 }
             } else if let Some(function) = callable(scope, context, &state, index, false) {
-                let desc = v8::Object::new(scope);
+                let Some(desc) = descriptor_record(scope) else {
+                    return v8::Intercepted::kYes;
+                };
                 put(scope, desc, "get", function.into());
                 let setter: v8::Local<v8::Value> = if index == 2 {
                     let Some(setter) = callable(scope, context, &state, index, true) else {
@@ -286,6 +429,10 @@ fn named_descriptor(
             }
         } else {
             denied(scope);
+        }
+    } else if let Some(child) = named_child(scope, args.holder(), key) {
+        if let Some(desc) = data_descriptor(scope, child.into(), false) {
+            rv.set(desc.into());
         }
     } else if fallback(scope, key) {
         let undefined = v8::undefined(scope).into();
@@ -317,6 +464,8 @@ fn named_getter(
         } else {
             denied(scope);
         }
+    } else if let Some(child) = named_child(scope, args.holder(), key) {
+        rv.set(child.into());
     } else if fallback(scope, key) {
         rv.set(v8::undefined(scope).into());
     } else {
@@ -347,11 +496,15 @@ fn named_setter(
 fn named_query(
     scope: &mut v8::PinScope,
     key: v8::Local<v8::Name>,
-    _: v8::PropertyCallbackArguments,
+    args: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<v8::Integer>,
 ) -> v8::Intercepted {
     if key_index(scope, key).is_some() || fallback(scope, key) {
         rv.set_int32(v8::PropertyAttribute::DONT_ENUM.as_u32() as i32);
+    } else if named_child(scope, args.holder(), key).is_some() {
+        rv.set_int32(
+            (v8::PropertyAttribute::DONT_ENUM | v8::PropertyAttribute::READ_ONLY).as_u32() as i32,
+        );
     } else {
         denied(scope);
     }
@@ -362,23 +515,23 @@ fn named_enumerator(
     _: v8::PropertyCallbackArguments,
     mut rv: v8::ReturnValue<v8::Array>,
 ) {
-    let keys = v8::Array::new(scope, 17);
-    for (index, name) in NAMES.iter().chain(std::iter::once(&"then")).enumerate() {
-        if let Some(name) = v8::String::new(scope, name) {
-            keys.set_index(scope, index as u32, name.into());
-        }
+    // Construct own array elements directly; ordinary indexed assignment can
+    // invoke author setters on Array.prototype during native enumeration.
+    let mut keys = Vec::with_capacity(17);
+    for name in NAMES.iter().chain(std::iter::once(&"then")) {
+        let Some(name) = v8::String::new(scope, name) else {
+            return;
+        };
+        keys.push(name.into());
     }
-    for (index, symbol) in [
+    for symbol in [
         v8::Symbol::get_to_string_tag(scope),
         v8::Symbol::get_has_instance(scope),
         v8::Symbol::get_is_concat_spreadable(scope),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        keys.set_index(scope, 14 + index as u32, symbol.into());
+    ] {
+        keys.push(symbol.into());
     }
-    rv.set(keys);
+    rv.set(v8::Array::new_with_elements(scope, &keys));
 }
 fn indexed_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
@@ -454,12 +607,12 @@ fn indexed_enumerator(
 ) {
     if let Some(children) = local_children(scope, args.holder()) {
         let len = children.len();
-        let keys = v8::Array::new(scope, len as i32);
+        let mut keys = Vec::with_capacity(len);
         for index in 0..len {
             let value = v8::Integer::new_from_unsigned(scope, index as u32);
-            keys.set_index(scope, index as u32, value.into());
+            keys.push(value.into());
         }
-        rv.set(keys);
+        rv.set(v8::Array::new_with_elements(scope, &keys));
     } else {
         denied(scope);
     }

@@ -105,6 +105,7 @@ impl<'a> ParserContext<'a> {
         use_counters: Option<&'a UseCounters>,
         attr_tainted_regions: AttrTaint,
     ) -> Self {
+        crate::native_profile::initialize();
         Self {
             stylesheet_origin,
             url_data,

@@ -762,7 +762,7 @@ impl GenericAnchorFunction<Box<CalcNode>, Box<GenericAnchorFunctionFallback<Leaf
         additional_functions: AdditionalFunctions,
         input: &mut Parser<'i, 't>,
     ) -> Result<Self, ParseError<'i>> {
-        if !static_prefs::pref!("layout.css.anchor-positioning.enabled") {
+        if !crate::anchor_positioning_enabled() {
             return Err(input.new_custom_error(StyleParseErrorKind::UnspecifiedError));
         }
         input.parse_nested_block(|i| {
@@ -795,7 +795,7 @@ impl GenericAnchorSizeFunction<Box<GenericAnchorFunctionFallback<Leaf>>> {
         context: &ParserContext,
         input: &mut Parser<'i, 't>,
     ) -> Result<Self, ParseError<'i>> {
-        if !static_prefs::pref!("layout.css.anchor-positioning.enabled") {
+        if !crate::anchor_positioning_enabled() {
             return Err(input.new_custom_error(StyleParseErrorKind::UnspecifiedError));
         }
         GenericAnchorSizeFunction::parse_inner(context, input, |i| {

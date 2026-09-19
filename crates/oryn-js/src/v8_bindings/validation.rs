@@ -67,12 +67,12 @@ pub(super) fn is_control_interface(interface: &str) -> bool {
     )
 }
 
-pub(super) fn request_submit(
-    scope: &mut v8::PinScope<'_, '_>,
+pub(super) fn submit_preflight(
+    scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     form: NodeId,
     submitter: Option<NodeId>,
-) -> Result<bool, V8BindingError> {
+) -> Result<Option<bool>, V8BindingError> {
     let skip_validation = {
         let dom = state.dom.borrow();
         if !dom.is_element(form, "http://www.w3.org/1999/xhtml", "form") {
@@ -97,28 +97,42 @@ pub(super) fn request_submit(
             }
         }
         if !state.forms_allowed.get()
-            || state.entry_lists_in_progress.borrow().contains(&form)
+            || submissions::FormOperation::EntryList.active(scope, state, form)
             || !dom.is_connected(form)?
         {
-            return Ok(false);
+            return Ok(None);
         }
         dom.attribute_in_null_namespace(form, "novalidate")?
             .is_some()
             || match submitter {
-                Some(button) => dom
-                    .attribute_in_null_namespace(button, "formnovalidate")?
-                    .is_some(),
+                Some(button) => dom.submitter_no_validate(button)?,
                 None => false,
             }
     };
-    if !state
-        .submission_events_in_progress
-        .borrow_mut()
-        .insert(form)
-    {
+    Ok(Some(skip_validation))
+}
+
+pub(super) fn request_submit(
+    scope: &mut v8::PinScope<'_, '_>,
+    state: &Rc<V8BindingState>,
+    form: NodeId,
+    submitter: Option<NodeId>,
+) -> Result<bool, V8BindingError> {
+    let Some(skip_validation) = submit_preflight(scope, state, form, submitter)? else {
         return Ok(false);
-    }
+    };
+    let Some(_guard) = submissions::FormOperationGuard::begin(
+        scope,
+        state,
+        form,
+        submissions::FormOperation::SubmitEvent,
+    )?
+    else {
+        return Ok(false);
+    };
+    let form_object = wrap_node(scope, state, form)?;
     let result = (|| -> Result<bool, V8BindingError> {
+        state.dom.borrow_mut().mark_form_user_validity(form)?;
         if !skip_validation && !validate_form(scope, state, form, true)? {
             return Ok(false);
         }
@@ -132,12 +146,16 @@ pub(super) fn request_submit(
         let id = event_id(scope, event)?;
         state.events.borrow_mut().get_mut(&id).unwrap().is_trusted = true;
         let accepted = dispatch_event(scope, state, form, event)?;
-        Ok(accepted && state.dom.borrow().is_connected(form)?)
+        if !accepted {
+            return Ok(false);
+        }
+        let Some((owner, form)) = node_identity::argument(scope, form_object.into())? else {
+            return Ok(false);
+        };
+        let connected = active_document_state_for_node(scope, &owner, form).is_some()
+            && owner.dom.borrow().is_connected(form)?;
+        Ok(connected)
     })();
-    state
-        .submission_events_in_progress
-        .borrow_mut()
-        .remove(&form);
     result
 }
 
@@ -159,14 +177,24 @@ pub(super) fn validate_form(
 ) -> Result<bool, V8BindingError> {
     let invalid = state.dom.borrow().invalid_form_controls(form)?;
     let valid = invalid.is_empty();
+    // An earlier invalid listener can adopt a later control into another
+    // arena. Keep the whole snapshot alive and follow its native wrappers.
+    let invalid = invalid
+        .into_iter()
+        .map(|node| wrap_node(scope, state, node).map(|object| v8::Global::new(scope, object)))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut unhandled = Vec::new();
-    for node in invalid {
-        if fire_invalid(scope, state, node)? {
-            unhandled.push(node);
+    for control in invalid {
+        let object = v8::Local::new(scope, &control);
+        let Some((owner, node)) = node_identity::argument(scope, object.into())? else {
+            continue;
+        };
+        if fire_invalid(scope, &owner, node)? {
+            unhandled.push(control);
         }
     }
     if report {
-        report_controls(scope, state, &unhandled)?;
+        report_controls(scope, &unhandled)?;
     }
     Ok(valid)
 }
@@ -181,8 +209,12 @@ pub(super) fn validate_control(
         let dom = state.dom.borrow();
         dom.control_will_validate(node)? && !dom.control_validity(node)?
     };
-    if invalid && fire_invalid(scope, state, node)? && report {
-        report_controls(scope, state, &[node])?;
+    if invalid {
+        let object = wrap_node(scope, state, node)?;
+        let control = v8::Global::new(scope, object);
+        if fire_invalid(scope, state, node)? && report {
+            report_controls(scope, &[control])?;
+        }
     }
     Ok(!invalid)
 }
@@ -200,13 +232,17 @@ fn fire_invalid(
 
 fn report_controls(
     scope: &mut v8::PinScope<'_, '_>,
-    state: &Rc<V8BindingState>,
-    controls: &[NodeId],
+    controls: &[v8::Global<v8::Object>],
 ) -> Result<(), V8BindingError> {
     // Headless reporting brings the first available unhandled control into
     // focus; its live validationMessage describes the problem. Do not select
     // a new invalid control introduced by a callback, or report canceled ones.
-    for &node in controls {
+    for control in controls {
+        let object = v8::Local::new(scope, control);
+        let Some((owner, node)) = node_identity::argument(scope, object.into())? else {
+            continue;
+        };
+        let state = &owner;
         let available = {
             let dom = state.dom.borrow();
             dom.is_connected(node)?
@@ -217,7 +253,11 @@ fn report_controls(
         if !available || css_suppresses_focus(state, node)? {
             continue;
         }
-        focus_html_element(scope, state, node, false)?;
+        let anchor = custom_elements::validation_anchor(scope, state, node)?;
+        if css_suppresses_focus(state, anchor)? {
+            continue;
+        }
+        focus_html_element(scope, state, anchor, false)?;
         // Focus handlers may intentionally move focus elsewhere. Do not
         // override that decision by attempting the next invalid control.
         break;
@@ -288,8 +328,17 @@ pub(super) fn attribute<'s>(
     ]
     .iter()
     .any(|tag| dom.is_element(node, "http://www.w3.org/1999/xhtml", tag))
+        && !dom.is_form_associated_custom_element(node)
     {
         return Err(invalid());
+    }
+    if dom.is_form_associated_custom_element(node) {
+        let valid = if member == "valid" {
+            dom.control_validity(node)?
+        } else {
+            dom.custom_element_validity_flag(node, member)
+        };
+        return Ok(v8::Boolean::new(scope, valid).into());
     }
     let value = match member {
         "valueMissing" => dom.control_value_missing(node)?,
@@ -300,10 +349,9 @@ pub(super) fn attribute<'s>(
         "rangeOverflow" => dom.control_numeric_validity(node)?.range_overflow,
         "stepMismatch" => dom.control_numeric_validity(node)?.step_mismatch,
         "patternMismatch" => dom.control_pattern_mismatch(node)?,
-        // Remaining input constraint algorithms are not implemented yet.
         "tooLong" => dom.control_length_validity(node)?.1,
         "tooShort" => dom.control_length_validity(node)?.0,
-        "badInput" => false,
+        "badInput" => dom.control_bad_input(node)?,
         _ => return Err(invalid()),
     };
     Ok(v8::Boolean::new(scope, value).into())
@@ -312,6 +360,54 @@ pub(super) fn attribute<'s>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_control_snapshot_follows_cross_arena_adoption() {
+        super::super::tests::initialize_v8();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope, &mut isolate);
+        let destination_context = v8::Context::new(scope, Default::default());
+        let destination = {
+            let scope = &mut v8::ContextScope::new(scope, destination_context);
+            let dom = Rc::new(RefCell::new(
+                oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+            ));
+            let document = dom.borrow().document();
+            let state =
+                install_generated_bindings(scope, destination_context, dom, RealmId(148), 1)
+                    .unwrap();
+            let object = wrap_node(scope, &state, document).unwrap();
+            v8::Global::new(scope, object)
+        };
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<form id=f><input id=a required><input id=b required></form>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let _state = install_generated_bindings(scope, context, dom, RealmId(149), 1).unwrap();
+        let destination = v8::Local::new(scope, &destination);
+        let key = v8::String::new(scope, "destinationDocument").unwrap();
+        context
+            .global(scope)
+            .set(scope, key.into(), destination.into());
+        let source = v8::String::new(scope, r#"(()=>{
+            const form=document.getElementById('f'),a=document.getElementById('a'),b=document.getElementById('b');
+            const seen=[];
+            a.oninvalid=e=>{seen.push('a');e.preventDefault();destinationDocument.body.append(destinationDocument.adoptNode(b));};
+            b.oninvalid=e=>{seen.push(e.target===b&&b.ownerDocument===destinationDocument?'b':'wrong');b.disabled=true;};
+            if(form.reportValidity()!==false||seen.join(',')!=='a,b')throw Error('lost adopted invalid control');
+            seen.length=0;
+            b.disabled=false;
+            b.oninvalid=e=>{seen.push('single');b.remove();};
+            if(b.reportValidity()!==false||seen.join(',')!=='single')throw Error('detached report target');
+        })()"#).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+    }
 
     #[test]
     fn submit_event_traces_detached_submitter_without_rooting_unreachable_cycles() {

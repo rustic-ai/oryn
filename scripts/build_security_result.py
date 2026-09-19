@@ -12,6 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from evidence_protocols import validate_protocols
+
+from native_protocol_versions import versions as native_protocol_versions
+
 from evidence_assertions import assertion_bound_cases, verified_regressions
 
 
@@ -68,6 +72,7 @@ def main() -> int:
     )
     production = load(raw / "production-gate.json")
     runtime = load(raw / "runtime.json")
+    validate_protocols(runtime, root)
     security = load(raw / "security-probe.json")
     churn = load(raw / "churn.json")
     fuzz = load(raw / "fuzz/summary.json")
@@ -106,7 +111,7 @@ def main() -> int:
     require(
         runtime.get("native_v8") is True
         and runtime.get("sandbox_state") == "app_sandbox"
-        and runtime.get("worker_protocol_version") == 10,
+        and runtime.get("worker_protocol_version") == native_protocol_versions(root)["worker"],
         "runtime is not the signed sandboxed V8 worker",
     )
 
@@ -203,7 +208,7 @@ def main() -> int:
     }
     reason_codes = [name for name, passed in criteria.items() if not passed]
     result = {
-        "schema_version": 2,
+        "schema_version": 3,
         "profile": "security-production",
         "run_id": f"security-{source_commit[:12]}-macos-arm64",
         "recorded_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -225,6 +230,8 @@ def main() -> int:
                 "sha256": digest(worker),
                 "bytes": worker.stat().st_size,
                 "protocol_version": runtime["worker_protocol_version"],
+                "context_service_protocol_version": runtime["context_service_protocol_version"],
+                "agent_ipc_protocol_version": runtime["agent_ipc_protocol_version"],
                 "contract_version": runtime["contract_version"],
                 "native_v8": runtime["native_v8"],
                 "v8_version": runtime["v8_version"],

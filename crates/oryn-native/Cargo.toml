@@ -7,15 +7,19 @@ description = "Native browser runtime for Oryn"
 build = "build.rs"
 
 [features]
+historical-test-input = ["oryn-js/historical-test-input"]
 default = []
-v8-host = ["dep:v8", "dep:oryn-layout", "oryn-js/v8-host"]
+v8-host = ["dep:oryn-render-core", "dep:v8", "dep:oryn-layout", "oryn-js/v8-host"]
 v8-sandbox = ["v8/v8_enable_sandbox", "oryn-js/v8-sandbox"]
 in-process-probe = []
 core-full = []
 core-lite = []
 semantic-oracle = []
+accessibility-host = ["dep:oryn-render-core"]
 
 [dependencies]
+symphonia = { version = "=0.5.5", default-features = false, features = ["flac", "mp3", "pcm", "vorbis", "ogg", "wav"] }
+oryn-render-core = { path = "../oryn-render-core", optional = true }
 oryn-common = { path = "../oryn-common" }
 oryn-core = { path = "../oryn-core" }
 oryn-layout = { path = "../oryn-layout", optional = true }
@@ -45,6 +49,7 @@ flate2 = "1"
 brotli = "8"
 zstd = "0.13"
 async-trait = "0.1"
+httpdate = "1"
 tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-native-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 v8 = { version = "150.4", optional = true }
@@ -54,10 +59,15 @@ core-foundation = "0.10"
 security-framework = "3.7"
 
 [dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+uuid = { version = "1", features = ["v4"] }
 h2 = "0.4"
 http = "1"
 
 [build-dependencies]
+serde_json = "1"
+toml = "1.1"
+cc = "1"
 sha2 = "0.10"
 
 [[bin]]
@@ -91,3 +101,8 @@ required-features = ["in-process-probe"]
 [[example]]
 name = "conformance_focus_context_probe"
 required-features = ["v8-host", "in-process-probe"]
+
+[[bin]]
+name = "oryn-accessibility-host"
+path = "src/bin/accessibility_host.rs"
+required-features = ["accessibility-host"]

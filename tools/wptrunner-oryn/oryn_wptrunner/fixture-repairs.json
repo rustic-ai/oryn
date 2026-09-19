@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "repairs": [
+    {
+      "method": "GET",
+      "request_path": "/html/editing/dnd/target-origin/103-manual-1.html",
+      "source_path": "html/editing/dnd/target-origin/103-manual.html",
+      "source_sha256": "9bc08653b48668cab5c98d83e228050d2c322df891fb6f5710e7e259444151a9",
+      "target_path": "html/editing/dnd/target-origin/103-1.html",
+      "target_sha256": "d1a0b55e67ee93fe4c7e3a34805369a39a08a38b714913b4f6d3e4a2a2cd9047",
+      "reason": "Pinned manual suffix was retained in the dynamic sibling URL; serve the existing corresponding sibling unchanged."
+    },
+    {
+      "method": "GET",
+      "request_path": "/html/editing/dnd/target-origin/104-manual-1.html",
+      "source_path": "html/editing/dnd/target-origin/104-manual.html",
+      "source_sha256": "05e48eed1099143863eb830e793a00b245b722552da3c787a1087c62438e193d",
+      "target_path": "html/editing/dnd/target-origin/104-1.html",
+      "target_sha256": "77fee3a1506e3cb22094b8140f91e7643671018a0b57630abfd5d131b11b1641",
+      "reason": "Pinned manual suffix was retained in the dynamic sibling URL; serve the existing corresponding sibling unchanged."
+    },
+    {
+      "method": "GET",
+      "request_path": "/html/editing/dnd/target-origin/105-manual-1.html",
+      "source_path": "html/editing/dnd/target-origin/105-manual.html",
+      "source_sha256": "a38cb963ec2786fa176d3dbc69ba93dca459410919f76d3f9294c234c1d3e87a",
+      "target_path": "html/editing/dnd/target-origin/105-1.html",
+      "target_sha256": "c8ce8e7cbbb092377ffc81a761a084849729dcaeb890924d068da8c96b35a09b",
+      "reason": "Pinned manual suffix was retained in the dynamic sibling URL; serve the existing corresponding sibling unchanged."
+    },
+    {
+      "method": "GET",
+      "request_path": "/html/editing/dnd/target-origin/106-manual-1.html",
+      "source_path": "html/editing/dnd/target-origin/106-manual.html",
+      "source_sha256": "ea3e79c18ac67c89736ee9bf491e6e23d446916a6ab71f548ded47e7cdf9d4a9",
+      "target_path": "html/editing/dnd/target-origin/106-1.html",
+      "target_sha256": "003b339733f340ddb53c2bf90d167f88e2f275c718c3994f061dff33c0dfa9ab",
+      "reason": "Pinned manual suffix was retained in the dynamic sibling URL; serve the existing corresponding sibling unchanged."
+    },
+    {
+      "method": "GET",
+      "request_path": "/html/editing/dnd/target-origin/107-manual-1.html",
+      "source_path": "html/editing/dnd/target-origin/107-manual.html",
+      "source_sha256": "fa969201bba982490f1cf2abf9459990d2ee8a87eb77dfa02895c50ac538ecf1",
+      "target_path": "html/editing/dnd/target-origin/107-1.html",
+      "target_sha256": "9c9649cd1d957778e4864b2cb7971fae13a631be57d1f9aa7afb43162d28ad4e",
+      "reason": "Pinned manual suffix was retained in the dynamic sibling URL; serve the existing corresponding sibling unchanged."
+    },
+    {
+      "method": "GET",
+      "request_path": "/html/editing/dnd/target-origin/108-manual-1.html",
+      "source_path": "html/editing/dnd/target-origin/108-manual.html",
+      "source_sha256": "1b6553da87ef7c0dfcfe1057b00a5d7f95981daac26e6769a2b14312fcabe35d",
+      "target_path": "html/editing/dnd/target-origin/108-1.html",
+      "target_sha256": "b1455f2bd6371e3dbeee9147ad3d1fb80e6fc69f6b112a01ba8ff9b75bf2ba2b",
+      "reason": "Pinned manual suffix was retained in the dynamic sibling URL; serve the existing corresponding sibling unchanged."
+    },
+    {
+      "method": "GET",
+      "request_path": "/html/editing/dnd/target-origin/109-manual-1.html",
+      "source_path": "html/editing/dnd/target-origin/109-manual.html",
+      "source_sha256": "b709373d0d03c9661b82289fa3920e266e4833ccc9576c5692832910b2199e29",
+      "target_path": "html/editing/dnd/target-origin/109-1.html",
+      "target_sha256": "fa136c78d9c0d16142b22a9acc862f399a7cacfa38997fa7e5bbd9d3f597c0d8",
+      "reason": "Pinned manual suffix was retained in the dynamic sibling URL; serve the existing corresponding sibling unchanged."
+    },
+    {
+      "method": "GET",
+      "request_path": "/html/editing/dnd/target-origin/110-manual-1.html",
+      "source_path": "html/editing/dnd/target-origin/110-manual.html",
+      "source_sha256": "af82afa6df5fd22b676e636b726849a005d77f8c3fde70e3857820e1ad23ee88",
+      "target_path": "html/editing/dnd/target-origin/110-1.html",
+      "target_sha256": "0c4ec741c293b89f63c1cb08e5ca0ba063052eab5fe0935952783dd0344e812e",
+      "reason": "Pinned manual suffix was retained in the dynamic sibling URL; serve the existing corresponding sibling unchanged."
+    },
+    {
+      "method": "GET",
+      "request_path": "/html/editing/dnd/target-origin/117-manual-1.html",
+      "source_path": "html/editing/dnd/target-origin/117-manual.html",
+      "source_sha256": "b01b3d9598457dceae1dcf66585d351e83371117f1494bf506bf38730415349a",
+      "target_path": "html/editing/dnd/target-origin/117-1.html",
+      "target_sha256": "cdb693b333d3912771f7968be6abe21b835ca008672d3c30545be5d3406b2785",
+      "reason": "Pinned manual suffix was retained in the dynamic sibling URL; serve the existing corresponding sibling unchanged."
+    },
+    {
+      "method": "GET",
+      "request_path": "/html/editing/dnd/target-origin/118-manual-1.html",
+      "source_path": "html/editing/dnd/target-origin/118-manual.html",
+      "source_sha256": "aca6b6e71954675ccf1488c341de8436bae3c02a17363f9906d4368097c29316",
+      "target_path": "html/editing/dnd/target-origin/118-1.html",
+      "target_sha256": "baf7707c0fa6b14f7c9e2ad6d69e1f87495398670cfa7c78a89c3c530ca1d168",
+      "reason": "Pinned manual suffix was retained in the dynamic sibling URL; serve the existing corresponding sibling unchanged."
+    },
+    {
+      "method": "GET",
+      "request_path": "/shadow-dom/focus/resources/shadow-dom.js",
+      "source_path": "shadow-dom/focus/focus-method-with-delegatesFocus.html",
+      "source_sha256": "c802027f8254b5ecbfe0dbad348d972262d009e128c2ab2cf18b7d2ba8b47c0e",
+      "target_path": "shadow-dom/resources/shadow-dom.js",
+      "target_sha256": "74d45a4fd787710df333a608e199580a50239b67c5c8b20b26a2f26d0eb1da69",
+      "reason": "Resolve the relative helper path to the existing pinned shadow DOM helper; no assertions change."
+    },
+    {
+      "method": "GET",
+      "request_path": "/input-events/pointerevent_support.js",
+      "source_path": "input-events/input-events-cut-paste.html",
+      "source_sha256": "773cc4d26daa30a3c3ec64740da803f296758dc84aa7e5fde432a31aceb22e52",
+      "target_path": "pointerevents/pointerevent_support.js",
+      "target_sha256": "5e05f5e0d4280b95caa91d682ab798328ea8f55530525b203a347fb8f434f9af",
+      "reason": "Resolve the misplaced helper path to the existing pinned pointerevent helper; no assertions change."
+    }
+  ]
+}

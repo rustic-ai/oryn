@@ -1,0 +1,134 @@
+--- a/include/v8-context.h
++++ b/include/v8-context.h
+@@ -73,6 +73,20 @@
+    * the global object can be reused to create a new context.
+    */
+   void DetachGlobal();
++
++  /**
++   * Reattach this preserved context to its original, currently detached global
++   * proxy. The embedder must first detach the current document from that proxy.
++   * The supplied queue must outlive the context. Null retains a preserved queue
++   * when present, otherwise it selects the isolate queue.
++   * No author code runs; unrelated or still-attached proxies are rejected.
++   */
++  Maybe<bool> ReattachGlobal(MicrotaskQueue* microtask_queue = nullptr);
++  // Inactive history documents retain jobs without running them. Active
++  // synchronously accessible contexts continue using the common agent queue.
++  Maybe<bool> SuspendMicrotasks(MicrotaskQueue* suspended_queue);
++  Maybe<bool> ResumeMicrotasks(MicrotaskQueue* suspended_queue, bool discard);
++  void DetachGlobalPreservingMicrotasks();
+ 
+   /**
+    * Creates a new context and returns a handle to the newly allocated
+--- a/src/api/api.cc
++++ b/src/api/api.cc
+@@ -7194,6 +7194,76 @@
+   i_isolate->DetachGlobal(context);
+ }
+ 
++Maybe<bool> Context::SuspendMicrotasks(MicrotaskQueue* supplied) {
++  auto context = Utils::OpenDirectHandle(this);
++  i::Isolate* isolate = i::Isolate::Current();
++  EnterV8NoScriptNoExceptionScope api_scope(isolate);
++  auto* active = isolate->default_microtask_queue();
++  auto* paused = static_cast<i::MicrotaskQueue*>(supplied);
++  if (!paused || paused == active || context->microtask_queue() != active ||
++      active->IsRunningMicrotasks() || active->size() != 0 ||
++      active->GetMicrotasksScopeDepth() != 0 ||
++      isolate->handle_scope_implementer()->EnteredContextCount() != 0) {
++    return Just(false);
++  }
++  context->set_microtask_queue(isolate, paused);
++  return Just(true);
++}
++
++Maybe<bool> Context::ResumeMicrotasks(MicrotaskQueue* supplied, bool discard) {
++  auto context = Utils::OpenDirectHandle(this);
++  i::Isolate* isolate = i::Isolate::Current();
++  EnterV8NoScriptNoExceptionScope api_scope(isolate);
++  auto* active = isolate->default_microtask_queue();
++  auto* paused = static_cast<i::MicrotaskQueue*>(supplied);
++  if (!paused || paused == active || context->microtask_queue() != paused ||
++      paused->IsRunningMicrotasks() || active->IsRunningMicrotasks() ||
++      isolate->handle_scope_implementer()->EnteredContextCount() != 0) {
++    return Just(false);
++  }
++  if (!discard) paused->MovePendingTo(active);
++  context->set_microtask_queue(isolate, active);
++  return Just(true);
++}
++
++void Context::DetachGlobalPreservingMicrotasks() {
++  auto context = Utils::OpenDirectHandle(this);
++  i::Isolate* isolate = i::Isolate::Current();
++  EnterV8NoScriptNoExceptionScope api_scope(isolate);
++  auto* paused = context->microtask_queue();
++  CHECK_NOT_NULL(paused);
++  CHECK_NE(paused, isolate->default_microtask_queue());
++  CHECK(!paused->IsRunningMicrotasks());
++  isolate->DetachGlobal(context);
++  context->set_microtask_queue(isolate, paused);
++}
++
++Maybe<bool> Context::ReattachGlobal(MicrotaskQueue* microtask_queue) {
++  auto context = Utils::OpenDirectHandle(this);
++  i::Isolate* i_isolate = i::Isolate::Current();
++  EnterV8NoScriptNoExceptionScope api_scope(i_isolate);
++  i::DirectHandle<i::JSGlobalProxy> proxy(context->global_proxy(), i_isolate);
++  if (!context->IsDetached() || !proxy->IsDetached()) return Just(false);
++  i::DirectHandle<i::JSFunction> function(context->global_proxy_function(),
++                                         i_isolate);
++  i::DirectHandle<i::JSGlobalObject> global(context->global_object(), i_isolate);
++  // The same native proxy object survives navigation. Reinitialize only its
++  // proxy map/embedder slots; the preserved inner global and lexical context
++  // remain intact. This is the bootstrapper's HookUpGlobalProxy operation.
++  i_isolate->factory()->ReinitializeJSGlobalProxy(proxy, function);
++  i::JSObject::ForceSetPrototype(i_isolate, proxy, global);
++  proxy->map()->set_map(i_isolate, context->meta_map());
++  global->set_global_proxy(*proxy);
++  global->set_global_proxy_for_api(*proxy);
++  context->set_global_proxy_object(*proxy);
++  auto* queue = microtask_queue
++      ? static_cast<i::MicrotaskQueue*>(microtask_queue)
++      : context->microtask_queue() ? context->microtask_queue()
++                                 : i_isolate->default_microtask_queue();
++  context->set_microtask_queue(i_isolate, queue);
++  return Just(true);
++}
++
+ Local<v8::Object> Context::GetExtrasBindingObject() {
+   auto context = Utils::OpenDirectHandle(this);
+   i::Isolate* i_isolate = i::Isolate::Current();
+--- a/src/execution/microtask-queue.h
++++ b/src/execution/microtask-queue.h
+@@ -57,6 +57,9 @@
+   }
+ 
+   void EnqueueMicrotask(Tagged<Microtask> microtask);
++  // Called at an embedder checkpoint, never from a running microtask. The
++  // suspended queue remains a GC root until each job reaches the active queue.
++  void MovePendingTo(MicrotaskQueue* target);
+   void AddMicrotasksCompletedCallback(
+       MicrotasksCompletedCallbackWithData callback, void* data) override;
+   void RemoveMicrotasksCompletedCallback(
+--- a/src/execution/microtask-queue.cc
++++ b/src/execution/microtask-queue.cc
+@@ -19,6 +19,17 @@
+ 
+ namespace v8 {
+ namespace internal {
++
++void MicrotaskQueue::MovePendingTo(MicrotaskQueue* target) {
++  CHECK_NE(this, target);
++  CHECK(!IsRunningMicrotasks());
++  CHECK(!target->IsRunningMicrotasks());
++  for (intptr_t index = 0; index < size_; ++index) {
++    target->EnqueueMicrotask(get(index));
++  }
++  size_ = 0;
++  start_ = 0;
++}
+ 
+ const size_t MicrotaskQueue::kRingBufferOffset =
+     OFFSET_OF(MicrotaskQueue, ring_buffer_);

@@ -7,8 +7,10 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from evidence_protocols import validate_protocol_pair
 import secrets
 import signal
+from generation_gate import check_execution_generation
 import subprocess
 import sys
 import time
@@ -31,8 +33,9 @@ receiver = load_module("shopping_receiver", FIXTURES / "shopping_fixture.py")
 
 def task_lines(contract, case, base):
     lines = [line.replace("{base}", base) for line in contract["browse"]]
+    lines += contract.get("frame_ready", [])
     if case["fill"]:
-        lines += contract["details"]
+        lines += contract["details"] + contract.get("payment_steps", [])
     lines += ['click "Place test order"']
     if case["scenario"] != "normal":
         lines += ["wait visible css(#conflict)", "observe"]
@@ -46,17 +49,132 @@ def task_lines(contract, case, base):
             'click "Review checkout"',
         ]
     if case["recovery"]:
-        lines += contract["details"] + ['click "Place test order"']
+        lines += contract["details"] + contract.get("payment_steps", []) + ['click "Place test order"']
     if case["orders"]:
         lines += ["wait visible css(#order-total)"]
         if case["duplicate"]:
             lines += ['click "Repeat order request"', "wait visible css(#order-total)"]
         lines += ['click "Reload order"', "wait visible css(#order-total)"]
-    return lines + ["observe"]
+    lines += ["observe"]
+    if contract.get("frontend_v2"):
+        synchronized, in_frame = [], False
+        for line in lines:
+            synchronized.append(line)
+            if line.startswith("frame "):
+                in_frame = line != "frame main"
+            if not in_frame and line.split()[0] in ("goto", "click"):
+                synchronized.append('wait visible css(#shop-app[data-state="ready"])')
+        return synchronized
+    return lines
+
+
+def validate_persisted_ownership(case, base, data):
+    """Reject malformed or unrelated durable evidence before projection/joins."""
+    tables = {
+        "cases": ("scenario", "unit_price", "blue_stock", "green_stock", "quote_count"),
+        "carts": ("variant", "quantity"),
+        "quotes": ("quote", "variant", "quantity", "unit_price", "total"),
+        "orders": ("order_id", "quote", "variant", "quantity", "unit_price", "total", "name", "email"),
+        "requests": ("action", "outcome", "body_sha256", "fields", "cookie_valid"),
+        "views": ("page", "cookie_valid"),
+    }
+    if case.get("frontend_v2"):
+        tables.update(payments=("quote", "receipt", "authorized"),
+                      payment_events=("quote", "action", "outcome"))
+    if not isinstance(data, dict):
+        return ["malformed shopping database"]
+    owner = urlsplit(base).path.rsplit("/", 1)[-1]
+    integers = {"unit_price", "blue_stock", "green_stock", "quote_count", "quantity",
+                "total", "outcome", "cookie_valid", "authorized"}
+    for table, fields in tables.items():
+        rows = data.get(table)
+        if not isinstance(rows, list):
+            return ["malformed shopping table: " + table]
+        for row in rows:
+            if not isinstance(row, dict) or row.get("case_id") != owner:
+                return ["foreign or malformed shopping row: " + table]
+            for field in fields:
+                value = row.get(field)
+                if field == "receipt" and value is None and row.get("authorized") == 0:
+                    continue
+                if field in integers:
+                    if type(value) is not int or value < 0:
+                        return ["malformed shopping integer: " + table + "." + field]
+                    if field in ("cookie_valid", "authorized") and value not in (0, 1):
+                        return ["malformed shopping boolean: " + table + "." + field]
+                elif not isinstance(value, str) or not value:
+                    return ["malformed shopping text: " + table + "." + field]
+    if len(data["cases"]) != 1 or data["cases"][0]["scenario"] != case["scenario"]:
+        return ["shopping case identity/scenario mismatch"]
+    errors = []
+    for table, field in (("quotes", "quote"), ("orders", "order_id"), ("orders", "quote")):
+        identities = [row[field] for row in data[table]]
+        if len(set(identities)) != len(identities):
+            errors.append("duplicate shopping identity: " + table + "." + field)
+    quotes = {row["quote"]: row for row in data["quotes"]}
+    orders = {row["quote"]: row for row in data["orders"]}
+    if data["cases"][0]["quote_count"] != len(quotes):
+        errors.append("shopping quote counter mismatch")
+    for row in data["quotes"]:
+        if row["variant"] not in ("blue", "green") or row["quantity"] < 1 or row["total"] != row["quantity"] * row["unit_price"]:
+            errors.append("shopping quote arithmetic mismatch")
+    accepted = set()
+    for request in data["requests"]:
+        try:
+            fields = json.loads(request["fields"])
+        except ValueError:
+            return errors + ["malformed shopping request JSON"]
+        if not isinstance(fields, dict) or any(not isinstance(values, list) or not values
+                or any(not isinstance(value, str) for value in values) for values in fields.values()):
+            return errors + ["malformed shopping request fields"]
+        if request["action"] == "checkout" and request["outcome"] == 303:
+            quote = fields.get("quote", [])
+            order = orders.get(quote[0]) if len(quote) == 1 else None
+            if (order is None or request["cookie_valid"] != 1
+                    or fields != {"quote": [order["quote"]], "name": [order["name"]], "email": [order["email"]]}):
+                errors.append("accepted checkout has no matching owned order")
+            else:
+                accepted.add(order["quote"])
+    for order in data["orders"]:
+        quote = quotes.get(order["quote"])
+        if (quote is None or order["quote"] not in accepted
+                or any(order[field] != quote[field] for field in ("variant", "quantity", "unit_price", "total"))):
+            errors.append("shopping order/quote ownership mismatch")
+    if case.get("frontend_v2"):
+        payments = data["payments"]
+        if len(payments) != len(quotes) or {row["quote"] for row in payments} != set(quotes):
+            errors.append("payment/quote inventory mismatch")
+        receipts = [row["receipt"] for row in payments if row["authorized"] == 1]
+        if len(set(receipts)) != len(receipts):
+            errors.append("duplicate payment receipt")
+        for payment in payments:
+            events = [row for row in data["payment_events"] if row["quote"] == payment["quote"]]
+            expected = ["frame_view", "authorized"] if payment["authorized"] else ["frame_view"]
+            if [row["action"] for row in events] != expected:
+                errors.append("payment authority history belongs to another quote")
+        if any(row["quote"] not in quotes for row in data["payment_events"]):
+            errors.append("payment event has no owned quote")
+    return errors
 
 
 def validate(case, lines, base, frames, data):
-    errors = []
+    errors = validate_persisted_ownership(case, base, data)
+    if errors:
+        return errors
+    if not isinstance(frames, list):
+        return ["malformed OIL frames"]
+    for frame in frames:
+        if not isinstance(frame, dict):
+            return ["malformed OIL frame"]
+        if frame.get("kind") == "action" and not isinstance(frame.get("result"), dict):
+            return ["malformed OIL action result"]
+        if frame.get("kind") == "observation":
+            observation = frame.get("observation")
+            if (not isinstance(observation, dict) or not isinstance(observation.get("page"), dict)
+                    or not isinstance(observation["page"].get("url"), str)
+                    or not isinstance(observation.get("nodes"), list)
+                    or any(not isinstance(node, dict) for node in observation["nodes"])):
+                return ["malformed OIL observation"]
     if not frames or any(
         not isinstance(f, dict) or f.get("kind") in ("error", "unsupported") for f in frames
     ):
@@ -65,11 +183,11 @@ def validate(case, lines, base, frames, data):
         f.get("result", {}) for f in frames if isinstance(f, dict) and f.get("kind") == "action"
     ]
     expected = sum(line.split()[0] in ("click", "type", "select") for line in lines)
-    ids = [action.get("action_id") for action in actions]
+    ids = [(action.get("page_id"), action.get("action_id")) for action in actions]
     if (
         len(actions) != expected
-        or len(set(ids)) != len(ids)
-        or any(type(i) is not int or i < 1 for i in ids)
+        or any(type(identity) is not int or identity < 1 or (page is not None and type(page) is not int) for page, identity in ids)
+        or len({(page, identity) for page, identity in ids if type(identity) is int and (page is None or type(page) is int)}) != len(ids)
         or any(a.get("execution_domain") != "native" for a in actions)
     ):
         errors.append("native OIL action identity/count mismatch")
@@ -164,8 +282,25 @@ def validate(case, lines, base, frames, data):
     ):
         errors.append("inventory depletion or price mismatch")
     order_views = sum(v["page"] == "order" for v in data["views"])
-    if order_views != (3 if case["duplicate"] else 2) * case["orders"]:
+    if order_views != (3 if case["duplicate"] else 2) * case["orders"] + case.get("extra_order_views",0):
         errors.append("order redirect/reload count mismatch")
+    if case.get("frontend_v2"):
+        payments = data.get("payments", [])
+        events = data.get("payment_events", [])
+        expected_quotes = len(data.get("quotes", []))
+        authorized = expected_quotes if case["fill"] else 0
+        if len(payments) != expected_quotes or sum(row.get("authorized") == 1 for row in payments) != authorized:
+            errors.append("controlled payment authorization count mismatch")
+        if [event.get("action") for event in events] != [action for _ in range(expected_quotes) for action in
+                (("frame_view", "authorized") if case["fill"] else ("frame_view",))]:
+            errors.append("controlled payment authority history mismatch")
+        if any(event.get("outcome") != 200 for event in events):
+            errors.append("controlled payment authority failure")
+        for order in orders:
+            if sum(payment.get("quote") == order["quote"] and payment.get("authorized") == 1
+                   and isinstance(payment.get("receipt"), str) and len(payment["receipt"]) == 32
+                   for payment in payments) != 1:
+                errors.append("order lacks its unique controlled payment receipt")
     return errors
 
 
@@ -190,6 +325,7 @@ def run_case(oracle, contract, case, sample, binary, worker, output):
     started = time.monotonic()
     try:
         oracle.request("create", case_id, scenario=case["scenario"])
+        check_execution_generation()
         process = subprocess.Popen(
             [str(binary), "--file", str(task), "native", "--allow-loopback"],
             stdout=subprocess.PIPE,
@@ -230,17 +366,24 @@ def main():
         default=ROOT / "target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker",
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--frontend-v2", action="store_true")
     parser.add_argument("--samples", type=int, choices=range(1, 9), default=3)
     parser.add_argument("--jobs", type=int, choices=range(1, 5), default=3)
     args = parser.parse_args()
+    from generation_gate import inherited_generation_lease
+    admission = inherited_generation_lease()
     args.output, args.binary, args.worker = (
         args.output.resolve(),
         args.binary.resolve(),
         args.worker.resolve(),
     )
+    admission.check()
     args.output.mkdir(parents=True, exist_ok=False)
     database = args.output / "shopping.sqlite3"
-    contract = json.loads((FIXTURES / "shopping-cases.json").read_text())
+    contract_path = FIXTURES / ("shopping-cases-v2.json" if args.frontend_v2 else "shopping-cases.json")
+    fixture_path = FIXTURES / ("shopping_fixture_v2.py" if args.frontend_v2 else "shopping_fixture.py")
+    selected_receiver = load_module("shopping_selected_receiver", fixture_path) if args.frontend_v2 else receiver
+    contract = json.loads(contract_path.read_text())
     report = dict(
         schema_version=1,
         goal_complete=False,
@@ -270,9 +413,11 @@ def main():
                 Path(__file__),
                 ROOT / "scripts/run-oil-forms-outcomes.py",
                 FIXTURES / "shopping_fixture.py",
-                FIXTURES / "shopping-cases.json",
+                contract_path, fixture_path,
             ]
         }
+        if args.frontend_v2:
+            report["input_hashes"]["test-harness/workflows/v2/shopping-client.mjs"] = support.digest(FIXTURES / "v2/shopping-client.mjs")
         runtime = subprocess.run(
             [str(args.binary), "native", "--runtime-info"],
             env=dict(os.environ, ORYN_PAGE_WORKER=str(args.worker)),
@@ -284,13 +429,14 @@ def main():
         (args.output / "runtime-info.stderr").write_bytes(runtime.stderr)
         runtime.check_returncode()
         report["runtime"] = json.loads(runtime.stdout)
+        validate_protocol_pair(report["runtime"], report["worker_manifest"], ROOT)
         if (
             not report["runtime"].get("sandboxed")
             or report["runtime"].get("worker_binary_sha256") != report["worker_sha256"]
         ):
             raise ValueError("signed runtime identity mismatch")
         oracle = support.Oracle(
-            args.output, FIXTURES / "shopping_fixture.py", ["--database", database]
+            args.output, fixture_path, ["--database", database]
         )
         report["origin"] = oracle.origin
         with ThreadPoolExecutor(max_workers=args.jobs) as executor:
@@ -310,7 +456,7 @@ def main():
         cases = {case["id"]: case for case in contract["cases"]}
         for record in report["records"]:
             directory = args.output / f"{record['case']}-{record['sample']:02d}"
-            data = receiver.snapshot(database, record["case_id"])
+            data = selected_receiver.snapshot(database, record["case_id"])
             (directory / "final-database.json").write_text(json.dumps(data, indent=2) + "\n")
             frames = [
                 json.loads(line)
@@ -329,6 +475,12 @@ def main():
             record["final_database_verified"] = True
             (directory / "result.json").write_text(json.dumps(record, indent=2) + "\n")
         report["database_sha256"] = support.digest(database)
+        report["artifact_identities_unchanged"] = (
+            report["parent_sha256"] == support.digest(args.binary)
+            and report["worker_sha256"] == support.digest(args.worker)
+            and all(support.digest(ROOT / path) == value for path, value in report["input_hashes"].items()))
+        if not report["artifact_identities_unchanged"]:
+            raise ValueError("candidate or fixture artifacts changed during run")
     except Exception as error:
         report["infrastructure_error"] = str(error)
     finally:

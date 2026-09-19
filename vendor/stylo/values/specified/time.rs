@@ -309,3 +309,13 @@ impl Parse for Time {
         Self::parse_with_clamping_mode(context, input, AllowedNumericType::All)
     }
 }
+
+/// Delay used by interest invokers. Negative literals are invalid; negative
+/// calculations clamp at computed-value time through Time's numeric policy.
+pub type InterestDelay=crate::values::generics::interest::InterestDelay<Time>;
+impl Parse for InterestDelay{
+    fn parse<'i,'t>(context:&ParserContext,input:&mut Parser<'i,'t>)->Result<Self,ParseError<'i>>{
+        if input.try_parse(|input|input.expect_ident_matching("normal")).is_ok(){return Ok(Self::Normal);}
+        Time::parse_non_negative(context,input).map(Self::Time)
+    }
+}

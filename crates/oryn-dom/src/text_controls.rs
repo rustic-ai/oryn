@@ -3,6 +3,76 @@
 use super::{DomError, DomRuntime, NodeId, dom_string};
 
 impl DomRuntime {
+    /// HTML input state uses Text for missing, empty, or unknown keywords.
+    /// Keep the authored attribute intact; native consumers use this state.
+    pub fn effective_input_type(&self, node: NodeId) -> Result<String, DomError> {
+        let kind = self
+            .attribute_in_null_namespace(node, "type")?
+            .unwrap_or("text")
+            .to_ascii_lowercase();
+        Ok(
+            if matches!(
+                kind.as_str(),
+                "hidden"
+                    | "text"
+                    | "search"
+                    | "tel"
+                    | "url"
+                    | "email"
+                    | "password"
+                    | "date"
+                    | "month"
+                    | "week"
+                    | "time"
+                    | "datetime-local"
+                    | "number"
+                    | "range"
+                    | "color"
+                    | "checkbox"
+                    | "radio"
+                    | "file"
+                    | "submit"
+                    | "image"
+                    | "reset"
+                    | "button"
+            ) {
+                kind
+            } else {
+                "text".into()
+            },
+        )
+    }
+
+    /// Public variable-length selection excludes Email and picker states.
+    pub fn supports_selection_range(&self, node: NodeId) -> Result<bool, DomError> {
+        Ok(
+            self.is_element(node, "http://www.w3.org/1999/xhtml", "textarea")
+                || (self.is_element(node, "http://www.w3.org/1999/xhtml", "input")
+                    && matches!(
+                        self.effective_input_type(node)?.as_str(),
+                        "text" | "search" | "tel" | "url" | "password"
+                    )),
+        )
+    }
+    /// select() also applies to textual picker controls, and otherwise does nothing.
+    pub fn supports_select_all(&self, node: NodeId) -> Result<bool, DomError> {
+        Ok(
+            self.is_element(node, "http://www.w3.org/1999/xhtml", "textarea")
+                || (self.is_element(node, "http://www.w3.org/1999/xhtml", "input")
+                    && !matches!(
+                        self.effective_input_type(node)?.as_str(),
+                        "hidden"
+                            | "range"
+                            | "checkbox"
+                            | "radio"
+                            | "submit"
+                            | "image"
+                            | "reset"
+                            | "button"
+                    )),
+        )
+    }
+
     pub fn textarea_default_value(&self, node: NodeId) -> Result<String, DomError> {
         let mut units = Vec::new();
         for child in &self.arena.get(node)?.children {
@@ -23,11 +93,8 @@ impl DomRuntime {
             return false;
         }
         let kind = self
-            .attribute_in_null_namespace(node, "type")
-            .ok()
-            .flatten()
-            .unwrap_or("text")
-            .to_ascii_lowercase();
+            .effective_input_type(node)
+            .unwrap_or_else(|_| "text".into());
         !matches!(
             kind.as_str(),
             "hidden"
@@ -47,6 +114,47 @@ impl DomRuntime {
                 | "reset"
                 | "button"
         )
+    }
+
+    /// Native editing includes number controls, whose public selection API is
+    /// still excluded by is_text_control.
+    pub fn is_editable_text_control(&self, node: NodeId) -> bool {
+        self.is_temporal_control(node)
+            || self.is_text_control(node)
+            || (self.is_element(node, "http://www.w3.org/1999/xhtml", "input")
+                && self
+                    .attribute_in_null_namespace(node, "type")
+                    .ok()
+                    .flatten()
+                    .is_some_and(|kind| kind.eq_ignore_ascii_case("number")))
+    }
+    pub fn control_edit_value(&self, node: NodeId) -> Result<String, DomError> {
+        if self.is_temporal_control(node) {
+            return self.temporal_display_value(node);
+        }
+        let record = self.arena.get(node)?;
+        if self.is_editable_text_control(node)
+            && !self.is_text_control(node)
+            && record.user_edited_value
+            && let Some(value) = &record.value
+        {
+            return Ok(value.clone());
+        }
+        self.control_value(node)
+    }
+    pub fn control_bad_input(&self, node: NodeId) -> Result<bool, DomError> {
+        let record = self.arena.get(node)?;
+        if !record.user_edited_value
+            || !self.is_element(node, "http://www.w3.org/1999/xhtml", "input")
+        {
+            return Ok(false);
+        }
+        let kind = self
+            .attribute_in_null_namespace(node, "type")?
+            .unwrap_or("text");
+        Ok(super::numeric_controls::numeric_kind(kind)
+            && record.value.as_ref().is_some_and(|value| !value.is_empty())
+            && self.control_value(node)?.is_empty())
     }
 
     pub fn control_length_limit(
@@ -84,6 +192,17 @@ impl DomRuntime {
         ))
     }
 
+    /// Change native disclosure metadata without resetting the value, edit
+    /// history, dirty flag, or the pending user change transaction.
+    pub fn set_control_sensitive(&mut self, node: NodeId, sensitive: bool) -> Result<(), DomError> {
+        let record = self.arena.get_mut(node)?;
+        if record.sensitive_value != sensitive {
+            record.sensitive_value = sensitive;
+            self.record_mutation(crate::Mutation::FormState { node });
+        }
+        Ok(())
+    }
+
     pub fn set_user_control_value(
         &mut self,
         node: NodeId,
@@ -98,6 +217,7 @@ impl DomRuntime {
         }
         self.set_value(node, dom_string::from_units(&units), sensitive)?;
         self.arena.get_mut(node)?.user_edited_value = true;
+        self.set_user_validity(node, true)?;
         // The OIL replacement action commits its own change event.
         self.arena.get_mut(node)?.pending_edit_value = None;
         Ok(())
@@ -112,7 +232,10 @@ impl DomRuntime {
         end: u32,
         replacement: &str,
     ) -> Result<u32, DomError> {
-        let current = self.control_value(node)?;
+        if self.is_temporal_control(node) {
+            return self.replace_temporal_edit(node, start, end, replacement);
+        }
+        let current = self.control_edit_value(node)?;
         let length = dom_string::len(&current);
         if start > end || end as usize > length {
             return Err(super::OpaqueRangeError::InvalidOffset.into());
@@ -130,9 +253,16 @@ impl DomRuntime {
             return Ok(start);
         }
         let caret = start + units.len() as u32;
-        self.replace_control_value(node, start, end, &dom_string::from_units(&units))?;
+        if self.is_editable_text_control(node) && !self.is_text_control(node) {
+            let mut value = dom_string::units(&current);
+            value.splice(start as usize..end as usize, units);
+            let sensitive = self.arena.get(node)?.sensitive_value;
+            self.set_value(node, dom_string::from_units(&value), sensitive)?;
+        } else {
+            self.replace_control_value(node, start, end, &dom_string::from_units(&units))?;
+        }
         self.arena.get_mut(node)?.user_edited_value = true;
-        if self.control_value(node)? != current
+        if self.control_edit_value(node)? != current
             && self.arena.get(node)?.pending_edit_value.is_none()
         {
             self.arena.get_mut(node)?.pending_edit_value = Some(current);
@@ -142,8 +272,11 @@ impl DomRuntime {
 
     pub fn take_control_change(&mut self, node: NodeId) -> Result<bool, DomError> {
         let previous = self.arena.get_mut(node)?.pending_edit_value.take();
+        if previous.is_some() {
+            self.set_user_validity(node, true)?;
+        }
         match previous {
-            Some(previous) => Ok(self.control_value(node)? != previous),
+            Some(previous) => Ok(self.control_edit_value(node)? != previous),
             None => Ok(false),
         }
     }
@@ -236,5 +369,41 @@ mod tests {
         dom.set_value(t, "abcd", false).unwrap();
         assert_eq!(dom.edit_control_value(t, 1, 3, "😀😀").unwrap(), 3);
         assert_eq!(dom.control_value(t).unwrap(), "a😀d");
+    }
+}
+
+#[cfg(test)]
+mod numeric_user_edit_regressions {
+
+    #[test]
+    fn native_number_edit_retains_incomplete_text_without_exposing_it_as_value() {
+        let mut dom = crate::html::parse("<input id=n type=number placeholder=Number>")
+            .into_runtime()
+            .unwrap();
+        let node = dom.find_by_id("n").unwrap();
+        assert_eq!(dom.edit_control_value(node, 0, 0, "1").unwrap(), 1);
+        assert_eq!(dom.edit_control_value(node, 1, 1, "e").unwrap(), 2);
+        assert_eq!(dom.control_edit_value(node).unwrap(), "1e");
+        assert_eq!(dom.control_value(node).unwrap(), "");
+        assert!(dom.control_bad_input(node).unwrap());
+        assert!(!dom.control_validity(node).unwrap());
+        assert!(!dom.element_placeholder_shown(node).unwrap());
+        let clone = dom.clone_node(node, false).unwrap();
+        assert_eq!(dom.control_value(clone).unwrap(), "");
+        assert!(!dom.control_bad_input(clone).unwrap());
+        dom.edit_control_value(node, 2, 2, "2").unwrap();
+        assert_eq!(dom.control_value(node).unwrap(), "1e2");
+        assert!(!dom.control_bad_input(node).unwrap());
+        dom.set_value(node, "invalid", false).unwrap();
+        assert_eq!(dom.control_value(node).unwrap(), "");
+        assert!(
+            !dom.control_bad_input(node).unwrap(),
+            "script sanitization is not failed user input"
+        );
+        dom.set_user_control_value(node, "-", false).unwrap();
+        assert!(dom.control_bad_input(node).unwrap());
+        dom.reset_control_value(node, String::new()).unwrap();
+        assert!(!dom.control_bad_input(node).unwrap());
+        assert_eq!(dom.control_edit_value(node).unwrap(), "");
     }
 }

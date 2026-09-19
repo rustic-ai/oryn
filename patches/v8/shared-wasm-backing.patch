@@ -1,0 +1,148 @@
+--- a/include/v8-array-buffer.h
++++ b/include/v8-array-buffer.h
+@@ -74,6 +74,11 @@
+   // Publish zeroed accessible bytes before the new shared length. This operation
+   // must serialize with concurrent absolute growth in every mapped process.
+   virtual Result GrowAbsolute(size_t new_byte_length) = 0;
++  // Native atomic delta growth. On success writes the distinct prior page count.
++  // Pages are 64KiB; the maximum is conjoined with the backing's logical maximum.
++  virtual bool GrowWasmByPages(size_t delta, size_t maximum, size_t* previous) {
++    return false;
++  }
+ };
+ 
+ /**
+@@ -168,6 +173,15 @@
+    */
+   static void EmptyDeleter(void* data, size_t length, void* deleter_data);
+ 
++  // Wrap a native sandbox mapping with explicit Wasm bounds. Consumes the
++  // deleter owner on every call, including validation failure. The delegate
++  // retains the metadata mapping for the lifetime of compiled size-cell reads.
++  static std::unique_ptr<BackingStore> NewSharedWasmBackingStore(
++      void* data, size_t initial_length, size_t maximum_length,
++      size_t reserved_capacity, bool memory64,
++      std::shared_ptr<SharedMemoryGrowthDelegate> growth,
++      DeleterCallback deleter, void* deleter_data);
++
+  private:
+   /**
+    * See [Shared]ArrayBuffer::GetBackingStore and
+--- a/src/objects/backing-store.h
++++ b/src/objects/backing-store.h
+@@ -81,6 +81,12 @@
+       void* allocation_base, size_t allocation_length,
+       v8::BackingStore::DeleterCallback deleter, void* deleter_data,
+       SharedFlag shared);
++
++  static std::unique_ptr<BackingStore> WrapSharedWasmAllocation(
++      void* data, size_t initial_length, size_t maximum_length,
++      size_t reserved_capacity, bool memory64,
++      std::shared_ptr<v8::SharedMemoryGrowthDelegate> growth,
++      v8::BackingStore::DeleterCallback deleter, void* deleter_data);
+ 
+   // Create an empty backing store.
+   static std::unique_ptr<BackingStore> EmptyBackingStore(SharedFlag shared);
+@@ -300,6 +306,10 @@
+   void* buffer_start_ = nullptr;
+   std::atomic<size_t> byte_length_;
+   std::shared_ptr<v8::SharedMemoryGrowthDelegate> shared_growth_delegate_;
++  // Shared Wasm already uses type_specific_data_ for isolate registrations.
++  // Its external mapping owner must not overwrite that union member.
++  v8::BackingStore::DeleterCallback shared_wasm_deleter_ = nullptr;
++  void* shared_wasm_deleter_data_ = nullptr;
+   std::shared_ptr<v8::SharedMemoryWaitDelegate> shared_wait_delegate_;
+   // Max byte length of the corresponding JSArrayBuffer(s).
+   size_t max_byte_length_;
+--- a/src/objects/backing-store.cc
++++ b/src/objects/backing-store.cc
+@@ -33,6 +33,16 @@
+   } while (false)
+ 
+ namespace v8 {
++std::unique_ptr<BackingStore> BackingStore::NewSharedWasmBackingStore(
++    void* data, size_t initial_length, size_t maximum_length,
++    size_t reserved_capacity, bool memory64,
++    std::shared_ptr<SharedMemoryGrowthDelegate> growth,
++    DeleterCallback deleter, void* deleter_data) {
++  auto backing = internal::BackingStore::WrapSharedWasmAllocation(
++      data, initial_length, maximum_length, reserved_capacity, memory64,
++      std::move(growth), deleter, deleter_data);
++  return std::unique_ptr<BackingStore>(reinterpret_cast<BackingStore*>(backing.release()));
++}
+ void BackingStore::SetSharedMemoryWaitDelegate(
+     std::shared_ptr<SharedMemoryWaitDelegate> delegate) {
+   reinterpret_cast<internal::BackingStore*>(this)->SetSharedMemoryWaitDelegate(
+@@ -201,6 +211,42 @@
+ struct SharedWasmMemoryData {
+   std::vector<Isolate*> isolates_;
+ };
++
++std::unique_ptr<BackingStore> BackingStore::WrapSharedWasmAllocation(
++    void* data, size_t initial_length, size_t maximum_length,
++    size_t reserved_capacity, bool memory64,
++    std::shared_ptr<v8::SharedMemoryGrowthDelegate> growth,
++    v8::BackingStore::DeleterCallback deleter, void* deleter_data) {
++  // Invalid owners cannot be accepted; a non-null callback is mandatory.
++  CHECK_NOT_NULL(deleter);
++  auto failure = [&]() -> std::unique_ptr<BackingStore> {
++    deleter(data, initial_length, deleter_data);
++    return {};
++  };
++#if !V8_ENABLE_WEBASSEMBLY
++  return failure();
++#else
++  const size_t engine_max = memory64 ? wasm::max_mem64_bytes() : wasm::max_mem32_bytes();
++  if (!data || !growth || reserved_capacity == 0 ||
++      initial_length > maximum_length || maximum_length > reserved_capacity ||
++      maximum_length > engine_max || initial_length % wasm::kWasmPageSize ||
++      maximum_length % wasm::kWasmPageSize) return failure();
++  const size_t current = growth->ByteLength();
++  const size_t* address = growth->ByteLengthAddress();
++  if (!address || reinterpret_cast<uintptr_t>(address) % alignof(size_t) ||
++      current < initial_length || current > maximum_length ||
++      current % wasm::kWasmPageSize) return failure();
++  auto result = std::unique_ptr<BackingStore>(new BackingStore(
++      data, current, maximum_length, reserved_capacity, SharedFlag::kYes,
++      ResizableFlag::kNotResizable, ImmutableFlag::kMutable, true, memory64,
++      false, false, false));
++  result->type_specific_data_.shared_wasm_memory_data = new SharedWasmMemoryData();
++  result->shared_growth_delegate_ = std::move(growth);
++  result->shared_wasm_deleter_ = deleter;
++  result->shared_wasm_deleter_data_ = deleter_data;
++  return result;
++#endif
++}
+ 
+ BackingStore::BackingStore(void* buffer_start, size_t byte_length,
+                            size_t max_byte_length, size_t byte_capacity,
+@@ -292,7 +338,11 @@
+       SharedWasmMemoryData* shared_data = get_shared_wasm_memory_data();
+       delete shared_data;
+     }
+-    // Wasm memories are always allocated through the page allocator.
++    if (shared_wasm_deleter_) {
++      shared_wasm_deleter_(buffer_start_, byte_length(), shared_wasm_deleter_data_);
++      return;
++    }
++    // Ordinary Wasm memories are allocated through the page allocator.
+     FreeResizableMemory();
+     return;
+   }
+@@ -648,6 +698,16 @@
+   //       compare_exchange after changing the permissions.
+   //     * This invariant is the reason why we cannot use a fetch_add.
+   DCHECK(is_wasm_memory());
++  if (shared_growth_delegate_) {
++    max_pages = std::min(max_pages, max_byte_length_ / wasm::kWasmPageSize);
++    size_t previous = 0;
++    if (delta_pages > max_pages || !shared_growth_delegate_->GrowWasmByPages(
++            delta_pages, max_pages, &previous)) return {};
++    CHECK_LE(previous, max_pages - delta_pages);
++    CHECK_GE(byte_length(std::memory_order_acquire) / wasm::kWasmPageSize,
++             previous + delta_pages);
++    return previous;
++  }
+   max_pages = std::min(max_pages, byte_capacity_ / wasm::kWasmPageSize);
+ 
+   // Do a compare-exchange loop, because we also need to adjust page

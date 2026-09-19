@@ -1,3 +1,5 @@
+// Historical profile only. The native binary must explicitly enable
+// historical-test-input; this adapter cannot grant native input authority.
 'use strict';
 window.__oryn_testdriver_log = [];
 window.__oryn_testdriver_overflow = false;

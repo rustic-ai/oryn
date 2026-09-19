@@ -1,0 +1,464 @@
+{
+  "schema_version": 2,
+  "family": "booking",
+  "scope": "Versioned client datepicker, DST, options, validation, stale-slot recovery, cancellation and duplicate-request outcomes; full repeated/fault qualification remains open",
+  "cases": [
+    {
+      "id": "client_fold_first",
+      "scenario": "normal",
+      "slot": "early",
+      "final_slot": "early",
+      "zone": "America/New_York",
+      "fill": true,
+      "recovery": false,
+      "duplicate": false,
+      "reservations": 1,
+      "statuses": [
+        303
+      ],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-11-01T01:30\"",
+        "select \"Time zone\" \"America/New_York\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T05:30:00.000Z\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "type \"Attendee\" \"Zo\u00eb Test\"",
+        "type \"Email\" \"zoe@example.test\"",
+        "click \"Reserve test appointment\"",
+        "wait visible css(#reservation)",
+        "click \"Reload reservation\"",
+        "wait visible css(#reservation)",
+        "extract text --selector \"#appointment-time\"",
+        "observe"
+      ],
+      "client_selections": [
+        {
+          "local": "2026-11-01T01:30",
+          "zone": "America/New_York",
+          "utc": "2026-11-01T05:30:00.000Z",
+          "valid": 1
+        }
+      ],
+      "appointment_options": [
+        "video"
+      ],
+      "cancellations": 0
+    },
+    {
+      "id": "client_fold_second",
+      "scenario": "normal",
+      "slot": "late",
+      "final_slot": "late",
+      "zone": "America/New_York",
+      "fill": true,
+      "recovery": false,
+      "duplicate": false,
+      "reservations": 1,
+      "statuses": [
+        303
+      ],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-11-01T01:30\"",
+        "select \"Time zone\" \"America/New_York\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T06:30:00.000Z\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "type \"Attendee\" \"Zo\u00eb Test\"",
+        "type \"Email\" \"zoe@example.test\"",
+        "click \"Reserve test appointment\"",
+        "wait visible css(#reservation)",
+        "click \"Reload reservation\"",
+        "wait visible css(#reservation)",
+        "extract text --selector \"#appointment-time\"",
+        "observe"
+      ],
+      "client_selections": [
+        {
+          "local": "2026-11-01T01:30",
+          "zone": "America/New_York",
+          "utc": "2026-11-01T06:30:00.000Z",
+          "valid": 1
+        }
+      ],
+      "appointment_options": [
+        "video"
+      ],
+      "cancellations": 0
+    },
+    {
+      "id": "client_vancouver",
+      "scenario": "normal",
+      "slot": "early",
+      "final_slot": "early",
+      "zone": "America/Vancouver",
+      "fill": true,
+      "recovery": false,
+      "duplicate": false,
+      "reservations": 1,
+      "statuses": [
+        303
+      ],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-10-31T22:30\"",
+        "select \"Time zone\" \"America/Vancouver\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T05:30:00.000Z\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "type \"Attendee\" \"Zo\u00eb Test\"",
+        "type \"Email\" \"zoe@example.test\"",
+        "click \"Reserve test appointment\"",
+        "wait visible css(#reservation)",
+        "click \"Reload reservation\"",
+        "wait visible css(#reservation)",
+        "extract text --selector \"#appointment-time\"",
+        "observe"
+      ],
+      "client_selections": [
+        {
+          "local": "2026-10-31T22:30",
+          "zone": "America/Vancouver",
+          "utc": "2026-11-01T05:30:00.000Z",
+          "valid": 1
+        }
+      ],
+      "appointment_options": [
+        "video"
+      ],
+      "cancellations": 0
+    },
+    {
+      "id": "client_utc",
+      "scenario": "normal",
+      "slot": "early",
+      "final_slot": "early",
+      "zone": "UTC",
+      "fill": true,
+      "recovery": false,
+      "duplicate": false,
+      "reservations": 1,
+      "statuses": [
+        303
+      ],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-11-01T05:30\"",
+        "select \"Time zone\" \"UTC\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T05:30:00.000Z\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "type \"Attendee\" \"Zo\u00eb Test\"",
+        "type \"Email\" \"zoe@example.test\"",
+        "click \"Reserve test appointment\"",
+        "wait visible css(#reservation)",
+        "click \"Reload reservation\"",
+        "wait visible css(#reservation)",
+        "extract text --selector \"#appointment-time\"",
+        "observe"
+      ],
+      "client_selections": [
+        {
+          "local": "2026-11-01T05:30",
+          "zone": "UTC",
+          "utc": "2026-11-01T05:30:00.000Z",
+          "valid": 1
+        }
+      ],
+      "appointment_options": [
+        "video"
+      ],
+      "cancellations": 0
+    },
+    {
+      "id": "client_new_york_gap",
+      "scenario": "normal",
+      "zone": "America/New_York",
+      "gap": true,
+      "client_selections": [],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-03-08T02:30\"",
+        "select \"Time zone\" \"America/New_York\"",
+        "wait visible css(#selection-status[data-state=\"gap\"])",
+        "extract text --selector \"#selection-status\"",
+        "observe"
+      ]
+    },
+    {
+      "id": "client_vancouver_gap",
+      "scenario": "normal",
+      "zone": "America/Vancouver",
+      "gap": true,
+      "client_selections": [],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-03-08T02:30\"",
+        "select \"Time zone\" \"America/Vancouver\"",
+        "wait visible css(#selection-status[data-state=\"gap\"])",
+        "extract text --selector \"#selection-status\"",
+        "observe"
+      ]
+    },
+    {
+      "id": "client_phone_option",
+      "scenario": "normal",
+      "slot": "early",
+      "final_slot": "early",
+      "zone": "America/New_York",
+      "fill": true,
+      "recovery": false,
+      "duplicate": false,
+      "reservations": 1,
+      "statuses": [
+        303
+      ],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-11-01T01:30\"",
+        "select \"Time zone\" \"America/New_York\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T05:30:00.000Z\"",
+        "select \"Appointment option\" \"phone\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "type \"Attendee\" \"Zo\u00eb Test\"",
+        "type \"Email\" \"zoe@example.test\"",
+        "click \"Reserve test appointment\"",
+        "wait visible css(#reservation)",
+        "click \"Reload reservation\"",
+        "wait visible css(#reservation)",
+        "extract text --selector \"#appointment-time\"",
+        "observe"
+      ],
+      "client_selections": [
+        {
+          "local": "2026-11-01T01:30",
+          "zone": "America/New_York",
+          "utc": "2026-11-01T05:30:00.000Z",
+          "valid": 1
+        }
+      ],
+      "appointment_options": [
+        "phone"
+      ],
+      "cancellations": 0
+    },
+    {
+      "id": "client_duplicate_request",
+      "scenario": "normal",
+      "slot": "early",
+      "final_slot": "early",
+      "zone": "America/New_York",
+      "fill": true,
+      "recovery": false,
+      "duplicate": true,
+      "reservations": 1,
+      "statuses": [
+        303,
+        303
+      ],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-11-01T01:30\"",
+        "select \"Time zone\" \"America/New_York\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T05:30:00.000Z\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "type \"Attendee\" \"Zo\u00eb Test\"",
+        "type \"Email\" \"zoe@example.test\"",
+        "click \"Reserve test appointment\"",
+        "wait visible css(#reservation)",
+        "click \"Repeat reservation request\"",
+        "wait visible css(#reservation)",
+        "click \"Reload reservation\"",
+        "wait visible css(#reservation)",
+        "extract text --selector \"#appointment-time\"",
+        "observe"
+      ],
+      "client_selections": [
+        {
+          "local": "2026-11-01T01:30",
+          "zone": "America/New_York",
+          "utc": "2026-11-01T05:30:00.000Z",
+          "valid": 1
+        }
+      ],
+      "appointment_options": [
+        "video"
+      ],
+      "cancellations": 0
+    },
+    {
+      "id": "client_required_validation",
+      "scenario": "normal",
+      "slot": "early",
+      "final_slot": "early",
+      "zone": "America/New_York",
+      "fill": false,
+      "recovery": false,
+      "duplicate": false,
+      "reservations": 0,
+      "statuses": [],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-11-01T01:30\"",
+        "select \"Time zone\" \"America/New_York\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T05:30:00.000Z\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "click \"Reserve test appointment\"",
+        "observe"
+      ],
+      "client_selections": [
+        {
+          "local": "2026-11-01T01:30",
+          "zone": "America/New_York",
+          "utc": "2026-11-01T05:30:00.000Z",
+          "valid": 1
+        }
+      ],
+      "appointment_options": [
+        "video"
+      ],
+      "cancellations": 0
+    },
+    {
+      "id": "client_stale_recovery",
+      "scenario": "stale",
+      "slot": "early",
+      "final_slot": "late",
+      "zone": "America/New_York",
+      "fill": true,
+      "recovery": true,
+      "duplicate": false,
+      "reservations": 1,
+      "statuses": [
+        409,
+        303
+      ],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-11-01T01:30\"",
+        "select \"Time zone\" \"America/New_York\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T05:30:00.000Z\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "type \"Attendee\" \"Zo\u00eb Test\"",
+        "type \"Email\" \"zoe@example.test\"",
+        "click \"Reserve test appointment\"",
+        "wait visible css(#conflict)",
+        "click \"Search availability\"",
+        "type \"Local appointment\" \"2026-11-01T01:30\"",
+        "select \"Time zone\" \"America/New_York\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T06:30:00.000Z\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "type \"Attendee\" \"Zo\u00eb Test\"",
+        "type \"Email\" \"zoe@example.test\"",
+        "click \"Reserve test appointment\"",
+        "wait visible css(#reservation)",
+        "click \"Reload reservation\"",
+        "wait visible css(#reservation)",
+        "extract text --selector \"#appointment-time\"",
+        "observe"
+      ],
+      "client_selections": [
+        {
+          "local": "2026-11-01T01:30",
+          "zone": "America/New_York",
+          "utc": "2026-11-01T05:30:00.000Z",
+          "valid": 1
+        },
+        {
+          "local": "2026-11-01T01:30",
+          "zone": "America/New_York",
+          "utc": "2026-11-01T06:30:00.000Z",
+          "valid": 1
+        }
+      ],
+      "appointment_options": [
+        "video",
+        "video"
+      ],
+      "cancellations": 0
+    },
+    {
+      "id": "client_cancel_retry",
+      "scenario": "normal",
+      "slot": "early",
+      "final_slot": "early",
+      "zone": "America/New_York",
+      "fill": true,
+      "recovery": true,
+      "duplicate": false,
+      "reservations": 1,
+      "statuses": [
+        303
+      ],
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Local appointment\" \"2026-11-01T01:30\"",
+        "select \"Time zone\" \"America/New_York\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T05:30:00.000Z\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "click \"Cancel review\"",
+        "type \"Local appointment\" \"2026-11-01T01:30\"",
+        "select \"Time zone\" \"America/New_York\"",
+        "wait visible css(#selection-status[data-state=\"ambiguous\"],#selection-status[data-state=\"available\"])",
+        "select \"Occurrence\" \"2026-11-01T05:30:00.000Z\"",
+        "click \"Review appointment\"",
+        "wait visible css(#appointment-time)",
+        "extract text --selector \"#appointment-time\"",
+        "type \"Attendee\" \"Zo\u00eb Test\"",
+        "type \"Email\" \"zoe@example.test\"",
+        "click \"Reserve test appointment\"",
+        "wait visible css(#reservation)",
+        "click \"Reload reservation\"",
+        "wait visible css(#reservation)",
+        "extract text --selector \"#appointment-time\"",
+        "observe"
+      ],
+      "client_selections": [
+        {
+          "local": "2026-11-01T01:30",
+          "zone": "America/New_York",
+          "utc": "2026-11-01T05:30:00.000Z",
+          "valid": 1
+        },
+        {
+          "local": "2026-11-01T01:30",
+          "zone": "America/New_York",
+          "utc": "2026-11-01T05:30:00.000Z",
+          "valid": 1
+        }
+      ],
+      "appointment_options": [
+        "video",
+        "video"
+      ],
+      "cancellations": 1
+    }
+  ]
+}

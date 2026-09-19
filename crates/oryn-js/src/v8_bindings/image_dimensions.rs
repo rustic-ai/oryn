@@ -1,10 +1,10 @@
 //! Intrinsic SVG resource dimensions without executing an SVG document.
 use super::*;
 
-pub(super) fn svg_size(bytes: &[u8]) -> Option<(u32, u32)> {
+pub(super) fn svg_intrinsics(bytes: &[u8]) -> Option<oryn_dom::ImageIntrinsics> {
     let source = std::str::from_utf8(bytes).ok()?;
     let parsed = oryn_dom::xml::parse(source, "image/svg+xml");
-    let root = parsed
+    parsed
         .dom
         .get(parsed.document)
         .ok()?
@@ -13,57 +13,11 @@ pub(super) fn svg_size(bytes: &[u8]) -> Option<(u32, u32)> {
         .find_map(|id| {
             let node = parsed.dom.get(*id).ok()?;
             matches!(&node.kind, NodeKind::Element { .. }).then_some(node)
-        })?;
-    if !matches!(&root.kind, NodeKind::Element { name }
-        if name.ns.as_ref() == "http://www.w3.org/2000/svg" && name.local.as_ref() == "svg")
-    {
-        return None;
-    }
-    let length = |name| {
-        root.attributes
-            .get_null(name)
-            .and_then(|value| absolute_length(value))
-    };
-    let ratio = root.attributes.get_null("viewBox").and_then(|value| {
-        let values = value
-            .split(|c: char| c.is_ascii_whitespace() || c == ',')
-            .filter(|s| !s.is_empty())
-            .map(str::parse::<f64>)
-            .collect::<Result<Vec<_>, _>>()
-            .ok()?;
-        (values.len() == 4
-            && values.iter().all(|v| v.is_finite())
-            && values[2] > 0.
-            && values[3] > 0.)
-            .then(|| values[2] / values[3])
-    });
-    let size = match (length("width"), length("height"), ratio) {
-        (Some(w), Some(h), _) => (w, h),
-        (Some(w), None, Some(r)) => (w, w / r),
-        (None, Some(h), Some(r)) => (h * r, h),
-        (None, None, Some(r)) if r > 2. => (300., 300. / r),
-        (None, None, Some(r)) => (150. * r, 150.),
-        (w, h, None) => (w.unwrap_or(300.), h.unwrap_or(150.)),
-    };
-    Some((size.0 as u32, size.1 as u32))
+        })
+        .and_then(oryn_dom::ImageIntrinsics::from_svg)
 }
-
-fn absolute_length(value: &str) -> Option<f64> {
-    let value = value.trim();
-    let (number, scale) = [
-        ("px", 1.),
-        ("in", 96.),
-        ("cm", 96. / 2.54),
-        ("mm", 96. / 25.4),
-        ("Q", 96. / 101.6),
-        ("pt", 96. / 72.),
-        ("pc", 16.),
-    ]
-    .into_iter()
-    .find_map(|(unit, scale)| value.strip_suffix(unit).map(|value| (value, scale)))
-    .unwrap_or((value, 1.));
-    let value = number.trim().parse::<f64>().ok()? * scale;
-    (value.is_finite() && value >= 0.).then_some(value)
+pub(super) fn svg_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    svg_intrinsics(bytes).map(oryn_dom::ImageIntrinsics::default_size)
 }
 
 #[cfg(test)]

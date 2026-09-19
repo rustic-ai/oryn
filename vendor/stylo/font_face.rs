@@ -548,7 +548,7 @@ impl Parse for Source {
         };
 
         // Parse optional tech()
-        let tech_flags = if static_prefs::pref!("layout.css.font-tech.enabled")
+        let tech_flags = if (cfg!(feature = "servo") || static_prefs::pref!("layout.css.font-tech.enabled"))
             && input
                 .try_parse(|input| input.expect_function_matching("tech"))
                 .is_ok()

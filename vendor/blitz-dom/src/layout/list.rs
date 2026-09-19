@@ -194,7 +194,7 @@ mod tests {
     use super::marker_for_style;
 
     fn list_style(s: &str) -> ListStyleType {
-        ListStyleType(CounterStyle::Name(CustomIdent(Atom::from(s))))
+        ListStyleType(CounterStyle::Name(CustomIdent(Atom::from(s))),0)
     }
 
     #[test]

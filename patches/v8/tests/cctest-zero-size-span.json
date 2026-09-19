@@ -1,0 +1,12 @@
+{
+  "scope": "test-only compatibility; no production engine or GN changes",
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "patch_sha256": "7073df8e6036e5f8bf29e673aeb759ba0b0f0f272efab00df8ef230e7bbe4a54",
+  "base_files": {
+    "test/cctest/test-api-array-buffer.cc": "5f7ff10585fddde3e848989e80d8b68ae2912fb7484006feae459623369553cb"
+  },
+  "patched_files": {
+    "test/cctest/test-api-array-buffer.cc": "42c83e7fa069adfde8f1fd66f7f336c2f940cec71eefb38156a1bb36bd9b495b"
+  },
+  "reason": "Explicit pointer plus byte count preserves zero-capacity span when V8_TYPED_ARRAY_MAX_SIZE_IN_HEAP=0."
+}

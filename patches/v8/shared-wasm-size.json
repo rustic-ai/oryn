@@ -1,0 +1,32 @@
+{
+  "status": "source_generated_unbuilt_unqualified",
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "patch_sha256": "8d1ea11c9b35f6e59853ebf781b0a92d86e0d2b138a3136fa3ebf5132da70365",
+  "required_patch_sha256": {
+    "shared-memory-growth": "63e630f2136d2690058ed0b647533572c957604bbca83f7aaa3359ad56432acd",
+    "shared-memory-wait": "b113edc50dd5788b86e4b5c2c68c7805ae49401898fff0c88cdce1c9f188480e"
+  },
+  "base_files": {
+    "src/wasm/wasm-objects.h": "cc47f2cb5371e85ad63acca77f58201d8a4b49c051fad784adc87c24658e87e7",
+    "src/wasm/wasm-objects-inl.h": "6200d254fb836238a4f4316ec33c0f6096e316579282decc62de122fc4d85b64",
+    "src/wasm/wasm-objects.cc": "fa419355adaf061ecf22eb8bde01cb20fd43b16722491d4542150da165a99e10",
+    "src/wasm/turboshaft-graph-interface.cc": "cc87fe7d468608f87c5dd13006bef2fe24d38d4b3e67b3d4f1ee68baff91d05a",
+    "src/wasm/baseline/liftoff-compiler.cc": "9345ff3566a08782cdcf564980159095a5cc852ea2964fb421f0e2e3903ed91a",
+    "src/wasm/wasm-module.cc": "e1b471227253c5829920f819c320b7d68f0f46ce22ad9838dc3c6e3c253cd5ed",
+    "src/objects/backing-store.cc": "7b12840547017a62a01de2007fb3a5afb6b084cdcae616cf33045b5567cc3c2d",
+    "gni/v8.gni": "ca4b9caab69d424f8a019bd1d9d7fc2940eaaf3feb59191d22d39b862afc8258",
+    "BUILD.gn": "d2c3b33e4bc82792bee79431c15a70baf634dae230356307b72b4ae9b0952f47"
+  },
+  "patched_files": {
+    "src/wasm/wasm-objects.h": "190bf9807b3986dd79eb8bf9ee391330bd4c7d94e4d8432303b20a6583fc6483",
+    "src/wasm/wasm-objects-inl.h": "5c8af1ae2f7a439c38af90d3f7ec8cc3da9d6d7a0d7305110b31c04f2630fccb",
+    "src/wasm/wasm-objects.cc": "8fc65ab196fe534dab95d785eaaf54afe386199b63f4cb012ff39a8f73f80029",
+    "src/wasm/turboshaft-graph-interface.cc": "1c1fe37d3d801c3ce76ca248e2bf7c0d572a1635a01cd2638440ee44a2069808",
+    "src/wasm/baseline/liftoff-compiler.cc": "ad27cf39389bb803f3829a807ebff49949ceb616de9fb611fa91639d13be3e05",
+    "src/wasm/wasm-module.cc": "a156de7096871fd6ec6b7f2df0377db895835ff208aeda6dedc4f10da77d7b4a",
+    "src/objects/backing-store.cc": "dfd61ce0c47e40207bbc860852015cd62682a0959f120ad34b3b3cd116faa4c7",
+    "gni/v8.gni": "b91e790e496d18acf6c392fc4cf78a75702876bb136bf74b7ddd8cdf8e78a2bb",
+    "BUILD.gn": "576814b2beaee1748a9bfce13d59e7c047b2ada3dc19d62a84ef63841abfa395"
+  },
+  "scope": "Trusted shared-size cells and baseline/optimizing/C++ readers; native Wasm factory, clone, delta growth and qualification remain open"
+}

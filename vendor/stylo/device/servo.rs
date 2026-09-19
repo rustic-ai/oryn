@@ -69,6 +69,7 @@ pub(super) struct ExtraDeviceData {
     /// Whether the user prefers light mode or dark mode
     #[ignore_malloc_size_of = "Pure stack type"]
     prefers_color_scheme: PrefersColorScheme,
+    prefers_reduced_motion: bool,
     /// The capabilities of the primary pointer input
     #[ignore_malloc_size_of = "Pure stack type"]
     primary_pointer_capabilities: PointerCapabilities,
@@ -81,6 +82,10 @@ pub(super) struct ExtraDeviceData {
 }
 
 impl Device {
+    /// Native embedder motion preference used by media query evaluation.
+    pub fn set_prefers_reduced_motion(&mut self, value: bool) { self.extra.prefers_reduced_motion = value; }
+    /// Whether reduced motion is preferred.
+    pub fn prefers_reduced_motion(&self) -> bool { self.extra.prefers_reduced_motion }
     /// Trivially construct a new `Device`.
     pub fn new(
         media_type: MediaType,
@@ -119,6 +124,7 @@ impl Device {
                 device_pixel_ratio,
                 quirks_mode,
                 prefers_color_scheme,
+                prefers_reduced_motion: false,
                 primary_pointer_capabilities,
                 all_pointer_capabilities,
                 font_metrics_provider,

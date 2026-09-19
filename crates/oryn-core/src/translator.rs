@@ -467,6 +467,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn translated_tab_command_preserves_discriminator_and_native_operation() {
+        let action = translate(&Command::Tabs).unwrap();
+        let value = serde_json::to_value(action).unwrap();
+        assert_eq!(value["action"], "tab");
+        assert_eq!(value["operation"], "list");
+        let roundtrip: Action = serde_json::from_value(value).unwrap();
+        assert!(
+            matches!(roundtrip,Action::Browser(BrowserAction::Tab(TabRequest{action,..}))if action=="list")
+        );
+    }
+
+    #[test]
     fn test_normalize_url_adds_https() {
         assert_eq!(normalize_url("google.com"), "https://google.com");
         assert_eq!(normalize_url("example.org"), "https://example.org");

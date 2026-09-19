@@ -989,10 +989,29 @@ fn parse_errors(_pair: Pair<Rule>) -> Result<ErrorsCmd, ParseError> {
         last: None,
     })
 }
-fn parse_frame(_pair: Pair<Rule>) -> Result<FrameSwitchCmd, ParseError> {
-    Ok(FrameSwitchCmd {
-        target: FrameTarget::Main,
-    })
+fn parse_frame(pair: Pair<Rule>) -> Result<FrameSwitchCmd, ParseError> {
+    let source = pair.as_str();
+    let position = pair.as_span().start();
+    if let Some(target) = pair
+        .into_inner()
+        .find(|child| child.as_rule() == Rule::target)
+    {
+        return Ok(FrameSwitchCmd {
+            target: FrameTarget::Target(parse_target(target)?),
+        });
+    }
+    let target = match source.strip_prefix("frame").map(str::trim) {
+        Some("main") => FrameTarget::Main,
+        Some("parent") => FrameTarget::Parent,
+        _ => {
+            return Err(ParseError::UnexpectedInput {
+                position,
+                found: source.into(),
+                hint: "frame requires main, parent, or a target".into(),
+            })
+        }
+    };
+    Ok(FrameSwitchCmd { target })
 }
 fn parse_dialog(_pair: Pair<Rule>) -> Result<DialogCmd, ParseError> {
     Ok(DialogCmd {
@@ -1312,5 +1331,31 @@ mod comment_validation_tests {
         };
         assert_eq!(command.secret.as_deref(), Some("account-password"));
         assert!(command.text.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod frame_generation_tests {
+    use super::*;
+    #[test]
+    fn frame_target_preserves_main_parent_and_explicit_selector() {
+        for (text, expected) in [
+            ("frame main", FrameTarget::Main),
+            ("frame parent", FrameTarget::Parent),
+        ] {
+            let pair = OilParser::parse(Rule::frame_switch_cmd, text)
+                .unwrap()
+                .next()
+                .unwrap();
+            assert_eq!(parse_frame(pair).unwrap().target, expected);
+        }
+        let pair = OilParser::parse(Rule::frame_switch_cmd, r##"frame css("#payment-frame")"##)
+            .unwrap()
+            .next()
+            .unwrap();
+        assert!(matches!(
+            parse_frame(pair).unwrap().target,
+            FrameTarget::Target(_)
+        ));
     }
 }

@@ -14,6 +14,8 @@ pub struct CacheKey {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CacheEntry {
+    #[serde(default)]
+    pub encoded_body_size: Option<u64>,
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
@@ -24,17 +26,18 @@ pub struct CacheEntry {
 
 impl CacheEntry {
     pub fn is_fresh(&self, now_ms: u64) -> bool {
-        now_ms.saturating_sub(self.stored_at_ms) <= self.freshness_lifetime_ms
+        now_ms.saturating_sub(self.stored_at_ms) < self.freshness_lifetime_ms
     }
 
     pub fn matches_vary(&self, request_headers: &[(String, String)]) -> bool {
         self.vary.iter().all(|(name, expected)| {
             request_headers
                 .iter()
-                .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+                .filter(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
                 .map(|(_, value)| value.as_str())
-                .unwrap_or_default()
-                == expected
+                .collect::<Vec<_>>()
+                .join(", ")
+                == *expected
         })
     }
 }
@@ -73,10 +76,19 @@ impl MemoryCache {
         request_headers: &[(String, String)],
         now_ms: u64,
     ) -> Option<&CacheEntry> {
-        let usable = self
-            .entries
-            .get(key)
-            .is_some_and(|entry| entry.is_fresh(now_ms) && entry.matches_vary(request_headers));
+        self.get_matching(key, request_headers, Some(now_ms))
+    }
+
+    /// Stale representations retain validators for native conditional requests.
+    pub fn get_matching(
+        &mut self,
+        key: &CacheKey,
+        request_headers: &[(String, String)],
+        fresh_at: Option<u64>,
+    ) -> Option<&CacheEntry> {
+        let usable = self.entries.get(key).is_some_and(|entry| {
+            fresh_at.is_none_or(|now| entry.is_fresh(now)) && entry.matches_vary(request_headers)
+        });
         if !usable {
             return None;
         }
@@ -167,6 +179,7 @@ mod tests {
 
     fn entry(body: &[u8]) -> CacheEntry {
         CacheEntry {
+            encoded_body_size: None,
             status: 200,
             headers: vec![],
             body: body.into(),

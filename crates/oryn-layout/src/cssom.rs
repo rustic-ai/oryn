@@ -1,8 +1,55 @@
 //! CSSOM declaration operations backed by the same Stylo parser as layout.
 mod font_faces;
-pub use font_faces::read_font_face_declaration;
+pub use font_faces::{
+    FontFaceSource, font_face_sources, font_face_unicode_ranges, font_family_names,
+    font_text_codepoints, read_font_face_declaration,
+};
 mod media_lists;
+mod resource_urls;
 mod rule_mutations;
+pub use resource_urls::{
+    CssResourceDestination, CssResourceReference, resource_references, resource_urls,
+};
+
+/// Whether installing this inline sheet requires the host resource loader.
+/// Parse first so malformed rules and string/comment lookalikes do not force
+/// network setup. This does not determine cascade or media applicability.
+pub fn stylesheet_requires_resources(source: &str, base_url: &str) -> Result<bool, String> {
+    Ok(read_stylesheet(source, base_url, false, true)?
+        .iter()
+        .any(|rule| {
+            if rule.rule_type == 3 {
+                !rule
+                    .properties
+                    .get("supportsMatches")
+                    .is_some_and(|value| value == "false")
+            } else {
+                !resource_references(&rule.css_text).is_empty()
+            }
+        })
+        || stylesheet_has_font_sources(source, base_url)?)
+}
+/// Local-only faces still need the resource preparation/publication lifecycle.
+/// They do not issue network requests, but cannot be lost as a pure CSS sheet.
+pub fn stylesheet_has_font_sources(source: &str, base: &str) -> Result<bool, String> {
+    let mut rules = read_stylesheet(source, base, false, true)?;
+    let mut count = 0usize;
+    while let Some(rule) = rules.pop() {
+        count += 1;
+        if count > 8192 {
+            return Err("font source traversal exceeds native bounds".into());
+        }
+        if rule.rule_type == 5 {
+            if let Some(text) = rule.declaration_text {
+                if !font_face_sources(&text, base)?.is_empty() {
+                    return Ok(true);
+                }
+            }
+        }
+        rules.extend(rule.children);
+    }
+    Ok(false)
+}
 pub use media_lists::{
     MediaListEdit, MediaListMutation, StylesheetMediaMutation, mutate_media_list,
     mutate_stylesheet_media,
@@ -323,6 +370,27 @@ fn rule_view(
             let rule = rule.read_with(guard);
             if let Some(url) = rule.url.url() {
                 view.properties.insert("href".into(), url.to_string());
+            }
+            if let Some(media) = rule.stylesheet.media(guard) {
+                view.properties
+                    .insert("media".into(), media.to_css_string());
+            }
+            if let Some(supports) = &rule.supports {
+                view.properties
+                    .insert("supportsText".into(), supports.condition.to_css_string());
+                view.properties
+                    .insert("supportsMatches".into(), supports.enabled.to_string());
+            }
+            use style::stylesheets::import_rule::ImportLayer;
+            match &rule.layer {
+                ImportLayer::None => {}
+                ImportLayer::Anonymous => {
+                    view.properties.insert("layerName".into(), String::new());
+                }
+                ImportLayer::Named(name) => {
+                    view.properties
+                        .insert("layerName".into(), name.to_css_string());
+                }
             }
         }
         _ => {}
@@ -972,6 +1040,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cssom_url_replacement_preserves_distinct_authored_serializations() {
+        for (base, first, second) in [
+            ("about:blank", "first.png", "second.png"),
+            ("https://example.test/", "./same.png", "same.png"),
+        ] {
+            let initial = format!("background-image:url(\"{first}\")");
+            let value = format!("url(\"{second}\")");
+            let changed =
+                mutate_declaration(&initial, "background-image", &value, "", base, false).unwrap();
+            let text = changed
+                .css_text
+                .expect("changed authored URL must publish a declaration");
+            assert_eq!(
+                read_declaration(&text, "background-image", base, false)
+                    .unwrap()
+                    .value,
+                value
+            );
+            assert!(
+                mutate_declaration(&text, "background-image", &value, "", base, false)
+                    .unwrap()
+                    .css_text
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
     fn unnamed_container_cssom_names_are_empty_strings() {
         let rules = read_stylesheet(
             "@container (min-width: 100px) {}",
@@ -1579,5 +1675,101 @@ mod tests {
         let text = changed.css_text.unwrap();
         assert!(text.contains("--Name: three !important;"));
         assert!(text.contains("--name: two;"));
+    }
+}
+
+#[cfg(test)]
+mod import_metadata_tests {
+    use super::*;
+
+    #[test]
+    fn import_metadata_preserves_url_media_supports_and_layer() {
+        let rules = read_stylesheet("@import url('theme.css') layer(theme.base) supports(display: grid) screen and (min-width: 10px); p { color: red }", "https://example.test/css/main.css", false, true).unwrap();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].rule_type, 3);
+        assert_eq!(
+            rules[0].properties.get("href").map(String::as_str),
+            Some("https://example.test/css/theme.css")
+        );
+        assert_eq!(
+            rules[0].properties.get("layerName").map(String::as_str),
+            Some("theme.base")
+        );
+        assert_eq!(
+            rules[0]
+                .properties
+                .get("supportsMatches")
+                .map(String::as_str),
+            Some("true")
+        );
+        assert!(rules[0].properties["media"].contains("min-width"));
+        assert!(rules[0].properties["supportsText"].contains("display"));
+    }
+
+    #[test]
+    fn anonymous_layer_is_distinct_from_no_layer_and_late_import_is_invalid() {
+        let rules = read_stylesheet(
+            "@import 'a.css' layer; @import 'b.css'; div { color: red } @import 'late.css';",
+            "https://example.test/",
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(rules.len(), 3);
+        assert_eq!(
+            rules[0].properties.get("layerName").map(String::as_str),
+            Some("")
+        );
+        assert!(!rules[1].properties.contains_key("layerName"));
+    }
+}
+
+/// CSS.supports shares the native @supports parser and enabled-property policy.
+pub fn supports(condition: &str, value: Option<&str>, base_url: &str) -> bool {
+    use style::{
+        parser::ParserContext,
+        stylesheets::{
+            CssRuleType,
+            supports_rule::{Declaration, parse_condition_or_declaration},
+        },
+    };
+    let Ok(url) = url::Url::parse(base_url) else {
+        return false;
+    };
+    let data = UrlExtraData::from(url);
+    let context = ParserContext::new(
+        Origin::Author,
+        &data,
+        Some(CssRuleType::Style),
+        ParsingMode::DEFAULT,
+        QuirksMode::NoQuirks,
+        Default::default(),
+        None,
+        None,
+        Default::default(),
+    );
+    if let Some(value) = value {
+        // This overload accepts a property name, not escaped CSS syntax or a
+        // condition fragment. Let the same property lookup used by declarations
+        // decide whether that exact name is enabled.
+        if style::properties::PropertyId::parse(condition, &context).is_err() {
+            return false;
+        }
+        let mut name = String::new();
+        if cssparser::serialize_identifier(condition, &mut name).is_err() {
+            return false;
+        }
+        let source = format!("{name}:{value}");
+        let mut input = cssparser::ParserInput::new(&source);
+        let mut parser = cssparser::Parser::new(&mut input);
+        parser
+            .parse_entirely(Declaration::parse)
+            .is_ok_and(|declaration| declaration.eval(&context))
+    } else {
+        let mut input = cssparser::ParserInput::new(condition);
+        let mut parser = cssparser::Parser::new(&mut input);
+        parser
+            .parse_entirely(parse_condition_or_declaration)
+            .is_ok_and(|condition| condition.eval(&context))
     }
 }

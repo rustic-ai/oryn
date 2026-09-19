@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "scope": "Separate executor qualification corpus; never added to the pinned Core denominator",
+  "mount": "/__oryn_qualification__/",
+  "controls": [
+    {"path": "assertion-failure.html", "type": "testharness", "required": "harness OK with exactly the named failing subtest; qualification rejected"},
+    {"path": "missing-helper.html", "type": "testharness", "required": "missing resource preserved in resource audit and failing subtest; qualification rejected"},
+    {"path": "missing-completion.html", "type": "testharness", "required": "harness timeout despite a passing subtest; qualification rejected"},
+    {"path": "reference-never-ready.html", "type": "reftest", "required": "readiness timeout; matching initial pixels cannot pass"},
+    {"path": "reference-mismatch.html", "type": "reftest", "required": "native mismatch FAIL using the upstream comparison"}
+  ],
+  "additional_native_faults_required": ["unsupported automation command", "worker crash", "missing or duplicate completion", "malformed command response", "failed teardown", "untrusted certificate", "wrong certificate hostname", "reference focus denied"]
+}

@@ -12,7 +12,7 @@ pub(super) fn construct<'s>(
     let (transform_id, _, writable_id) =
         create(scope, state, transformer, writable_hwm, readable_hwm)?;
     bind_platform_object(scope, state, transform_id, args.this());
-    let start = option_function(scope, transformer, "start");
+    let start = option_function(scope, transformer, "start").map(Into::into);
     writable_streams::start(scope, state, writable_id, start)?;
     Ok(())
 }
@@ -41,6 +41,12 @@ pub(super) fn create<'s>(
         state,
         readable_id,
         PlatformObjectRecord::ReadableStream(ReadableStreamRecord {
+            owning: false,
+            bytes: None,
+            tee: None,
+            tee_source: None,
+            consumer: None,
+            disturbed: false,
             creation_context: weak_current_context(scope),
             error: None,
             reader_id: None,
@@ -57,7 +63,6 @@ pub(super) fn create<'s>(
             pull: None,
             cancel: None,
             controller_id: readable_controller_id,
-            pipes: Vec::new(),
             host_stream_id: None,
             host_read_pending: false,
         }),
@@ -80,7 +85,7 @@ pub(super) fn create<'s>(
             closing: false,
             started: false,
             controller_id: writable_controller_id,
-            source: v8::Global::new(scope, transformer),
+            source: stream_graph::Owned::new(scope, transformer),
             pending_abort: None,
             abort_in_flight: false,
             abort_completion: None,
@@ -91,8 +96,8 @@ pub(super) fn create<'s>(
             kind: WritableKind::Transform {
                 codec_id: None,
                 controller_id,
-                transform: option_function(scope, transformer, "transform"),
-                flush: option_function(scope, transformer, "flush"),
+                transform: option_function(scope, transformer, "transform").map(Into::into),
+                flush: option_function(scope, transformer, "flush").map(Into::into),
                 readable_controller_id,
             },
         }),
@@ -176,9 +181,8 @@ pub(super) fn backpressured(state: &V8BindingState, readable: u64) -> Result<boo
     let PlatformObjectRecord::ReadableStream(stream) = &*record else {
         return Err(V8BindingError::Allocation("ReadableStream record"));
     };
-    Ok(stream.waiting.is_empty()
-        && stream.pipes.is_empty()
-        && stream.queue.len() as f64 >= stream.high_water_mark)
+    // pipeTo holds an ordinary reader, so its pending read is in waiting too.
+    Ok(stream.waiting.is_empty() && stream.queue.len() as f64 >= stream.high_water_mark)
 }
 
 pub(super) fn desired_size<'s>(

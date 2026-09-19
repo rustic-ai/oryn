@@ -52,6 +52,57 @@ fn error(name: &str) -> V8BindingError {
     }
 }
 
+/// The constructor's realm supplies the result prototype, while the form's
+/// actual native owner supplies controls, custom internals and event delivery.
+pub(super) fn constructor<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Result<(), V8BindingError> {
+    let form = if args.get(0).is_undefined() {
+        None
+    } else {
+        Some(
+            node_identity::argument(scope, args.get(0))?
+                .ok_or_else(|| error("TypeError: expected form"))?,
+        )
+    };
+    // Complete interface conversion before checking submit-button/form ownership.
+    let submitter = if args.get(1).is_null_or_undefined() {
+        None
+    } else {
+        validation::convert_submitter(scope, args.get(1))?;
+        node_identity::argument(scope, args.get(1))?
+    };
+    let owner = form.as_ref().map(|(owner, _)| owner).unwrap_or(state);
+    let form_node = form.as_ref().map(|(_, node)| *node);
+    let submitter_node = if let Some((submitter_owner, node)) = submitter {
+        if form_node.is_some() {
+            if !validation::is_submit_button(&submitter_owner.dom.borrow(), node)? {
+                return Err(error("TypeError: expected submit button"));
+            }
+            if !Rc::ptr_eq(&submitter_owner.dom, &owner.dom) {
+                return Err(error("NotFoundError"));
+            }
+            Some(node)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    validate(owner, form_node, submitter_node)?;
+    create(
+        scope,
+        owner,
+        form_node,
+        submitter_node,
+        Some(args.this()),
+        encoding_rs::UTF_8,
+    )?;
+    Ok(())
+}
+
 pub(super) fn validate(
     state: &V8BindingState,
     form: Option<NodeId>,
@@ -73,20 +124,99 @@ pub(super) fn validate(
     Ok(())
 }
 
-struct Construction<'a> {
-    state: &'a V8BindingState,
-    form: NodeId,
-    _lease: submissions::RootedTarget,
+pub(super) struct Creation {
+    object: v8::Global<v8::Object>,
+    event: Option<retained_dom_event::Event>,
+    guard: Option<submissions::FormOperationGuard>,
+    done: bool,
 }
-impl Drop for Construction<'_> {
-    fn drop(&mut self) {
-        self.state
-            .entry_lists_in_progress
-            .borrow_mut()
-            .remove(&self.form);
+impl Creation {
+    pub(super) fn new<'s>(
+        scope: &mut v8::PinScope<'s, '_>,
+        state: &Rc<V8BindingState>,
+        form: Option<NodeId>,
+        submitter: Option<NodeId>,
+        object: Option<v8::Local<'s, v8::Object>>,
+        encoding: &'static encoding_rs::Encoding,
+    ) -> Result<Self, V8BindingError> {
+        let guard = if let Some(form) = form {
+            Some(
+                submissions::FormOperationGuard::begin(
+                    scope,
+                    state,
+                    form,
+                    submissions::FormOperation::EntryList,
+                )?
+                .ok_or_else(|| error("InvalidStateError"))?,
+            )
+        } else {
+            None
+        };
+        let entries = match form {
+            Some(form) => construct_entry_list(scope, state, form, submitter, encoding)?,
+            None => Vec::new(),
+        };
+        let id = register_platform_object(
+            state,
+            PlatformObjectRecord::FormData(FormDataRecord { entries }),
+        );
+        let object = match object {
+            Some(object) => {
+                bind_platform_object(scope, state, id, object);
+                object
+            }
+            None => new_platform_object(scope, state, "FormData", id)?,
+        };
+        let event = if let Some(form) = form {
+            let event = create_event_object_with_interface(
+                scope,
+                state,
+                "FormDataEvent",
+                "formdata",
+                true,
+                false,
+            )?;
+            set_event_data(scope, event, object.into())?;
+            let id = event_id(scope, event)?;
+            state
+                .events
+                .borrow_mut()
+                .get_mut(&id)
+                .ok_or(V8BindingError::Allocation("formdata event"))?
+                .is_trusted = true;
+            Some(retained_dom_event::Event::new(
+                scope, state, form, "formdata", event,
+            )?)
+        } else {
+            None
+        };
+        Ok(Self {
+            object: v8::Global::new(scope, object),
+            event,
+            guard,
+            done: false,
+        })
+    }
+    pub(super) fn poll(
+        &mut self,
+        scope: &mut v8::PinScope,
+    ) -> Result<Option<v8::Global<v8::Object>>, V8BindingError> {
+        if !self.done {
+            if let Some(event) = self.event.as_mut() {
+                let owner = event.owner();
+                if event.poll(scope, &owner)?.is_none() {
+                    return Ok(None);
+                }
+            }
+            self.event = None;
+            self.guard = None;
+            self.done = true;
+        }
+        Ok(Some(self.object.clone()))
     }
 }
-
+/// Script FormData construction remains synchronous; native submission keeps
+/// Creation itself and resumes its callback suffix between actor polls.
 pub(super) fn create<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -95,49 +225,11 @@ pub(super) fn create<'s>(
     object: Option<v8::Local<'s, v8::Object>>,
     encoding: &'static encoding_rs::Encoding,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
-    let _guard = if let Some(form) = form {
-        let lease = submissions::RootedTarget::new(state, form)?;
-        if !state.entry_lists_in_progress.borrow_mut().insert(form) {
-            return Err(error("InvalidStateError"));
-        }
-        Some(Construction {
-            state,
-            form,
-            _lease: lease,
-        })
-    } else {
-        None
-    };
-    let entries = match form {
-        Some(form) => construct_entry_list(scope, state, form, submitter, encoding)?,
-        None => Vec::new(),
-    };
-    let id = register_platform_object(
-        state,
-        PlatformObjectRecord::FormData(FormDataRecord { entries }),
-    );
-    let object = match object {
-        Some(object) => {
-            bind_platform_object(scope, state, id, object);
-            object
-        }
-        None => new_platform_object(scope, state, "FormData", id)?,
-    };
-    if let Some(form) = form {
-        let event = create_event_object_with_interface(
-            scope,
-            state,
-            "FormDataEvent",
-            "formdata",
-            true,
-            false,
-        )?;
-        set_event_data(scope, event, object.into())?;
-        let id = event_id(scope, event)?;
-        state.events.borrow_mut().get_mut(&id).unwrap().is_trusted = true;
-        dispatch_event(scope, state, form, event)?;
-    }
-    Ok(object)
+    let mut creation = Creation::new(scope, state, form, submitter, object, encoding)?;
+    let object = creation
+        .poll(scope)?
+        .ok_or(V8BindingError::JavaScriptException)?;
+    Ok(v8::Local::new(scope, &object))
 }
 
 type Entries = Vec<(String, v8::Global<v8::Value>)>;
@@ -178,6 +270,10 @@ pub(super) fn name_value_pairs(
                     .name
                     .clone()
             };
+            // Entries retain collision-safe UTF-16 storage internally. Decode
+            // once at the serialization boundary, as multipart already does.
+            let name = String::from_utf16_lossy(&oryn_dom::dom_string::units(&name));
+            let text = String::from_utf16_lossy(&oryn_dom::dom_string::units(&text));
             Ok((normalize_newlines(&name), normalize_newlines(&text)))
         })
         .collect()
@@ -206,16 +302,45 @@ fn construct_entry_list(
     let controls = state.dom.borrow().submittable_form_controls(form)?;
     let mut entries = Vec::new();
     for control in controls {
+        if state
+            .dom
+            .borrow()
+            .is_form_associated_custom_element(control)
+        {
+            let behavior = state
+                .dom
+                .borrow()
+                .arena()
+                .get(control)?
+                .submit_behavior
+                .clone();
+            if let Some(behavior) = behavior {
+                let eligible = {
+                    let dom = state.dom.borrow();
+                    submitter == Some(control)
+                        && !dom.control_disabled(control)?
+                        && !dom.has_datalist_ancestor(control)?
+                };
+                if eligible && !behavior.name.is_empty() {
+                    text_entry(scope, &mut entries, behavior.name, &behavior.value)?;
+                }
+                continue;
+            }
+            let eligible = {
+                let dom = state.dom.borrow();
+                !dom.control_disabled(control)? && !dom.has_datalist_ancestor(control)?
+            };
+            if eligible {
+                entries.extend(custom_elements::submission_entries(scope, state, control)?);
+            }
+            continue;
+        }
         let dom = state.dom.borrow();
         if !["button", "input", "textarea", "select"]
             .iter()
             .any(|tag| dom.is_element(control, "http://www.w3.org/1999/xhtml", tag))
             || dom.control_disabled(control)?
-            || dom
-                .arena()
-                .ancestors(control)?
-                .into_iter()
-                .any(|node| dom.is_element(node, "http://www.w3.org/1999/xhtml", "datalist"))
+            || dom.has_datalist_ancestor(control)?
         {
             continue;
         }
@@ -385,4 +510,141 @@ pub(super) fn event_data<'s>(
     event
         .get_private(scope, key)
         .ok_or(V8BindingError::JavaScriptException)
+}
+
+#[cfg(test)]
+mod directionality_regressions {
+    use super::*;
+    #[test]
+    fn serialized_pairs_decode_lossless_storage_once_for_names_values_and_files() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let script=v8::String::new(scope,r#"(()=>{
+            const data=new FormData(),literal='\u{f0000}oryn-wtf16:[55296]';
+            data.append(literal,literal+'\nend');
+            data.append('surrogate\ud800','value\udc00');
+            const file=new File(['body'],literal);if(file.name!==literal)throw Error('literal filename prefix collision');if(new File([], '\ud800').name!=='\ufffd')throw Error('filename USVString conversion');data.append('file',file);
+            return data;
+        })()"#).unwrap();
+        let object = v8::Script::compile(scope, script, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let object = v8::Local::<v8::Object>::try_from(object).unwrap();
+        let literal = format!("{}[55296]", oryn_dom::dom_string::PREFIX);
+        assert_eq!(
+            name_value_pairs(scope, &state, object).unwrap(),
+            vec![
+                (literal.clone(), format!("{literal}\r\nend")),
+                ("surrogate\u{fffd}".into(), "value\u{fffd}".into()),
+                ("file".into(), literal),
+            ]
+        );
+    }
+
+    #[test]
+    fn entry_directionality_matches_pinned_input_state_matrix() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse(
+                "<form id=f dir=rtl><textarea name=area dirname=area.dir></textarea></form>",
+            )
+            .into_runtime()
+            .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        // Expected applicability follows pinned dirname-only-if-applies.html,
+        // with unknown/empty Text states and inherited direction added.
+        let script=v8::String::new(scope,r#"(()=>{
+            const yes=['hidden','text','search','tel','url','email','password','submit'];
+            const no=['date','month','week','time','datetime-local','number','range','color','checkbox','radio','file','image','reset','button'];
+            const form=document.getElementById('f');let submitter;
+            for(const type of [...yes,...no,'unknown','']){
+                const input=document.createElement('input');input.setAttribute('type',type);
+                input.name=type||'empty';input.setAttribute('dirname',input.name+'.dir');input.checked=true;
+                form.appendChild(input);if(type==='submit')submitter=input;
+            }
+            const data=new FormData(form,submitter);
+            for(const type of [...yes,'unknown','empty','area']){
+                if(data.get(type+'.dir')!==(type==='tel'?'ltr':'rtl'))throw Error('missing direction: '+type);
+            }
+            for(const type of no){if(data.has(type+'.dir'))throw Error('unexpected direction: '+type);}
+            const tel=form.querySelector('input[type=tel]');tel.dir='rtl';if(new FormData(form,submitter).get('tel.dir')!=='rtl')throw Error('explicit tel direction');tel.removeAttribute('dir');if(new FormData(form,submitter).get('tel.dir')!=='ltr')throw Error('missing tel direction overrides inherited RTL');
+            return true;
+        })()"#).unwrap();
+        assert!(
+            v8::Script::compile(scope, script, None)
+                .unwrap()
+                .run(scope)
+                .unwrap()
+                .is_true()
+        );
+    }
+}
+
+#[cfg(test)]
+mod retained_creation_tests {
+    use super::*;
+    fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str) -> v8::Local<'s, v8::Value> {
+        let source = v8::String::new(scope, source).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+    }
+    #[test]
+    fn formdata_creation_keeps_mutated_entries_and_guard_through_callback_failure() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<form id=f><input name=x value=one></form>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(228), 1).unwrap();
+        eval(
+            scope,
+            "globalThis.log=[];f.addEventListener('formdata',e=>{globalThis.original=e;log.push('first');e.formData.append('y','two')},{once:true});f.addEventListener('formdata',e=>{log.push(e===original?'second':'wrong');e.formData.append('z','three')})",
+        );
+        let form = state
+            .dom
+            .borrow()
+            .get_element_by_id(state.document_root(), "f")
+            .unwrap()
+            .unwrap();
+        let mut creation =
+            Creation::new(scope, &state, Some(form), None, None, encoding_rs::UTF_8).unwrap();
+        native_platform::publication::fail_after_next_callback();
+        assert!(creation.poll(scope).is_err());
+        assert!(submissions::FormOperation::EntryList.active(scope, &state, form));
+        assert!(eval(scope, "log.join()==='first'").is_true());
+        let object = creation.poll(scope).unwrap().unwrap();
+        let object = v8::Local::new(scope, &object);
+        assert_eq!(
+            name_value_pairs(scope, &state, object).unwrap(),
+            vec![
+                ("x".into(), "one".into()),
+                ("y".into(), "two".into()),
+                ("z".into(), "three".into())
+            ]
+        );
+        assert!(!submissions::FormOperation::EntryList.active(scope, &state, form));
+        assert!(eval(scope, "log.join()==='first,second'").is_true());
+    }
 }

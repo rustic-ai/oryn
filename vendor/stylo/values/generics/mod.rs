@@ -36,6 +36,7 @@ pub mod svg;
 pub mod text;
 pub mod transform;
 pub mod ui;
+pub mod interest;
 pub mod url;
 
 /// A wrapper of Non-negative values.
@@ -110,6 +111,7 @@ impl<T: Zero> Zero for NonNegative<T> {
     ToCss,
     ToResolvedValue,
     ToShmem,
+    ToTyped,
 )]
 #[repr(transparent)]
 pub struct GreaterThanOrEqualToOne<T>(pub T);

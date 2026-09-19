@@ -35,6 +35,37 @@ pub fn from_units(units: &[u16]) -> String {
     )
 }
 
+/// ASCII case mapping over DOMString code units, preserving lone surrogates
+/// and escaping the private representation rather than transforming its bytes.
+pub fn ascii_lowercase(value: &str) -> String {
+    from_units(
+        &units(value)
+            .into_iter()
+            .map(|unit| {
+                if (65..=90).contains(&unit) {
+                    unit + 32
+                } else {
+                    unit
+                }
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+pub fn ascii_uppercase(value: &str) -> String {
+    from_units(
+        &units(value)
+            .into_iter()
+            .map(|unit| {
+                if (97..=122).contains(&unit) {
+                    unit - 32
+                } else {
+                    unit
+                }
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
 pub fn len(value: &str) -> usize {
     units(value).len()
 }
@@ -51,6 +82,97 @@ pub fn usv(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn descendant_text_excludes_internal_edges_and_preserves_code_units() {
+        use crate::{DomArena, NodeKind, ShadowMode};
+        use html5ever::{LocalName, Namespace, QualName};
+        let mut arena = DomArena::default();
+        let root = arena.insert(NodeKind::Element {
+            name: QualName::new(
+                None,
+                Namespace::from("http://www.w3.org/1999/xhtml"),
+                LocalName::from("div"),
+            ),
+        });
+        let first = arena.insert(NodeKind::Text {
+            data: from_units(&[0xd83d]),
+        });
+        let comment = arena.insert(NodeKind::Comment {
+            data: "excluded comment".into(),
+        });
+        let pi = arena.insert(NodeKind::ProcessingInstruction {
+            target: "target".into(),
+            data: "excluded instruction".into(),
+        });
+        let second = arena.insert(NodeKind::CDataSection {
+            data: from_units(&[0xde00]),
+        });
+        let shadow = arena.insert(NodeKind::ShadowRoot {
+            mode: ShadowMode::Open,
+            clonable: false,
+        });
+        let hidden = arena.insert(NodeKind::Text {
+            data: "shadow".into(),
+        });
+        let hosted = arena.insert(NodeKind::Document);
+        let foreign = arena.insert(NodeKind::Text {
+            data: "hosted".into(),
+        });
+        // Internal ownership edges deliberately coexist with light children.
+        arena.get_mut(root).unwrap().children = vec![first, comment, pi, second, shadow, hosted];
+        arena.get_mut(shadow).unwrap().children = vec![hidden];
+        arena.get_mut(hosted).unwrap().children = vec![foreign];
+        assert_eq!(
+            units(&arena.text_content(root).unwrap()),
+            vec![0xd83d, 0xde00]
+        );
+        assert_eq!(arena.text_content(comment).unwrap(), "excluded comment");
+        assert_eq!(arena.text_content(pi).unwrap(), "excluded instruction");
+        assert_eq!(arena.text_content(shadow).unwrap(), "shadow");
+        assert_eq!(arena.text_content(hosted).unwrap(), "hosted");
+        arena.get_mut(second).unwrap().kind = NodeKind::Text {
+            data: from_units(
+                &format!("{PREFIX}[56321]")
+                    .encode_utf16()
+                    .collect::<Vec<_>>(),
+            ),
+        };
+        let mut expected = vec![0xd83d];
+        expected.extend(format!("{PREFIX}[56321]").encode_utf16());
+        assert_eq!(units(&arena.text_content(root).unwrap()), expected);
+    }
+
+    #[test]
+    fn descendant_text_handles_deep_trees_and_rejects_cycles() {
+        use crate::{DomArena, NodeKind};
+        use html5ever::{LocalName, Namespace, QualName};
+        let mut arena = DomArena::default();
+        let kind = NodeKind::Element {
+            name: QualName::new(
+                None,
+                Namespace::from("http://www.w3.org/1999/xhtml"),
+                LocalName::from("div"),
+            ),
+        };
+        let root = arena.insert(kind.clone());
+        let mut parent = root;
+        for _ in 0..20_000 {
+            let child = arena.insert(kind.clone());
+            arena.get_mut(parent).unwrap().children.push(child);
+            parent = child;
+        }
+        let text = arena.insert(NodeKind::Text {
+            data: "deep".into(),
+        });
+        arena.get_mut(parent).unwrap().children.push(text);
+        assert_eq!(arena.text_content(root).unwrap(), "deep");
+        arena.get_mut(parent).unwrap().children.push(root);
+        assert!(matches!(
+            arena.text_content(root),
+            Err(crate::DomError::Cycle)
+        ));
+    }
+
     #[test]
     fn lossless_units_and_literal_prefix_do_not_collide() {
         for value in [
@@ -82,5 +204,31 @@ mod tests {
         assert_eq!(dom.opaque_range(range).unwrap().end, 3);
         dom.set_value(node, from_units(&[0xdc01]), false).unwrap();
         assert!(dom.opaque_range(range).unwrap().end <= 1);
+    }
+}
+
+#[cfg(test)]
+mod ascii_case_tests {
+    use super::*;
+    #[test]
+    fn ascii_case_preserves_lone_surrogates_and_reserved_prefix_text() {
+        let original = from_units(&[65, 0xd800, 122, 0xdc00, 0x00c9]);
+        assert_eq!(
+            units(&ascii_lowercase(&original)),
+            vec![97, 0xd800, 122, 0xdc00, 0x00c9]
+        );
+        assert_eq!(
+            units(&ascii_uppercase(&original)),
+            vec![65, 0xd800, 90, 0xdc00, 0x00c9]
+        );
+        let literal = format!("{PREFIX}[65]");
+        let encoded = from_units(&literal.encode_utf16().collect::<Vec<_>>());
+        assert_eq!(
+            units(&ascii_uppercase(&encoded)),
+            literal
+                .to_ascii_uppercase()
+                .encode_utf16()
+                .collect::<Vec<_>>()
+        );
     }
 }

@@ -656,6 +656,11 @@ class V8_EXPORT FunctionTemplate : public Template {
    */
   void SetAcceptAnyReceiver(bool value);
 
+  // Oryn: opt-in HTMLConstructor receiver allocation. Do not consult
+  // NewTarget.prototype before the embedder validates the construction.
+  // The callback must set the returned object's prototype explicitly.
+  void SetOrynDeferredPrototype(bool value);
+
   /**
    * Sets the ReadOnly flag in the attributes of the 'prototype' property
    * of functions created from this FunctionTemplate to true.
@@ -1145,11 +1150,11 @@ class V8_EXPORT ObjectTemplate : public Template {
   void SetImmutableProto();
 
   /**
-   * Opt a Context global template into HTML WindowProxy structural semantics.
-   * For the resulting global proxy, preventing extensions fails, and a
-   * cross-origin prototype update succeeds only when the requested prototype
-   * is null (its cross-origin observable prototype). Other objects and global
-   * templates retain ordinary V8 behavior. Configure before Context creation.
+   * Opt a Window global or Location instance template into HTML semantics.
+   * For opted-in objects, preventing extensions fails, and a cross-origin
+   * prototype update succeeds only when the requested prototype is null
+   * (the cross-origin observable prototype). Unmarked objects retain ordinary
+   * V8 behavior. Configure before creating the Context or API instance.
    * The embedder must also configure immutable prototypes and access checks.
    */
   void SetWindowProxyStructuralSemantics();

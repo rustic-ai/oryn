@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
@@ -9,6 +12,7 @@ case "$(uname -s)" in
     exec "$repo_root/scripts/package-macos-app.sh"
     ;;
   Linux)
+    python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
     cargo build --release --locked -p oryn --bin oryn \
       --no-default-features --features "native native-v8 core-full"
     binary="$repo_root/target/release/oryn"

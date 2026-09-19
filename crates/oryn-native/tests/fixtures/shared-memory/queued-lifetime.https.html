@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native shared backing survives queue ownership and realm retirement</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<body>
+<script>
+promise_test(async t => {
+  assert_true(crossOriginIsolated);
+  const worker = new Worker('queued-lifetime.worker.js');
+  t.add_cleanup(() => worker.terminate());
+  const channel = new MessageChannel();
+  t.add_cleanup(() => { channel.port1.close(); channel.port2.close(); });
+  const shared = new SharedArrayBuffer(8, {maxByteLength: 32});
+  const original = new Int32Array(shared);
+  original[0] = 41;
+  const reply = new Promise((resolve, reject) => {
+    channel.port1.onmessage = e => resolve(e.data);
+    channel.port1.onmessageerror = reject;
+    worker.onerror = reject;
+  });
+  worker.postMessage({shared, alias: shared, port: channel.port2}, [channel.port2]);
+  const result = await reply;
+  assert_true(result.alias, 'graph aliases retain one backing identity');
+  assert_equals(result.value, 41);
+  assert_equals(Atomics.load(original, 0), 42, 'receiver writes the same physical storage');
+  assert_equals(shared.byteLength, 16, 'remote grow changes sender logical length');
+}, 'queued worker delivery retains actual growable shared backing and aliases');
+
+promise_test(async t => {
+  const iframe = document.createElement('iframe');
+  iframe.src = 'queued-lifetime-frame.https.html';
+  const loaded = new Promise(resolve => iframe.onload = resolve);
+  document.body.append(iframe); t.add_cleanup(() => iframe.remove());
+  await loaded;
+  const source = iframe.contentWindow.shared;
+  assert_true(source instanceof iframe.contentWindow.SharedArrayBuffer);
+  const clone = structuredClone({source, alias: source});
+  assert_equals(clone.source, clone.alias);
+  iframe.remove();
+  clone.source.grow(16);
+  const words = new Int32Array(clone.source);
+  const result = Atomics.waitAsync(words, 0, 0);
+  assert_true(result.async, 'new waiter belongs to surviving caller realm');
+  assert_equals(Atomics.notify(words, 0, 1), 1);
+  assert_equals(await result.value, 'ok');
+}, 'retiring the creating frame does not revoke reachable backing or current-realm waiters');
+</script>

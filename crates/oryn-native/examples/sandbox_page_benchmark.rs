@@ -6,12 +6,15 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 struct BenchmarkResult {
+    runtime: oryn_native::RuntimeBuildInfo,
+    process_lifecycle: oryn_native::worker_lifecycle_audit::WorkerLifecycleSnapshot,
     schema_version: u8,
     pages: usize,
     page_handle_creation_ms: f64,
     first_cold_verification_launch_handshake_ms: f64,
     cached_isolated_launch_ms: Vec<f64>,
     warm_action_count: usize,
+    completed_warm_action_count: usize,
     warm_actions_per_second: f64,
     worker_lifecycle: String,
     reset_or_close_ms: Vec<f64>,
@@ -21,6 +24,8 @@ struct BenchmarkResult {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let lifecycle = oryn_native::worker_lifecycle_audit::WorkerLifecycleAudit::start()
+        .map_err(std::io::Error::other)?;
     let pages = std::env::args()
         .nth(1)
         .and_then(|value| value.parse().ok())
@@ -49,6 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut startup_to_page_ready_ms = Vec::with_capacity(pages);
     let mut total_observation_bytes = 0;
     let mut warm_actions_per_second = 0.0;
+    let mut completed_warm_action_count = 0;
     let mut reset_or_close_ms = Vec::with_capacity(pages);
     let mut recycled_javascript_state_erased = true;
     for (index, page) in handles.into_iter().enumerate() {
@@ -83,6 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect();
             let warm_started = Instant::now();
             let outputs = page.execute_batch(actions).await?;
+            completed_warm_action_count = outputs.len();
             warm_actions_per_second = outputs.len() as f64 / warm_started.elapsed().as_secs_f64();
             page.evaluate("globalThis.__orynChurn = 'set'; 'ok'")
                 .await?;
@@ -96,15 +103,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .copied()
         .unwrap_or_default();
     let cached_isolated_launch_ms = startup_to_page_ready_ms.into_iter().skip(1).collect();
+    context.retire_workers().await?;
+    drop(context);
+    drop(browser);
+    // Attest after timed work: startup verification must not prewarm the cold
+    // measurement whose definition includes first worker launch/verification.
+    let runtime = oryn_native::production_runtime_build_info_with_config(
+        BrowserConfig {
+            worker_lifecycle,
+            ..BrowserConfig::default()
+        },
+        oryn_native::ContextOptions::default(),
+    )?;
+    let process_lifecycle = lifecycle.snapshot();
     println!(
         "{}",
         serde_json::to_string_pretty(&BenchmarkResult {
             schema_version: 5,
+            runtime,
+            process_lifecycle,
             pages,
             page_handle_creation_ms,
             first_cold_verification_launch_handshake_ms,
             cached_isolated_launch_ms,
             warm_action_count,
+            completed_warm_action_count,
             warm_actions_per_second,
             worker_lifecycle: worker_lifecycle.name().into(),
             reset_or_close_ms,

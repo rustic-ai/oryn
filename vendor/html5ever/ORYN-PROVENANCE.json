@@ -1,0 +1,12 @@
+{
+  "crate": "html5ever",
+  "version": "0.39.0",
+  "registry": "crates.io",
+  "upstream_vcs": {
+    "git": {
+      "sha1": "ce64836c685025a5fef0860fa2e9c80b2683e8d0"
+    },
+    "path_in_vcs": "html5ever"
+  },
+  "purpose": "Expose intended insertion context to synchronous native custom element construction and final token open-element stack snapshots for native rel=expect rendering admission. No parser token or tree algorithm replacement."
+}

@@ -255,9 +255,29 @@ impl IntermediateComputedKeyframe {
             flags: base_style.flags.for_cascade_inputs(),
             included_cascade_flags: RuleCascadeFlags::empty(),
         };
-        resolver
-            .cascade_style_and_visited_with_default_parents(inputs)
-            .0
+        if let Some(pseudo)=base_style.pseudo(){
+            if let Some(primary)=element.borrow_data().and_then(|data|data.styles.primary.clone()){
+                if !pseudo.is_eager() {
+                    // Lazy pseudos have a separately matched rule tree and are
+                    // not entries in the element's eager pseudo-style cache.
+                    // Cascade the keyframe onto that tree with the originating
+                    // element as inheritance parent; retain display:contents'
+                    // distinct layout parent without entering the eager resolver.
+                    return crate::style_resolver::with_default_parent_styles(element, |_, layout_parent| {
+                        let layout_parent = if primary.is_display_contents() { layout_parent } else { Some(&*primary) };
+                        context.stylist.cascade_style_and_visited(
+                            Some(element), Some(&pseudo), &inputs, &context.guards,
+                            Some(&primary), layout_parent,
+                            crate::properties::FirstLineReparenting::No,
+                            &Default::default(), None, &mut Default::default(), &mut Default::default(),
+                        )
+                    });
+                }
+                let primary=crate::style_resolver::PrimaryStyle{style:crate::style_resolver::ResolvedStyle(primary),reused_via_rule_node:false};
+                return resolver.cascade_style_and_visited_for_pseudo_with_default_parents(inputs,&pseudo,&primary).0;
+            }
+        }
+        resolver.cascade_style_and_visited_with_default_parents(inputs).0
     }
 }
 
@@ -524,6 +544,10 @@ impl ComputedKeyframe {
 /// A CSS Animation
 #[derive(Clone, MallocSizeOf)]
 pub struct Animation {
+    /// Stable embedding identity, assigned once when first published.
+    pub native_id:u64,
+    /// Script playback control overrides CSS animation-play-state until changed.
+    pub native_controlled:bool,
     /// The name of this animation as defined by the style.
     pub name: Atom,
 
@@ -578,14 +602,15 @@ impl Animation {
             None => return true,
         };
 
-        new_ui.animation_duration_mod(index).seconds() == 0.
+        let _=index;
+        false
     }
 
     /// Given the current time, advances this animation to the next iteration,
     /// updates times, and then toggles the direction if appropriate. Otherwise
     /// does nothing. Returns true if this animation has iterated.
     pub fn iterate_if_necessary(&mut self, time: f64) -> bool {
-        if !self.iteration_over(time) {
+        if self.duration==0. || !self.iteration_over(time) {
             return false;
         }
 
@@ -594,7 +619,7 @@ impl Animation {
             return false;
         }
 
-        self.iterate_by(1.) == 1.
+        self.iterate_by(((time-self.started_at)/self.duration).floor().max(1.)) > 0.
     }
 
     /// Attempts to advance this animation by `n` iterations, but stops when reaching
@@ -672,10 +697,23 @@ impl Animation {
         self.remaining_iterations() <= 1.
     }
 
+    fn native_progress(&self,time:f64)->f64{if self.duration==0.{if time<self.started_at{-1.}else{1.}}else{(time-self.started_at)/self.duration}}
+
+    /// Set a script-controlled active time while preserving the iteration limit.
+    pub fn set_native_active_time(&mut self,time:f64,now:f64,paused:bool){
+        match &mut self.iteration_state{KeyframesIterationState::Finite(current,_)|KeyframesIterationState::Infinite(current)=>*current=0.}
+        self.current_direction=match self.direction{AnimationDirection::Reverse|AnimationDirection::AlternateReverse=>AnimationDirection::Reverse,_=>AnimationDirection::Normal};
+        self.started_at=now-time;
+        let progress=if self.duration==0.{if time<0.{-1.}else{1.}}else{time/self.duration};
+        self.state=if paused{AnimationState::Paused(progress)}else{AnimationState::Running};
+        if self.duration!=0.{self.iterate_by(progress);}else if time>=0.{if let KeyframesIterationState::Finite(_,max)=self.iteration_state{self.iterate_by(max);}}
+    }
+
     /// Whether or not this animation has finished at the provided time. This does
     /// not take into account canceling i.e. when an animation or transition is
     /// canceled due to changes in the style.
     pub fn has_ended(&self, time: f64) -> bool {
+        if self.duration==0.{return match self.state{AnimationState::Paused(progress)=>progress>=1.,AnimationState::Canceled=>false,_=>time>=self.started_at};}
         if !self.on_last_iteration() {
             return false;
         }
@@ -683,7 +721,7 @@ impl Animation {
         let progress = match self.state {
             AnimationState::Finished => return true,
             AnimationState::Paused(progress) => progress,
-            AnimationState::Running => (time - self.started_at) / self.duration,
+            AnimationState::Running => self.native_progress(time),
             AnimationState::Pending | AnimationState::Canceled => return false,
         };
 
@@ -714,7 +752,8 @@ impl Animation {
         let old_state = self.state.clone();
         let old_iteration_state = self.iteration_state.clone();
 
-        *self = other.clone();
+        let native_id=self.native_id;let native_controlled=self.native_controlled;let native_state=self.state.clone();
+        *self = other.clone();self.native_id=native_id;self.native_controlled=native_controlled;
         self.current_direction = old_direction;
 
         if self.delay != old_delay {
@@ -724,7 +763,8 @@ impl Animation {
 
             match old_state {
                 Paused(old_progress) => {
-                    let mut progress = old_progress + (old_delay - self.delay) / self.duration;
+                    let active_time = old_progress * old_duration + old_delay - self.delay;
+                    let mut progress = if self.duration == 0. { if active_time < 0. { -1. } else { 1. } } else { active_time / self.duration };
                     progress -= self.iterate_by(progress);
                     self.state = Paused(progress);
                 },
@@ -739,7 +779,7 @@ impl Animation {
                 },
                 Canceled | Pending | Running => {
                     // Re-advance iterations from a fresh iteration state.
-                    let new_starting_progress = (now - self.started_at) / self.duration;
+                    let new_starting_progress = self.native_progress(now);
                     match self.iteration_state {
                         KeyframesIterationState::Finite(ref mut current, _) => *current = 0.0,
                         _ => {},
@@ -790,7 +830,7 @@ impl Animation {
                 },
                 (&mut Paused(ref mut new), &Paused(old)) => *new = old,
                 (&mut Paused(ref mut progress), &Running) => {
-                    *progress = (now - old_started_at) / old_duration
+                    *progress = if old_duration == 0. { if now < old_started_at { -1. } else { 1. } } else { (now - old_started_at) / old_duration }
                 },
                 _ => {},
             }
@@ -801,11 +841,12 @@ impl Animation {
                 self.state = Running;
             }
         }
+        if native_controlled{self.state=native_state;}
     }
 
     /// Fill in an `AnimationValueMap` with values calculated from this animation at
     /// the given time value.
-    fn get_property_declaration_at_time(&self, now: f64, map: &mut AnimationValueMap) {
+    pub fn get_property_declaration_at_time(&self, now: f64, map: &mut AnimationValueMap) {
         if self.computed_steps.is_empty() {
             // Nothing to do.
             return;
@@ -815,7 +856,7 @@ impl Animation {
         // >1.0 (after end or during multiple iterations).
         let progress = match self.state {
             AnimationState::Running | AnimationState::Pending | AnimationState::Finished => {
-                (now - self.started_at) / self.duration
+                self.native_progress(now)
             },
             AnimationState::Paused(progress) => progress,
             AnimationState::Canceled => return,
@@ -997,6 +1038,8 @@ impl fmt::Debug for Animation {
 /// A CSS Transition
 #[derive(Clone, Debug, MallocSizeOf)]
 pub struct Transition {
+    /// Stable embedding identity, assigned once when first published.
+    pub native_id:u64,
     /// The start time of this transition, which is the current value of the animation
     /// timeline when this transition was created plus any animation delay.
     pub start_time: f64,
@@ -1024,6 +1067,9 @@ pub struct Transition {
 }
 
 impl Transition {
+    /// Effect-level easing exposed by native CSSTransition.effect.
+    pub fn native_timing_easing(&self)->String{use style_traits::ToCss;self.property_animation.timing_function.to_css_string()}
+
     fn new(
         start_time: f64,
         delay: f64,
@@ -1039,6 +1085,7 @@ impl Transition {
             duration,
         };
         Self {
+            native_id:0,
             start_time,
             delay,
             property_animation,
@@ -1128,7 +1175,9 @@ impl Transition {
 
     /// Update the given animation at a given point of progress.
     pub fn calculate_value(&self, time: f64) -> AnimationValue {
-        let progress = if time < self.start_time {
+        let progress = if let AnimationState::Paused(progress)=self.state {
+            progress.clamp(0.,1.)
+        } else if time < self.start_time {
             0.0
         } else if self.property_animation.duration == 0.0 {
             1.0
@@ -1141,8 +1190,15 @@ impl Transition {
 }
 
 /// Holds the animation state for a particular element.
-#[derive(Debug, Default, MallocSizeOf)]
+#[derive(Clone, Debug, Default, MallocSizeOf)]
 pub struct ElementAnimationSet {
+    /// Previous lazy pseudo style, retained for native transition detection.
+    #[ignore_malloc_size_of = "computed values are shared"]
+    pub native_previous_style:Option<Arc<ComputedValues>>,
+    /// Values published by the embedding Web Animations effect stack. These
+    /// participate at animation cascade origin, including native inheritance.
+    #[ignore_malloc_size_of = "embedding-owned keyframe samples"]
+    pub external_values: Option<AnimationValueMap>,
     /// The animations for this element.
     pub animations: Vec<Animation>,
 
@@ -1206,7 +1262,7 @@ impl ElementAnimationSet {
     /// Whether this `ElementAnimationSet` is empty, which means it doesn't
     /// hold any animations in any state.
     pub fn is_empty(&self) -> bool {
-        self.animations.is_empty() && self.transitions.is_empty()
+        self.external_values.is_none() && self.animations.is_empty() && self.transitions.is_empty()
     }
 
     /// Whether or not this state needs animation ticks for its transitions
@@ -1236,7 +1292,7 @@ impl ElementAnimationSet {
 
     /// If this `ElementAnimationSet` has any any active animations.
     pub fn has_active_animation(&self) -> bool {
-        self.animations
+        self.external_values.is_some() || self.animations
             .iter()
             .any(|animation| animation.state != AnimationState::Canceled)
     }
@@ -1571,7 +1627,7 @@ impl ElementAnimationSet {
         for animation in &self.animations {
             animation.get_property_declaration_at_time(now, &mut map);
         }
-
+        if let Some(external)=&self.external_values{map.extend(external.iter().map(|(id,value)|(id.clone(),value.clone())));}
         Some(map)
     }
 }
@@ -1772,8 +1828,14 @@ pub fn maybe_start_animations<E>(
 ) where
     E: TElement,
 {
+    if new_style.get_box().clone_display().is_none(){animation_state.cancel_all_animations();return;}
     let style = new_style.get_ui();
-    for (i, name) in style.animation_name_iter().enumerate() {
+    let mut previous=std::mem::take(&mut animation_state.animations);
+    let mut updated=Vec::new();
+    // CSS matches names from the end of the new list against the last unused
+    // old entry. Duplicate names retain distinct native identities and times.
+    let names=style.animation_name_iter().enumerate().collect::<Vec<_>>();
+    for (i, name) in names.into_iter().rev() {
         let name = match name.as_atom() {
             Some(atom) => atom,
             None => continue,
@@ -1781,10 +1843,6 @@ pub fn maybe_start_animations<E>(
 
         debug!("maybe_start_animations: name={}", name);
         let duration = style.animation_duration_mod(i).seconds() as f64;
-        if duration == 0. {
-            continue;
-        }
-
         let Some(keyframe_animation) = context.stylist.lookup_keyframes(name, element) else {
             continue;
         };
@@ -1816,7 +1874,7 @@ pub fn maybe_start_animations<E>(
 
         let now = context.current_time_for_animations;
         let started_at = now + delay;
-        let starting_progress = (now - started_at) / duration;
+        let starting_progress = if duration==0.{if now<started_at{-1.}else{1.}}else{(now-started_at)/duration};
         let state = match style.animation_play_state_mod(i) {
             AnimationPlayState::Paused => AnimationState::Paused(starting_progress),
             AnimationPlayState::Running => AnimationState::Pending,
@@ -1847,6 +1905,7 @@ pub fn maybe_start_animations<E>(
         );
 
         let mut new_animation = Animation {
+            native_id:0,native_controlled:false,
             name: name.clone(),
             properties_changed: keyframe_animation.properties_changed.clone(),
             computed_steps,
@@ -1864,23 +1923,18 @@ pub fn maybe_start_animations<E>(
 
         // If we started with a negative delay, make sure we iterate the animation if
         // the delay moves us past the first iteration.
-        new_animation.iterate_by(starting_progress);
+        if duration!=0.{new_animation.iterate_by(starting_progress);}else if starting_progress>=0.{if let KeyframesIterationState::Finite(_,max)=new_animation.iteration_state{new_animation.iterate_by(max);}}
 
         animation_state.dirty = true;
 
-        // If the animation was already present in the list for the node, just update its state.
-        for existing_animation in animation_state.animations.iter_mut() {
-            if existing_animation.state == AnimationState::Canceled {
-                continue;
-            }
+        if let Some(index)=previous.iter().rposition(|old|old.state!=AnimationState::Canceled&&old.name==new_animation.name){
+            let mut existing=previous.remove(index);
+            existing.update_from_other(&new_animation,context.current_time_for_animations);
+            updated.push(existing);
+        }else{updated.push(new_animation);}
 
-            if new_animation.name == existing_animation.name {
-                existing_animation
-                    .update_from_other(&new_animation, context.current_time_for_animations);
-                return;
-            }
-        }
-
-        animation_state.animations.push(new_animation);
     }
+    updated.reverse();
+    if !previous.is_empty(){animation_state.dirty=true;}
+    animation_state.animations=updated;
 }

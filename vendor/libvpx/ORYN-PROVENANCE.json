@@ -1,0 +1,8 @@
+{
+  "upstream": "https://chromium.googlesource.com/webm/libvpx",
+  "tag": "v1.17.0",
+  "commit": "6df3ec34557879fff673706f4a1d9fbd0f3a6f0e",
+  "archive_sha256": "a91f7c403f66e7046ea7b9b4a41700398c78eb61024eb8ce398f60a8ebba4d7f",
+  "license": "BSD-3-Clause; see LICENSE, PATENTS and AUTHORS",
+  "local_changes": "Only this provenance file; decoder-only generic-C configure occurs during Cargo build, not source generation."
+}

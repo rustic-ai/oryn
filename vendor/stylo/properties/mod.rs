@@ -411,6 +411,7 @@ impl PropertyId {
     /// content.
     #[inline]
     pub fn parse_enabled_for_all_content(name: &str) -> Result<Self, ()> {
+        crate::native_profile::initialize();
         let id = Self::parse_unchecked(name, None)?;
 
         if !id.enabled_for_all_content() {

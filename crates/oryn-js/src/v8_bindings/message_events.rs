@@ -1,7 +1,14 @@
 //! MessageEvent payloads are traced by V8, including foreign Window/port edges.
 use super::*;
 
-const FIELDS: [&str; 5] = ["data", "origin", "lastEventId", "source", "ports"];
+const FIELDS: [&str; 6] = [
+    "data",
+    "origin",
+    "lastEventId",
+    "source",
+    "ports",
+    "userActivation",
+];
 
 fn string<'s>(
     scope: &mut v8::PinScope<'s, '_>,
@@ -71,8 +78,10 @@ fn source<'s>(
     {
         return Some(value);
     }
-    // ServiceWorker has no native wrapper yet. Author-defined lookalikes are
-    // not platform objects and must not pass the MessageEventSource union.
+    if service_workers::is_native_worker(scope, value) {
+        return Some(value);
+    }
+    // Author-defined lookalikes are not native platform objects.
     throw_type_error(
         scope,
         "MessageEvent source requires a WindowProxy, MessagePort, or ServiceWorker",
@@ -177,7 +186,12 @@ pub(super) fn property<'s>(
     name: &str,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let fields = payload(scope, state, object)?;
-    fields.get_index(scope, FIELDS.iter().position(|n| *n == name)? as u32)
+    let value = fields.get_index(scope, FIELDS.iter().position(|n| *n == name)? as u32)?;
+    Some(if name == "userActivation" && value.is_undefined() {
+        v8::null(scope).into()
+    } else {
+        value
+    })
 }
 
 pub(super) fn construct<'s>(
@@ -220,15 +234,25 @@ pub(super) fn construct<'s>(
     let list = ports(scope, list)?;
     let sender = event_init_member(scope, init, "source")?;
     let sender = source(scope, sender)?;
+    let activation = v8::null(scope);
     let fields = v8::Array::new_with_elements(
         scope,
-        &[data, origin.into(), last.into(), sender, list.into()],
+        &[
+            data,
+            origin.into(),
+            last.into(),
+            sender,
+            list.into(),
+            activation.into(),
+        ],
     );
-    let id = state.next_event_id.get();
-    state.next_event_id.set(id.saturating_add(1));
+    let id = allocate_constructor_event_id(scope, state)?;
     state.events.borrow_mut().insert(
         id,
         EventRecord {
+            picture_in_picture_window: None,
+            progress: None,
+            before_unload_return_value: None,
             time_stamp: state.performance_now(),
             event_type,
             target: None,
@@ -288,14 +312,20 @@ pub(super) fn delivery<'s>(
         .and_then(|value| v8::Local::<v8::Value>::try_from(value).ok())
         .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
         .ok_or(V8BindingError::Allocation("message fields"))?;
-    fields.set_index(scope, 0, data);
+    let key = v8::String::new(scope, "0").ok_or(V8BindingError::Allocation("message key"))?;
+    fields
+        .create_data_property(scope, key.into(), data)
+        .ok_or(V8BindingError::Allocation("message data"))?;
     let values = transferred
         .iter()
         .map(|port| (*port).into())
         .collect::<Vec<_>>();
     let ports = v8::Array::new_with_elements(scope, &values);
     ports.set_integrity_level(scope, v8::IntegrityLevel::Frozen);
-    fields.set_index(scope, 4, ports.into());
+    let key = v8::String::new(scope, "4").ok_or(V8BindingError::Allocation("message key"))?;
+    fields
+        .create_data_property(scope, key.into(), ports.into())
+        .ok_or(V8BindingError::Allocation("message ports"))?;
     let id = event_id(scope, object)?;
     if let Some(record) = state.events.borrow_mut().get_mut(&id) {
         record.is_trusted = true;
@@ -320,6 +350,7 @@ pub(super) fn initialize_empty(
             empty.into(),
             null.into(),
             list.into(),
+            null.into(),
         ],
     );
     install_fields(scope, state, object, fields);
@@ -352,9 +383,17 @@ pub(super) fn reinitialize<'s>(
     if event.dispatching {
         return Some(());
     }
+    let activation = v8::null(scope);
     let fields = v8::Array::new_with_elements(
         scope,
-        &[data, origin.into(), last.into(), sender, list.into()],
+        &[
+            data,
+            origin.into(),
+            last.into(),
+            sender,
+            list.into(),
+            activation.into(),
+        ],
     );
     args.this().set_internal_field(2, fields.into());
     let empty = v8::undefined(scope);
@@ -371,4 +410,24 @@ pub(super) fn reinitialize<'s>(
     event.platform_target = None;
     event.initialized = true;
     Some(())
+}
+
+pub(super) fn set_user_activation(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    event: v8::Local<v8::Object>,
+    activation: Option<[bool; 2]>,
+) -> Result<(), V8BindingError> {
+    let Some(activation) = activation else {
+        return Ok(());
+    };
+    let value = native_user_activation::snapshot(scope, activation)?;
+    let fields = payload(scope, state, event)
+        .ok_or(V8BindingError::Allocation("message activation fields"))?;
+    let key =
+        v8::String::new(scope, "5").ok_or(V8BindingError::Allocation("message activation key"))?;
+    fields
+        .create_data_property(scope, key.into(), value.into())
+        .ok_or(V8BindingError::Allocation("message activation"))?;
+    Ok(())
 }

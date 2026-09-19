@@ -44,7 +44,8 @@ fn all_transform_boxes_are_enabled(_context: &ParserContext) -> bool {
 
 #[cfg(feature = "servo")]
 fn all_transform_boxes_are_enabled(_context: &ParserContext) -> bool {
-    false
+    // Native box and SVG projection resolve every transform reference box.
+    true
 }
 
 /// The specified value of `transform-box`.

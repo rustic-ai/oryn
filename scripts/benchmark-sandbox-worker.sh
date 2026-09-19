@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+expected_worker_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field worker)"
+expected_context_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field context)"
+expected_agent_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field agent)"
 output_dir="${1:-$repo_root/artifacts/semantic-sandbox-v4/production}"
 samples="${SAMPLES:-30}"
 parent="$repo_root/target/release/oryn"
@@ -38,6 +44,7 @@ test -x "$parent"
 test -x "$worker"
 export ORYN_PAGE_WORKER="$worker"
 
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 runtime="$("$parent" native --runtime-info --allow-loopback)"
 signature="$(codesign -dvvv "$worker" 2>&1)"
 entitlements_file="$output_dir/worker-entitlements.plist"
@@ -48,28 +55,44 @@ codesign -d --entitlements :- "$worker" >"$entitlements_file" 2>/dev/null
 protocol_input="$output_dir/mutation-input.txt"
 printf '%s\n' 'click "Mutate"' exit >"$protocol_input"
 for _ in $(seq 1 "$samples"); do
+  python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
   /usr/bin/time -p "$parent" native --runtime-info --allow-loopback \
     >"$output_dir/runtime.json" 2>"$output_dir/time.txt"
   awk '/^real / {print $2 * 1000}' "$output_dir/time.txt" \
     >>"$output_dir/startup-handshake-ms.txt"
+  python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
   /usr/bin/time -p "$parent" native --html "$fixture" \
     <"$protocol_input" >"$output_dir/mutation.jsonl" 2>"$output_dir/time.txt"
   awk '/^real / {print $2 * 1000}' "$output_dir/time.txt" \
     >>"$output_dir/startup-mutation-ms.txt"
 done
 
-cargo build --release --locked -p oryn-native --example sandbox_page_benchmark
-"$repo_root/target/release/examples/sandbox_page_benchmark" 5 10000 \
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  page_benchmark="$(python3 "$repo_root/scripts/security_prebuilt.py" path sandbox_page_benchmark)"
+else
+  cargo build --release --locked -p oryn-native --example sandbox_page_benchmark
+  page_benchmark="$repo_root/target/release/examples/sandbox_page_benchmark"
+fi
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+"$page_benchmark" 5 10000 \
   >"$output_dir/isolated-page-creation.json"
 ORYN_BENCH_WORKER_MODE=isolated-prewarmed \
-  "$repo_root/target/release/examples/sandbox_page_benchmark" 5 10000 \
+  "$page_benchmark" 5 10000 \
   >"$output_dir/prewarmed-page-creation.json"
 ORYN_BENCH_WORKER_MODE=recycled \
-  "$repo_root/target/release/examples/sandbox_page_benchmark" 5 10000 \
+  "$page_benchmark" 5 10000 \
   >"$output_dir/recycled-page-creation.json"
-cargo build --release --locked -p oryn-native --example page_group_benchmark
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  group_benchmark="$(python3 "$repo_root/scripts/security_prebuilt.py" path page_group_benchmark)"
+else
+  cargo build --release --locked -p oryn-native --example page_group_benchmark
+  group_benchmark="$repo_root/target/release/examples/page_group_benchmark"
+fi
 for page_count in 1 5 20; do
-  "$repo_root/target/release/examples/page_group_benchmark" "$page_count" \
+  python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+  "$group_benchmark" "$page_count" \
     >"$output_dir/concurrent-${page_count}.json"
 done
 
@@ -131,7 +154,7 @@ if [[ -f "$churn_result" ]]; then
   crash_restart="$(jq '.worker_replacement' "$churn_result")"
 fi
 
-jq -n \
+jq -n --argjson expected_worker_protocol "$expected_worker_protocol" --argjson expected_context_protocol "$expected_context_protocol" --argjson expected_agent_protocol "$expected_agent_protocol" \
   --arg captured_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg source_commit "$(git -C "$repo_root" rev-parse HEAD)" \
   --arg source_tree_sha256 "$("$repo_root/scripts/source-tree-hash.sh")" \
@@ -205,7 +228,7 @@ jq -n \
         | if $runtime.execution_mode == "sandboxed_worker"
           and $runtime.sandboxed
           and $runtime.native_v8
-          and $runtime.worker_protocol_version == 10
+          and $runtime.worker_protocol_version == $expected_worker_protocol and $runtime.context_service_protocol_version == $expected_context_protocol and $runtime.agent_ipc_protocol_version == $expected_agent_protocol
           and $worker_rss_bytes <= $runtime.limits.worker_rss_bytes
           and $isolated_page_creation.first_cold_verification_launch_handshake_ms <= 250
           and $isolated_page_creation.warm_actions_per_second >= 300

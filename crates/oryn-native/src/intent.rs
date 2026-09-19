@@ -196,7 +196,7 @@ impl PageHandle {
             Intent::Upload { target, files } => {
                 let mut resolver = NativeOilSession::new(self.clone());
                 let reference = resolver
-                    .resolve_typed_target(&target, SemanticAction::Type, false)
+                    .resolve_typed_target(&target, SemanticAction::Click, false)
                     .await
                     .map_err(|error| RuntimeError::Intent(error.to_string()))?;
                 let context = self.owning_context().ok_or(RuntimeError::Closed)?;

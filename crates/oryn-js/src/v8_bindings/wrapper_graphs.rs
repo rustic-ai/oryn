@@ -82,7 +82,7 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
                     changed.insert(node);
                 }
                 Mutation::HostedDocument { .. } => complete_rebuild = true,
-                Mutation::DocumentOwnership { node } => {
+                Mutation::DocumentOwnership { node, .. } => {
                     // Ownership journals identify every changed descendant,
                     // including attributes and template contents individually.
                     changed.insert(node);
@@ -194,7 +194,7 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
             let Some(local) = object.handle.to_local(scope) else {
                 continue;
             };
-            let connected = retained_by_document(&dom, metadata.node);
+            let connected = !state.execution_retired() && retained_by_document(&dom, metadata.node);
             if connected {
                 if object.connected_root.is_none() {
                     object.connected_root = Some(v8::Global::new(scope, local));
@@ -223,11 +223,40 @@ pub(super) fn refresh(scope: &mut v8::PinScope, state: &V8BindingState) -> usize
             nodes.insert(*owner, local);
         }
     }
+    // Partition native nodes once: detached descendants need not have a JS
+    // wrapper yet, but their scoped registries are observable through traversal.
+    let mut component_nodes = BTreeMap::<NodeId, Vec<NodeId>>::new();
+    if !groups.is_empty() {
+        for (node, _) in dom.arena().iter() {
+            if let Some(root) = native_root(&dom, node, &mut roots)
+                && groups.contains_key(&root)
+            {
+                component_nodes.entry(root).or_default().push(node);
+            }
+        }
+    }
     drop(components);
     drop(objects);
     drop(wrappers);
     drop(dom);
-    for members in groups.values() {
+    for (node, object) in &nodes {
+        let result =
+            custom_elements::trace_node_registry(scope, state, *node, *object).and_then(|()| {
+                custom_elements::trace_component_registries(scope, state, &[], &[(*node, *object)])
+            });
+        if let Err(error) = result {
+            state.wrapper_graph_revision.set(None);
+            throw_binding_error(scope, &error);
+        }
+    }
+    for (root, members) in &groups {
+        if let Some(component) = component_nodes.get(root)
+            && let Err(error) =
+                custom_elements::trace_component_registries(scope, state, component, members)
+        {
+            state.wrapper_graph_revision.set(None);
+            throw_binding_error(scope, &error);
+        }
         let mut seen = members
             .iter()
             .map(|(node, _)| *node)

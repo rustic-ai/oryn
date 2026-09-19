@@ -1,5 +1,8 @@
 """Direct-serving fidelity and state isolation; live tests use pinned WPT."""
 import http.client
+import hashlib
+import json
+import re
 import os
 from pathlib import Path
 import sys
@@ -8,10 +11,208 @@ import time
 import ssl
 import socket
 import unittest
+from urllib.parse import urlsplit
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wpt_fixture import DirectFixture
+
+
+def select_http_diagnostics(raw):
+    events = []
+    allowed = {'accepted','request_line_wait','request_line_complete','headers_complete',
+               'handler_enter','handler_error','response_ready','dispatch_return','dispatch_error','records_truncated'}
+    for line in raw.splitlines():
+        prefix = 'ORYN_WPT_HTTP_DIAGNOSTIC '
+        if not line.startswith(prefix) or len(line.encode()) > 8192:
+            continue
+        try:
+            value = json.loads(line[len(prefix):])
+            if value.get('schema_version') != 1 or value.get('kind') != 'wpt_http_boundary' or value.get('event') not in allowed:
+                continue
+            selected = {'event':value['event']}
+            for key in ('at_ms','server_port','peer_port','request_sequence','status','limit'):
+                entry = value.get(key)
+                if isinstance(entry,int) and not isinstance(entry,bool) and 0 <= entry <= 2**53-1:
+                    selected[key] = entry
+            for key in ('valid','close_connection','opaque_target'):
+                if isinstance(value.get(key),bool): selected[key] = value[key]
+            if value.get('method') in ('GET','POST','PUT','DELETE','HEAD','OPTIONS','PATCH','CONNECT','TRACE'):
+                selected['method'] = value['method']
+            if isinstance(value.get('path'),str) and value['path'].startswith('/'):
+                path = urlsplit(value['path'])
+                selected.update(path=path.path[:2048],path_truncated=len(path.path)>2048 or value.get('path_truncated') is True,
+                                query_present=bool(path.query) or value.get('query_present') is True,
+                                fragment_present=bool(path.fragment) or value.get('fragment_present') is True)
+            if value.get('error_type') in ('OSError','TimeoutError','ValueError','TypeError','ConnectionError','BrokenPipeError','ConnectionResetError','Exception'):
+                selected['error_type'] = value['error_type']
+            events.append(selected)
+        except (ValueError,TypeError,AttributeError):
+            continue
+    return events
+
+
+def _server_snapshot(fixture):
+    """Read bounded fixture state without moving the live server's log offset."""
+    process = fixture.process
+    state = dict(ports=list(fixture.ports[:7]), pid=process.pid if process else None,
+                 returncode=process.poll() if process else None,
+                 generations=[dict(id=str(item['id'])[:256], backend=str(item['backend'])[:32]) for item in fixture.generations[-16:]],
+                 timings={key:fixture.timings.get(key) for key in ('startup_ms','teardown_ms')}, shutdown_complete=fixture.shutdown_complete,
+                         failure=str(fixture.failure)[:256] if fixture.failure is not None else None, request_log=[], request_log_available=False,
+                         http_boundaries=[],http_boundary_log_available=False)
+    try:
+        if fixture.log is not None:
+            descriptor = fixture.log.fileno()
+            size = os.fstat(descriptor).st_size
+            raw = os.pread(descriptor, min(size, 65536), max(0, size - 65536))
+            state.update(log_bytes=size, log_tail_truncated=size > len(raw))
+            requests = []
+            decoded = raw.decode('utf-8', errors='replace')
+            boundaries = select_http_diagnostics(decoded)
+            state.update(http_boundaries=boundaries[-256:],http_boundary_log_available=bool(boundaries),
+                         http_boundary_records_omitted=max(0,len(boundaries)-256))
+            for line in decoded.splitlines():
+                match = re.search(r'''(["'])(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH) ([^ ]+) HTTP/[0-9.]+\1 ([0-9]{3})''', line)
+                if match:
+                    location = urlsplit(match[3])
+                    requests.append(dict(method=match[2], path=location.path[:2048],
+                                         path_truncated=len(location.path)>2048,
+                                         query_present=bool(location.query), status=int(match[4])))
+            state.update(request_log=requests[-64:], request_log_omitted=max(0,len(requests)-64),
+                         request_log_available=bool(requests))
+    except (OSError, ValueError) as error:
+        state['log_read_error'] = type(error).__name__
+    return state
+
+
+def server_snapshot(fixture):
+    try:
+        return _server_snapshot(fixture)
+    except Exception as error:
+        return {'snapshot_error':type(error).__name__}
+
+
+def safe_diagnostic_location(value):
+    if not isinstance(value,dict): return {'invalid_url':True}
+    origin=value.get('origin')
+    if isinstance(origin,str):
+        parsed=urlsplit(origin)
+        if parsed.scheme in ('http','https'):
+            path=value.get('path','')
+            if not isinstance(path,str) or not path.startswith('/'): return {'invalid_url':True}
+            clean=urlsplit(path)
+            return dict(origin=(parsed.scheme+'://'+parsed.netloc.rsplit('@',1)[-1])[:512],
+                        path=clean.path[:2048], path_truncated=len(clean.path)>2048 or value.get('path_truncated') is True,
+                        query_present=bool(clean.query) or value.get('query_present') is True,
+                        fragment_present=bool(clean.fragment) or value.get('fragment_present') is True)
+    if value.get('scheme')=='about:' and value.get('page') in ('blank','srcdoc'):
+        return {'scheme':'about:','page':value['page']}
+    scheme=value.get('scheme')
+    if isinstance(scheme,str) and re.fullmatch(r'[a-z][a-z0-9+.-]{0,63}:',scheme):
+        return {'scheme':scheme,'opaque_body_redacted':True}
+    return {'invalid_url':True}
+
+
+def select_canary_diagnostics(stderr):
+    """Retain only bounded records emitted by the diagnostic helper, never raw stacks."""
+    records = []
+    allowed = {'schema_version','kind','phase','failure_phase','requested_location','elapsed_ms','error',
+               'last_timeout','pending_cdp','pending_cdp_omitted','timeline','timeline_dropped',
+               'document_tracking_overflow','request_tracking_overflow','stage','serialization_budget_bytes',
+               'serialization_omitted_events','serialization_omitted_pending','serialization_omitted_browser_records'}
+    event_fields = {'at_ms','kind','name','phase','event','pid','code','signal','error_code','id','method',
+                    'session_id','started_ms','elapsed_ms','failed','timeout_ms','child_session_id','type',
+                    'target_id','waiting_for_debugger','location','context_id','unique_id','frame_id','is_default',
+                    'parent_id','loader_id','request_id','status','protocol','error_text','canceled','blocked_reason'}
+    for line in stderr.splitlines():
+        prefix = 'ORYN_CHROMIUM_DIAGNOSTIC '
+        if not line.startswith(prefix) or len(line.encode()) > 65600: continue
+        try:
+            value = json.loads(line[len(prefix):])
+            if value.get('schema_version') != 1 or value.get('kind') != 'chromium_reference_failure': continue
+            def fields(item, names):
+                if not isinstance(item,dict): return {}
+                selected={}
+                for key in names:
+                    if key not in item: continue
+                    entry=item.get(key)
+                    if isinstance(entry,str): selected[key]=entry[:256]
+                    elif entry is None or isinstance(entry,(bool,int)): selected[key]=entry
+                    elif isinstance(entry,float) and entry==entry and abs(entry)!=float('inf'): selected[key]=entry
+                return selected
+            selected = fields(value,allowed)
+            selected['requested_location']=safe_diagnostic_location(value.get('requested_location'))
+            error=value.get('error',{})
+            selected['error']={'name':error.get('name') if isinstance(error,dict) and error.get('name') in ('Error','TypeError','RangeError','SyntaxError','ReferenceError','URIError','EvalError','AbortError','TimeoutError') else 'Error'}
+            selected['last_timeout']=fields(value.get('last_timeout'),event_fields) if value.get('last_timeout') is not None else None
+            selected['pending_cdp']=[fields(item,event_fields) for item in value.get('pending_cdp',[])[:256] if isinstance(item,dict)]
+            selected['timeline']=[]
+            for item in value.get('timeline',[])[:256]:
+                if not isinstance(item,dict):continue
+                event=fields(item,event_fields)
+                if 'location' in item:event['location']=safe_diagnostic_location(item['location'])
+                selected['timeline'].append(event)
+            native=value.get('browser_stderr')
+            if isinstance(native,dict):
+                selected['browser_stderr']={}
+                for key in ('bytes_seen','bytes_inspected','bytes_omitted','lines_seen','unclassified_lines','oversized_or_partial_lines','records_omitted'):
+                    count=native.get(key)
+                    if isinstance(count,int) and not isinstance(count,bool) and count>=0:
+                        selected['browser_stderr'][key]=count
+                selected['browser_stderr']['stream_ended']=native.get('stream_ended') is True
+                selected['browser_stderr']['records']=[]
+                for item in native.get('records',[])[:32]:
+                    if not isinstance(item,dict): continue
+                    clean={}
+                    for key,choices in (('severity',('WARNING','ERROR','FATAL')),('component',('network_service','child_process','sandbox','other')),
+                                        ('category',('network_service_crashed','network_service_restarting','launch_failed','permission_denied','sandbox_failure','unclassified'))):
+                        if item.get(key) in choices: clean[key]=item[key]
+                    for key in ('at_ms','pid','os_error'):
+                        if isinstance(item.get(key),int) and not isinstance(item[key],bool): clean[key]=item[key]
+                    if isinstance(item.get('net_error'),str) and re.fullmatch(r'net::ERR_[A-Z0-9_]{1,80}',item['net_error']):
+                        clean['net_error']=item['net_error']
+                    selected['browser_stderr']['records'].append(clean)
+            records.append(selected)
+            if len(records) == 2: break
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return records
+
+
+def run_chromium_reference(fixture, path, url, sample=None):
+    started = time.monotonic()
+    before = server_snapshot(fixture)
+    def _retain(result=None, error=None):
+        stderr = result.stderr if result is not None else getattr(error, 'stderr', '') or ''
+        if isinstance(stderr, bytes): stderr = stderr.decode('utf-8', errors='replace')
+        record = dict(schema_version=1, kind='chromium_fixture_failure', fixture_path=path,
+                      sample=sample, elapsed_ms=round((time.monotonic()-started)*1000),
+                      returncode=result.returncode if result is not None else None,
+                      exception=type(error).__name__ if error is not None else None,
+                      server_before=before, server_after=server_snapshot(fixture),
+                      canary_diagnostics=select_canary_diagnostics(stderr), stderr_bytes=len(stderr.encode()),
+                      stderr_sha256=hashlib.sha256(stderr.encode()).hexdigest())
+        # The server often has no request logger enabled. Say so explicitly;
+        # the browser's bounded Network/Frame timeline supplies that observation.
+        sys.stderr.write('ORYN_CHROMIUM_FIXTURE_DIAGNOSTIC ' + json.dumps(record) + '\n')
+    def retain(result=None,error=None):
+        try:
+            _retain(result,error)
+        except Exception:
+            try: sys.stderr.write('ORYN_CHROMIUM_FIXTURE_DIAGNOSTIC_UNAVAILABLE\n')
+            except Exception: pass
+    try:
+        result = subprocess.run([os.environ['ORYN_WPT_NODE'],
+            str(Path(__file__).resolve().parents[1] / 'wpt-chromium-canary.mjs'),
+            os.environ['ORYN_WPT_CHROMIUM'], url, '10000'],
+            capture_output=True, text=True, timeout=35)
+    except BaseException as error:
+        retain(error=error)
+        raise
+    if result.returncode != 0:
+        retain(result=result)
+    return result
 
 
 class FixtureFailureTests(unittest.TestCase):
@@ -160,11 +361,8 @@ class DirectFixtureTests(unittest.TestCase):
         self.fixture.start('chromium')
         path = 'html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-order.html'
         for sample in range(3):
-            result = subprocess.run([os.environ['ORYN_WPT_NODE'],
-                str(Path(__file__).resolve().parents[1] / 'wpt-chromium-canary.mjs'),
-                os.environ['ORYN_WPT_CHROMIUM'],
-                f'http://localhost:{self.fixture.ports[0]}/{path}', '10000'],
-                capture_output=True, text=True, timeout=35)
+            result = run_chromium_reference(self.fixture, path,
+                f'http://localhost:{self.fixture.ports[0]}/{path}', sample=sample)
             self.assertEqual(result.returncode, 0, (sample, result.stderr))
             report = json.loads(result.stdout)
             self.assertEqual(report['completion']['harness'], 0, report)
@@ -183,11 +381,8 @@ class DirectFixtureTests(unittest.TestCase):
                      'click_iframe.html', 'click_iframe_crossorigin.sub.html'):
             self.fixture.close()
             self.fixture.start('chromium')
-            result = subprocess.run([os.environ['ORYN_WPT_NODE'],
-                str(Path(__file__).resolve().parents[1] / 'wpt-chromium-canary.mjs'),
-                os.environ['ORYN_WPT_CHROMIUM'],
-                f'http://localhost:{self.fixture.ports[0]}/infrastructure/testdriver/{path}', '10000'],
-                capture_output=True, text=True, timeout=35)
+            result = run_chromium_reference(self.fixture, 'infrastructure/testdriver/' + path,
+                f'http://localhost:{self.fixture.ports[0]}/infrastructure/testdriver/{path}')
             self.assertEqual(result.returncode, 0, result.stderr)
             completion = json.loads(result.stdout)['completion']
             self.assertEqual(completion['harness'], 0, completion)

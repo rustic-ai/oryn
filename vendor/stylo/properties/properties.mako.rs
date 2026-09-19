@@ -2841,8 +2841,11 @@ macro_rules! longhand_properties_idents {
 // Large pages generate tens of thousands of ComputedValues.
 #[cfg(feature = "gecko")]
 size_of_test!(ComputedValues, 248);
+// Native page descriptors add one Arc<Page> to the former 21 style structs.
+// All other outer/inner fields are unchanged: 232 + one 64-bit Arc = 240.
+// size_of_test applies this invariant only to 64-bit targets.
 #[cfg(feature = "servo")]
-size_of_test!(ComputedValues, 232);
+size_of_test!(ComputedValues, 240);
 
 // FFI relies on this.
 size_of_test!(Option<Arc<ComputedValues>>, 8);

@@ -23,9 +23,12 @@ enum Kind {
 impl Kind {
     fn of(request: &PlatformHostRequest) -> Self {
         match request {
-            PlatformHostRequest::HttpStart { .. } | PlatformHostRequest::ImageStart { .. } => {
-                Self::Start
-            }
+            PlatformHostRequest::NavigationPreload { .. }
+            | PlatformHostRequest::HttpStart { .. }
+            | PlatformHostRequest::ImageStart { .. }
+            | PlatformHostRequest::MediaStart { .. }
+            | PlatformHostRequest::ImagePreloadStart { .. }
+            | PlatformHostRequest::PrefetchStart { .. } => Self::Start,
             PlatformHostRequest::HttpRead { stream_id, .. } => Self::Read(*stream_id),
             PlatformHostRequest::HttpAbort { stream_id } => Self::Abort(*stream_id),
             _ => Self::Other,
@@ -40,6 +43,8 @@ struct Queued {
 #[derive(Default)]
 struct State {
     active: BTreeMap<HostOperationId, Kind>,
+    // Realm-deliverable streams only. Transferred cleanup has its own native
+    // reservation and remains physically owned until its terminal ACK.
     streams: BTreeSet<u64>,
     cancelled: BTreeSet<HostOperationId>,
     queued: VecDeque<Queued>,
@@ -74,6 +79,13 @@ impl AdmissionHost {
         }
     }
 
+    fn transfer_stream_cleanup(&self, stream: u64) {
+        // The endpoint already reserved cleanup custody before opening. This
+        // synchronous handoff is not an assertion that IO has terminated.
+        self.host.abandon_http_stream(stream);
+        self.state.borrow_mut().streams.remove(&stream);
+    }
+
     fn pump(&self) {
         loop {
             let next = {
@@ -92,7 +104,15 @@ impl AdmissionHost {
                 state.active.insert(next.id, Kind::of(&next.request));
                 next
             };
+            let stream = match &next.request {
+                PlatformHostRequest::HttpRead { stream_id, .. }
+                | PlatformHostRequest::HttpAbort { stream_id } => Some(*stream_id),
+                _ => None,
+            };
             if let Err(error) = self.host.submit(next.id, next.request) {
+                if let Some(stream) = stream {
+                    self.transfer_stream_cleanup(stream);
+                }
                 let mut state = self.state.borrow_mut();
                 state.active.remove(&next.id);
                 state.ready.push_back(PlatformHostCompletion {
@@ -109,6 +129,13 @@ impl AdmissionHost {
             let mut state = self.state.borrow_mut();
             (state.active.remove(&id), state.cancelled.remove(&id))
         };
+        let failed_stream = match (&completion.result, kind) {
+            (Err(_), Some(Kind::Read(stream) | Kind::Abort(stream))) => Some(stream),
+            _ => None,
+        };
+        if let Some(stream) = failed_stream {
+            self.transfer_stream_cleanup(stream);
+        }
         let mut abort = None;
         {
             let mut state = self.state.borrow_mut();
@@ -142,15 +169,23 @@ impl AdmissionHost {
                 state.ready.push_back(completion);
             }
         }
+        if abort.is_some() {
+            // The opened resource was never delivered. Transfer its receipt to
+            // retained native cleanup before reusing the operation correlation.
+            // Explicit abort remains idempotent and supplies terminal completion.
+            self.host.acknowledge_completion(id, false);
+        }
         if let Some(stream_id) = abort
             && let Err(error) = self
                 .host
                 .submit(id, PlatformHostRequest::HttpAbort { stream_id })
         {
+            self.transfer_stream_cleanup(stream_id);
             let mut state = self.state.borrow_mut();
             state.active.remove(&id);
             state.cancelled.remove(&id);
-            // Keep the stream lease: failed cleanup is not proof of release.
+            // Native cleanup keeps its reservation; this realm no longer owns
+            // a deliverable stream after the exact custody transfer.
             state.ready.push_back(PlatformHostCompletion {
                 operation_id: id,
                 result: Err(error),
@@ -186,6 +221,15 @@ fn request_bytes(request: &PlatformHostRequest, limit: usize) -> Result<usize, S
 }
 
 impl PlatformHost for AdmissionHost {
+    fn abandon_websocket(&self, socket: u64) {
+        self.host.abandon_websocket(socket);
+    }
+    fn abandon_http_stream(&self, stream: u64) {
+        self.transfer_stream_cleanup(stream);
+    }
+    fn acknowledge_completion(&self, id: HostOperationId, accepted: bool) {
+        self.host.acknowledge_completion(id, accepted);
+    }
     fn submit(&self, id: HostOperationId, request: PlatformHostRequest) -> Result<(), String> {
         if self.retired.get() {
             return Err("execution environment is retired".into());
@@ -210,6 +254,9 @@ impl PlatformHost for AdmissionHost {
             state.active.insert(id, kind);
             drop(state);
             if let Err(error) = self.host.submit(id, request) {
+                // Immediate rejection leaves cleanup with the caller, which
+                // also covers rejection before this adapter admitted the request.
+                // Queued dispatch failure remains owned by pump/receive instead.
                 self.state.borrow_mut().active.remove(&id);
                 return Err(error);
             }
@@ -234,10 +281,19 @@ impl PlatformHost for AdmissionHost {
         if let Some(index) = state.queued.iter().position(|entry| entry.id == id) {
             let entry = state.queued.remove(index).expect("queued cancellation");
             state.bytes -= entry.bytes;
+            let stream = match &entry.request {
+                PlatformHostRequest::HttpRead { stream_id, .. }
+                | PlatformHostRequest::HttpAbort { stream_id } => Some(*stream_id),
+                _ => None,
+            };
             state.ready.push_back(PlatformHostCompletion {
                 operation_id: id,
                 result: Err("operation cancelled before dispatch".into()),
             });
+            drop(state);
+            if let Some(stream) = stream {
+                self.transfer_stream_cleanup(stream);
+            }
         } else if state.active.contains_key(&id) && state.cancelled.insert(id) {
             drop(state);
             // Do not free an active slot until the host acknowledges it.

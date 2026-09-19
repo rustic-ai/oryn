@@ -762,6 +762,10 @@ pub trait TElement:
     /// Whereas Servo doesn't have such flag.
     fn may_have_animations(&self) -> bool;
 
+    /// Whether native formatting currently generates CSS animated content.
+    /// Script-created effects retain their independent lifetime.
+    fn css_animations_rendered(&self)->bool{true}
+
     /// Creates a task to update various animation state on a given (pseudo-)element.
     #[cfg(feature = "gecko")]
     fn update_animations(
@@ -1017,6 +1021,8 @@ pub trait TElement:
 
 /// Provides element-level context needed during style computation.
 pub trait ElementContext {
+    /// Native tree identity for tree-scoped computed names. Zero is the document.
+    fn native_tree_scope(&self, _level: crate::rule_tree::CascadeLevel) -> usize { 0 }
     /// Opaque handle to the element.
     fn opaque_element(&self) -> Option<OpaqueElement>;
 
@@ -1033,6 +1039,9 @@ pub trait ElementContext {
 }
 
 impl<T: TElement> ElementContext for T {
+    fn native_tree_scope(&self,level:crate::rule_tree::CascadeLevel)->usize {
+        level.get_shadow_root_for_scoped(*self).map_or(0,|root|root.as_node().opaque().0)
+    }
     fn opaque_element(&self) -> Option<OpaqueElement> {
         Some(self.opaque())
     }

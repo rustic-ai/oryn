@@ -1,7 +1,6 @@
 use std::{
     io::{Read, Write},
     net::TcpListener,
-    process::Command,
     thread,
     time::{Duration, Instant},
 };
@@ -21,8 +20,11 @@ struct PageMeasurement {
     observation_bytes: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct BenchmarkResult {
+    runtime: oryn_native::RuntimeBuildInfo,
+    process_lifecycle: oryn_native::worker_lifecycle_audit::WorkerLifecycleSnapshot,
+    cleanup_errors: Vec<String>,
     schema_version: u8,
     pages: usize,
     concurrent_ready_ms: f64,
@@ -111,32 +113,13 @@ fn serve_websockets(listener: TcpListener, expected: usize) -> usize {
         .count()
 }
 
+#[cfg(unix)]
 fn resident_bytes(pid: u32) -> Option<usize> {
-    let output = Command::new("/bin/ps")
-        .args(["-o", "rss=", "-p", &pid.to_string()])
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().parse().ok())
-        .flatten()
-        .map(|kib: usize| kib.saturating_mul(1024))
+    oryn_native::worker_client::resident_bytes(pid).ok()
 }
-
-fn child_pids(pid: u32) -> Vec<u32> {
-    Command::new("/usr/bin/pgrep")
-        .args(["-P", &pid.to_string()])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .filter_map(|value| value.trim().parse().ok())
-                .collect()
-        })
-        .unwrap_or_default()
+#[cfg(not(unix))]
+fn resident_bytes(_pid: u32) -> Option<usize> {
+    None
 }
 
 fn page_html(http_port: u16, websocket_port: u16, index: usize) -> String {
@@ -207,6 +190,8 @@ fn exercise_page(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let lifecycle = oryn_native::worker_lifecycle_audit::WorkerLifecycleAudit::start()
+        .map_err(std::io::Error::other)?;
     let pages = std::env::args()
         .nth(1)
         .and_then(|value| value.parse().ok())
@@ -240,7 +225,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let concurrent_ready_ms = concurrent_started.elapsed().as_secs_f64() * 1_000.0;
 
     let parent_pid = std::process::id();
-    let mut worker_rss_bytes = child_pids(parent_pid)
+    let active_processes = lifecycle.snapshot();
+    let mut worker_rss_bytes = active_processes
+        .processes
+        .iter()
+        .filter(|process| {
+            process.parent_pid == parent_pid
+                && process.role == "page"
+                && process.reaped_unix_ns.is_none()
+        })
+        .map(|process| process.worker_pid)
+        .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .filter_map(resident_bytes)
         .collect::<Vec<_>>();
@@ -249,7 +244,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let total_worker_rss_bytes = worker_rss_bytes.iter().sum();
     let http_requests = http_server.join().unwrap_or_default();
     let websocket_sessions = websocket_server.join().unwrap_or_default();
-    let passed = http_requests == pages
+    let mut passed = http_requests == pages
         && websocket_sessions == pages
         && worker_rss_bytes.len() == pages
         && page_measurements.iter().all(|measurement| {
@@ -261,13 +256,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
+    let mut cleanup_errors = Vec::new();
     for page in handles {
-        let _ = runtime.block_on(page.close());
+        if let Err(error) = runtime.block_on(page.close()) {
+            cleanup_errors.push(error.to_string());
+        }
     }
+    if let Err(error) = runtime.block_on(context.retire_workers()) {
+        cleanup_errors.push(error.to_string());
+    }
+    drop(context);
+    drop(browser);
+    let build_info =
+        oryn_native::production_runtime_build_info_with_options(ContextOptions::loopback_test())?;
+    let process_lifecycle = lifecycle.snapshot();
+    passed &= cleanup_errors.is_empty() && process_lifecycle.complete;
+
     println!(
         "{}",
         serde_json::to_string_pretty(&BenchmarkResult {
             schema_version: 1,
+            runtime: build_info,
+            process_lifecycle,
+            cleanup_errors,
             pages,
             concurrent_ready_ms,
             parent_rss_bytes,

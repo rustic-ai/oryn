@@ -297,12 +297,61 @@ pub struct GetHtmlRequest {
     pub outer: bool, // true = outerHTML, false = innerHTML
 }
 
+// Scalar and arbitrary author values cannot share the response discriminator.
+// Keep established typed Scan/Action fields flat; isolate arbitrary JSON in data.
+mod scanner_response_data {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(data: &ScannerData, serializer: S) -> Result<S::Ok, S::Error> {
+        match data {
+            ScannerData::Scan(value) => value.serialize(serializer),
+            ScannerData::Action(value) => value.serialize(serializer),
+            ScannerData::Value(value) => {
+                use serde::ser::SerializeMap;
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("data", value)?;
+                map.end()
+            }
+        }
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Box<ScannerData>, D::Error> {
+        use serde::de::Error;
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let map = value
+            .as_object()
+            .ok_or_else(|| D::Error::custom("scanner response fields must be an object"))?;
+        if let Some(data) = map.get("data") {
+            if map.len() != 1 {
+                return Err(D::Error::custom(
+                    "scanner value envelope cannot mix typed fields",
+                ));
+            }
+            return Ok(Box::new(ScannerData::Value(data.clone())));
+        }
+        if map.contains_key("page") || map.contains_key("elements") || map.contains_key("stats") {
+            return serde_json::from_value::<ScanResult>(value)
+                .map(|value| Box::new(ScannerData::Scan(Box::new(value))))
+                .map_err(D::Error::custom);
+        }
+        if map.contains_key("success") {
+            return serde_json::from_value::<ActionResult>(value)
+                .map(|value| Box::new(ScannerData::Action(value)))
+                .map_err(D::Error::custom);
+        }
+        // Read legacy unambiguous arbitrary object responses. New writers always
+        // use the data envelope, including objects that look like typed results.
+        Ok(Box::new(ScannerData::Value(value)))
+    }
+}
+
 /// Responses received from the scanner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ScannerProtocolResponse {
     Ok {
-        #[serde(flatten)]
+        #[serde(flatten, with = "scanner_response_data")]
         data: Box<ScannerData>,
         #[serde(default)]
         warnings: Vec<String>,
@@ -658,6 +707,8 @@ pub struct PdfRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabRequest {
+    // The outer command owns the action discriminator.
+    #[serde(rename = "operation")]
     pub action: String, // "new", "switch", "close", "list"
     pub url: Option<String>,
     pub tab_id: Option<String>, // String or u32? Using String for flexibility
@@ -666,12 +717,16 @@ pub struct TabRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrameRequest {
-    pub action: String,         // "switch"
+    // The outer command owns the action discriminator.
+    #[serde(rename = "operation")]
+    pub action: String, // "switch"
     pub target: Option<String>, // "main", "parent", "iframe_selector"
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DialogRequest {
+    // The outer command owns the action discriminator.
+    #[serde(rename = "operation")]
     pub action: String, // "accept", "dismiss", "auto_accept", "auto_dismiss"
     pub prompt_text: Option<String>,
 }
@@ -684,6 +739,8 @@ pub struct PressRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CookieRequest {
+    // The outer command owns the action discriminator.
+    #[serde(rename = "operation")]
     pub action: String, // "get", "set", "delete", "clear", "list"
     pub name: Option<String>,
     pub value: Option<String>,
@@ -692,7 +749,9 @@ pub struct CookieRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageRequest {
-    pub action: String,       // "get", "set", "delete", "clear", "list"
+    // The outer command owns the action discriminator.
+    #[serde(rename = "operation")]
+    pub action: String, // "get", "set", "delete", "clear", "list"
     pub storage_type: String, // "local", "session"
     pub key: Option<String>,
     pub value: Option<String>,
@@ -700,6 +759,8 @@ pub struct StorageRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeadersRequest {
+    // The outer command owns the action discriminator.
+    #[serde(rename = "operation")]
     pub action: String, // "set", "clear", "view"
     pub headers: Option<std::collections::HashMap<String, String>>,
     pub domain: Option<String>,
@@ -707,18 +768,24 @@ pub struct HeadersRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyRequest {
+    // The outer command owns the action discriminator.
+    #[serde(rename = "operation")]
     pub action: String, // "set", "clear"
     pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackRequest {
+    // The outer command owns the action discriminator.
+    #[serde(rename = "operation")]
     pub action: String, // "load", "unload", "list"
     pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntentRequest {
+    // The outer command owns the action discriminator.
+    #[serde(rename = "operation")]
     pub action: String, // "define", "undefine", "run", "list", "export"
     pub name: Option<String>,
     pub params: Option<std::collections::HashMap<String, String>>,
@@ -727,6 +794,8 @@ pub struct IntentRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LearnRequest {
+    // The outer command owns the action discriminator.
+    #[serde(rename = "operation")]
     pub action: String, // "status", "save", "discard", "show"
     pub name: Option<String>,
 }
@@ -735,4 +804,105 @@ pub struct LearnRequest {
 pub struct ConfigRequest {
     pub key: String,
     pub value: String,
+}
+
+#[cfg(test)]
+mod action_discriminator_regressions {
+    use super::*;
+    #[test]
+    fn nested_command_operation_never_overwrites_outer_action() {
+        for value in [
+            serde_json::json!({"action":"tab","operation":"new"}),
+            serde_json::json!({"action":"frame","operation":"switch"}),
+            serde_json::json!({"action":"dialog","operation":"accept"}),
+            serde_json::json!({"action":"cookie","operation":"get"}),
+            serde_json::json!({"action":"storage","operation":"get","storage_type":"local"}),
+            serde_json::json!({"action":"headers","operation":"view"}),
+            serde_json::json!({"action":"proxy","operation":"clear"}),
+            serde_json::json!({"action":"pack","operation":"list"}),
+            serde_json::json!({"action":"intent","operation":"list"}),
+            serde_json::json!({"action":"learn","operation":"status"}),
+        ] {
+            let action: Action = serde_json::from_value(value.clone()).unwrap();
+            let encoded = serde_json::to_string(&action).unwrap();
+            assert_eq!(encoded.matches("\"action\":").count(), 1);
+            let roundtrip: Action = serde_json::from_str(&encoded).unwrap();
+            let encoded = serde_json::to_value(roundtrip).unwrap();
+            assert_eq!(encoded["action"], value["action"]);
+            assert_eq!(encoded["operation"], value["operation"]);
+        }
+    }
+    #[test]
+    fn legacy_ambiguous_action_is_rejected_instead_of_becoming_a_suboperation() {
+        for tag in [
+            "tab", "frame", "dialog", "cookie", "storage", "headers", "proxy", "pack", "intent",
+            "learn",
+        ] {
+            let value = serde_json::json!({"action":tag,"storage_type":"local"});
+            assert!(serde_json::from_value::<Action>(value).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod scanner_value_envelope_regressions {
+    use super::*;
+    #[test]
+    fn arbitrary_values_round_trip_without_flattening_or_discriminator_collision() {
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!(true),
+            serde_json::json!(42),
+            serde_json::json!("base64 screenshot"),
+            serde_json::json!([1, 2]),
+            serde_json::json!({"status":"error","warnings":["author"],"success":false,"data":"inner"}),
+        ] {
+            let response = ScannerProtocolResponse::Ok {
+                data: Box::new(ScannerData::Value(value.clone())),
+                warnings: vec!["native".into()],
+            };
+            let encoded = serde_json::to_string(&response).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(json["status"], "ok");
+            assert_eq!(json["data"], value);
+            assert_eq!(json["warnings"], serde_json::json!(["native"]));
+            let ScannerProtocolResponse::Ok { data, warnings } =
+                serde_json::from_str(&encoded).unwrap()
+            else {
+                panic!()
+            };
+            assert_eq!(warnings, vec!["native"]);
+            let ScannerData::Value(actual) = *data else {
+                panic!()
+            };
+            assert_eq!(actual, value);
+        }
+    }
+    #[test]
+    fn malformed_typed_and_mixed_envelopes_do_not_fall_back_to_arbitrary_values() {
+        for source in [
+            r#"{"status":"ok","success":"invalid"}"#,
+            r#"{"status":"ok","page":false}"#,
+            r#"{"status":"ok","data":1,"success":true}"#,
+            r#"{"status":"ok","data":1,"unknown":2}"#,
+            r#"{"status":"ok","status":"error","data":null}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<ScannerProtocolResponse>(source).is_err(),
+                "{source}"
+            );
+        }
+        let ScannerProtocolResponse::Ok { data, .. } =
+            serde_json::from_str(r#"{"status":"ok","success":true,"message":"done"}"#).unwrap()
+        else {
+            panic!()
+        };
+        assert!(matches!(*data, ScannerData::Action(_)));
+        let ScannerProtocolResponse::Ok { data, .. } =
+            serde_json::from_str(r#"{"status":"ok","foo":"legacy"}"#).unwrap()
+        else {
+            panic!()
+        };
+        assert!(matches!(*data, ScannerData::Value(_)));
+    }
 }

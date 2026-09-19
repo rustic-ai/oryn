@@ -1,20 +1,18 @@
 {
   "schema_version": 1,
-  "abi_version": 1,
+  "abi_version": 2,
   "references": [
     "fetch_async_callback",
     "context_callback",
+    "remote_window_factory",
+    "remote_window_operation",
+    "agent_close",
+    "agent_post_message",
+    "agent_import_scripts",
     "stream_read_async_callback",
     "crypto_callback",
     "timer_schedule_callback",
     "timer_cancel_callback",
-    "dedicated_worker_create_callback",
-    "dedicated_worker_post_callback",
-    "dedicated_worker_take_callback",
-    "dedicated_worker_terminate_callback",
-    "dedicated_worker_emit_callback",
-    "dedicated_worker_close_callback",
-    "import_scripts_callback",
     "automation_trace_callback"
   ]
 }

@@ -7,6 +7,7 @@ browser observations. HTTP transport and OIL qualification are separate gates.
 
 from contextlib import closing
 import argparse
+import faulthandler
 import hashlib
 import html
 from http.cookies import CookieError, SimpleCookie
@@ -15,6 +16,7 @@ import json
 import re
 import secrets
 import sqlite3
+from socketserver import TCPServer
 import threading
 import sys
 from urllib.parse import parse_qs, urlsplit
@@ -179,6 +181,14 @@ class Fixture:
             return status, message, headers
 
 
+class NumericLoopbackHTTPServer(ThreadingHTTPServer):
+    """Controlled numeric loopback origin; no reverse-DNS identity is needed."""
+    def server_bind(self):
+        TCPServer.server_bind(self)
+        self.server_name = self.server_address[0]
+        self.server_port = self.server_address[1]
+
+
 def serve(database):
     fixture = Fixture(database)
 
@@ -237,10 +247,11 @@ def serve(database):
             except (ValueError, OSError):
                 self.reply((400, "Invalid request", []))
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = NumericLoopbackHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = False
     serving = threading.Thread(target=server.serve_forever, daemon=True)
     serving.start()
+    faulthandler.cancel_dump_traceback_later()
     print(json.dumps({"event": "ready", "port": server.server_port}), flush=True)
     sealed = False
     try:
@@ -277,4 +288,7 @@ def serve(database):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", required=True)
+    # Capture the blocked startup stack before the parent readiness deadline;
+    # keep the original deadline and failure semantics unchanged.
+    faulthandler.dump_traceback_later(10, file=sys.stderr)
     serve(parser.parse_args().database)

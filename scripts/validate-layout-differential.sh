@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 artifact_dir="${1:-$repo_root/artifacts/layout-v1/differential}"
 node_bin="${ORYN_NODE_BIN:-$(command -v node || true)}"
@@ -13,9 +16,13 @@ if [[ -z "$node_bin" ]]; then
 fi
 mkdir -p "$artifact_dir"
 
-cargo run --manifest-path "$repo_root/Cargo.toml" --quiet --release --locked \
-  -p oryn-native \
-  --example layout_probe >"$artifact_dir/native.json"
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  python3 "$repo_root/scripts/security_prebuilt.py" run layout_probe >"$artifact_dir/native.json"
+else
+  cargo run --manifest-path "$repo_root/Cargo.toml" --quiet --release --locked \
+    -p oryn-native --example layout_probe >"$artifact_dir/native.json"
+fi
 "$node_bin" "$repo_root/test-harness/chromium-layout.js" >"$artifact_dir/chromium.json"
 
 jq -e '.outcome.status == "passed" and .domain == "native"' \

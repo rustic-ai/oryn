@@ -158,6 +158,25 @@ class BookingTests(unittest.TestCase):
             }
         ]
         self.assertEqual(runner.validate(case, lines, base, frames, data), [])
+        for change in ("null_action", "list_action", "list_identity", "bool_identity",
+                       "null_observation", "null_page", "list_url"):
+            with self.subTest(malformed_frame=change):
+                altered = copy.deepcopy(frames)
+                if change == "null_action":
+                    altered[0]["result"] = None
+                elif change == "list_action":
+                    altered[0]["result"] = []
+                elif change == "list_identity":
+                    altered[0]["result"]["action_id"] = []
+                elif change == "bool_identity":
+                    altered[0]["result"]["action_id"] = True
+                elif change == "null_observation":
+                    altered[-1]["observation"] = None
+                elif change == "null_page":
+                    altered[-1]["observation"]["page"] = None
+                else:
+                    altered[-1]["observation"]["page"]["url"] = []
+                self.assertTrue(runner.validate(case, lines, base, altered, data))
         self.assertTrue(runner.validate(case, lines, base, frames[1:], data))
         altered = copy.deepcopy(frames)
         altered[-2]["value"] = "2026-11-01T01:30:00-05:00"
@@ -173,6 +192,98 @@ class BookingTests(unittest.TestCase):
             else:
                 altered["requests"][0]["status"] = 409
             self.assertTrue(runner.validate(case, lines, base, frames, altered), change)
+
+
+    def test_durable_snapshot_rejects_malformed_and_incomplete_evidence(self):
+        cookie = self.create()
+        self.assertEqual(self.reserve(cookie, self.offer(cookie)), 303)
+        data = booking.snapshot(self.path, CASE)
+        self.assertEqual(runner.durable_booking_ownership_errors(data, CASE), [])
+        contract = json.loads((ROOT / "test-harness/workflows/booking-cases.json").read_text())
+        case = contract["cases"][0]
+        base = "http://127.0.0.1:12345/booking/" + CASE
+        lines = runner.task_lines(contract, case, base)
+        for change in ("not_object", "missing_table", "null_table", "non_row",
+                       "missing_field", "bad_json", "scalar_json", "invalid_form_values",
+                       "boolean_version", "invalid_cookie", "unhashable_identity",
+                       "empty_offer", "missing_case", "duplicate_case", "missing_slot",
+                       "extra_slot"):
+            with self.subTest(change=change):
+                altered = copy.deepcopy(data)
+                if change == "not_object":
+                    altered = []
+                elif change == "missing_table":
+                    del altered["requests"]
+                elif change == "null_table":
+                    altered["views"] = None
+                elif change == "non_row":
+                    altered["requests"] = [None]
+                elif change == "missing_field":
+                    del altered["reservations"][0]["fields"]
+                elif change in ("bad_json", "scalar_json", "invalid_form_values"):
+                    altered["reservations"][0]["fields"] = {
+                        "bad_json": "{", "scalar_json": "42",
+                        "invalid_form_values": '{"offer":42}',
+                    }[change]
+                elif change == "boolean_version":
+                    altered["offers"][0]["version"] = True
+                elif change == "invalid_cookie":
+                    altered["requests"][0]["cookie_valid"] = 2
+                elif change == "unhashable_identity":
+                    altered["offers"][0]["offer"] = []
+                elif change == "empty_offer":
+                    altered["offers"][0]["offer"] = ""
+                elif change == "missing_case":
+                    altered["cases"] = []
+                elif change == "duplicate_case":
+                    altered["cases"] *= 2
+                elif change == "missing_slot":
+                    altered["slots"] = [row for row in altered["slots"] if row["slot"] != "late"]
+                else:
+                    altered["slots"].append(dict(case_id=CASE, slot="extra", available=1, version=1))
+                errors = runner.durable_booking_ownership_errors(altered, CASE)
+                self.assertTrue(errors)
+                # Full outcome validation must report the same evidence failure,
+                # rather than throwing later while decoding or joining rows.
+                reported = runner.validate(case, lines, base, [{"kind": "observation"}], altered)
+                self.assertEqual(reported, errors)
+
+    def test_durable_join_rejects_unlinked_offers_requests_and_slot_versions(self):
+        cookie = self.create()
+        offer = self.offer(cookie)
+        self.assertEqual(self.reserve(cookie, offer), 303)
+        # An idempotent replay has two accepted requests and one reservation.
+        self.assertEqual(self.reserve(cookie, offer), 303)
+        data = booking.snapshot(self.path, CASE)
+        self.assertEqual(runner.durable_booking_ownership_errors(data, CASE), [])
+        for change in ("foreign_case", "offer_slot", "offer_time", "request_body",
+                       "reservation_key", "slot_version", "duplicate_offer",
+                       "missing_request", "unbacked_acceptance"):
+            with self.subTest(change=change):
+                altered = copy.deepcopy(data)
+                if change == "foreign_case":
+                    altered["reservations"][0]["case_id"] = "c" * 32
+                elif change == "offer_slot":
+                    altered["offers"][0]["slot"] = "late"
+                elif change == "offer_time":
+                    altered["offers"][0]["utc"] = booking.SLOTS["late"]
+                elif change == "request_body":
+                    for row in altered["requests"]:
+                        value = json.loads(row["fields"])
+                        value["email"] = ["other@example.test"]
+                        row["fields"] = json.dumps(value)
+                elif change == "reservation_key":
+                    altered["reservations"][0]["request_key"] = "d" * 32
+                elif change == "slot_version":
+                    slot = altered["reservations"][0]["slot"]
+                    next(row for row in altered["slots"] if row["slot"] == slot)["version"] += 1
+                elif change == "duplicate_offer":
+                    altered["offers"].append(copy.deepcopy(altered["offers"][0]))
+                elif change == "missing_request":
+                    altered["requests"] = []
+                else:
+                    altered["reservations"] = []
+                self.assertTrue(runner.durable_booking_ownership_errors(altered, CASE))
 
 
 if __name__ == "__main__":

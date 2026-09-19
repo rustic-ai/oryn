@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["fuzz", "vendor/stylo", "vendor/blitz-dom", "vendor/xml"]
+exclude = ["fuzz", "vendor/stylo", "vendor/stylo_atoms", "vendor/blitz-dom", "vendor/stylo_taffy", "vendor/xml", "vendor/usvg", "vendor/html5ever", "vendor/markup5ever", "vendor/reqwest", "vendor/chardetng", "vendor/rusty-v8"]
 members = [
     "crates/oryn-common",
     "crates/oryn-core",
@@ -16,6 +16,7 @@ members = [
     "crates/oryn-net",
     "crates/oryn-layout",
     "crates/oryn-render",
+    "crates/oryn-render-core",
     "crates/oryn-webidl",
     "crates/oryn-domain",
 ]
@@ -29,9 +30,18 @@ strip = true
 
 # Native parser and style adapters share the pinned vendored patches.
 [patch.crates-io]
+v8 = { path = "vendor/rusty-v8" }
+reqwest = { path = "vendor/reqwest" }
+html5ever = { path = "vendor/html5ever" }
+markup5ever = { path = "vendor/markup5ever" }
+parley = { path = "vendor/parley" }
+harfrust = { path = "vendor/harfrust" }
 xml = { path = "vendor/xml" }
 stylo = { path = "vendor/stylo" }
+stylo_atoms = { path = "vendor/stylo_atoms" }
+usvg = { path = "vendor/usvg" }
 
 # Preserve namespace-dependent selector semantics in the Stylo mirror adapter.
 [patch."https://github.com/DioxusLabs/blitz"]
 blitz-dom = { path = "vendor/blitz-dom" }
+stylo_taffy = { path = "vendor/stylo_taffy" }

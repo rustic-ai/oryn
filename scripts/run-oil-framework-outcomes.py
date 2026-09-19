@@ -9,12 +9,16 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from evidence_protocols import validate_protocol_pair
 import signal
 import subprocess
 import sys
 import threading
 import time
 from urllib.parse import unquote, urlsplit
+
+from generation_gate import generation_gate, GenerationLease, inherited_generation_lease, check_execution_generation
+from completion_provenance import read_record
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -99,6 +103,70 @@ class Handler(SimpleHTTPRequestHandler):
         return str(target)
 
 
+def finish_case_process(process):
+    """Reap the direct child and observe its separate group before releasing it."""
+    result = dict(parent_reaped=False, descendants_clean=False, forced=False, errors=[])
+    if process is None:
+        result['errors'].append('framework process was not created')
+        return result
+    try:
+        if process.poll() is None:
+            result['forced'] = True
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=10)
+        result['parent_reaped'] = True
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            result['descendants_clean'] = True
+        else:
+            # Keep the original leak observable even if emergency cleanup works.
+            result['forced'] = True
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    except (OSError, subprocess.SubprocessError) as error:
+        result['errors'].append(str(error))
+    return result
+
+
+def validate_process_record(record):
+    cleanup = record.get('process_cleanup')
+    if (type(record.get('returncode')) is not int or record['returncode'] != 0
+            or record.get('timed_out') is not False or not isinstance(cleanup, dict)
+            or cleanup.get('parent_reaped') is not True
+            or cleanup.get('descendants_clean') is not True
+            or cleanup.get('forced') is not False or cleanup.get('errors') != []):
+        return ['framework process exit/descendant cleanup incomplete']
+    return []
+
+
+def check_generation(args):
+    """Official component mode keeps the original declaration through each child.
+
+    Standalone historical diagnostics carry no completion receipt, but require
+    the same explicit or inherited frozen generation declaration.
+    """
+    lease = getattr(args, "generation_admission", None)
+    if lease is not None: lease.check()
+    gate = getattr(args, 'generation_gate', None)
+    if gate is None:
+        check_execution_generation()
+        return
+    if gate is not None:
+        failed = getattr(args, 'generation_failure', None)
+        if failed is not None and failed.is_set():
+            raise ValueError('generation custody already failed; later launches cancelled')
+        try:
+            generation_gate(gate)
+            read_record(args.generation_identity)
+        except Exception:
+            if failed is not None:
+                failed.set()
+            raise
+
+
 def run_case(framework, sample, origin, args):
     directory = args.output / f"{framework}-{sample:02d}"
     directory.mkdir()
@@ -115,7 +183,9 @@ def run_case(framework, sample, origin, args):
         task_sha256=build.digest(original),
     )
     started = time.monotonic()
+    process = None
     try:
+        check_generation(args)
         process = subprocess.Popen(
             [
                 str(args.binary),
@@ -144,8 +214,15 @@ def run_case(framework, sample, origin, args):
             record["errors"].append("OIL process failed or timed out")
         frames = [json.loads(line) for line in stdout.splitlines() if line.strip()]
         record["errors"] += validate(framework, task, frames)
-    except (OSError, ValueError, TypeError, subprocess.SubprocessError) as error:
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
         record["errors"].append(str(error))
+    finally:
+        record['process_cleanup'] = finish_case_process(process)
+    try:
+        check_generation(args)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        record['errors'].append('generation custody failed: ' + str(error))
+    record['errors'] += validate_process_record(record)
     record["elapsed_seconds"] = round(time.monotonic() - started, 3)
     record["passed"] = not record["errors"]
     (directory / "result.json").write_text(json.dumps(record, indent=2) + "\n")
@@ -155,6 +232,7 @@ def run_case(framework, sample, origin, args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--generation-gate", type=Path, help="Complete generation declaration; inherited frozen admission required when omitted")
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--binary", type=Path, default=ROOT / "target/release/oryn")
@@ -166,9 +244,18 @@ def main():
     parser.add_argument("--samples", type=int, choices=range(1, 9), default=3)
     parser.add_argument("--jobs", type=int, choices=range(1, 5), default=3)
     args = parser.parse_args()
+    admission = GenerationLease(args.generation_gate, validator=generation_gate) if args.generation_gate is not None else inherited_generation_lease()
+    args.generation_admission = admission
+    args.generation_gate = admission.path
+    if args.generation_gate is not None:
+        args.generation_failure = threading.Event()
+        generation_gate(args.generation_gate)
+        args.generation_identity = dict(path=str(args.generation_gate.resolve()), sha256=build.digest(args.generation_gate))
+        check_generation(args)
     args.output, args.binary, args.worker, args.build = (
         p.resolve() for p in (args.output, args.binary, args.worker, args.build)
     )
+    admission.check()
     args.output.mkdir(parents=True, exist_ok=False)
     report = dict(
         schema_version=1,
@@ -208,6 +295,7 @@ def main():
         report["source_matches_signed_build"] = (
             report["source_tree_sha256"] == report["worker_manifest"]["source_tree_sha256"]
         )
+        check_generation(args)
         runtime = subprocess.run(
             [str(args.binary), "native", "--runtime-info"],
             env=dict(os.environ, ORYN_PAGE_WORKER=str(args.worker)),
@@ -217,11 +305,13 @@ def main():
         )
         (args.output / "runtime-info.stdout").write_bytes(runtime.stdout)
         report["runtime"] = json.loads(runtime.stdout)
+        validate_protocol_pair(report["runtime"], report["worker_manifest"], ROOT)
         if (
             not report["runtime"].get("sandboxed")
             or report["runtime"].get("worker_binary_sha256") != report["worker_sha256"]
         ):
             raise ValueError("signed runtime identity mismatch")
+        check_generation(args)
         server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, roots=roots))
         server.daemon_threads = False
         thread = threading.Thread(target=server.serve_forever)
@@ -240,6 +330,7 @@ def main():
         thread.join(timeout=10)
         report["fixture_cleanup"] = not thread.is_alive()
         server = None
+        check_generation(args)
         report["artifact_identities_unchanged"] = all(
             build.inventory(roots[name])["sha256"] == record["sha256"]
             for name, record in manifest["builds"].items()

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 profile="${1:?usage: build-v8-runtime-profile.sh core-full|core-lite <output-directory>}"
 output="${2:?usage: build-v8-runtime-profile.sh core-full|core-lite <output-directory>}"
@@ -19,6 +22,8 @@ oryn_target_dir="$repo_root/target/v8-$profile"
 
 mkdir -p "$output"
 output="$(cd "$output" && pwd)"
+rust_sources="$output/rusty-v8-source-inputs.json"
+python3 "$repo_root/scripts/rusty_v8_source_provenance.py" --output "$rust_sources"
 if [[ ! -e "$source_dir/.git" ]]; then
   git clone --depth 1 --branch "v$rusty_v8_version" \
     https://github.com/denoland/rusty_v8.git "$source_dir"
@@ -29,10 +34,26 @@ test "$(git -C "$source_dir/third_party/icu" rev-parse HEAD)" = "$icu_revision"
 v8_revision="ac1e23989121713ca642f6650b34deff7b686896"
 test "$(git -C "$source_dir/v8" rev-parse HEAD)" = "$v8_revision"
 python3 "$repo_root/scripts/apply-v8-window-patch.py" "$source_dir/v8"
+python3 "$repo_root/scripts/apply-v8-window-patch.py" "$source_dir/v8" --patch shared-memory-growth
+python3 "$repo_root/scripts/apply-v8-window-patch.py" "$source_dir/v8" --patch shared-memory-wait
+python3 "$repo_root/scripts/apply-v8-window-patch.py" "$source_dir/v8" --patch shared-wasm-size
+python3 "$repo_root/scripts/apply-v8-window-patch.py" "$source_dir/v8" --patch shared-wasm-backing
+python3 "$repo_root/scripts/apply-v8-window-patch.py" "$source_dir/v8" --patch shared-memory-factory
+python3 "$repo_root/scripts/apply-v8-window-patch.py" "$source_dir/v8" --patch frame-context-reattachment
+python3 "$repo_root/scripts/apply-v8-window-patch.py" "$source_dir/v8" --patch html-constructor-deferred-prototype
+html_constructor_patch_sha="$(shasum -a 256 "$repo_root/patches/v8/html-constructor-deferred-prototype.patch" | awk '{print $1}')"
+frame_context_reattachment_patch_sha="$(shasum -a 256 "$repo_root/patches/v8/frame-context-reattachment.patch" | awk '{print $1}')"
+v8_regression_manifest_sha="$(shasum -a 256 "$repo_root/patches/v8/tests/manifest.json" | awk '{print $1}')"
+shared_memory_factory_patch_sha="$(shasum -a 256 "$repo_root/patches/v8/shared-memory-factory.patch" | awk '{print $1}')"
+shared_wasm_backing_patch_sha="$(shasum -a 256 "$repo_root/patches/v8/shared-wasm-backing.patch" | awk '{print $1}')"
+shared_wasm_size_patch_sha="$(shasum -a 256 "$repo_root/patches/v8/shared-wasm-size.patch" | awk '{print $1}')"
+shared_memory_wait_patch_sha="$(shasum -a 256 "$repo_root/patches/v8/shared-memory-wait.patch" | awk '{print $1}')"
+python3 "$repo_root/scripts/install-v8-regression-sources.py" "$source_dir/v8"
+shared_memory_growth_patch_sha="$(shasum -a 256 "$repo_root/patches/v8/shared-memory-growth.patch" | awk '{print $1}')"
 v8_patch_sha="$(shasum -a 256 "$repo_root/patches/v8/window-proxy-structural-semantics.patch" | awk '{print $1}')"
 
 
-extra_gn_args="v8_enable_sandbox=true v8_enable_pointer_compression=true v8_enable_external_code_space=true"
+extra_gn_args="v8_drumbrake_bounds_checks=true v8_enable_sandbox=true v8_enable_pointer_compression=true v8_enable_external_code_space=true"
 icu_source="$source_dir/third_party/icu/common/icudtl.dat"
 if [[ "$profile" == core-lite ]]; then
   if [[ -n "${ORYN_LITE_ICU_DATA:-}" ]]; then
@@ -86,6 +107,15 @@ if [[ "$profile" == core-lite ]]; then
   icu_source="$icu_out"
 fi
 
+bridge_abi_out="$output/v8-bridge-abi-$profile.json"
+python3 "$repo_root/scripts/prepare-v8-bridge-abi.py" \
+  --source "$source_dir" --gn-out "$v8_target_dir/release/gn_out" \
+  --archive "$archive_out" --binding "$binding_out" \
+  --target "$(rustc -vV | awk '/host:/ {print $2}')" --output "$bridge_abi_out"
+bridge_abi_sha="$(shasum -a 256 "$bridge_abi_out" | awk '{print $1}')"
+bridge_abi_size="$(stat -f %z "$bridge_abi_out" 2>/dev/null || stat -c %s "$bridge_abi_out")"
+export ORYN_V8_BRIDGE_ABI="$bridge_abi_out"
+
 export CARGO_TARGET_DIR="$oryn_target_dir"
 export RUSTY_V8_ARCHIVE="$archive_out"
 export RUSTY_V8_SRC_BINDING_PATH="$binding_out"
@@ -93,6 +123,7 @@ export ORYN_ICU_DATA_FINGERPRINT_PATH="$icu_source"
 if [[ "$profile" == core-lite ]]; then
   export ORYN_ICU_DATA_PATH="$icu_source"
 fi
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 cargo build --manifest-path "$repo_root/Cargo.toml" -p oryn-native --release \
   --features "v8-host v8-sandbox $profile" --bin oryn-startup-snapshot
 
@@ -113,20 +144,39 @@ if [[ "$profile" == core-lite ]]; then
   icu_filter_sha="$(shasum -a 256 "$repo_root/config/icu/core-lite-en.json" | awk '{print $1}')"
   break_iterator_manifest_sha="$(shasum -a 256 "$repo_root/config/icu/core-lite-break-iterator-files.txt" | awk '{print $1}')"
 fi
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 cargo build --manifest-path "$repo_root/Cargo.toml" -p oryn-native --release \
   --features "v8-host v8-sandbox $profile" --bin oryn-page-worker
 
 worker="$oryn_target_dir/release/oryn-page-worker"
 worker_sha="$(shasum -a 256 "$worker" | awk '{print $1}')"
 worker_size="$(stat -f %z "$worker" 2>/dev/null || stat -c %s "$worker")"
+python3 "$repo_root/scripts/rusty_v8_source_provenance.py" --verify "$rust_sources"
+worker_runtime="$output/worker-runtime-info.json"
+"$worker" --runtime-info > "$worker_runtime"
+python3 "$repo_root/scripts/rusty_v8_source_provenance.py" --verify "$rust_sources"
+python3 "$repo_root/scripts/validate-v8-rust-runtime.py" "$rust_sources" "$worker_runtime" --binding "$binding_out" --archive "$archive_out"
 jq -n \
+  --slurpfile rust_sources "$rust_sources" \
+  --arg bridge_abi "$bridge_abi_out" \
+  --arg bridge_abi_sha256 "$bridge_abi_sha" \
+  --argjson bridge_abi_size "$bridge_abi_size" \
   --arg profile "$profile" \
   --arg target "$(rustc -vV | awk '/host:/ {print $2}')" \
   --arg v8 "$rusty_v8_version" \
   --arg rusty_v8_revision "$rusty_v8_revision" \
   --arg icu_revision "$icu_revision" \
+  --arg icu_data_path "$icu_source" \
   --arg v8_revision "$v8_revision" \
   --arg v8_patch_sha256 "$v8_patch_sha" \
+  --arg shared_memory_growth_patch_sha256 "$shared_memory_growth_patch_sha" \
+  --arg shared_memory_wait_patch_sha256 "$shared_memory_wait_patch_sha" \
+  --arg shared_wasm_size_patch_sha256 "$shared_wasm_size_patch_sha" \
+  --arg shared_memory_factory_patch_sha256 "$shared_memory_factory_patch_sha" \
+  --arg html_constructor_deferred_prototype_patch_sha256 "$html_constructor_patch_sha" \
+  --arg frame_context_reattachment_patch_sha256 "$frame_context_reattachment_patch_sha" \
+  --arg v8_regression_manifest_sha256 "$v8_regression_manifest_sha" \
+  --arg shared_wasm_backing_patch_sha256 "$shared_wasm_backing_patch_sha" \
   --arg archive "$archive_out" \
   --arg archive_sha256 "$archive_sha" \
   --argjson archive_size "$archive_size" \
@@ -147,6 +197,7 @@ jq -n \
   --arg worker_sha256 "$worker_sha" \
   --argjson worker_size "$worker_size" \
   --arg gn_args "$extra_gn_args" \
-  '{schema_version:4,v8_revision:$v8_revision,v8_patch_sha256:$v8_patch_sha256,profile:$profile,target:$target,v8_version:$v8,rusty_v8_revision:$rusty_v8_revision,icu_revision:$icu_revision,v8_heap_sandbox:true,pointer_compression:true,archive_path:$archive,archive_sha256:$archive_sha256,archive_size_bytes:$archive_size,binding_path:$binding,binding_sha256:$binding_sha256,binding_size_bytes:$binding_size,icu_data_sha256:$icu_sha256,icu_data_size_bytes:$icu_size,icu_filter_sha256:(if $icu_filter_sha256 == "" then null else $icu_filter_sha256 end),break_iterator_manifest_sha256:(if $break_iterator_manifest_sha256 == "" then null else $break_iterator_manifest_sha256 end),startup_snapshot_path:$snapshot,startup_snapshot_sha256:$snapshot_sha256,startup_snapshot_size_bytes:$snapshot_size,external_references_path:$external_references,external_references_sha256:$external_references_sha256,external_references_size_bytes:$external_references_size,worker_path:$worker,worker_sha256:$worker_sha256,worker_size_bytes:$worker_size,gn_args:$gn_args}' \
+  '($rust_sources[0] + {schema_version:6,rusty_v8_archive_compatibility:{cpp_changes:false,crate_version:$v8,archive_sha256:$archive_sha256,binding_sha256:$binding_sha256},bridge_abi_path:$bridge_abi,bridge_abi_sha256:$bridge_abi_sha256,bridge_abi_size_bytes:$bridge_abi_size,v8_revision:$v8_revision,v8_patch_sha256:$v8_patch_sha256,shared_memory_growth_patch_sha256:$shared_memory_growth_patch_sha256,shared_memory_wait_patch_sha256:$shared_memory_wait_patch_sha256,shared_wasm_size_patch_sha256:$shared_wasm_size_patch_sha256,shared_wasm_backing_patch_sha256:$shared_wasm_backing_patch_sha256,shared_memory_factory_patch_sha256:$shared_memory_factory_patch_sha256,frame_context_reattachment_patch_sha256:$frame_context_reattachment_patch_sha256,html_constructor_deferred_prototype_patch_sha256:$html_constructor_deferred_prototype_patch_sha256,v8_regression_manifest_sha256:$v8_regression_manifest_sha256,profile:$profile,target:$target,v8_version:$v8,rusty_v8_revision:$rusty_v8_revision,icu_revision:$icu_revision,v8_heap_sandbox:true,pointer_compression:true,archive_path:$archive,archive_sha256:$archive_sha256,archive_size_bytes:$archive_size,binding_path:$binding,binding_sha256:$binding_sha256,binding_size_bytes:$binding_size,icu_data_path:$icu_data_path,icu_data_sha256:$icu_sha256,icu_data_size_bytes:$icu_size,icu_filter_sha256:(if $icu_filter_sha256 == "" then null else $icu_filter_sha256 end),break_iterator_manifest_sha256:(if $break_iterator_manifest_sha256 == "" then null else $break_iterator_manifest_sha256 end),startup_snapshot_path:$snapshot,startup_snapshot_sha256:$snapshot_sha256,startup_snapshot_size_bytes:$snapshot_size,external_references_path:$external_references,external_references_sha256:$external_references_sha256,external_references_size_bytes:$external_references_size,worker_path:$worker,worker_sha256:$worker_sha256,worker_size_bytes:$worker_size,gn_args:$gn_args})' \
   > "$output/$profile-manifest.json"
+python3 "$repo_root/scripts/validate-v8-runtime-profile.py" "$output/$profile-manifest.json" --profile "$profile"
 printf '%s\n' "$output/$profile-manifest.json"

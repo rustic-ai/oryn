@@ -52,6 +52,8 @@ class DirectFixture:
                    str(ROOT / 'wptserve-helper.py'), '--checkout', str(self.checkout), '--direct',
                    '--vendor-adapter', str(ROOT / f'wpt-testdriver-{backend}.js'),
                    '--tls-certificate', self.tls['certificate'], '--tls-key', self.tls['key']]
+        if backend == 'chromium':
+            command.append('--http-diagnostics')
         for flag, port in zip(('--public-port', '--public-https-port', '--public-port-2',
                                '--public-https-port-2', '--h2-port', '--ws-port', '--wss-port'), self.ports):
             command.extend((flag, str(port)))

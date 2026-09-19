@@ -21,8 +21,7 @@ hash_app() {
 }
 
 jq -e '.schema_version == 1 and .locked == true and .hash_algorithm == "sha256"' "$lock" >/dev/null
-test "$(hash_file "$repo_root/benchmarks/app-compatibility/fixtures-v1.lock.json")" = \
-  "$(jq -r '.previous_lock_sha256' "$lock")"
+python3 "$repo_root/scripts/framework_fixture_lock.py" "$repo_root"
 
 for app in angular next nuxt preact react svelte sveltekit vue; do
   expected="$(jq -r --arg app "$app" '.frameworks[$app].source_hash' "$lock")"

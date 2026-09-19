@@ -9,6 +9,7 @@ pub(super) struct DecoderRecord {
     fatal: bool,
     ignore_bom: bool,
     streaming: bool,
+    pending_input: Vec<u8>,
 }
 
 pub(super) fn collect(state: &V8BindingState) {
@@ -60,6 +61,7 @@ impl DecoderRecord {
             fatal,
             ignore_bom,
             streaming: false,
+            pending_input: Vec::new(),
         }
     }
 
@@ -71,10 +73,29 @@ impl DecoderRecord {
         }
     }
 
-    fn decode(&mut self, mut input: &[u8], stream: bool) -> Result<String, V8BindingError> {
+    fn decode(&mut self, input: &[u8], stream: bool) -> Result<String, V8BindingError> {
+        self.decode_input(input, stream, true)
+    }
+
+    fn decode_input(
+        &mut self,
+        input: &[u8],
+        stream: bool,
+        retain_after_error: bool,
+    ) -> Result<String, V8BindingError> {
         if !self.streaming {
             self.decoder = Self::decoder(self.encoding, self.ignore_bom);
+            self.pending_input.clear();
         }
+        // Fatal streaming errors leave the unconsumed input queue intact. New
+        // bytes are appended to that queue on the next call, not substituted for it.
+        let mut queued = std::mem::take(&mut self.pending_input);
+        let mut input = if queued.is_empty() {
+            input
+        } else {
+            queued.extend_from_slice(input);
+            queued.as_slice()
+        };
         self.streaming = stream;
         // An empty non-final chunk cannot advance the Encoding Standard's
         // input queue. encoding_rs 0.8.35 drops pending legacy lead bytes when
@@ -92,6 +113,9 @@ impl DecoderRecord {
                     .decoder
                     .decode_to_utf8_without_replacement(input, &mut chunk, !stream);
                 if matches!(result, DecoderResult::Malformed(..)) {
+                    if stream && retain_after_error {
+                        self.pending_input.extend_from_slice(&input[read..]);
+                    }
                     return Err(error("TypeError"));
                 }
                 (matches!(result, DecoderResult::InputEmpty), read, written)
@@ -230,7 +254,7 @@ pub(super) fn operation<'s>(
             };
             decoder.decode(&bytes, stream)?
         };
-        return v8_string(scope, &output).map(Some);
+        return v8_scalar_string(scope, &output).map(Some);
     }
     let input = if member == "encode" && args.get(0).is_undefined() {
         String::new()
@@ -306,8 +330,8 @@ fn decoder_arguments<'s>(
 }
 
 pub(super) struct EncodingStreamRecord {
-    readable_id: u64,
-    writable_id: u64,
+    pub(super) readable_id: u64,
+    pub(super) writable_id: u64,
     codec: StreamCodec,
 }
 
@@ -427,7 +451,11 @@ pub(super) fn transform_chunk<'s>(
             return Err(error("TypeError"));
         };
         match &mut record.codec {
-            StreamCodec::Decoder(decoder) => decoder.decode(&bytes, chunk.is_some())?,
+            // A transform error permanently errors both sides. Unlike a standalone
+            // TextDecoder, this codec cannot resume, so do not retain unread bytes.
+            StreamCodec::Decoder(decoder) => {
+                decoder.decode_input(&bytes, chunk.is_some(), false)?
+            }
             StreamCodec::Encoder { pending_surrogate } => {
                 let mut units = units;
                 if let Some(pending) = pending_surrogate.take() {
@@ -449,7 +477,84 @@ pub(super) fn transform_chunk<'s>(
             .ok_or(V8BindingError::Allocation("encoded stream chunk"))?;
         Ok(Some(bytes.into()))
     } else {
-        v8_string(scope, &output).map(Some)
+        v8_scalar_string(scope, &output).map(Some)
+    }
+}
+
+#[cfg(test)]
+mod decoder_queue_tests {
+    use super::*;
+
+    #[test]
+    fn decoders_and_blob_text_preserve_literal_dom_storage_prefix() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body></body>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        let source=v8::String::new(scope,r#"(async()=>{
+            const literal='\u{f0000}oryn-wtf16:[55296]',bytes=new TextEncoder().encode(literal);
+            if(new TextDecoder().decode(bytes)!==literal)throw Error('decoder changed scalar text');
+            if(await new Blob([bytes]).text()!==literal)throw Error('Blob text changed scalar text');
+            const stream=new TextDecoderStream(),reader=stream.readable.getReader(),writer=stream.writable.getWriter();
+            const pending=reader.read();await writer.write(bytes);
+            if((await pending).value!==literal)throw Error('stream decoder changed scalar text');
+            await writer.close();return 'ok';
+        })()"#).unwrap();
+        let result = v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap();
+        let promise = v8::Local::<v8::Promise>::try_from(result).unwrap();
+        scope.perform_microtask_checkpoint();
+        assert_eq!(promise.state(), v8::PromiseState::Fulfilled);
+        assert_eq!(promise.result(scope).to_rust_string_lossy(scope), "ok");
+    }
+
+    #[test]
+    fn fatal_streaming_error_preserves_unconsumed_input_in_order() {
+        let mut decoder = DecoderRecord::new(encoding_rs::UTF_8, true, false);
+        assert!(decoder.decode(&[0xff, b'A'], true).is_err());
+        assert_eq!(decoder.decode(b"B", true).unwrap(), "AB");
+        assert_eq!(decoder.decode(&[], false).unwrap(), "");
+    }
+
+    #[test]
+    fn consecutive_fatal_errors_preserve_only_the_remaining_queue() {
+        let mut decoder = DecoderRecord::new(encoding_rs::UTF_8, true, false);
+        assert!(decoder.decode(&[0xff, b'A', 0xff, b'B'], true).is_err());
+        assert!(decoder.decode(b"C", true).is_err());
+        // Output produced by the throwing call is discarded; the remaining
+        // queue still contains B followed by the newly appended C.
+        assert_eq!(decoder.decode(&[], true).unwrap(), "BC");
+    }
+
+    #[test]
+    fn terminal_stream_errors_do_not_retain_the_unread_chunk() {
+        let mut decoder = DecoderRecord::new(encoding_rs::UTF_8, true, false);
+        let mut chunk = vec![b'A'; 1024 * 1024];
+        chunk[0] = 0xff;
+        assert!(decoder.decode_input(&chunk, true, false).is_err());
+        assert!(decoder.pending_input.is_empty());
+        assert_eq!(decoder.pending_input.capacity(), 0);
+        assert!(decoder.fatal);
+        assert_eq!(decoder.encoding.name(), "UTF-8");
+    }
+
+    #[test]
+    fn nonstreaming_error_resets_the_decoder_queue_on_the_next_call() {
+        let mut decoder = DecoderRecord::new(encoding_rs::UTF_8, true, false);
+        assert!(decoder.decode(&[0xff, b'A'], false).is_err());
+        assert_eq!(decoder.decode(b"B", true).unwrap(), "B");
+        assert!(decoder.decode(&[0xff, b'C'], true).is_err());
+        assert_eq!(decoder.decode(b"D", false).unwrap(), "CD");
+        assert_eq!(decoder.decode(b"E", false).unwrap(), "E");
     }
 }
 

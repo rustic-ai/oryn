@@ -1,0 +1,467 @@
+{
+  "schema_version": 4,
+  "family": "forms",
+  "cases": [
+    {
+      "id": "native_get",
+      "scenario": "get",
+      "extended": true,
+      "upload": false,
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Full name\" \"Zo\u00eb Test\"",
+        "type \"Message\" \"R\u00e9sum\u00e9 \u2713\"",
+        "click \"Send document\"",
+        "wait visible css(#receipt)",
+        "extract text --selector \"#receipt\"",
+        "observe"
+      ],
+      "expected_text": [
+        "Document received"
+      ],
+      "expected_requests": [
+        {
+          "method": "GET",
+          "path": "submit",
+          "status": 303
+        }
+      ],
+      "expected_receipts": [
+        {
+          "method": "GET",
+          "path": "submit",
+          "fields": [
+            [
+              "name",
+              "Zo\u00eb Test"
+            ],
+            [
+              "message",
+              "R\u00e9sum\u00e9 \u2713"
+            ],
+            [
+              "duplicate",
+              "first"
+            ],
+            [
+              "duplicate",
+              "second"
+            ],
+            [
+              "nonce",
+              "{nonce}"
+            ],
+            [
+              "intent",
+              "send"
+            ]
+          ],
+          "authorized_upload": false
+        }
+      ],
+      "expected_accepted": 1,
+      "expected_denials": []
+    },
+    {
+      "id": "native_post",
+      "scenario": "post",
+      "extended": true,
+      "upload": false,
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Full name\" \"Zo\u00eb Test\"",
+        "type \"Message\" \"R\u00e9sum\u00e9 \u2713\"",
+        "click \"Send document\"",
+        "wait visible css(#receipt)",
+        "extract text --selector \"#receipt\"",
+        "observe"
+      ],
+      "expected_text": [
+        "Document received"
+      ],
+      "expected_requests": [
+        {
+          "method": "POST",
+          "path": "submit",
+          "status": 303
+        }
+      ],
+      "expected_receipts": [
+        {
+          "method": "POST",
+          "path": "submit",
+          "fields": [
+            [
+              "name",
+              "Zo\u00eb Test"
+            ],
+            [
+              "message",
+              "R\u00e9sum\u00e9 \u2713"
+            ],
+            [
+              "duplicate",
+              "first"
+            ],
+            [
+              "duplicate",
+              "second"
+            ],
+            [
+              "nonce",
+              "{nonce}"
+            ],
+            [
+              "intent",
+              "send"
+            ]
+          ],
+          "authorized_upload": false
+        }
+      ],
+      "expected_accepted": 1,
+      "expected_denials": []
+    },
+    {
+      "id": "native_multipart",
+      "scenario": "multipart",
+      "extended": true,
+      "upload": true,
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Full name\" \"Zo\u00eb Test\"",
+        "type \"Message\" \"R\u00e9sum\u00e9 \u2713\"",
+        "upload \"Authorized document\" $file:authorized",
+        "click \"Send document\"",
+        "wait visible css(#receipt)",
+        "extract text --selector \"#receipt\"",
+        "observe"
+      ],
+      "expected_text": [
+        "Document received"
+      ],
+      "expected_requests": [
+        {
+          "method": "POST",
+          "path": "submit",
+          "status": 303
+        }
+      ],
+      "expected_receipts": [
+        {
+          "method": "POST",
+          "path": "submit",
+          "fields": [
+            [
+              "name",
+              "Zo\u00eb Test"
+            ],
+            [
+              "message",
+              "R\u00e9sum\u00e9 \u2713"
+            ],
+            [
+              "duplicate",
+              "first"
+            ],
+            [
+              "duplicate",
+              "second"
+            ],
+            [
+              "nonce",
+              "{nonce}"
+            ],
+            [
+              "intent",
+              "send"
+            ]
+          ],
+          "authorized_upload": true
+        }
+      ],
+      "expected_accepted": 1,
+      "expected_denials": []
+    },
+    {
+      "id": "native_submitter",
+      "scenario": "submitter",
+      "extended": true,
+      "upload": false,
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Full name\" \"Zo\u00eb Test\"",
+        "type \"Message\" \"R\u00e9sum\u00e9 \u2713\"",
+        "click \"Send document\"",
+        "wait visible css(#receipt)",
+        "extract text --selector \"#receipt\"",
+        "observe"
+      ],
+      "expected_text": [
+        "Document received"
+      ],
+      "expected_requests": [
+        {
+          "method": "GET",
+          "path": "override",
+          "status": 303
+        }
+      ],
+      "expected_receipts": [
+        {
+          "method": "GET",
+          "path": "override",
+          "fields": [
+            [
+              "name",
+              "Zo\u00eb Test"
+            ],
+            [
+              "message",
+              "R\u00e9sum\u00e9 \u2713"
+            ],
+            [
+              "duplicate",
+              "first"
+            ],
+            [
+              "duplicate",
+              "second"
+            ],
+            [
+              "nonce",
+              "{nonce}"
+            ],
+            [
+              "intent",
+              "send"
+            ]
+          ],
+          "authorized_upload": false
+        }
+      ],
+      "expected_accepted": 1,
+      "expected_denials": []
+    },
+    {
+      "id": "native_cancel",
+      "scenario": "cancel",
+      "extended": true,
+      "upload": false,
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Full name\" \"Zo\u00eb Test\"",
+        "type \"Message\" \"R\u00e9sum\u00e9 \u2713\"",
+        "click \"Send document\"",
+        "extract text --selector \"#status\"",
+        "observe"
+      ],
+      "expected_text": [
+        "Submission cancelled"
+      ],
+      "expected_requests": [],
+      "expected_receipts": [],
+      "expected_accepted": 0,
+      "expected_denials": []
+    },
+    {
+      "id": "native_reentrant",
+      "scenario": "reentrant",
+      "extended": true,
+      "upload": false,
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Full name\" \"Zo\u00eb Test\"",
+        "type \"Message\" \"R\u00e9sum\u00e9 \u2713\"",
+        "click \"Send document\"",
+        "wait visible css(#receipt)",
+        "extract text --selector \"#receipt\"",
+        "observe"
+      ],
+      "expected_text": [
+        "Document received"
+      ],
+      "expected_requests": [
+        {
+          "method": "POST",
+          "path": "submit",
+          "status": 303
+        }
+      ],
+      "expected_receipts": [
+        {
+          "method": "POST",
+          "path": "submit",
+          "fields": [
+            [
+              "name",
+              "Zo\u00eb Test"
+            ],
+            [
+              "message",
+              "R\u00e9sum\u00e9 \u2713"
+            ],
+            [
+              "duplicate",
+              "first"
+            ],
+            [
+              "duplicate",
+              "second"
+            ],
+            [
+              "nonce",
+              "{nonce}"
+            ],
+            [
+              "intent",
+              "send"
+            ]
+          ],
+          "authorized_upload": false
+        }
+      ],
+      "expected_accepted": 1,
+      "expected_denials": []
+    },
+    {
+      "id": "native_confinement",
+      "scenario": "confinement",
+      "extended": true,
+      "upload": true,
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Full name\" \"Zo\u00eb Test\"",
+        "type \"Message\" \"R\u00e9sum\u00e9 \u2713\"",
+        "upload \"Authorized document\" $file:authorized",
+        "click \"Send document\"",
+        "wait visible css(#receipt)",
+        "extract text --selector \"#receipt\"",
+        "observe"
+      ],
+      "expected_text": [
+        "Document received"
+      ],
+      "expected_requests": [
+        {
+          "method": "POST",
+          "path": "submit",
+          "status": 303
+        }
+      ],
+      "expected_receipts": [
+        {
+          "method": "POST",
+          "path": "submit",
+          "fields": [
+            [
+              "name",
+              "Zo\u00eb Test"
+            ],
+            [
+              "message",
+              "R\u00e9sum\u00e9 \u2713"
+            ],
+            [
+              "duplicate",
+              "first"
+            ],
+            [
+              "duplicate",
+              "second"
+            ],
+            [
+              "nonce",
+              "{nonce}"
+            ],
+            [
+              "intent",
+              "send"
+            ]
+          ],
+          "authorized_upload": true
+        }
+      ],
+      "expected_accepted": 1,
+      "expected_denials": [
+        {
+          "path": "receipt",
+          "status": 403
+        }
+      ]
+    },
+    {
+      "id": "native_face_authorized_multipart",
+      "scenario": "face",
+      "extended": true,
+      "upload": true,
+      "steps": [
+        "goto \"{base}/start\"",
+        "type \"Full name\" \"Zo\u00eb Test\"",
+        "type \"Message\" \"R\u00e9sum\u00e9 \u2713\"",
+        "upload \"Authorized document\" $file:authorized",
+        "click \"Send document\"",
+        "wait visible css(#receipt)",
+        "extract text --selector \"#receipt\"",
+        "observe"
+      ],
+      "expected_text": [
+        "Document received"
+      ],
+      "expected_requests": [
+        {
+          "method": "POST",
+          "path": "submit",
+          "status": 303
+        }
+      ],
+      "expected_receipts": [
+        {
+          "method": "POST",
+          "path": "submit",
+          "fields": [
+            [
+              "name",
+              "Zo\u00eb Test"
+            ],
+            [
+              "message",
+              "R\u00e9sum\u00e9 \u2713"
+            ],
+            [
+              "duplicate",
+              "first"
+            ],
+            [
+              "duplicate",
+              "second"
+            ],
+            [
+              "nonce",
+              "{nonce}"
+            ],
+            [
+              "face_value",
+              "R\u00e9sum\u00e9 \u2713"
+            ],
+            [
+              "face_duplicate",
+              "first"
+            ],
+            [
+              "face_duplicate",
+              "second"
+            ],
+            [
+              "intent",
+              "send"
+            ]
+          ],
+          "authorized_upload": true
+        }
+      ],
+      "expected_accepted": 1,
+      "expected_denials": []
+    }
+  ]
+}

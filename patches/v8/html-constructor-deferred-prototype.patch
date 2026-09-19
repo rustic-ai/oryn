@@ -1,0 +1,126 @@
+--- a/include/v8-template.h
++++ b/include/v8-template.h
+@@ -655,6 +655,11 @@
+    * function call.  Currently defaults to true, but this is subject to change.
+    */
+   void SetAcceptAnyReceiver(bool value);
++
++  // Oryn: opt-in HTMLConstructor receiver allocation. Do not consult
++  // NewTarget.prototype before the embedder validates the construction.
++  // The callback must set the returned object's prototype explicitly.
++  void SetOrynDeferredPrototype(bool value);
+ 
+   /**
+    * Sets the ReadOnly flag in the attributes of the 'prototype' property
+--- a/src/objects/templates.tq
++++ b/src/objects/templates.tq
+@@ -34,6 +34,7 @@
+   instance_call_handler: FunctionTemplateInfo|Undefined;
+   access_check_info: AccessCheckInfo|Undefined;
+   c_function_overloads: FixedArray;
++  oryn_deferred_prototype: Smi;
+ }
+ 
+ bitfield struct FunctionTemplateInfoFlags extends uint32 {
+--- a/src/objects/templates.h
++++ b/src/objects/templates.h
+@@ -175,6 +175,9 @@
+   inline Tagged<FixedArray> c_function_overloads() const;
+   inline void set_c_function_overloads(
+       Tagged<FixedArray> value, WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
++
++  inline Tagged<Smi> oryn_deferred_prototype() const;
++  inline void set_oryn_deferred_prototype(Tagged<Smi> value);
+ 
+   DECL_PRINTER(FunctionTemplateRareData)
+   DECL_VERIFIER(FunctionTemplateRareData)
+@@ -192,6 +195,7 @@
+   TaggedMember<UnionOf<Undefined, FunctionTemplateInfo>> instance_call_handler_;
+   TaggedMember<UnionOf<Undefined, AccessCheckInfo>> access_check_info_;
+   TaggedMember<FixedArray> c_function_overloads_;
++  TaggedMember<Smi> oryn_deferred_prototype_;
+ } V8_OBJECT_END;
+ 
+ // See the api-exposed FunctionTemplate for more information.
+@@ -245,6 +249,7 @@
+                       UnionOf<Undefined, AccessCheckInfo>)
+ 
+   DECL_RARE_ACCESSORS(c_function_overloads, CFunctionOverloads, FixedArray)
++  DECL_RARE_ACCESSORS(oryn_deferred_prototype, OrynDeferredPrototype, Smi)
+ #undef DECL_RARE_ACCESSORS
+ 
+   DECL_PRIMITIVE_ACCESSORS(flag, uint32_t)
+--- a/src/objects/templates-inl.h
++++ b/src/objects/templates-inl.h
+@@ -107,6 +107,13 @@
+ void FunctionTemplateRareData::set_c_function_overloads(
+     Tagged<FixedArray> value, WriteBarrierMode mode) {
+   c_function_overloads_.store(this, value, mode);
++}
++
++Tagged<Smi> FunctionTemplateRareData::oryn_deferred_prototype() const {
++  return oryn_deferred_prototype_.load();
++}
++void FunctionTemplateRareData::set_oryn_deferred_prototype(Tagged<Smi> value) {
++  oryn_deferred_prototype_.store(this, value);
+ }
+ 
+ BOOL_ACCESSORS(FunctionTemplateInfo, relaxed_flag,
+@@ -247,6 +254,8 @@
+                UnionOf<Undefined, FunctionTemplateInfo>)
+ RARE_ACCESSORS(access_check_info, AccessCheckInfo, undefined,
+                UnionOf<Undefined, AccessCheckInfo>)
++RARE_ACCESSORS(oryn_deferred_prototype, OrynDeferredPrototype, Smi::zero(), Smi)
++
+ RARE_ACCESSORS(c_function_overloads, CFunctionOverloads,
+                GetReadOnlyRoots().empty_fixed_array(), FixedArray)
+ #undef RARE_ACCESSORS
+--- a/src/api/api.cc
++++ b/src/api/api.cc
+@@ -1461,6 +1461,15 @@
+   info->set_exception_context(static_cast<uint32_t>(context));
+ }
+ 
++void FunctionTemplate::SetOrynDeferredPrototype(bool value) {
++  auto info = Utils::OpenDirectHandle(this);
++  EnsureNotPublished(info, "v8::FunctionTemplate::SetOrynDeferredPrototype");
++  i::Isolate* isolate = i::Isolate::Current();
++  EnterV8NoScriptNoExceptionScope api_scope(isolate);
++  i::FunctionTemplateInfo::SetOrynDeferredPrototype(
++      isolate, info, i::direct_handle(i::Smi::FromInt(value ? 1 : 0), isolate));
++}
++
+ void FunctionTemplate::SetAcceptAnyReceiver(bool value) {
+   auto info = Utils::OpenDirectHandle(this);
+   EnsureNotPublished(info, "v8::FunctionTemplate::SetAcceptAnyReceiver");
+--- a/src/heap/factory-base.cc
++++ b/src/heap/factory-base.cc
+@@ -1459,6 +1459,7 @@
+       NewStructInternal<FunctionTemplateRareData>(
+           FUNCTION_TEMPLATE_RARE_DATA_TYPE, AllocationType::kOld);
+   DisallowGarbageCollection no_gc;
++  function_template_rare_data->set_oryn_deferred_prototype(Smi::zero());
+   function_template_rare_data->set_c_function_overloads(
+       *impl()->empty_fixed_array(), SKIP_WRITE_BARRIER);
+   return direct_handle(function_template_rare_data, isolate());
+--- a/src/builtins/builtins-api.cc
++++ b/src/builtins/builtins-api.cc
+@@ -75,10 +75,17 @@
+     }
+     DirectHandle<ObjectTemplateInfo> instance_template(
+         Cast<ObjectTemplateInfo>(fun_data->GetInstanceTemplate()), isolate);
++    // HTMLConstructor registration checks precede GetPrototypeFromConstructor.
++    // Keep the original new_target in callback arguments, but allocate this
++    // internal receiver from its native template without observing author code.
++    DirectHandle<JSReceiver> allocation_target;
++    if (fun_data->GetOrynDeferredPrototype().value() == 0) {
++      allocation_target = Cast<JSReceiver>(new_target);
++    }
+     ASSIGN_RETURN_ON_EXCEPTION(
+         isolate, js_receiver,
+         ApiNatives::InstantiateObject(isolate, instance_template,
+-                                      Cast<JSReceiver>(new_target)));
++                                      allocation_target));
+ 
+     if constexpr (std::is_same_v<ArgT, Address>) {
+       // In case we get here via HandleApiConstruct, update receiver value

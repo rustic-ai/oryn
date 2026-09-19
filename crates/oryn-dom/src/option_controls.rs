@@ -1,5 +1,5 @@
 //! Native option state. Select list normalization is integrated separately.
-use super::{DomError, DomRuntime, Mutation, Node, NodeId, NodeKind};
+use super::{DomArena, DomError, DomRuntime, Mutation, Node, NodeId, NodeKind};
 
 const HTML: &str = "http://www.w3.org/1999/xhtml";
 
@@ -83,6 +83,7 @@ impl DomRuntime {
                         .map(|index| added_nodes[index])
                         .or(previous),
                     next: added_nodes.get(index + 1).copied(),
+                    state_preserving_move: false,
                 },
                 observer_suppressed: true,
             });
@@ -94,6 +95,7 @@ impl DomRuntime {
             siblings: super::MutationSiblings {
                 previous,
                 next: None,
+                state_preserving_move: false,
             },
         });
         self.normalize_select(select)?;
@@ -151,34 +153,6 @@ impl DomRuntime {
             .collect()
     }
 
-    pub(super) fn reconcile_option_owners(
-        &mut self,
-        previous: Vec<(NodeId, Option<NodeId>)>,
-    ) -> Result<(), DomError> {
-        let mut affected = std::collections::BTreeSet::new();
-        let mut inserted_selected = Vec::new();
-        for (option, old) in previous {
-            let new = self.option_nearest_select(option)?;
-            if old != new {
-                affected.extend(old);
-                affected.extend(new);
-                if new.is_some() && self.option_selected(option)? {
-                    inserted_selected.push(option);
-                }
-            }
-        }
-        // Snapshot incoming selectedness before any peer deselection: later
-        // selected options in an inserted subtree must still get their turn.
-        for option in inserted_selected {
-            self.set_option_selectedness(option, true)?;
-            self.option_selection_changed(option)?;
-        }
-        for select in affected {
-            self.normalize_select(select)?;
-        }
-        Ok(())
-    }
-
     pub(super) fn initialize_selects(&mut self) -> Result<(), DomError> {
         let selects: Vec<_> = self
             .arena
@@ -215,46 +189,7 @@ impl DomRuntime {
 
     /// The native list of options, not an unrestricted descendant selector.
     pub fn select_options(&self, select: NodeId) -> Result<Vec<NodeId>, DomError> {
-        let record = self.arena.get(select)?;
-        if !self.is_element(select, HTML, "select") {
-            return Ok(Vec::new());
-        }
-        let mut pending: Vec<_> = record
-            .children
-            .iter()
-            .rev()
-            .map(|id| (*id, false))
-            .collect();
-        let mut options = Vec::new();
-        while let Some((node, in_optgroup)) = pending.pop() {
-            let record = self.arena.get(node)?;
-            if matches!(
-                record.kind,
-                NodeKind::Document | NodeKind::ShadowRoot { .. }
-            ) {
-                continue;
-            }
-            let tag = match &record.kind {
-                NodeKind::Element { name } if name.ns.as_ref() == HTML => name.local.as_ref(),
-                _ => "",
-            };
-            if tag == "option" {
-                options.push(node);
-            }
-            if matches!(tag, "option" | "select" | "hr" | "datalist")
-                || tag == "optgroup" && in_optgroup
-            {
-                continue;
-            }
-            pending.extend(
-                record
-                    .children
-                    .iter()
-                    .rev()
-                    .map(|id| (*id, in_optgroup || tag == "optgroup")),
-            );
-        }
-        Ok(options)
+        self.arena.select_options(select)
     }
 
     pub fn option_disabled(&self, option: NodeId) -> Result<bool, DomError> {
@@ -448,7 +383,7 @@ impl DomRuntime {
             .attribute_in_null_namespace(select, "multiple")?
             .is_some()
         {
-            return Ok(());
+            return self.update_selected_content(select);
         }
         let selected = options
             .iter()
@@ -471,7 +406,7 @@ impl DomRuntime {
                 }
             }
         }
-        Ok(())
+        self.update_selected_content(select)
     }
 
     pub fn select_selected_index(&self, select: NodeId) -> Result<i32, DomError> {
@@ -493,7 +428,7 @@ impl DomRuntime {
                 self.arena.get_mut(option)?.dirty_selectedness = true;
             }
         }
-        Ok(())
+        self.update_selected_content(select)
     }
 
     pub fn select_value(&self, select: NodeId) -> Result<String, DomError> {
@@ -515,10 +450,11 @@ impl DomRuntime {
                 found = true;
             }
         }
-        Ok(())
+        self.update_selected_content(select)
     }
 
     pub fn reset_select(&mut self, select: NodeId) -> Result<(), DomError> {
+        self.set_user_validity(select, false)?;
         for option in self.select_options(select)? {
             self.reset_option_selectedness(option)?;
         }
@@ -835,7 +771,9 @@ mod tests {
     fn select_lifecycle_normalizes_only_relevant_transitions() {
         let mut dom = DomRuntime::new();
         let first = dom.create_element("select");
+        dom.retain_native(first).unwrap();
         let second = dom.create_element("select");
+        dom.retain_native(second).unwrap();
         let a = append(&mut dom, first, "option");
         let b = append(&mut dom, first, "option");
         assert_eq!(dom.select_selected_index(first).unwrap(), 0);
@@ -860,6 +798,10 @@ mod tests {
         assert!(dom.option_selected(a).unwrap() && dom.option_selected(b).unwrap());
         dom.remove_attribute(first, "multiple").unwrap();
         assert!(!dom.option_selected(a).unwrap() && dom.option_selected(b).unwrap());
+        dom.release_native(first).unwrap();
+        dom.release_native(second).unwrap();
+        assert!(dom.roots.get(&first).is_none_or(|roots| roots.native == 0));
+        assert!(dom.roots.get(&second).is_none_or(|roots| roots.native == 0));
     }
 
     #[test]
@@ -887,5 +829,72 @@ mod tests {
         assert!(dom.option_selected(option).unwrap());
         dom.remove_attribute(option, "selected").unwrap();
         assert!(!dom.option_selected(option).unwrap());
+    }
+}
+
+impl DomArena {
+    pub fn select_options(&self, select: NodeId) -> Result<Vec<NodeId>, DomError> {
+        let record = self.get(select)?;
+        if !matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == HTML && name.local.as_ref() == "select")
+        {
+            return Ok(Vec::new());
+        }
+        let mut pending: Vec<_> = record
+            .children
+            .iter()
+            .rev()
+            .map(|id| (*id, false))
+            .collect();
+        let mut options = Vec::new();
+        while let Some((node, in_optgroup)) = pending.pop() {
+            let record = self.get(node)?;
+            if matches!(
+                record.kind,
+                NodeKind::Document | NodeKind::ShadowRoot { .. }
+            ) {
+                continue;
+            }
+            let tag = match &record.kind {
+                NodeKind::Element { name } if name.ns.as_ref() == HTML => name.local.as_ref(),
+                _ => "",
+            };
+            if tag == "option" {
+                options.push(node);
+            }
+            if matches!(tag, "option" | "select" | "hr" | "datalist")
+                || tag == "optgroup" && in_optgroup
+            {
+                continue;
+            }
+            pending.extend(
+                record
+                    .children
+                    .iter()
+                    .rev()
+                    .map(|id| (*id, in_optgroup || tag == "optgroup")),
+            );
+        }
+        Ok(options)
+    }
+}
+
+#[cfg(test)]
+mod grouped_single_insertion_tests {
+
+    #[test]
+    fn same_select_move_preserves_explicit_empty_but_new_owner_normalizes() {
+        let mut dom=crate::html::parse("<select id=s><option id=a>A</option><option id=b>B</option></select><select id=t></select>").into_runtime().unwrap();
+        let s = dom.find_by_id("s").unwrap();
+        let t = dom.find_by_id("t").unwrap();
+        let a = dom.find_by_id("a").unwrap();
+        let b = dom.find_by_id("b").unwrap();
+        dom.set_select_selected_index(s, -1).unwrap();
+        dom.insert_dom_node(s, a, None).unwrap();
+        assert_eq!(dom.select_selected_index(s).unwrap(), -1);
+        dom.insert_dom_node(s, a, Some(b)).unwrap();
+        assert_eq!(dom.select_selected_index(s).unwrap(), -1);
+        dom.insert_dom_node(t, a, None).unwrap();
+        assert_eq!(dom.select_selected_index(t).unwrap(), 0);
+        assert_eq!(dom.select_selected_index(s).unwrap(), 0);
     }
 }

@@ -13,9 +13,7 @@ use crate::custom_properties::ComputedCustomProperties;
 use crate::custom_properties::{parse_name, SpecifiedValue};
 use crate::derives::*;
 use crate::device::Device;
-use crate::dom::TElement;
-#[cfg(feature = "gecko")]
-use crate::dom::TShadowRoot;
+use crate::dom::{TElement, TShadowRoot};
 #[cfg(feature = "gecko")]
 use crate::gecko_bindings::structs::{ServoStyleSetSizes, StyleRuleInclusion};
 use crate::invalidation::element::invalidation_map::{
@@ -26,7 +24,6 @@ use crate::invalidation::media_queries::{
     EffectiveMediaQueryResults, MediaListKey, ToMediaListKey,
 };
 use crate::invalidation::stylesheets::{RuleChangeKind, StylesheetInvalidationSet};
-#[cfg(feature = "gecko")]
 use crate::properties::StyleBuilder;
 use crate::properties::{
     self, AnimationDeclarations, CascadeMode, ComputedValues, FirstLineReparenting,
@@ -66,7 +63,6 @@ use crate::stylesheets::{
     ViewTransitionRule,
 };
 use crate::stylesheets::{CustomMediaEvaluator, CustomMediaMap};
-#[cfg(feature = "gecko")]
 use crate::values::specified::position::PositionTryFallbacksItem;
 use crate::values::specified::position::PositionTryFallbacksTryTactic;
 use crate::values::{computed, AtomIdent, Parser, SourceLocation};
@@ -1381,7 +1377,6 @@ impl Stylist {
     }
 
     /// Computes a fallback style lazily given the current and parent styles, and name.
-    #[cfg(feature = "gecko")]
     pub fn resolve_position_try<E>(
         &self,
         style: &ComputedValues,
@@ -1463,6 +1458,23 @@ impl Stylist {
                 ))
             },
         )
+    }
+
+    /// Resolve native positioned fallback tactics in the actual containing
+    /// block writing mode, retaining the querying element's inherited mode.
+    #[cfg(feature = "servo")]
+    pub fn resolve_position_try_native<E: TElement>(&self,style:&ComputedValues,guards:&StylesheetGuards,scope:CascadeLevel,element:E,item:&PositionTryFallbacksItem,cb_wm:crate::logical_geometry::WritingMode)->Option<Arc<ComputedValues>>{
+        let mut untacticed=item.clone();
+        let tactic=match &mut untacticed{
+            PositionTryFallbacksItem::IdentAndOrTactic(value)=>std::mem::take(&mut value.try_tactic),
+            PositionTryFallbacksItem::PositionArea(_)=>Default::default(),
+        };
+        let result=self.resolve_position_try(style,guards,scope,element,&untacticed)?;
+        if tactic.is_empty(){return Some(result);}
+        let mut builder=StyleBuilder::for_derived_style(&self.device,Some(self),&result,None);builder.rules=result.rules.clone();
+        let own_wm=builder.writing_mode;builder.writing_mode=cb_wm;
+        crate::style_adjuster::StyleAdjuster::new(&mut builder).adjust_for_try_tactic(&tactic);
+        builder.writing_mode=own_wm;Some(builder.build())
     }
 
     /// Computes a style using the given CascadeInputs.  This can be used to
@@ -1837,7 +1849,6 @@ impl Stylist {
 
     /// Returns the registered `@position-try-rule` animation for the specified name.
     #[inline]
-    #[cfg(feature = "gecko")]
     fn lookup_position_try<'a, E>(
         &'a self,
         name: &Atom,

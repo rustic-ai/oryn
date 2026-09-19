@@ -2,6 +2,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+expected_worker_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field worker)"
+expected_context_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field context)"
+expected_agent_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field agent)"
 output_dir="${1:-$repo_root/artifacts/execution-replay-v1/production-gate}"
 if [[ "$output_dir" != /* ]]; then output_dir="$repo_root/$output_dir"; fi
 parent="$repo_root/target/release/oryn"
@@ -28,7 +31,7 @@ test -x "$worker"
 export ORYN_PAGE_WORKER="$worker"
 
 runtime="$($parent native --runtime-info --allow-loopback)"
-jq -e '.native_v8 == true and .execution_mode == "sandboxed_worker" and .sandbox_state == "app_sandbox" and .worker_protocol_version == 10' \
+jq -e --argjson expected_worker_protocol "$expected_worker_protocol" --argjson expected_context_protocol "$expected_context_protocol" --argjson expected_agent_protocol "$expected_agent_protocol" '.native_v8 == true and .execution_mode == "sandboxed_worker" and .sandbox_state == "app_sandbox" and .worker_protocol_version == $expected_worker_protocol and .context_service_protocol_version == $expected_context_protocol and .agent_ipc_protocol_version == $expected_agent_protocol' \
   <<<"$runtime" >/dev/null
 jq . <<<"$runtime" >"$output_dir/runtime.json"
 

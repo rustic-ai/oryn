@@ -140,9 +140,12 @@ impl CssUrl {
 
 impl PartialEq for CssUrl {
     fn eq(&self, other: &Self) -> bool {
-        // TODO(emilio): maybe we care about equality of the specified values if
-        // present? Seems not.
-        self.resolved == other.resolved
+        // Declaration updates observe the authored serialization as well as
+        // the resolved resource. Distinct invalid relative URLs (for example
+        // against about:blank) both resolve to None, but replacing one must
+        // still update CSSOM and invalidate style. Equivalent resolved URLs
+        // with different authored spelling likewise serialize differently.
+        self.original == other.original && self.resolved == other.resolved
     }
 }
 

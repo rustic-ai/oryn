@@ -6,14 +6,32 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { dispatchDriver, settleAutomation } from './wpt-chromium-driver.mjs';
+import { createDiagnostics } from './wpt-chromium-diagnostics.mjs';
 
 const [binary, url, deadlineText = '30000'] = process.argv.slice(2);
+const diagnostics = createDiagnostics(url);
+let diagnosticEmissions = 0;
+function emitFailure(error, stage='uncaught') {
+  if (diagnosticEmissions >= 2) return;
+  diagnosticEmissions++;
+  try {
+    diagnostics.failure(error);
+    process.stderr.write('ORYN_CHROMIUM_DIAGNOSTIC ' + diagnostics.serialize(error, stage) + '\n');
+  } catch {
+    try { process.stderr.write('ORYN_CHROMIUM_DIAGNOSTIC_UNAVAILABLE\n'); } catch { /* retain original failure */ }
+  }
+}
+// Observe startup failures without changing Node's default nonzero termination.
+process.once('uncaughtExceptionMonitor', error => emitFailure(error, 'uncaught'));
 if (!binary || !url) throw new Error('usage: script CHROMIUM URL TIMEOUT_MS');
 // Separate headless browser processes still compete for real focus on macOS.
 // Acquire before launching Chrome, and retain through its complete shutdown.
+diagnostics.phase('focus_lease');
 const focusLease = spawn(process.env.ORYN_WPT_PYTHON || 'python3',
   [fileURLToPath(new URL('./wpt-reference-lock.py', import.meta.url))],
   {stdio:['pipe','pipe','inherit']});
+focusLease.once('spawn', () => diagnostics.browser('focus_lease_spawned', {pid:focusLease.pid}));
+focusLease.once('exit', (code, signal) => diagnostics.browser('focus_lease_exit', {pid:focusLease.pid, code, signal}));
 await new Promise((resolve,reject) => {
   const timer = setTimeout(() => {
     focusLease.kill('SIGTERM');reject(new Error('Chromium focus lease timeout'));
@@ -26,15 +44,30 @@ await new Promise((resolve,reject) => {
     else reject(new Error('Chromium focus lease invalid acknowledgement'));
   });
 });
+diagnostics.phase('browser_startup');
 const profile = await mkdtemp(join(tmpdir(), 'oryn-wpt-chromium-'));
 const child = spawn(binary, ['--headless=new', '--remote-debugging-port=0',
   `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check',
-  '--disable-background-networking', '--ignore-certificate-errors', 'about:blank'],
-  { stdio: ['ignore', 'ignore', 'ignore'] });
-const exited = new Promise(resolve => child.once('exit', resolve));
+  '--disable-background-networking', '--ignore-certificate-errors',
+  // ChromeDriver's desktop default avoids OS Keychain prompts in this disposable profile.
+  ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []), 'about:blank'],
+  { stdio: ['ignore', 'ignore', 'pipe'] });
+// Drain continuously; only bounded, explicitly selected native error codes survive.
+child.stderr.on('data', chunk => {
+  try { diagnostics.browserStderr(chunk); } catch { /* diagnostics cannot fail the run */ }
+});
+child.stderr.once('end', () => {
+  try { diagnostics.browserStderrEnd(); } catch { /* preserve the original outcome */ }
+});
+child.stderr.once('error', error => diagnostics.browser('stderr_stream_error', {error_code:error.code}));
+child.once('spawn', () => diagnostics.browser('spawned', {pid:child.pid}));
+const exited = new Promise(resolve => child.once('exit', (code, signal) => {
+  diagnostics.browser('exit', {pid:child.pid, code, signal});
+  resolve();
+}));
 let spawnError;
-child.on('error', error => { spawnError = error; });
-let socket;
+child.on('error', error => { spawnError = error; diagnostics.browser('spawn_error', {error_code:error.code}); });
+let socket, executionError;
 try {
   let port;
   const startupDeadline = Date.now() + 15000;
@@ -47,6 +80,7 @@ try {
     await delay(50);
   }
   if (!port) throw new Error('Chromium startup timeout');
+  diagnostics.phase('cdp_connection');
   const endpoint = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`,
     { method: 'PUT', signal: AbortSignal.timeout(5000) }).then(response => response.json());
   socket = new WebSocket(endpoint.webSocketDebuggerUrl);
@@ -73,6 +107,7 @@ try {
   let creationFocus;
   socket.addEventListener('message', event => {
     const response = JSON.parse(event.data);
+    diagnostics.event(response);
     const sessionId = response.sessionId;
     if (response.method === 'Runtime.bindingCalled' && !sessionId &&
         response.params.name === '__oryn_reference_focus') {
@@ -141,6 +176,7 @@ try {
     const waiter = pending.get(response.id);
     if (!waiter) return;
     pending.delete(response.id);
+    diagnostics.response(response.id, !!response.error);
     clearTimeout(waiter.timer);
     if (response.error) waiter.reject(new Error(JSON.stringify(response.error)));
     else waiter.resolve(response.result);
@@ -148,13 +184,16 @@ try {
   function call(method, params = {}, sessionId) {
     return new Promise((resolve, reject) => {
       const id = ++nextId;
-      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, 10000);
+      const diagnosticRequest = diagnostics.request(id, method, sessionId);
+      const timer = setTimeout(() => { pending.delete(id); diagnostics.timeout(id, 10000, diagnosticRequest); reject(new Error(`CDP timeout: ${method}`)); }, 10000);
       pending.set(id, { resolve, reject, timer });
       socket.send(JSON.stringify({ id, method, params, ...(sessionId ? {sessionId} : {}) }));
     });
   }
+  diagnostics.phase('cdp_setup');
   await call('Runtime.enable');
   await call('Page.enable');
+  await call('Network.enable');
   await call('Runtime.addBinding', {name:'__oryn_driver_request'});
   await call('Runtime.addBinding', {name:'__oryn_reference_focus'});
   // Observe the new document, not just the about:blank predecessor. A fast
@@ -166,11 +205,14 @@ try {
   // /json/new creates a background target. Focus must be established before
   // navigation: parser-time focus tests otherwise silently miss native events.
   // Do not use focus emulation; tests must still be able to move focus away.
+  diagnostics.phase('initial_focus');
   await call('Page.bringToFront');
   const focusProbe = await call('Runtime.evaluate', {
     expression: 'document.hasFocus()', returnByValue: true });
   if (focusProbe.result?.value !== true) throw new Error('Chromium initial focus preflight failed');
+  diagnostics.phase('navigate');
   await call('Page.navigate', { url });
+  diagnostics.phase('completion');
   const deadline = Date.now() + Number(deadlineText);
   let completion;
   while (Date.now() < deadline) {
@@ -181,6 +223,7 @@ try {
   }
   if (!completion) throw new Error('Chromium completion timeout');
   if (entryFocus !== true) throw new Error(`Chromium document-entry focus unverified (${entryFocus === undefined ? 'missing observation' : 'unfocused'})`);
+  diagnostics.phase('settle_automation');
   completion = await settleAutomation(() => automationQueue, async () => {
     const value = await call('Runtime.evaluate', {contextId:entryContext.id,
       expression:'globalThis.__oryn_wpt_completion || null', returnByValue:true});
@@ -195,11 +238,17 @@ try {
     creation_focus_observed:creationFocus ?? null,
     focus_isolation:'host_serialized',
     automation_overflow:automationOverflow, automation_bridge_errors:bridgeErrors }) + '\n');
+} catch (error) {
+  executionError = error;
+  emitFailure(error, 'failure');
+  throw error;
 } finally {
+  diagnostics.phase('cleanup');
   socket?.close();
   if (child.exitCode === null) child.kill('SIGTERM');
   await Promise.race([exited, delay(5000)]);
   if (child.exitCode === null) { child.kill('SIGKILL'); await exited; }
   focusLease.stdin.end();
   await rm(profile, { recursive: true, force: true });
+  if (executionError) emitFailure(executionError, 'cleanup');
 }

@@ -63,6 +63,15 @@ fn eval_device_pixel_ratio(context: &Context) -> f32 {
     eval_resolution(context).dppx()
 }
 
+#[derive(Clone, Copy, Debug, FromPrimitive, Parse, ToCss)]
+#[repr(u8)]
+enum PrefersReducedMotion { NoPreference, Reduce }
+
+fn eval_prefers_reduced_motion(context: &Context, query: Option<PrefersReducedMotion>) -> bool {
+    let reduced = context.device().prefers_reduced_motion();
+    match query { None | Some(PrefersReducedMotion::Reduce) => reduced, Some(PrefersReducedMotion::NoPreference) => !reduced }
+}
+
 fn eval_prefers_color_scheme(context: &Context, query_value: Option<PrefersColorScheme>) -> bool {
     match query_value {
         Some(v) => context.device().color_scheme() == v,
@@ -160,7 +169,7 @@ fn eval_aspect_ratio(context: &Context) -> Ratio {
 }
 
 /// A list with all the media features that Servo supports.
-pub static MEDIA_FEATURES: [QueryFeatureDescription; 15] = [
+pub static MEDIA_FEATURES: [QueryFeatureDescription; 16] = [
     feature!(
         atom!("width"),
         AllowsRanges::Yes,
@@ -243,6 +252,12 @@ pub static MEDIA_FEATURES: [QueryFeatureDescription; 15] = [
         atom!("-moz-device-pixel-ratio"),
         AllowsRanges::Yes,
         Evaluator::Float(eval_device_pixel_ratio),
+        FeatureFlags::empty(),
+    ),
+    feature!(
+        atom!("prefers-reduced-motion"),
+        AllowsRanges::No,
+        keyword_evaluator!(eval_prefers_reduced_motion, PrefersReducedMotion),
         FeatureFlags::empty(),
     ),
     feature!(

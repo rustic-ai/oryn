@@ -1,3 +1,4 @@
+mod v8_bridge_abi;
 use sha2::{Digest, Sha256};
 use std::{env, fs, path::Path};
 fn digest(path: &Path) -> String {
@@ -20,6 +21,64 @@ fn verify_v8_api_headers() {
         "V8 public headers must match the qualified engine patch"
     );
     println!("cargo:rerun-if-changed={}", patch.display());
+    let growth_patch = Path::new("../../patches/v8/shared-memory-growth.patch");
+    assert_eq!(
+        digest(growth_patch),
+        manifest["shared_memory_growth_patch_sha256"]
+            .as_str()
+            .expect("shared-memory engine patch hash"),
+        "V8 shared-memory API headers must match the pinned engine patch"
+    );
+    println!("cargo:rerun-if-changed={}", growth_patch.display());
+    let wait_patch = Path::new("../../patches/v8/shared-memory-wait.patch");
+    assert_eq!(
+        digest(wait_patch),
+        manifest["shared_memory_wait_patch_sha256"]
+            .as_str()
+            .expect("shared wait patch hash"),
+        "V8 shared-memory wait API must match the pinned engine patch"
+    );
+    println!("cargo:rerun-if-changed={}", wait_patch.display());
+    let wasm_patch = Path::new("../../patches/v8/shared-wasm-backing.patch");
+    assert_eq!(
+        digest(wasm_patch),
+        manifest["shared_wasm_backing_patch_sha256"]
+            .as_str()
+            .expect("shared Wasm backing patch hash"),
+        "V8 shared Wasm API must match its pinned engine patch"
+    );
+    println!("cargo:rerun-if-changed={}", wasm_patch.display());
+    let factory_patch = Path::new("../../patches/v8/shared-memory-factory.patch");
+    assert_eq!(
+        digest(factory_patch),
+        manifest["shared_memory_factory_patch_sha256"]
+            .as_str()
+            .expect("shared factory patch hash"),
+        "V8 shared allocation API must match its pinned engine patch"
+    );
+    println!("cargo:rerun-if-changed={}", factory_patch.display());
+    let reattachment_patch = Path::new("../../patches/v8/frame-context-reattachment.patch");
+    assert_eq!(
+        digest(reattachment_patch),
+        manifest["frame_context_reattachment_patch_sha256"]
+            .as_str()
+            .expect("context reattachment patch hash"),
+        "V8 context reattachment API must match its pinned engine patch"
+    );
+    println!("cargo:rerun-if-changed={}", reattachment_patch.display());
+    let html_constructor_patch =
+        Path::new("../../patches/v8/html-constructor-deferred-prototype.patch");
+    assert_eq!(
+        digest(html_constructor_patch),
+        manifest["html_constructor_deferred_prototype_patch_sha256"]
+            .as_str()
+            .expect("HTML constructor patch hash"),
+        "V8 HTML constructor API must match its pinned engine patch"
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        html_constructor_patch.display()
+    );
     for (name, expected) in manifest["headers"]
         .as_object()
         .expect("V8 API header hashes")
@@ -50,7 +109,24 @@ fn verify_v8_api_headers() {
     println!("cargo:rerun-if-changed=../../Cargo.lock");
 }
 
+fn verify_generated_registry() {
+    let input = Path::new("../oryn-webidl/idl/browser.webidl");
+    let output = Path::new("src/generated/browser.rs");
+    println!("cargo:rerun-if-changed={}", input.display());
+    println!("cargo:rerun-if-changed={}", output.display());
+    let source = fs::read_to_string(input).expect("authored browser WebIDL");
+    let definitions =
+        oryn_webidl::parse_definitions(&source).expect("supported authored browser WebIDL");
+    let expected = oryn_webidl::emit_binding_registry(&definitions)
+        .expect("complete generated browser registry");
+    assert!(
+        fs::read_to_string(output).expect("checked-in browser registry") == expected,
+        "generated bindings are stale; run cargo run -p oryn-webidl -- generate crates/oryn-webidl/idl/browser.webidl crates/oryn-js/src/generated/browser.rs"
+    );
+}
+
 fn main() {
+    verify_generated_registry();
     if env::var_os("CARGO_FEATURE_V8_HOST").is_some() {
         verify_v8_api_headers();
         let mut bridge = cc::Build::new();
@@ -58,8 +134,9 @@ fn main() {
             .cpp(true)
             .file("src/v8_context_bridge.cc")
             .file("src/v8_pattern_bridge.cc")
+            .file("src/v8_shared_memory_bridge.cc")
+            .file("src/v8_shared_wait_bridge.cc")
             .include("../../vendor/v8-api/include")
-            .std("c++20")
             .flag_if_supported("-Wno-unused-parameter")
             .flag_if_supported("-Wno-cast-function-type-mismatch");
         if env::var_os("CARGO_FEATURE_V8_SANDBOX").is_some() {
@@ -70,9 +147,13 @@ fn main() {
                 .define("V8_ENABLE_SANDBOX", None)
                 .define("V8_EXTERNAL_CODE_SPACE", None);
         }
+        v8_bridge_abi::configure(&mut bridge);
         bridge.compile("oryn_v8_context_bridge");
+        println!("cargo:rerun-if-changed=v8_bridge_abi.rs");
         println!("cargo:rerun-if-changed=src/v8_context_bridge.cc");
         println!("cargo:rerun-if-changed=src/v8_pattern_bridge.cc");
+        println!("cargo:rerun-if-changed=src/v8_shared_memory_bridge.cc");
+        println!("cargo:rerun-if-changed=src/v8_shared_wait_bridge.cc");
         println!("cargo:rerun-if-changed=../../vendor/v8-api");
     }
 

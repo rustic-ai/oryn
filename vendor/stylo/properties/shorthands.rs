@@ -547,7 +547,6 @@ pub mod border {
     }
 }
 
-#[cfg(feature = "gecko")]
 pub mod container {
     use super::*;
     pub use crate::properties::generated::shorthands::container::*;
@@ -577,9 +576,15 @@ pub mod container {
             W: fmt::Write,
         {
             self.container_name.to_css(dest)?;
-            if !self.container_type.is_normal() {
-                dest.write_str(" / ")?;
-                self.container_type.to_css(dest)?;
+            #[cfg(feature = "servo")]
+            let container_type = self.container_type;
+            #[cfg(feature = "gecko")]
+            let container_type = Some(self.container_type);
+            if let Some(container_type) = container_type {
+                if !container_type.is_normal() {
+                    dest.write_str(" / ")?;
+                    container_type.to_css(dest)?;
+                }
             }
             Ok(())
         }
@@ -646,7 +651,6 @@ pub mod vertical_align {
     }
 }
 
-#[cfg(feature = "gecko")]
 pub mod page_break_before {
     use super::*;
     pub use crate::properties::generated::shorthands::page_break_before::*;
@@ -672,7 +676,6 @@ pub mod page_break_before {
     }
 }
 
-#[cfg(feature = "gecko")]
 pub mod page_break_after {
     pub use crate::properties::generated::shorthands::page_break_after::*;
 
@@ -698,7 +701,6 @@ pub mod page_break_after {
     }
 }
 
-#[cfg(feature = "gecko")]
 pub mod page_break_inside {
     use super::*;
     pub use crate::properties::generated::shorthands::page_break_inside::*;
@@ -935,7 +937,6 @@ pub mod columns {
     }
 }
 
-#[cfg(feature = "gecko")]
 pub mod column_rule {
     pub use crate::properties::generated::shorthands::column_rule::*;
 
@@ -1305,7 +1306,6 @@ pub mod gap {
     }
 }
 
-#[cfg(feature = "gecko")]
 pub mod marker {
     pub use crate::properties::generated::shorthands::marker::*;
 
@@ -1749,7 +1749,6 @@ pub mod grid_area {
     }
 }
 
-#[cfg(feature = "gecko")]
 pub mod position_try {
     pub use crate::properties::generated::shorthands::position_try::*;
 
@@ -1760,8 +1759,13 @@ pub mod position_try {
         context: &ParserContext,
         input: &mut Parser<'i, 't>,
     ) -> Result<Longhands, ParseError<'i>> {
+        #[cfg(feature = "servo")]
+        let order_enabled = true;
+        #[cfg(feature = "gecko")]
+        let order_enabled =
+            static_prefs::pref!("layout.css.anchor-positioning.position-try-order.enabled");
         let order =
-            if static_prefs::pref!("layout.css.anchor-positioning.position-try-order.enabled") {
+            if order_enabled {
                 input.try_parse(PositionTryOrder::parse).ok()
             } else {
                 None
@@ -1778,7 +1782,11 @@ pub mod position_try {
         where
             W: fmt::Write,
         {
-            if let Some(o) = self.position_try_order {
+            #[cfg(feature = "servo")]
+            let order = Some(self.position_try_order);
+            #[cfg(feature = "gecko")]
+            let order = self.position_try_order;
+            if let Some(o) = order {
                 if *o != PositionTryOrder::Normal {
                     o.to_css(dest)?;
                     dest.write_char(' ')?;
@@ -3204,7 +3212,6 @@ pub mod text_box {
     }
 }
 
-#[cfg(feature = "gecko")]
 pub mod text_emphasis {
     pub use crate::properties::generated::shorthands::text_emphasis::*;
 

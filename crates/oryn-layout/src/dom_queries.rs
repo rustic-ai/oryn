@@ -19,6 +19,38 @@ use style::{
     values::{AtomIdent, AtomString},
 };
 
+// RFC 4647 extended filtering used by Selectors 4, matching native paint.
+fn language_range_matches(language: &str, range: &str) -> bool {
+    if range.is_empty() {
+        return language.is_empty();
+    }
+    if language.is_empty() {
+        return false;
+    }
+    let language = language.split('-').collect::<Vec<_>>();
+    let range = range.split('-').collect::<Vec<_>>();
+    if range[0] != "*" && !range[0].eq_ignore_ascii_case(language[0]) {
+        return false;
+    }
+    let mut position = 1;
+    for subtag in &range[1..] {
+        if *subtag == "*" {
+            continue;
+        }
+        while position < language.len() && !subtag.eq_ignore_ascii_case(language[position]) {
+            if language[position].len() == 1 {
+                return false;
+            }
+            position += 1;
+        }
+        if position == language.len() {
+            return false;
+        }
+        position += 1;
+    }
+    true
+}
+
 const HTML: &str = "http://www.w3.org/1999/xhtml";
 #[derive(Clone, Copy)]
 struct DomElement<'a> {
@@ -72,6 +104,9 @@ impl<'a> DomElement<'a> {
         self.ns() == HTML && tags.contains(&self.tag())
     }
     fn disabled(&self) -> bool {
+        if self.dom.is_form_associated_custom_element(self.id) {
+            return self.dom.control_disabled(self.id).unwrap_or(false);
+        }
         if !self.html_tag(&[
             "button", "input", "select", "textarea", "fieldset", "optgroup", "option",
         ]) {
@@ -235,9 +270,10 @@ impl Element for DomElement<'_> {
             NonTSPseudoClass::AnyLink | NonTSPseudoClass::Link => self.is_link(),
             NonTSPseudoClass::Disabled => self.disabled(),
             NonTSPseudoClass::Enabled => {
-                self.html_tag(&[
+                (self.html_tag(&[
                     "button", "input", "select", "textarea", "fieldset", "optgroup", "option",
-                ]) && !self.disabled()
+                ]) || self.dom.is_form_associated_custom_element(self.id))
+                    && !self.disabled()
             }
             NonTSPseudoClass::Checked => {
                 (self.html_tag(&["input"])
@@ -257,19 +293,25 @@ impl Element for DomElement<'_> {
                 self.dom.focused() == Some(self.id) && self.dom.focus_visible()
             }
             NonTSPseudoClass::FocusWithin => {
-                let mut id = self.dom.focused();
-                while let Some(i) = id {
-                    if i == self.id {
-                        return true;
-                    }
-                    id = self.dom.arena().get(i).ok().and_then(|n| n.parent);
-                }
-                false
+                self.dom.element_focus_within(self.id).unwrap_or(false)
             }
-            NonTSPseudoClass::ReadWrite => self.editable(),
-            NonTSPseudoClass::ReadOnly => !self.editable(),
+            NonTSPseudoClass::ReadWrite => self.dom.element_read_write(self.id).unwrap_or(false),
+            NonTSPseudoClass::ReadOnly => !self.dom.element_read_write(self.id).unwrap_or(false),
+            NonTSPseudoClass::UserValid => {
+                self.dom.element_user_validity(self.id).ok().flatten() == Some(true)
+            }
+            NonTSPseudoClass::UserInvalid => {
+                self.dom.element_user_validity(self.id).ok().flatten() == Some(false)
+            }
+            NonTSPseudoClass::Default => self.dom.element_default_state(self.id).unwrap_or(false),
+            NonTSPseudoClass::InRange => {
+                self.dom.element_range_state(self.id).ok().flatten() == Some(true)
+            }
+            NonTSPseudoClass::OutOfRange => {
+                self.dom.element_range_state(self.id).ok().flatten() == Some(false)
+            }
             NonTSPseudoClass::Required => {
-                self.html_tag(&["input", "select", "textarea"]) && self.attr("required").is_some()
+                self.dom.element_required_state(self.id).ok().flatten() == Some(true)
             }
             NonTSPseudoClass::Valid | NonTSPseudoClass::Invalid => self
                 .dom
@@ -278,37 +320,76 @@ impl Element for DomElement<'_> {
                     state.is_some_and(|valid| valid == matches!(pseudo, NonTSPseudoClass::Valid))
                 }),
             NonTSPseudoClass::Optional => {
-                self.html_tag(&["input", "select", "textarea"]) && self.attr("required").is_none()
+                self.dom.element_required_state(self.id).ok().flatten() == Some(false)
             }
             NonTSPseudoClass::Open => {
-                self.html_tag(&["details", "dialog"]) && self.attr("open").is_some()
+                (self.html_tag(&["details", "dialog"]) && self.attr("open").is_some())
+                    || (self.html_tag(&["select", "input"])
+                        && self.dom.top_layer().any(|entry| {
+                            entry.node == self.id
+                                && matches!(
+                                    entry.kind,
+                                    oryn_dom::TopLayerKind::SelectPicker
+                                        | oryn_dom::TopLayerKind::TemporalPicker
+                                )
+                        }))
             }
-            NonTSPseudoClass::Modal => {
-                self.html_tag(&["dialog"]) && self.attr("data-oryn-modal").is_some()
+            NonTSPseudoClass::Modal => self.dom.is_modal_dialog(self.id),
+            NonTSPseudoClass::PopoverOpen => self.dom.is_popover_open(self.id),
+            NonTSPseudoClass::Granted => self
+                .dom
+                .element_permission_granted(self.id)
+                .unwrap_or(false),
+            NonTSPseudoClass::Fullscreen => self.dom.is_fullscreen(self.id),
+            NonTSPseudoClass::Paused => {
+                self.dom.media_selector_state(self.id).unwrap_or(0) & 2 != 0
             }
-            NonTSPseudoClass::Defined => {
-                !self.tag().contains('-') || self.states.contains_key(&self.id)
+            NonTSPseudoClass::Playing => {
+                self.dom.media_selector_state(self.id).unwrap_or(0) & 4 != 0
+            }
+            NonTSPseudoClass::Seeking => {
+                self.dom.media_selector_state(self.id).unwrap_or(0) & 8 != 0
+            }
+            NonTSPseudoClass::Buffering => {
+                self.dom.media_selector_state(self.id).unwrap_or(0) & 16 != 0
+            }
+            NonTSPseudoClass::Stalled => {
+                self.dom.media_selector_state(self.id).unwrap_or(0) & 32 != 0
+            }
+            NonTSPseudoClass::InterestSource => {
+                self.dom.element_interest_source(self.id).unwrap_or(false)
+            }
+            NonTSPseudoClass::InterestTarget => {
+                self.dom.element_interest_target(self.id).unwrap_or(false)
+            }
+            NonTSPseudoClass::Defined => self.dom.element_defined(self.id).unwrap_or(false),
+            NonTSPseudoClass::PlaceholderShown => {
+                self.dom.element_placeholder_shown(self.id).unwrap_or(false)
+            }
+            NonTSPseudoClass::Target => {
+                self.dom
+                    .arena()
+                    .node_document(self.id)
+                    .ok()
+                    .flatten()
+                    .and_then(|document| self.dom.document_target(document).ok())
+                    .flatten()
+                    == Some(self.id)
             }
             NonTSPseudoClass::CustomState(name) => self.has_custom_state(&name.0),
             NonTSPseudoClass::Dir(direction) => direction.eq_ignore_ascii_case(
                 crate::directionality::directionality(self.dom.arena(), self.id),
             ),
-            NonTSPseudoClass::Lang(language) => {
-                let mut current = Some(*self);
-                while let Some(element) = current {
-                    if let Some(actual) = element.attr("xml:lang").or_else(|| element.attr("lang"))
-                    {
-                        return actual.eq_ignore_ascii_case(language)
-                            || actual
-                                .get(..language.len())
-                                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(language))
-                                && actual.as_bytes().get(language.len()) == Some(&b'-');
-                    }
-                    current = element
-                        .parent_element()
-                        .or_else(|| element.containing_shadow_host());
-                }
-                false
+            NonTSPseudoClass::Lang(ranges) => {
+                let actual = self
+                    .dom
+                    .element_language(self.id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or("");
+                ranges
+                    .iter()
+                    .any(|range| language_range_matches(actual, range))
             }
             _ => false,
         }
@@ -663,5 +744,340 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn registered_form_custom_elements_use_native_disabled_and_validity_state() {
+        let mut dom = DomRuntime::new();
+        let root = dom.create_element("fieldset");
+        let legend = dom.create_element("legend");
+        let exempt = dom.create_element("x-field");
+        let control = dom.create_element("x-field");
+        let ordinary = dom.create_element("x-other");
+        dom.append_child(root, legend).unwrap();
+        dom.append_child(legend, exempt).unwrap();
+        dom.append_child(root, control).unwrap();
+        dom.append_child(root, ordinary).unwrap();
+        dom.register_form_associated_custom_element(exempt).unwrap();
+        dom.register_form_associated_custom_element(control)
+            .unwrap();
+        dom.set_attribute(root, "disabled", "").unwrap();
+        let states = BTreeMap::new();
+        let matches = |dom: &DomRuntime, node, selector| {
+            !query(dom, node, selector, SelectorOperation::Matches, &states)
+                .unwrap()
+                .is_empty()
+        };
+        assert!(matches(&dom, exempt, ":enabled"));
+        assert!(!matches(&dom, exempt, ":disabled"));
+        assert!(matches(&dom, control, ":disabled"));
+        assert!(!matches(&dom, control, ":enabled"));
+        assert!(!matches(&dom, ordinary, ":enabled"));
+        assert!(!matches(&dom, ordinary, ":disabled"));
+        dom.set_custom_element_validity(
+            control,
+            ["customError".to_owned()].into_iter().collect(),
+            "invalid".into(),
+        )
+        .unwrap();
+        assert!(
+            !matches(&dom, control, ":invalid"),
+            "disabled controls are barred from validation"
+        );
+        dom.remove_attribute(root, "disabled").unwrap();
+        assert!(matches(&dom, control, ":enabled"));
+        assert!(matches(&dom, control, ":invalid"));
+        dom.set_custom_element_validity(control, Default::default(), String::new())
+            .unwrap();
+        assert!(matches(&dom, control, ":valid"));
+        dom.unregister_form_associated_custom_element(control);
+        assert!(!matches(&dom, control, ":enabled"));
+        assert!(!matches(&dom, control, ":valid"));
+    }
+}
+
+#[cfg(test)]
+mod permission_query_tests {
+    use super::*;
+    #[test]
+    fn granted_query_uses_native_state_with_stylo_negation_and_lists() {
+        let mut dom = DomRuntime::new();
+        let root = dom.document();
+        let a = dom.create_element("geolocation");
+        let b = dom.create_element("usermedia");
+        dom.append_child(root, a).unwrap();
+        dom.append_child(root, b).unwrap();
+        dom.set_permission_granted(a, true).unwrap();
+        let states = BTreeMap::new();
+        assert_eq!(
+            query(
+                &dom,
+                root,
+                ":is(geolocation,usermedia):granted",
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap(),
+            vec![a]
+        );
+        assert_eq!(
+            query(
+                &dom,
+                root,
+                "usermedia:not(:granted)",
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap(),
+            vec![b]
+        );
+        dom.set_permission_granted(a, false).unwrap();
+        assert!(
+            query(&dom, root, ":granted", SelectorOperation::All, &states)
+                .unwrap()
+                .is_empty()
+        );
+    }
+}
+
+#[cfg(test)]
+mod flat_focus_regressions {
+    use super::*;
+    #[test]
+    fn shadow_host_and_slot_queries_track_native_focus_ancestry() {
+        let mut dom = oryn_dom::html::parse(
+            "<main><x-host id=host><input id=light></x-host><input id=outside></main>",
+        )
+        .into_runtime()
+        .unwrap();
+        let host = dom.find_by_id("host").unwrap();
+        let light = dom.find_by_id("light").unwrap();
+        let outside = dom.find_by_id("outside").unwrap();
+        let shadow = dom.create(NodeKind::ShadowRoot {
+            mode: oryn_dom::ShadowMode::Open,
+            clonable: false,
+        });
+        dom.append_child(host, shadow).unwrap();
+        let slot = dom.create_element("slot");
+        dom.append_child(shadow, slot).unwrap();
+        let inner = dom.create_element("input");
+        dom.append_child(shadow, inner).unwrap();
+        let states = BTreeMap::new();
+        dom.focus(Some(inner)).unwrap();
+        assert_eq!(
+            query(
+                &dom,
+                host,
+                ":focus-within",
+                SelectorOperation::Matches,
+                &states
+            )
+            .unwrap(),
+            vec![host]
+        );
+        assert_eq!(
+            query(
+                &dom,
+                slot,
+                ":focus-within",
+                SelectorOperation::Matches,
+                &states
+            )
+            .unwrap(),
+            vec![]
+        );
+        dom.focus(Some(light)).unwrap();
+        assert_eq!(
+            query(
+                &dom,
+                slot,
+                ":focus-within",
+                SelectorOperation::Matches,
+                &states
+            )
+            .unwrap(),
+            vec![slot]
+        );
+        assert_eq!(
+            query(
+                &dom,
+                host,
+                ":focus-within",
+                SelectorOperation::Matches,
+                &states
+            )
+            .unwrap(),
+            vec![host]
+        );
+        dom.focus(Some(outside)).unwrap();
+        assert!(
+            query(
+                &dom,
+                host,
+                ":focus-within",
+                SelectorOperation::Matches,
+                &states
+            )
+            .unwrap()
+            .is_empty()
+        );
+    }
+}
+
+#[cfg(test)]
+mod language_selector_regressions {
+    use super::*;
+    #[test]
+    fn document_language_meta_and_http_drive_relational_queries() {
+        let mut dom = oryn_dom::html::parse("<section id=owner><span id=child></span></section>")
+            .into_runtime()
+            .unwrap();
+        let root = dom.document();
+        let owner = dom.find_by_id("owner").unwrap();
+        let child = dom.find_by_id("child").unwrap();
+        let states = BTreeMap::new();
+        dom.set_document_content_language(root, Some("fr".into()))
+            .unwrap();
+        assert_eq!(
+            query(
+                &dom,
+                root,
+                "section:has(:lang(fr))",
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap(),
+            vec![owner]
+        );
+        let meta = dom.create_element("meta");
+        dom.set_attribute(meta, "http-equiv", "content-language")
+            .unwrap();
+        dom.set_attribute(meta, "content", "tr").unwrap();
+        dom.append_child(owner, meta).unwrap();
+        assert_eq!(
+            query(
+                &dom,
+                root,
+                "#child:lang(tr)",
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap(),
+            vec![child]
+        );
+        dom.set_attribute(child, "lang", "").unwrap();
+        assert!(
+            query(
+                &dom,
+                root,
+                "#child:lang(tr)",
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap()
+            .is_empty()
+        );
+        assert_eq!(
+            query(
+                &dom,
+                root,
+                r#"#child:lang("")"#,
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap(),
+            vec![child]
+        );
+    }
+    #[test]
+    fn native_lang_queries_use_namespace_precedence_lists_and_extended_ranges() {
+        let mut dom=oryn_dom::html::parse("<html lang=en-US><body><section id=owner lang=fr-Latn-FR><span id=child></span></section></body></html>").into_runtime().unwrap();
+        let root = dom.document();
+        let owner = dom.find_by_id("owner").unwrap();
+        let child = dom.find_by_id("child").unwrap();
+        let states = BTreeMap::new();
+        assert_eq!(
+            query(
+                &dom,
+                root,
+                "#child:lang(de,nl,fr)",
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap(),
+            vec![child]
+        );
+        assert_eq!(
+            query(
+                &dom,
+                root,
+                r#"#child:lang("fr-*-FR")"#,
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap(),
+            vec![child]
+        );
+        dom.set_attribute(owner, "xml:lang", "de").unwrap();
+        assert_eq!(
+            query(
+                &dom,
+                root,
+                "#child:lang(fr)",
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap(),
+            vec![child]
+        );
+        dom.set_attribute_ns(
+            owner,
+            Some("http://www.w3.org/XML/1998/namespace".into()),
+            "xml:lang",
+            "zh-Hant-TW",
+        )
+        .unwrap();
+        assert_eq!(
+            query(
+                &dom,
+                root,
+                "section:has(#child:lang(zh-TW))",
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap(),
+            vec![owner]
+        );
+        assert!(
+            query(
+                &dom,
+                root,
+                "#child:lang(fr)",
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap()
+            .is_empty()
+        );
+        dom.set_attribute_ns(
+            owner,
+            Some("http://www.w3.org/XML/1998/namespace".into()),
+            "xml:lang",
+            "",
+        )
+        .unwrap();
+        assert_eq!(
+            query(
+                &dom,
+                root,
+                r#"#child:lang("")"#,
+                SelectorOperation::All,
+                &states
+            )
+            .unwrap(),
+            vec![child]
+        );
+        assert!(!language_range_matches("de-x-DE", "de-DE"));
+        assert!(language_range_matches("de-Latn-DE", "de-DE"));
     }
 }

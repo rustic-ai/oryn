@@ -191,6 +191,7 @@ pub enum DocumentEvent {
 }
 
 pub struct BaseDocument {
+    pub(crate) animation_sample_time:f64,
     /// ID of the document
     id: usize,
 
@@ -201,6 +202,8 @@ pub struct BaseDocument {
     pub(crate) devtool_settings: DevtoolSettings,
     // Viewport details such as the dimensions, HiDPI scale, and zoom factor,
     pub(crate) viewport: Viewport,
+    /// Exact CSS viewport supplied by native layout, independent of raster pixels.
+    pub(crate) css_viewport_size: Option<(f32, f32)>,
     // Scroll within our viewport
     pub(crate) viewport_scroll: crate::Point<f64>,
     /// CSS media type used to evaluate `@media` rules.
@@ -374,6 +377,7 @@ impl BaseDocument {
                 use parley::fontique::{Collection, CollectionOptions, SourceCache};
                 let mut font_ctx = FontContext {
                     source_cache: SourceCache::new_shared(),
+                    face_overrides:Default::default(),
                     collection: Collection::new(CollectionOptions {
                         shared: false,
                         system_fonts: cfg!(all(
@@ -390,10 +394,7 @@ impl BaseDocument {
         let font_ctx = Arc::new(Mutex::new(font_ctx));
 
         // Make sure we turn on stylo features *before* creating the Stylist
-        style_config::set_pref!("layout.grid.enabled", true);
-        style_config::set_pref!("layout.unimplemented", true);
-        style_config::set_pref!("layout.columns.enabled", true);
-        style_config::set_pref!("layout.css.basic-shape-shape.enabled", true);
+        style::native_profile::initialize();
         style_config::set_pref!("layout.threads", -1);
 
         let viewport = config.viewport.unwrap_or_default();
@@ -402,7 +403,7 @@ impl BaseDocument {
         let stylist = Stylist::new(device, QuirksMode::NoQuirks);
         let snapshots = SnapshotMap::new();
         let nodes = Box::new(NodeTree::new());
-        let guard = SharedRwLock::new();
+        let guard = config.style_lock.unwrap_or_else(SharedRwLock::new);
         let nodes_to_id = HashMap::new();
 
         let base_url = config
@@ -438,6 +439,7 @@ impl BaseDocument {
             snapshots,
             nodes_to_id,
             viewport,
+            css_viewport_size: None,
             media_type,
             pending_device_changes: DeviceChanges::empty(),
             style_threading: config.style_threading,
@@ -461,6 +463,7 @@ impl BaseDocument {
             active_node_id: None,
             mousedown_node_id: None,
             has_active_animations: false,
+            animation_sample_time:0.,
             subdoc_is_animating: false,
             has_canvas: false,
             sub_document_nodes: HashSet::new(),
@@ -1160,9 +1163,13 @@ impl BaseDocument {
     }
 
     pub fn make_stylesheet(&self, css: impl AsRef<str>, origin: Origin) -> DocumentStyleSheet {
+        self.make_stylesheet_with_base(css, origin, None)
+    }
+
+    pub fn make_stylesheet_with_base(&self, css: impl AsRef<str>, origin: Origin, base: Option<Url>) -> DocumentStyleSheet {
         let data = Stylesheet::from_str(
             css.as_ref(),
-            self.url.url_extra_data(),
+            base.map(style::stylesheets::UrlExtraData::from).unwrap_or_else(|| self.url.url_extra_data()),
             origin,
             ServoArc::new(self.guard.wrap(MediaList::empty())),
             self.guard.clone(),
@@ -2065,7 +2072,11 @@ impl BaseDocument {
     }
 
     /// Update the device and reset the stylist to process the new size
-    pub fn set_stylist_device(&mut self, device: Device) {
+    pub fn set_stylist_device(&mut self, mut device: Device) {
+        if let Some((width, height)) = self.css_viewport_size {
+            device.set_viewport_size(euclid::Size2D::new(width, height));
+            device.set_device_size(euclid::Size2D::new(width, height) * self.viewport.scale());
+        }
         // Seed the new device with the root element's current style and font-relative
         // unit state (used to resolve rem/rlh/rex/rch/rcap/ric units). Stylo only
         // updates this state when the root element's style *changes* during a restyle,
@@ -2125,6 +2136,22 @@ impl BaseDocument {
                 style::invalidation::viewport_units::invalidate(root);
             }
         }
+    }
+
+    /// Set CSS dimensions without rounding through the shell's integer raster size.
+    /// Rebuilding the device retains this override across media and DPR changes.
+    pub fn set_css_viewport_size(&mut self, width: f32, height: f32) {
+        assert!(width.is_finite() && height.is_finite() && width >= 0.0 && height >= 0.0);
+        if self.css_viewport_size == Some((width, height)) { return; }
+        self.css_viewport_size = Some((width, height));
+        self.queue_device_changes(DeviceChanges::VIEWPORT_SIZE);
+        self.flush_pending_device_changes();
+    }
+
+    /// Configure the native preference before style traversal/media evaluation.
+    pub fn set_prefers_reduced_motion(&mut self, value: bool) {
+        self.flush_pending_device_changes();
+        self.stylist.device_mut().set_prefers_reduced_motion(value);
     }
 
     pub fn stylist_device(&mut self) -> &Device {

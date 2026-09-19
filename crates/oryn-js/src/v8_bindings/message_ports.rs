@@ -3,14 +3,23 @@ use super::*;
 
 pub(super) type Port = Rc<RefCell<Endpoint>>;
 
+#[derive(Clone)]
+struct RemoteEndpoint {
+    transport: std::sync::Arc<dyn crate::message_wire::MessageTransport>,
+    token: crate::message_wire::PortToken,
+}
 pub(super) struct Endpoint {
+    remote: Option<RemoteEndpoint>,
     owner: RcWeak<V8BindingState>,
     id: u64,
     peer: RcWeak<RefCell<Endpoint>>,
     started: bool,
     closed: bool,
     scheduled: usize,
-    queue: VecDeque<structured_clone::SerializedValue>,
+    queue: VecDeque<message_delivery::Delivery>,
+    delivering: bool,
+    peer_close_pending: bool,
+    peer_closed: bool,
     queued_bytes: usize,
 }
 
@@ -20,6 +29,32 @@ fn endpoint(state: &V8BindingState, id: u64) -> Result<Option<Port>, V8BindingEr
         PlatformObjectRecord::DetachedMessagePort => Ok(None),
         _ => Err(V8BindingError::Allocation("MessagePort endpoint")),
     }
+}
+
+pub(super) fn transfer_identity(
+    scope: &mut v8::PinScope,
+    value: v8::Local<v8::Value>,
+) -> Option<(u64, u64)> {
+    let object = v8::Local::<v8::Object>::try_from(value).ok()?;
+    if object.internal_field_count() == 0 {
+        return None;
+    }
+    let state = binding_state_for_receiver(scope, object)?;
+    let id = stateful_id(scope, object).ok()?;
+    if !state
+        .platform_wrappers
+        .borrow()
+        .get(&id)?
+        .to_local(scope)?
+        .strict_equals(value)
+    {
+        return None;
+    }
+    matches!(
+        state.platform_objects.borrow().get(&id),
+        Some(PlatformObjectRecord::MessagePort(_) | PlatformObjectRecord::DetachedMessagePort)
+    )
+    .then_some((state.instance_id, id))
 }
 
 pub(super) fn transferable(
@@ -73,9 +108,28 @@ pub(super) fn receive<'s>(
     new_platform_object(scope, state, "MessagePort", id).ok()
 }
 
-pub(super) fn channel(state: &Rc<V8BindingState>) -> (u64, u64) {
+pub(super) fn channel(state: &Rc<V8BindingState>) -> Result<(u64, u64), V8BindingError> {
+    let remote = if let Some(transport) = state
+        .message_transport
+        .borrow()
+        .clone()
+        .filter(|_| !state.execution_tasks_stopped())
+    {
+        match transport
+            .request(
+                state.scoped_message_request(crate::message_wire::MessageRequest::CreateChannel)?,
+            )
+            .map_err(|_| V8BindingError::Allocation("MessageChannel transport"))?
+        {
+            crate::message_wire::MessageResponse::Channel(tokens) => Some((transport, tokens)),
+            _ => return Err(V8BindingError::Allocation("MessageChannel response")),
+        }
+    } else {
+        None
+    };
     let make = || {
         let port = Rc::new(RefCell::new(Endpoint {
+            remote: None,
             owner: Rc::downgrade(state),
             id: 0,
             peer: RcWeak::new(),
@@ -83,6 +137,9 @@ pub(super) fn channel(state: &Rc<V8BindingState>) -> (u64, u64) {
             closed: false,
             scheduled: 0,
             queue: VecDeque::new(),
+            delivering: false,
+            peer_close_pending: false,
+            peer_closed: false,
             queued_bytes: 0,
         }));
         let id = register_platform_object(state, PlatformObjectRecord::MessagePort(port.clone()));
@@ -93,13 +150,25 @@ pub(super) fn channel(state: &Rc<V8BindingState>) -> (u64, u64) {
     let (b, second) = make();
     first.borrow_mut().peer = Rc::downgrade(&second);
     second.borrow_mut().peer = Rc::downgrade(&first);
-    (a, b)
+    if let Some((transport, [a, b])) = remote {
+        first.borrow_mut().remote = Some(RemoteEndpoint {
+            transport: transport.clone(),
+            token: a,
+        });
+        second.borrow_mut().remote = Some(RemoteEndpoint {
+            transport,
+            token: b,
+        });
+    }
+    Ok((a, b))
 }
 
 fn schedule(port: &Port) {
     let mut endpoint = port.borrow_mut();
-    while endpoint.started
-        && endpoint.scheduled < endpoint.queue.len()
+    if endpoint.started
+        && !endpoint.delivering
+        && endpoint.scheduled == 0
+        && !endpoint.queue.is_empty()
         && let Some(owner) = endpoint.owner.upgrade()
     {
         endpoint.scheduled += 1;
@@ -109,6 +178,23 @@ fn schedule(port: &Port) {
             .push_back(DeferredPlatformTask::PortMessage {
                 port_id: endpoint.id,
             });
+    }
+    if endpoint.started
+        && !endpoint.delivering
+        && endpoint.scheduled == 0
+        && endpoint.queue.is_empty()
+        && endpoint.peer_close_pending
+    {
+        if let Some(owner) = endpoint.owner.upgrade() {
+            endpoint.peer_close_pending = false;
+            owner
+                .deferred_platform_tasks
+                .borrow_mut()
+                .push_back(DeferredPlatformTask::Event {
+                    target_id: endpoint.id,
+                    event_type: "close",
+                });
+        }
     }
 }
 
@@ -122,39 +208,95 @@ pub(super) fn start(state: &V8BindingState, id: u64) -> Result<(), V8BindingErro
 }
 
 fn disentangle(port: &Port, discard: bool) {
-    let peer = {
+    let remote = port.borrow_mut().remote.take();
+    let native = remote.is_some();
+    if let Some(remote) = remote {
+        let _ = remote
+            .transport
+            .request(crate::message_wire::MessageRequest::ClosePort { port: remote.token });
+    }
+    let (peer, discarded) = {
         let mut endpoint = port.borrow_mut();
         endpoint.closed = true;
+        let discarded = if discard {
+            std::mem::take(&mut endpoint.queue)
+        } else {
+            VecDeque::new()
+        };
         if discard {
-            endpoint.queue.clear();
             endpoint.queued_bytes = 0;
             endpoint.scheduled = 0;
         }
-        std::mem::take(&mut endpoint.peer).upgrade()
+        (std::mem::take(&mut endpoint.peer).upgrade(), discarded)
     };
-    if let Some(peer) = peer {
-        let mut peer = peer.borrow_mut();
-        peer.peer = RcWeak::new();
-        if let Some(owner) = peer.owner.upgrade() {
-            owner
-                .deferred_platform_tasks
-                .borrow_mut()
-                .push_back(DeferredPlatformTask::Event {
-                    target_id: peer.id,
-                    event_type: "close",
-                });
+    if let Some(owner) = port.borrow().owner.upgrade() {
+        for delivery in discarded {
+            delivery.cancel(&owner);
         }
     }
+    if let Some(peer) = peer {
+        {
+            let mut endpoint = peer.borrow_mut();
+            endpoint.peer = RcWeak::new();
+            endpoint.peer_closed = true;
+            if !native {
+                endpoint.peer_close_pending = true;
+            }
+        }
+        schedule(&peer);
+    }
+}
+
+/// Payload-owned endpoint that never committed into a receiving wrapper.
+pub(super) fn discard_unreceived(port: &Port) {
+    disentangle(port, true);
 }
 
 pub(super) fn close(state: &V8BindingState, id: u64) -> Result<(), V8BindingError> {
     if let Some(port) = endpoint(state, id)? {
+        // Tasks queued before close remain deliverable, even when only the
+        // first native task has been polled. Stage the bounded native queue
+        // before revoking the endpoint; no author callback runs here.
+        let remote = port.borrow().remote.clone();
+        if let Some(remote) = remote {
+            for _ in 0..32 {
+                let response = remote
+                    .transport
+                    .request(state.scoped_message_receive(
+                        crate::message_wire::MessageRequest::PollPort {
+                            port: remote.token.clone(),
+                            max: 32,
+                        },
+                    )?)
+                    .map_err(|_| V8BindingError::Allocation("MessagePort close queue"))?;
+                let crate::message_wire::MessageResponse::PortMessages { messages, .. } = response
+                else {
+                    return Err(V8BindingError::Allocation(
+                        "MessagePort close queue response",
+                    ));
+                };
+                let done = messages.len() < 32;
+                for value in messages {
+                    let delivery = message_delivery::Delivery::wire(state, value, String::new());
+                    let mut endpoint = port.borrow_mut();
+                    endpoint.queued_bytes = endpoint.queued_bytes.saturating_add(delivery.bytes());
+                    endpoint.queue.push_back(delivery);
+                }
+                if done {
+                    break;
+                }
+            }
+        }
         disentangle(&port, false);
+        schedule(&port);
     }
     Ok(())
 }
 
 pub(super) fn retire(state: &V8BindingState) {
+    for (_, (_, delivery)) in std::mem::take(&mut *state.message_port_dispatches.borrow_mut()) {
+        delivery.cancel(state);
+    }
     let ports: Vec<_> = state
         .platform_objects
         .borrow()
@@ -180,19 +322,10 @@ pub(super) fn post(
     options: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
     let port = endpoint(state, id)?;
-    // Support the sequence overload as well as StructuredSerializeOptions.
-    let options = if options.is_array() {
-        let dictionary = v8::Object::new(scope);
-        let key =
-            v8::String::new(scope, "transfer").ok_or(V8BindingError::Allocation("transfer"))?;
-        dictionary.create_data_property(scope, key.into(), options);
-        dictionary.into()
-    } else {
-        options
-    };
-    let Some(transfers) = structured_clone::transfer_list(scope, options) else {
+    let Some(options) = structured_clone::post_transfer_options(scope, options) else {
         return Ok(());
     };
+    let transfers = options.transfers;
     if transfers.iter().any(|value| {
         transferable(scope, *value).is_some_and(|(owner, port_id, _)| {
             owner.instance_id == state.instance_id && port_id == id
@@ -202,15 +335,66 @@ pub(super) fn post(
         scope.throw_exception(error);
         return Ok(());
     }
+    let remote = port.as_ref().and_then(|port| port.borrow().remote.clone());
+    if let Some(remote) = remote {
+        let Some(serialized) =
+            structured_clone::serialize_wire_with_activation(scope, value, &transfers, |scope| {
+                structured_clone::activation_snapshot(scope, options.include_user_activation)
+            })
+        else {
+            return Ok(());
+        };
+        let _shared_send_guard = structured_clone::shared_send_guard(scope, &serialized);
+        let transferred = serialized.ports.clone();
+        if let Err(error) = publish_native_window_tree(scope) {
+            let _ =
+                remote
+                    .transport
+                    .request(crate::message_wire::MessageRequest::DiscardTransfers {
+                        ports: transferred,
+                    });
+            return Err(error);
+        }
+        let request =
+            match state.scoped_message_request(crate::message_wire::MessageRequest::PostPort {
+                port: remote.token,
+                payload: serialized,
+            }) {
+                Ok(request) => request,
+                Err(error) => {
+                    let _ = remote.transport.request(
+                        crate::message_wire::MessageRequest::DiscardTransfers {
+                            ports: transferred,
+                        },
+                    );
+                    return Err(error);
+                }
+            };
+        if remote.transport.request(request).is_err() {
+            let _ =
+                remote
+                    .transport
+                    .request(crate::message_wire::MessageRequest::DiscardTransfers {
+                        ports: transferred,
+                    });
+            let error = dom_exception_value(scope, "QuotaExceededError")?;
+            scope.throw_exception(error);
+        }
+        return Ok(());
+    }
     let peer = port.and_then(|port| port.borrow().peer.upgrade());
     let doomed = peer.as_ref().is_some_and(|peer| {
         transfers.iter().any(|value| {
             transferable(scope, *value).is_some_and(|(_, _, port)| Rc::ptr_eq(peer, &port))
         })
     });
-    let Some(serialized) = structured_clone::serialize(scope, value, &transfers) else {
+    let Some(mut serialized) = structured_clone::serialize(scope, value, &transfers) else {
         return Ok(());
     };
+    serialized.set_user_activation(structured_clone::activation_snapshot(
+        scope,
+        options.include_user_activation,
+    ));
     if doomed {
         return Ok(());
     }
@@ -229,60 +413,270 @@ pub(super) fn post(
             return Ok(());
         }
         receiver.queued_bytes += bytes;
-        receiver.queue.push_back(serialized);
+        receiver
+            .queue
+            .push_back(message_delivery::Delivery::local(serialized));
         drop(receiver);
         schedule(&peer);
     }
     Ok(())
 }
 
+struct DeliveryGuard {
+    port: Port,
+    state: Rc<V8BindingState>,
+    id: u64,
+    delivery: Option<message_delivery::Delivery>,
+    bytes: usize,
+}
+impl Drop for DeliveryGuard {
+    fn drop(&mut self) {
+        // A running task belongs to its original target even if a listener
+        // transfers that endpoint. Future, unstarted tasks follow the port.
+        if let Some(delivery) = self.delivery.take() {
+            if !self.state.execution_retired() {
+                self.state
+                    .message_port_dispatches
+                    .borrow_mut()
+                    .insert(self.id, (self.port.clone(), delivery));
+                self.state
+                    .deferred_platform_tasks
+                    .borrow_mut()
+                    .push_front(DeferredPlatformTask::PortMessage { port_id: self.id });
+                return;
+            }
+            delivery.cancel(&self.state);
+        }
+        let mut port = self.port.borrow_mut();
+        port.delivering = false;
+        port.queued_bytes = port.queued_bytes.saturating_sub(self.bytes);
+        drop(port);
+        schedule(&self.port);
+    }
+}
 pub(super) fn deliver(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     id: u64,
 ) -> Result<(), V8BindingError> {
-    let Some(port) = endpoint(state, id)? else {
-        return Ok(());
-    };
-    let message = {
-        let mut endpoint = port.borrow_mut();
-        endpoint.scheduled = endpoint.scheduled.saturating_sub(1);
-        if !endpoint.started {
+    let resumed = state.message_port_dispatches.borrow_mut().remove(&id);
+    let (port, delivery) = if let Some(resumed) = resumed {
+        resumed
+    } else {
+        let Some(port) = endpoint(state, id)? else {
             return Ok(());
-        }
-        let message = endpoint.queue.pop_front();
-        if let Some(message) = &message {
-            endpoint.queued_bytes -= message.retained_bytes();
-        }
-        message
-    };
-    if let Some(message) = message {
-        let data = {
-            v8::tc_scope!(let tc, scope);
-            structured_clone::deserialize_with_ports(tc, message).map(|(value, ports)| {
-                (
-                    v8::Global::new(tc, value),
-                    ports
-                        .into_iter()
-                        .map(|port| v8::Global::new(tc, port))
-                        .collect::<Vec<_>>(),
-                )
-            })
         };
-        if let Some((data, ports)) = data {
-            let data = v8::Local::new(scope, &data);
-            let ports = ports
-                .iter()
-                .map(|port| v8::Local::new(scope, port))
-                .collect::<Vec<_>>();
-            let event = message_events::delivery(scope, state, data, &ports)?;
-            dispatch_platform_event(scope, state, id, "message", Some(event))?;
-        } else {
-            dispatch_platform_event(scope, state, id, "messageerror", None)?;
+        let remote = {
+            let mut endpoint = port.borrow_mut();
+            endpoint.scheduled = endpoint.scheduled.saturating_sub(1);
+            if !endpoint.started || endpoint.delivering {
+                return Ok(());
+            }
+            if endpoint.queue.is_empty() && !endpoint.closed {
+                endpoint.remote.clone()
+            } else {
+                None
+            }
+        };
+        if let Some(remote) = remote {
+            // Dequeue only when this task starts. Until then the parent queue
+            // and every embedded transfer/shared claim follow endpoint transfer.
+            let request =
+                state.scoped_message_receive(crate::message_wire::MessageRequest::PollPort {
+                    port: remote.token,
+                    max: 1,
+                })?;
+            let response = remote
+                .transport
+                .request(request)
+                .map_err(|_| V8BindingError::Allocation("MessagePort poll"))?;
+            let crate::message_wire::MessageResponse::PortMessages {
+                messages,
+                peer_closed,
+            } = response
+            else {
+                return Err(V8BindingError::Allocation("MessagePort poll response"));
+            };
+            for value in messages {
+                let delivery = message_delivery::Delivery::wire(state, value, String::new());
+                let mut endpoint = port.borrow_mut();
+                endpoint.queued_bytes = endpoint.queued_bytes.saturating_add(delivery.bytes());
+                endpoint.queue.push_back(delivery);
+            }
+            if peer_closed {
+                let mut endpoint = port.borrow_mut();
+                endpoint.peer_close_pending = true;
+                endpoint.peer_closed = true;
+            }
+        }
+        let delivery = {
+            let mut endpoint = port.borrow_mut();
+            let delivery = endpoint.queue.pop_front();
+            if delivery.is_some() {
+                endpoint.delivering = true;
+            }
+            delivery
+        };
+        let Some(delivery) = delivery else {
+            schedule(&port);
+            return Ok(());
+        };
+        (port, delivery)
+    };
+    let bytes = delivery.bytes();
+    let mut guard = DeliveryGuard {
+        port,
+        state: state.clone(),
+        id,
+        delivery: Some(delivery),
+        bytes,
+    };
+    if guard.delivery.as_mut().unwrap().resume(scope, state, id)? {
+        guard.delivery.take();
+    }
+    Ok(())
+}
+
+/// Export the detached native endpoints as one atomic transfer batch. No JS
+/// property is consulted and no endpoint is transferable twice.
+pub(super) fn export_tokens(
+    scope: &mut v8::PinScope,
+    ports: &[Port],
+) -> Option<Vec<crate::message_wire::PortToken>> {
+    if ports.is_empty() {
+        return Some(Vec::new());
+    }
+    let endpoints = ports
+        .iter()
+        .map(|port| port.borrow().remote.clone())
+        .collect::<Option<Vec<_>>>()?;
+    let transport = endpoints[0].transport.clone();
+    let state = scope.get_current_context().get_slot::<V8BindingState>()?;
+    let request = state
+        .scoped_message_request(crate::message_wire::MessageRequest::Transfer {
+            ports: endpoints.iter().map(|p| p.token.clone()).collect(),
+        })
+        .ok()?;
+    match transport.request(request) {
+        Ok(crate::message_wire::MessageResponse::Transferred(tokens)) => Some(tokens),
+        _ => {
+            if let Ok(error) = dom_exception_value(scope, "DataCloneError") {
+                scope.throw_exception(error);
+            }
+            None
         }
     }
-    // One event per task. The host performs its microtask checkpoint before
-    // processing this queued successor, including messages posted by a handler.
-    schedule(&port);
-    Ok(())
+}
+pub(super) fn import_token(
+    state: &Rc<V8BindingState>,
+    token: crate::message_wire::PortToken,
+) -> Option<Port> {
+    let transport = state.message_transport.borrow().clone()?;
+    Some(Rc::new(RefCell::new(Endpoint {
+        remote: Some(RemoteEndpoint { transport, token }),
+        owner: RcWeak::new(),
+        id: 0,
+        peer: RcWeak::new(),
+        started: false,
+        closed: false,
+        scheduled: 0,
+        queue: VecDeque::new(),
+        delivering: false,
+        peer_close_pending: false,
+        peer_closed: false,
+        queued_bytes: 0,
+    })))
+}
+pub(super) fn transfer_live(port: &Port) -> bool {
+    !port.borrow().closed
+}
+pub(super) fn wire_transfer_supported(port: &Port) -> bool {
+    port.borrow().remote.is_some()
+}
+pub(super) fn poll_external(
+    _scope: &mut v8::PinScope,
+    state: &V8BindingState,
+) -> Result<usize, V8BindingError> {
+    let ports = state
+        .platform_objects
+        .borrow()
+        .values()
+        .filter_map(|record| match record {
+            PlatformObjectRecord::MessagePort(port) => Some(port.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut scheduled = 0;
+    for port in ports {
+        if state.execution_tasks_stopped() {
+            break;
+        }
+        let mut endpoint = port.borrow_mut();
+        if endpoint.remote.is_none()
+            || endpoint.closed
+            || !endpoint.started
+            || endpoint.delivering
+            || endpoint.scheduled != 0
+        {
+            continue;
+        }
+        if endpoint.queue.is_empty() {
+            let remote = endpoint.remote.as_ref().unwrap();
+            let request =
+                state.scoped_message_receive(crate::message_wire::MessageRequest::PortPending {
+                    port: remote.token.clone(),
+                })?;
+            match remote
+                .transport
+                .request(request)
+                .map_err(|_| V8BindingError::Allocation("MessagePort readiness"))?
+            {
+                crate::message_wire::MessageResponse::PortPending(false) => continue,
+                crate::message_wire::MessageResponse::PortPending(true) => {}
+                _ => return Err(V8BindingError::Allocation("MessagePort readiness response")),
+            }
+        }
+        endpoint.scheduled = 1;
+        state
+            .deferred_platform_tasks
+            .borrow_mut()
+            .push_back(DeferredPlatformTask::PortMessage {
+                port_id: endpoint.id,
+            });
+        scheduled += 1;
+    }
+    Ok(scheduled)
+}
+
+/// Entanglement roots a port with message listeners, never its unused peer.
+/// Queued/started dispatch tasks independently retain their destination wrapper.
+pub(super) fn listener_target_active(port: &Port) -> bool {
+    let port = port.borrow();
+    port.scheduled > 0
+        || !port.queue.is_empty()
+        || (!port.closed
+            && ((port.remote.is_some() && !port.peer_closed) || port.peer.upgrade().is_some()))
+}
+pub(super) fn release_collected(state: &V8BindingState, id: u64) {
+    let port = {
+        let records = state.platform_objects.borrow();
+        match records.get(&id) {
+            Some(PlatformObjectRecord::MessagePort(port)) => Some(port.clone()),
+            _ => None,
+        }
+    };
+    let Some(port) = port else { return };
+    // An old wrapper can finalize after its endpoint moved to another realm.
+    let owned = {
+        let endpoint = port.borrow();
+        endpoint.id == id
+            && endpoint
+                .owner
+                .upgrade()
+                .is_some_and(|owner| owner.instance_id == state.instance_id)
+    };
+    if owned {
+        disentangle(&port, true);
+        state.platform_objects.borrow_mut().remove(&id);
+    }
 }

@@ -1,0 +1,63 @@
+{
+  "schema_version": 3,
+  "family": "research_extraction",
+  "scope": "Actual nested frame extraction and detached subtree isolation; native stale-reference error adapter additionally required",
+  "cases": [
+    {
+      "id": "nested_cross_origin_extraction",
+      "scenario": "normal",
+      "steps": [
+        "goto \"{base}/frames\"",
+        "frame css(#same)",
+        "wait visible css(#facts)",
+        "extract text --selector \"#facts\"",
+        "click \"Load foreign source\"",
+        "frame css(#foreign)",
+        "wait visible css(#facts)",
+        "extract text --selector \"#facts\"",
+        "extract text --selector \"#isolation\"",
+        "click \"Load nested source\"",
+        "frame css(#nested)",
+        "wait visible css(#facts)",
+        "extract text --selector \"#facts\"",
+        "frame main",
+        "extract text --selector \"#facts\"",
+        "click \"Remove source tree\"",
+        "extract text --selector \"#facts\"",
+        "observe"
+      ],
+      "expected": [
+        "Same-origin Alpha: 11 MWh.",
+        "Cross-origin Beta: 22 MWh.",
+        "Parent access denied",
+        "Nested Gamma: 33 MWh.",
+        "Root research index only.",
+        "Root research index only."
+      ],
+      "sources": [],
+      "visits": [
+        {
+          "path": "frames",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "frame-same",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "frame-foreign",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "frame-nested",
+          "query": {},
+          "status": 200
+        }
+      ],
+      "final": "frames"
+    }
+  ]
+}

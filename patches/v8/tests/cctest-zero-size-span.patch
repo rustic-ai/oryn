@@ -1,0 +1,11 @@
+--- a/test/cctest/test-api-array-buffer.cc
++++ b/test/cctest/test-api-array-buffer.cc
+@@ -1101,7 +1101,7 @@
+ 
+   auto view = v8::Local<v8::ArrayBufferView>::Cast(CompileRun(source));
+   uint8_t buffer[i::JSTypedArray::kMaxSizeInHeap];
+-  v8::MemorySpan<uint8_t> storage(buffer);
++  v8::MemorySpan<uint8_t> storage(buffer, sizeof(buffer));
+   storage = view->GetContents(storage);
+   CHECK_EQ(view->ByteLength(), storage.size());
+   if (expected) {

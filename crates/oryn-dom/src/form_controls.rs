@@ -1,8 +1,9 @@
-use super::{DomError, DomRuntime, Mutation, Node, NodeId, NodeKind};
+use super::{DomArena, DomError, DomRuntime, Mutation, Node, NodeId, NodeKind};
+use std::collections::BTreeSet;
 
 const HTML: &str = "http://www.w3.org/1999/xhtml";
 
-fn valid_email_address(value: &str) -> bool {
+pub(super) fn valid_email_address(value: &str) -> bool {
     let Some((local, domain)) = value.split_once('@') else {
         return false;
     };
@@ -28,6 +29,25 @@ impl Node {
 }
 
 impl DomRuntime {
+    pub fn register_form_associated_custom_element(
+        &mut self,
+        node: NodeId,
+    ) -> Result<(), DomError> {
+        self.arena.get(node)?;
+        if self.arena.form_associated_custom_elements.insert(node) {
+            self.mutations.push(Mutation::FormState { node });
+        }
+        Ok(())
+    }
+    pub fn unregister_form_associated_custom_element(&mut self, node: NodeId) {
+        if self.arena.form_associated_custom_elements.remove(&node) {
+            self.custom_element_validity.remove(&node);
+            self.mutations.push(Mutation::FormState { node });
+        }
+    }
+    pub fn is_form_associated_custom_element(&self, node: NodeId) -> bool {
+        self.arena.form_associated_custom_elements.contains(&node) && self.arena.get(node).is_ok()
+    }
     pub(super) fn sanitized_input_value(
         &self,
         node: NodeId,
@@ -39,10 +59,14 @@ impl DomRuntime {
         let kind = self
             .attribute_in_null_namespace(node, "type")?
             .unwrap_or("text");
+        if kind.eq_ignore_ascii_case("color") {
+            return self.sanitize_color_value(node, value);
+        }
         if super::numeric_controls::numeric_kind(kind) {
             return self.sanitize_numeric_value(node, &kind.to_ascii_lowercase(), value);
         }
         if kind.eq_ignore_ascii_case("email") || kind.eq_ignore_ascii_case("url") {
+            let value = value.replace(['\r', '\n'], "");
             if kind.eq_ignore_ascii_case("email")
                 && self
                     .attribute_in_null_namespace(node, "multiple")?
@@ -54,10 +78,7 @@ impl DomRuntime {
                     .collect::<Vec<_>>()
                     .join(","));
             }
-            return Ok(value
-                .replace(['\r', '\n'], "")
-                .trim_matches(['\t', '\n', '\x0c', '\r', ' '])
-                .into());
+            return Ok(value.trim_matches(['\t', '\n', '\x0c', '\r', ' ']).into());
         }
         Ok(value.into())
     }
@@ -69,17 +90,38 @@ impl DomRuntime {
         value: &str,
     ) -> Result<Option<String>, DomError> {
         if self.is_element(node, HTML, "input")
+            && matches!(name, "alpha" | "colorspace")
+            && self
+                .attribute_in_null_namespace(node, "type")?
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("color"))
+        {
+            return if self.arena.get(node)?.dirty_value {
+                self.control_value(node).map(Some)
+            } else {
+                Ok(None)
+            };
+        }
+        if matches!(name, "min" | "max" | "step")
+            && self
+                .attribute_in_null_namespace(node, "type")?
+                .is_none_or(|kind| !kind.eq_ignore_ascii_case("range"))
+        {
+            return Ok(None);
+        }
+        if self.is_element(node, HTML, "input")
             && matches!(name, "type" | "multiple" | "min" | "max" | "step")
             && !self.is_file_input(node)
             && (self
                 .attribute_in_null_namespace(node, "type")?
                 .is_some_and(|kind| {
-                    kind.eq_ignore_ascii_case("email")
+                    kind.eq_ignore_ascii_case("color")
+                        || kind.eq_ignore_ascii_case("email")
                         || kind.eq_ignore_ascii_case("url")
                         || super::numeric_controls::numeric_kind(kind)
                 })
                 || (name == "type"
-                    && (value.eq_ignore_ascii_case("email")
+                    && (value.eq_ignore_ascii_case("color")
+                        || value.eq_ignore_ascii_case("email")
                         || value.eq_ignore_ascii_case("url")
                         || super::numeric_controls::numeric_kind(value))))
         {
@@ -97,7 +139,7 @@ impl DomRuntime {
         if !self.is_element(node, HTML, "input") {
             return Ok(());
         }
-        if name == "value" && !self.arena.get(node)?.dirty_value {
+        if matches!(name, "value" | "alpha" | "colorspace") && !self.arena.get(node)?.dirty_value {
             self.arena.get_mut(node)?.value = None;
         } else if let Some(value) = old_value
             && !self.is_file_input(node)
@@ -109,19 +151,43 @@ impl DomRuntime {
     }
 
     pub fn reset_control_value(&mut self, node: NodeId, value: String) -> Result<(), DomError> {
+        self.close_file_picker(node)?;
+        if self.arena.get(node)?.temporal_picker.is_some() {
+            self.remove_from_top_layer(node);
+        }
+        self.set_user_validity(node, false)?;
         self.set_value(node, value, false)?;
         self.arena.get_mut(node)?.dirty_value = false;
         self.arena.get_mut(node)?.pending_edit_value = None;
         Ok(())
     }
 
+    pub fn has_datalist_ancestor(&self, node: NodeId) -> Result<bool, DomError> {
+        let mut cursor = self.parent(node)?;
+        while let Some(parent) = cursor {
+            if matches!(
+                self.arena.get(parent)?.kind,
+                NodeKind::Document | NodeKind::ShadowRoot { .. }
+            ) {
+                break;
+            }
+            if self.is_element(parent, HTML, "datalist") {
+                return Ok(true);
+            }
+            cursor = self.parent(parent)?;
+        }
+        Ok(false)
+    }
     pub fn control_will_validate(&self, node: NodeId) -> Result<bool, DomError> {
         if self.is_element(node, HTML, "select") {
             return self.select_will_validate(node);
         }
         let input = self.is_element(node, HTML, "input");
         let button = self.is_element(node, HTML, "button");
-        if (!input && !button && !self.is_element(node, HTML, "textarea"))
+        if (!input
+            && !button
+            && !self.is_element(node, HTML, "textarea")
+            && !self.is_form_associated_custom_element(node))
             || self.control_disabled(node)?
         {
             return Ok(false);
@@ -143,11 +209,7 @@ impl DomRuntime {
         if button && !self.is_submit_button(node)? {
             return Ok(false);
         }
-        Ok(!self
-            .arena
-            .ancestors(node)?
-            .iter()
-            .any(|id| self.is_element(*id, HTML, "datalist")))
+        Ok(!self.has_datalist_ancestor(node)?)
     }
 
     pub fn control_value_missing(&self, node: NodeId) -> Result<bool, DomError> {
@@ -155,11 +217,9 @@ impl DomRuntime {
             return self.select_value_missing(node);
         }
         if self.is_radio(node) {
-            if self
-                .attribute_in_null_namespace(node, "name")?
-                .unwrap_or("")
-                .is_empty()
-            {
+            // Radio groups require a nonempty name, including the candidate
+            // itself. An unnamed required radio has no required group.
+            if !self.same_radio_group(node, node)? {
                 return Ok(false);
             }
             let peers = self
@@ -202,10 +262,37 @@ impl DomRuntime {
             && self.control_value(node)?.is_empty())
     }
 
+    pub fn set_custom_element_validity(
+        &mut self,
+        node: NodeId,
+        flags: BTreeSet<String>,
+        message: String,
+    ) -> Result<(), DomError> {
+        let changed = self.arena.get(node)?.custom_validity_message != message
+            || self.custom_element_validity.get(&node) != Some(&flags);
+        self.arena.get_mut(node)?.custom_validity_message = message;
+        self.custom_element_validity.insert(node, flags);
+        if changed {
+            self.mutations.push(Mutation::FormState { node });
+        }
+        Ok(())
+    }
+    pub fn custom_element_validity_flag(&self, node: NodeId, flag: &str) -> bool {
+        self.custom_element_validity
+            .get(&node)
+            .is_some_and(|flags| flags.contains(flag))
+    }
     pub fn control_validity(&self, node: NodeId) -> Result<bool, DomError> {
+        if self.is_form_associated_custom_element(node) {
+            return Ok(self
+                .custom_element_validity
+                .get(&node)
+                .is_none_or(|flags| flags.is_empty()));
+        }
         let numeric = self.control_numeric_validity(node)?;
         let (too_short, too_long) = self.control_length_validity(node)?;
-        Ok(!self.control_value_missing(node)?
+        Ok(!self.control_bad_input(node)?
+            && !self.control_value_missing(node)?
             && !too_short
             && !too_long
             && !self.control_type_mismatch(node)?
@@ -223,11 +310,8 @@ impl DomRuntime {
             return Ok(Some(self.invalid_form_controls(node)?.is_empty()));
         }
         if self.is_element(node, HTML, "fieldset") {
-            for (child, _) in self.arena.iter() {
-                if self.arena.ancestors(child)?.contains(&node)
-                    && self.control_will_validate(child)?
-                    && !self.control_validity(child)?
-                {
+            for child in self.built_in_fieldset_controls(node)? {
+                if self.control_will_validate(child)? && !self.control_validity(child)? {
                     return Ok(Some(false));
                 }
             }
@@ -257,6 +341,9 @@ impl DomRuntime {
     }
 
     pub fn is_submit_button(&self, node: NodeId) -> Result<bool, DomError> {
+        if self.arena.get(node)?.submit_behavior.is_some() {
+            return Ok(self.is_form_associated_custom_element(node));
+        }
         if !self.is_element(node, HTML, "input") && !self.is_element(node, HTML, "button") {
             return Ok(false);
         }
@@ -320,8 +407,8 @@ impl DomRuntime {
     }
 
     /// Built-in listed descendants of a fieldset, independent of form owner.
-    /// Unlike form.elements, this includes image inputs. FACE membership awaits
-    /// the custom-element internals registry.
+    /// Unlike form.elements, this includes image inputs. Native registered FACE
+    /// controls participate with the same tree boundaries.
     pub fn built_in_fieldset_controls(&self, fieldset: NodeId) -> Result<Vec<NodeId>, DomError> {
         let record = self.arena.get(fieldset)?;
         if !self.is_element(fieldset, HTML, "fieldset") {
@@ -339,8 +426,8 @@ impl DomRuntime {
             }
             pending.extend(record.children.iter().rev().copied());
             if matches!(&record.kind, NodeKind::Element { name }
-                if name.ns.as_ref() == HTML && matches!(name.local.as_ref(),
-                    "button" | "fieldset" | "input" | "object" | "output" | "select" | "textarea"))
+                if name.ns.as_ref() == HTML && (matches!(name.local.as_ref(),
+                    "button" | "fieldset" | "input" | "object" | "output" | "select" | "textarea") || self.is_form_associated_custom_element(node)))
             {
                 controls.push(node);
             }
@@ -351,7 +438,7 @@ impl DomRuntime {
     /// Built-in listed controls represented by form.elements, in tree order.
     /// This is not the successful-controls filter used for submission: disabled,
     /// unnamed, unchecked and hidden controls remain members. Form-associated
-    /// custom elements require the separate custom-element internals registry.
+    /// custom elements participate after native definition registration.
     pub fn built_in_form_controls(&self, form: NodeId) -> Result<Vec<NodeId>, DomError> {
         self.collect_form_controls(form, false)
     }
@@ -387,10 +474,10 @@ impl DomRuntime {
                 continue;
             };
             if name.ns.as_ref() != HTML
-                || !matches!(
+                || (!matches!(
                     name.local.as_ref(),
                     "button" | "fieldset" | "input" | "object" | "output" | "select" | "textarea"
-                )
+                ) && !self.is_form_associated_custom_element(node))
             {
                 continue;
             }
@@ -453,8 +540,15 @@ impl DomRuntime {
 
     pub fn control_disabled(&self, node: NodeId) -> Result<bool, DomError> {
         let record = self.arena.get(node)?;
+        if record
+            .submit_behavior
+            .as_ref()
+            .is_some_and(|behavior| behavior.disabled)
+        {
+            return Ok(true);
+        }
         if !matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == HTML
-            && matches!(name.local.as_ref(), "input" | "button" | "select" | "textarea" | "fieldset" | "option" | "optgroup"))
+            && (matches!(name.local.as_ref(), "input" | "button" | "select" | "textarea" | "fieldset" | "option" | "optgroup") || self.is_form_associated_custom_element(node)||record.submit_behavior.is_some()))
         {
             return Ok(false);
         }
@@ -466,6 +560,12 @@ impl DomRuntime {
         }
         let mut cursor = record.parent;
         while let Some(parent) = cursor {
+            if matches!(
+                self.arena.get(parent)?.kind,
+                NodeKind::Document | NodeKind::ShadowRoot { .. }
+            ) {
+                break;
+            }
             if self.is_element(parent, HTML, "fieldset")
                 && self
                     .attribute_in_null_namespace(parent, "disabled")?
@@ -493,43 +593,17 @@ impl DomRuntime {
     }
 
     pub fn is_labelable(&self, node: NodeId) -> bool {
-        self.arena.get(node).is_ok_and(|record| matches!(&record.kind,
-            NodeKind::Element { name } if name.ns.as_ref() == HTML &&
-            (matches!(name.local.as_ref(), "button" | "meter" | "output" | "progress" | "select" | "textarea")
-             || (name.local.as_ref() == "input" && !record.attributes.get_null("type").is_some_and(|kind| kind.eq_ignore_ascii_case("hidden"))))))
+        self.arena.is_labelable(node)
     }
 
     pub fn label_control(&self, label: NodeId) -> Result<Option<NodeId>, DomError> {
-        if let Some(id) = self.attribute_in_null_namespace(label, "for")? {
-            if id.is_empty() {
-                return Ok(None);
-            }
-            return Ok(self
-                .get_element_by_id(self.control_tree_root(label)?, id)?
-                .filter(|node| self.is_labelable(*node)));
-        }
-        let mut pending = self
-            .children(label)?
-            .iter()
-            .rev()
-            .copied()
-            .collect::<Vec<_>>();
-        while let Some(node) = pending.pop() {
-            if self.is_labelable(node) {
-                return Ok(Some(node));
-            }
-            let record = self.arena.get(node)?;
-            if !matches!(record.kind, NodeKind::ShadowRoot { .. }) {
-                pending.extend(record.children.iter().rev().copied());
-            }
-        }
-        Ok(None)
+        self.arena.label_control(label)
     }
 
     pub fn is_interactive_content(&self, node: NodeId) -> bool {
         self.arena.get(node).is_ok_and(|record| matches!(&record.kind,
             NodeKind::Element { name } if name.ns.as_ref() == HTML &&
-            (matches!(name.local.as_ref(), "button" | "details" | "embed" | "iframe" | "label" | "select" | "textarea")
+            (record.submit_behavior.is_some() || matches!(name.local.as_ref(), "button" | "details" | "embed" | "iframe" | "label" | "select" | "textarea")
              || (name.local.as_ref() == "input" && !record.attributes.get_null("type").is_some_and(|kind| kind.eq_ignore_ascii_case("hidden")))
              || (name.local.as_ref() == "a" && record.attributes.contains_null("href"))
              || (matches!(name.local.as_ref(), "audio" | "video") && record.attributes.contains_null("controls"))
@@ -711,50 +785,9 @@ impl DomRuntime {
         Ok(())
     }
 
-    pub(super) fn reconcile_inserted_radios(&mut self, root: NodeId) -> Result<(), DomError> {
-        for node in self.arena.descendants_inclusive(root)? {
-            if self.is_radio(node) {
-                self.radio_form_owners.entry(node).or_insert(None);
-            }
-        }
-        self.refresh_radio_owners()?;
-        let checked = self
-            .arena
-            .descendants_inclusive(root)?
-            .into_iter()
-            .filter(|node| self.is_radio(*node) && self.checked(*node).unwrap_or(false))
-            .collect::<Vec<_>>();
-        for node in checked {
-            if self.is_connected(node)? {
-                self.set_checkedness(node, true)?;
-            }
-        }
-        Ok(())
-    }
-
     pub(super) fn refresh_radio_owners(&mut self) -> Result<(), DomError> {
-        let radios = self
-            .radio_form_owners
-            .keys()
-            .copied()
-            .filter(|node| self.is_radio(*node))
-            .collect::<Vec<_>>();
-        let mut owners = std::collections::BTreeMap::new();
-        let mut changed = Vec::new();
-        for node in radios {
-            let owner = self.form_owner(node)?;
-            if self.radio_form_owners.get(&node).copied().flatten() != owner
-                && self.checked(node)?
-            {
-                changed.push(node);
-            }
-            owners.insert(node, owner);
-        }
-        self.radio_form_owners = owners;
-        for node in changed {
-            self.set_checkedness(node, true)?;
-        }
-        Ok(())
+        crate::insertion::RadioReconciliation::refresh(self.arena.id(), self.document())
+            .resume(self)
     }
 }
 
@@ -851,6 +884,40 @@ mod tests {
         dom.remove_attribute(e, "multiple").unwrap();
         assert_eq!(dom.control_value(e).unwrap(), "a@b,c@d");
         assert!(dom.control_type_mismatch(e).unwrap());
+    }
+
+    #[test]
+    fn email_list_sanitization_strips_embedded_newlines_before_token_whitespace() {
+        let mut dom = html::parse("<input id=e type=email multiple>")
+            .into_runtime()
+            .unwrap();
+        let e = by_id(&dom, "e");
+        dom.set_value(
+            e,
+            " \tfirst@exa\r\nmple.test ,\n se\rcond@example.test\t ",
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            dom.control_value(e).unwrap(),
+            "first@example.test,second@example.test"
+        );
+        assert!(!dom.control_type_mismatch(e).unwrap());
+        // Sanitization strips CR/LF, but never repairs embedded spaces/tabs.
+        dom.set_value(e, "a@exa\tmple.test, b@exam ple.test", false)
+            .unwrap();
+        assert_eq!(
+            dom.control_value(e).unwrap(),
+            "a@exa\tmple.test,b@exam ple.test"
+        );
+        assert!(dom.control_type_mismatch(e).unwrap());
+        dom.reset_control_value(e, " first@exa\nmple.test , second@exa\rmple.test ".into())
+            .unwrap();
+        assert_eq!(
+            dom.control_value(e).unwrap(),
+            "first@example.test,second@example.test"
+        );
+        assert!(!dom.arena.get(e).unwrap().dirty_value);
     }
 
     #[test]
@@ -1110,5 +1177,158 @@ mod tests {
         let (a, b, f) = (by_id(&dom, "a"), by_id(&dom, "b"), by_id(&dom, "f"));
         dom.set_attribute(f, "id", "other").unwrap();
         assert!(!dom.checked(a).unwrap() && dom.checked(b).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod custom_form_registration_tests {
+    use super::*;
+    #[test]
+    fn custom_controls_follow_native_owner_and_disabled_legend_rules() {
+        let mut dom=crate::html::parse("<form id=a><fieldset disabled><legend><x-field id=legend></x-field></legend><x-field id=x name=x></x-field></fieldset></form><form id=b></form>").into_runtime().unwrap();
+        let document = dom.document();
+        let a = dom.get_element_by_id(document, "a").unwrap().unwrap();
+        let b = dom.get_element_by_id(document, "b").unwrap().unwrap();
+        let x = dom.get_element_by_id(document, "x").unwrap().unwrap();
+        let legend = dom.get_element_by_id(document, "legend").unwrap().unwrap();
+        assert!(!dom.built_in_form_controls(a).unwrap().contains(&x));
+        dom.register_form_associated_custom_element(x).unwrap();
+        dom.register_form_associated_custom_element(legend).unwrap();
+        assert!(dom.built_in_form_controls(a).unwrap().contains(&x));
+        assert!(dom.control_disabled(x).unwrap());
+        assert!(!dom.control_disabled(legend).unwrap());
+        assert!(dom.is_labelable(x));
+        dom.set_attribute(x, "form", "b").unwrap();
+        assert_eq!(dom.form_owner(x).unwrap(), Some(b));
+        assert!(dom.built_in_form_controls(b).unwrap().contains(&x));
+        let mut flags = BTreeSet::new();
+        flags.insert("badInput".into());
+        dom.set_custom_element_validity(x, flags, "invalid".into())
+            .unwrap();
+        assert!(!dom.control_validity(x).unwrap());
+        assert!(!dom.custom_element_validity_flag(x, "customError"));
+        dom.unregister_form_associated_custom_element(x);
+        assert!(!dom.built_in_form_controls(b).unwrap().contains(&x));
+    }
+}
+
+#[cfg(test)]
+mod constraint_applicability_regressions {
+    use super::*;
+    #[test]
+    fn fieldset_validity_excludes_shadow_controls_but_includes_custom_host() {
+        let mut dom = crate::html::parse("<fieldset id=f><x-field id=host></x-field></fieldset>")
+            .into_runtime()
+            .unwrap();
+        let fieldset = dom.find_by_id("f").unwrap();
+        let host = dom.find_by_id("host").unwrap();
+        let shadow = dom.create(NodeKind::ShadowRoot {
+            mode: crate::ShadowMode::Closed,
+            clonable: false,
+        });
+        dom.append_child(host, shadow).unwrap();
+        let control = dom.create_element("input");
+        dom.set_attribute(control, "required", "").unwrap();
+        dom.append_child(shadow, control).unwrap();
+        assert_eq!(dom.validation_selector_state(control).unwrap(), Some(false));
+        assert_eq!(dom.validation_selector_state(fieldset).unwrap(), Some(true));
+        dom.register_form_associated_custom_element(host).unwrap();
+        dom.set_custom_element_validity(
+            host,
+            ["valueMissing".into()].into_iter().collect(),
+            "Required".into(),
+        )
+        .unwrap();
+        assert_eq!(
+            dom.validation_selector_state(fieldset).unwrap(),
+            Some(false)
+        );
+        dom.set_custom_element_validity(host, BTreeSet::new(), String::new())
+            .unwrap();
+        assert_eq!(dom.validation_selector_state(fieldset).unwrap(), Some(true));
+    }
+    #[test]
+    fn readonly_bars_even_noneditable_inputs_and_named_required_radio_validates() {
+        let mut dom=crate::html::parse("<form><input id=check type=checkbox required readonly><input id=radio type=radio name=g required><input id=file type=file required readonly><input id=text required readonly><input id=number type=number required readonly></form>").into_runtime().unwrap();
+        for id in ["check", "file", "text", "number"] {
+            let node = dom.find_by_id(id).unwrap();
+            assert!(!dom.control_will_validate(node).unwrap(), "{id}");
+        }
+        let radio = dom.find_by_id("radio").unwrap();
+        assert!(dom.control_will_validate(radio).unwrap());
+        assert!(dom.control_value_missing(radio).unwrap());
+        assert!(!dom.control_validity(radio).unwrap());
+        dom.set_user_validity(radio, true).unwrap();
+        assert_eq!(dom.element_user_validity(radio).unwrap(), Some(false));
+        dom.remove_attribute(radio, "name").unwrap();
+        assert!(!dom.control_value_missing(radio).unwrap());
+        assert!(dom.control_validity(radio).unwrap());
+        dom.set_attribute(radio, "name", "").unwrap();
+        assert!(!dom.control_value_missing(radio).unwrap());
+        assert!(dom.control_validity(radio).unwrap());
+        dom.set_attribute(radio, "name", "g").unwrap();
+        assert!(dom.control_value_missing(radio).unwrap());
+    }
+}
+
+// Runtime controls and immutable semantic snapshots use identical ownership.
+impl DomArena {
+    pub fn is_labelable(&self, node: NodeId) -> bool {
+        self.get(node).is_ok_and(|record| matches!(&record.kind,
+            NodeKind::Element { name } if name.ns.as_ref() == HTML &&
+            (self.form_associated_custom_elements.contains(&node)
+             || matches!(name.local.as_ref(), "button" | "meter" | "output" | "progress" | "select" | "textarea")
+             || (name.local.as_ref() == "input" && !record.attributes.get_null("type").is_some_and(|kind| kind.eq_ignore_ascii_case("hidden"))))))
+    }
+
+    pub fn label_control(&self, label: NodeId) -> Result<Option<NodeId>, DomError> {
+        let record = self.get(label)?;
+        if !matches!(&record.kind, NodeKind::Element { name } if name.ns.as_ref() == HTML && name.local.as_ref() == "label")
+        {
+            return Ok(None);
+        }
+        if let Some(id) = record.attributes.get_null("for") {
+            if id.is_empty() {
+                return Ok(None);
+            }
+            let mut root = label;
+            loop {
+                let node = self.get(root)?;
+                if matches!(node.kind, NodeKind::Document | NodeKind::ShadowRoot { .. }) {
+                    break;
+                }
+                match node.parent {
+                    Some(parent) => root = parent,
+                    None => break,
+                }
+            }
+            // First matching ID wins, even if it is not labelable.
+            let mut pending = vec![root];
+            while let Some(node) = pending.pop() {
+                let current = self.get(node)?;
+                if node != root && matches!(current.kind, NodeKind::ShadowRoot { .. }) {
+                    continue;
+                }
+                if matches!(current.kind, NodeKind::Element { .. })
+                    && current.attributes.get_null("id") == Some(id)
+                {
+                    return Ok(self.is_labelable(node).then_some(node));
+                }
+                pending.extend(current.children.iter().rev().copied());
+            }
+            return Ok(None);
+        }
+        let mut pending = record.children.iter().rev().copied().collect::<Vec<_>>();
+        while let Some(node) = pending.pop() {
+            let current = self.get(node)?;
+            if matches!(current.kind, NodeKind::ShadowRoot { .. }) {
+                continue;
+            }
+            if self.is_labelable(node) {
+                return Ok(Some(node));
+            }
+            pending.extend(current.children.iter().rev().copied());
+        }
+        Ok(None)
     }
 }

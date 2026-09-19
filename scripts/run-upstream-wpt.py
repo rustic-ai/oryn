@@ -16,6 +16,7 @@ import os
 import re
 import select
 import ssl
+from generation_gate import check_execution_generation
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from evidence_protocols import validate_protocols
 from wpt_evidence import diagnostics as evidence_diagnostics, script_dependencies, template_failure, completion_errors, confirmed_dependency_failure
 from wpt_session import WptSession
 from wpt_fixture import DirectFixture
@@ -887,6 +889,7 @@ def run_session_case(binary, checkout, test, identifier, classification,
     try:
         uploads = [f'{asset}={asset}' for asset in fs_path_assets(checkout, checkout / test)]
         if session is None:
+            check_execution_generation()
             session = WptSession(binary, prewarmed=False)
         message = session.run(identifier, url, timeout, uploads=uploads)
         result = message.get('completion')
@@ -941,6 +944,7 @@ def run_session_case(binary, checkout, test, identifier, classification,
                 raise RuntimeError('reference requires isolated direct fixture')
             fixture.close()
             fixture.start('chromium')
+            check_execution_generation()
             reference = subprocess.run([str(Handler.node), str(ROOT / 'scripts/wpt-chromium-canary.mjs'),
                 str(Handler.chromium), url, str(int(timeout * 1000))],
                 capture_output=True, text=True, timeout=timeout + 345)
@@ -1039,6 +1043,7 @@ def run_case(
                     'global': global_name, 'variant': variant, 'status': 'failed',
                     'failure_domain': 'harness', 'runner_limitation': 'upstream_wrapper_unavailable',
                     'diagnostics': ['No faithful upstream wrapper is installed for this execution.']}
+        check_execution_generation()
         fixture = DirectFixture(checkout)
         row = {'id': identifier, 'path': test.as_posix(), 'classification': classification,
                'global': global_name, 'variant': variant, 'status': 'failed',
@@ -1086,6 +1091,7 @@ def run_case(
                 "failure_domain": "harness",
                 "diagnostics": [str(error)],
             }
+        check_execution_generation()
         completed = subprocess.run(
             [
                 str(binary),
@@ -1118,6 +1124,7 @@ def run_case(
             result = json.loads(payload)
         except (json.JSONDecodeError, IndexError):
             trace = trace_path.read_text(errors="replace") if trace_path.exists() else ""
+            check_execution_generation()
             probe = subprocess.run(
                 [
                     str(binary),
@@ -1297,7 +1304,25 @@ def verify_wpt_helpers(http_port: int, https_port: int) -> list[dict[str, object
     return evidence
 
 
+def validate_runtime_protocol_profile(profile: str, metadata: dict) -> None:
+    # Legacy is explicitly diagnostic reproduction, never current qualification.
+    validate_protocols(metadata, ROOT, historical=profile == "legacy")
+
+
+def validate_input_authority_profile(profile: str, metadata: dict) -> None:
+    """Historical input privilege can never qualify a production candidate."""
+    value = metadata.get("historical_test_input")
+    if type(value) is not bool:
+        raise ValueError("runtime preflight lacks explicit historical_test_input attribution")
+    if profile == "upstream" and value:
+        raise ValueError("upstream qualification rejects historical-test-input binaries")
+    if profile == "legacy" and not value:
+        raise ValueError("legacy reproduction requires a separately built historical-test-input binary")
+
+
 def main() -> int:
+    from generation_gate import inherited_generation_lease
+    admission = inherited_generation_lease()
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkout", type=Path, required=True)
     parser.add_argument("--binary", type=Path, required=True)
@@ -1385,6 +1410,7 @@ def main() -> int:
         runtime_command += ['--worker-mode', 'isolated-prewarmed', '--worker-pool-size', '8']
     if args.in_process_probe:
         runtime_command.append("--in-process-probe")
+    check_execution_generation()
     runtime_probe = subprocess.run(
         runtime_command, cwd=ROOT, text=True, capture_output=True, timeout=args.timeout
     )
@@ -1397,6 +1423,11 @@ def main() -> int:
         runtime_metadata = json.loads(runtime_probe.stdout)
     except json.JSONDecodeError as error:
         raise SystemExit(f"runtime preflight returned invalid JSON: {error}") from error
+    try:
+        validate_input_authority_profile(args.harness_profile, runtime_metadata)
+        validate_runtime_protocol_profile(args.harness_profile, runtime_metadata)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     if not args.in_process_probe and not (
         runtime_metadata.get("execution_mode") == "sandboxed_worker"
         and runtime_metadata.get("sandboxed") is True
@@ -1437,6 +1468,7 @@ def main() -> int:
     venv_python = args.checkout / "_venv3/bin/python"
     helper_python = venv_python if venv_python.is_file() else Path(sys.executable)
     helper_errors = tempfile.NamedTemporaryFile("w+", suffix=".wptserve.log")
+    check_execution_generation()
     official = subprocess.Popen(
         [
             str(helper_python),
@@ -1477,6 +1509,7 @@ def main() -> int:
         ) from error
     try:
         helper_preflight = verify_wpt_helpers(Handler.official_wpt_port, Handler.official_wpt_https_port)
+        check_execution_generation()
         h2_probe = subprocess.run([str(helper_python), str(ROOT / "scripts/wpt-h2-probe.py"),
             "--port", str(json.loads(startup_line)["h2_port"])],
             capture_output=True, text=True, timeout=20, check=True)
@@ -1717,6 +1750,7 @@ def main() -> int:
     publish(complete=False)
     try:
         if args.harness_profile == 'upstream' and args.parent_mode == 'persistent':
+            check_execution_generation()
             Handler.session_client = WptSession(binary)
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
             pending_tests = iter(pending)

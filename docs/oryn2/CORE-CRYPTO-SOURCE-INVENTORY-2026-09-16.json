@@ -1,0 +1,123 @@
+{
+  "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "selected_core_paths": 10864,
+  "scope": "All literal crypto/CryptoKey source occurrences in pinned Core roots and shared resources/common, including helper candidates; dependency reachability separately audited.",
+  "records": [
+    {
+      "path": "content-security-policy/script-src/tentative/support/util.js",
+      "direct_core": false,
+      "hits": [
+        {
+          "line": 8,
+          "text": "const hashBuffer = await window.crypto.subtle.digest('SHA-256', buffer);"
+        }
+      ],
+      "sha256": "622a4aaa2a779ff3c5a97a6fbb9af072ddea6b2723eb3e355b9bcec98abcc982"
+    },
+    {
+      "path": "fetch/compression-dictionary/resources/compression-dictionary-util.sub.js",
+      "direct_core": false,
+      "hits": [
+        {
+          "line": 36,
+          "text": "const digest = await crypto.subtle.digest('SHA-256', encoded)"
+        }
+      ],
+      "sha256": "15ffb79773e99d06d58d391078e261a5cca983b5e4df744bd84d667dd52067cc"
+    },
+    {
+      "path": "fetch/content-encoding/br/big-br-body.https.any.js",
+      "direct_core": true,
+      "hits": [
+        {
+          "line": 16,
+          "text": "const sha256 = await crypto.subtle.digest('SHA-256', arrayBuffer);"
+        },
+        {
+          "line": 52,
+          "text": "const sha256 = await crypto.subtle.digest('SHA-256', new Uint8Array(ab));"
+        }
+      ],
+      "sha256": "80264d84d46581ea6e3af14f3b40fac60c0d6cf2b8b935512e15e5d4f00ff2bb"
+    },
+    {
+      "path": "fetch/content-encoding/gzip/big-gzip-body.https.any.js",
+      "direct_core": true,
+      "hits": [
+        {
+          "line": 16,
+          "text": "const sha256 = await crypto.subtle.digest('SHA-256', arrayBuffer);"
+        },
+        {
+          "line": 52,
+          "text": "const sha256 = await crypto.subtle.digest('SHA-256', new Uint8Array(ab));"
+        }
+      ],
+      "sha256": "d518c4bad3b824ace98e8c3d0ec7a367ef55404b17e9450f978f4b9dfc9ab760"
+    },
+    {
+      "path": "fetch/content-encoding/zstd/big-zstd-body.https.any.js",
+      "direct_core": true,
+      "hits": [
+        {
+          "line": 16,
+          "text": "const sha256 = await crypto.subtle.digest('SHA-256', arrayBuffer);"
+        },
+        {
+          "line": 52,
+          "text": "const sha256 = await crypto.subtle.digest('SHA-256', new Uint8Array(ab));"
+        }
+      ],
+      "sha256": "d7c2b2131f86067c1ce06512e41034ce03fd5159e5616e55583381c587e3e697"
+    },
+    {
+      "path": "subresource-integrity/signatures/tentative/helper.js",
+      "direct_core": false,
+      "hits": [
+        {
+          "line": 70,
+          "text": "const privateKey = await crypto.subtle.importKey("
+        },
+        {
+          "line": 81,
+          "text": "const signatureBytes = await crypto.subtle.sign("
+        }
+      ],
+      "sha256": "e48190d8e54f60a2f02260b7e8aca32d6842f6d8dc3682c715afe4ffa9f25704"
+    },
+    {
+      "path": "trusted-types/support/script-messages.js",
+      "direct_core": false,
+      "hits": [
+        {
+          "line": 96,
+          "text": "const hashBuffer = await window.crypto.subtle.digest(algorithm, data);"
+        }
+      ],
+      "sha256": "ca6a92bcfdbf4ed1387f74051bbbc689b47f135323eee683add42f94a4621a4d"
+    },
+    {
+      "path": "webmessaging/resources/post-cryptokey-to-opener.html",
+      "direct_core": false,
+      "hits": [
+        {
+          "line": 3,
+          "text": "crypto.subtle.generateKey({name: 'AES-CBC', length: 128}, false, ['encrypt', 'decrypt'])"
+        }
+      ],
+      "sha256": "5ec740de3ac214f87c314789fb23a69808fae203a43f342b8374a9e74519a2cb"
+    }
+  ],
+  "confirmed_transitive_dependencies": [
+    {
+      "caller": "webmessaging/postMessage_CryptoKey_insecure.sub.html",
+      "helper": "webmessaging/resources/post-cryptokey-to-opener.html",
+      "operation": "AES-CBC generateKey and secure-to-insecure structured clone rejection"
+    },
+    {
+      "caller": "subresource-integrity/signatures/tentative/authority.https.window.js",
+      "helper": "subresource-integrity/signatures/tentative/helper.js",
+      "operation": "Ed25519 private JWK import and sign"
+    }
+  ]
+}

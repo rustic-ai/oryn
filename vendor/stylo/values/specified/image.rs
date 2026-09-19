@@ -139,7 +139,8 @@ fn cross_fade_enabled() -> bool {
 
 #[cfg(feature = "servo")]
 fn cross_fade_enabled() -> bool {
-    false
+    // Oryn supplies native captured-resource cross-fade painting.
+    true
 }
 
 impl SpecifiedValueInfo for Gradient {

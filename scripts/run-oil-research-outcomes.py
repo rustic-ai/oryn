@@ -7,8 +7,10 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from evidence_protocols import validate_protocol_pair
 import secrets
 import signal
+from generation_gate import check_execution_generation
 import subprocess
 import sys
 import time
@@ -48,14 +50,14 @@ def validate(case, lines, base, frames, data):
     ]
     if any(not isinstance(action, dict) for action in actions):
         return ["malformed action output"]
-    ids = [action.get("action_id") for action in actions]
-    expected_count = sum(
+    ids = [(action.get("page_id"),action.get("action_id")) for action in actions]
+    expected_count = case.get("expected_action_count",sum(
         line.split()[0] in ("click", "type", "select") for line in lines
-    )
+    ))
     if (
         len(actions) != expected_count
-        or any(type(identity) is not int or identity < 1 for identity in ids)
-        or len({identity for identity in ids if type(identity) is int}) != len(ids)
+        or any(type(identity) is not int or identity < 1 for _,identity in ids)
+        or len(set(ids)) != len(ids)
         or any(action.get("execution_domain") != "native" for action in actions)
     ):
         errors.append("native action identity/count mismatch")
@@ -121,6 +123,7 @@ def run_case(oracle, contract, case, sample, binary, worker, output):
     started = time.monotonic()
     try:
         oracle.request("create", case_id, scenario=case["scenario"])
+        check_execution_generation()
         process = subprocess.Popen(
             [str(binary), "--file", str(task), "native", "--allow-loopback"],
             stdout=subprocess.PIPE,
@@ -172,17 +175,26 @@ def main():
         / "target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker",
     )
     parser.add_argument("--output", type=Path, required=True)
+    frontend=parser.add_mutually_exclusive_group()
+    frontend.add_argument("--frontend-v2", action="store_true")
+    frontend.add_argument("--frontend-v3", action="store_true")
     parser.add_argument("--samples", type=int, choices=range(1, 9), default=3)
     parser.add_argument("--jobs", type=int, choices=range(1, 5), default=3)
     args = parser.parse_args()
+    from generation_gate import inherited_generation_lease
+    admission = inherited_generation_lease()
     args.output, args.binary, args.worker = (
         args.output.resolve(),
         args.binary.resolve(),
         args.worker.resolve(),
     )
+    admission.check()
     args.output.mkdir(parents=True, exist_ok=False)
     database = args.output / "research.sqlite3"
-    contract = json.loads((FIXTURES / "research-cases.json").read_text())
+    suffix = "-v3" if args.frontend_v3 else "-v2" if args.frontend_v2 else ""
+    fixture_path = FIXTURES / f"research_fixture{suffix.replace('-', '_')}.py"
+    contract_path = FIXTURES / f"research-cases{suffix}.json"
+    contract = json.loads(contract_path.read_text())
     report = dict(
         schema_version=1,
         goal_complete=False,
@@ -213,9 +225,15 @@ def main():
                 Path(__file__),
                 ROOT / "scripts/run-oil-forms-outcomes.py",
                 FIXTURES / "research_fixture.py",
-                FIXTURES / "research-cases.json",
+                contract_path,
+                fixture_path,
             ]
         }
+        if args.frontend_v2 or args.frontend_v3:
+            report["input_hashes"].update({str(path.relative_to(ROOT)): support.digest(path)
+                for path in sorted((FIXTURES / "v2").glob("research-*.mjs"))})
+        if args.frontend_v3:
+            report["input_hashes"].update({str(path.relative_to(ROOT)):support.digest(path) for path in [FIXTURES/"research_fixture_v2.py",FIXTURES/"workflow_faults.py"]})
         runtime = subprocess.run(
             [str(args.binary), "native", "--runtime-info"],
             env=dict(os.environ, ORYN_PAGE_WORKER=str(args.worker)),
@@ -227,13 +245,14 @@ def main():
         (args.output / "runtime-info.stderr").write_bytes(runtime.stderr)
         runtime.check_returncode()
         report["runtime"] = json.loads(runtime.stdout)
+        validate_protocol_pair(report["runtime"], report["worker_manifest"], ROOT)
         if (
             not report["runtime"].get("sandboxed")
             or report["runtime"].get("worker_binary_sha256") != report["worker_sha256"]
         ):
             raise ValueError("signed runtime identity mismatch")
         oracle = support.Oracle(
-            args.output, FIXTURES / "research_fixture.py", ["--database", database]
+            args.output, fixture_path, ["--database", database]
         )
         report["origin"] = oracle.origin
         with ThreadPoolExecutor(max_workers=args.jobs) as executor:

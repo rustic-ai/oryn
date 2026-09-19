@@ -343,7 +343,12 @@ pub(crate) fn collect_table_cells(
         DisplayInside::Flow
         | DisplayInside::FlowRoot
         | DisplayInside::Flex
-        | DisplayInside::Grid => {
+        | DisplayInside::Grid
+        | DisplayInside::Ruby
+        | DisplayInside::RubyBase
+        | DisplayInside::RubyText
+        | DisplayInside::RubyBaseContainer
+        | DisplayInside::RubyTextContainer => {
             node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
             // Probably a table caption: ignore
             // println!(

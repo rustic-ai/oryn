@@ -1,0 +1,31 @@
+{
+  "status": "source_generated_unbuilt_unqualified",
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "patch_sha256": "2f5d505baae3313e32e80acbe46302447feb9a875762517356f81eb59049c74f",
+  "required_patch_sha256": {
+    "window-proxy-structural-semantics": "42332f3f8b47282c6074e0f0175e30700ab67d5691b8c77659bff629629d6579",
+    "shared-memory-growth": "63e630f2136d2690058ed0b647533572c957604bbca83f7aaa3359ad56432acd",
+    "shared-memory-wait": "b113edc50dd5788b86e4b5c2c68c7805ae49401898fff0c88cdce1c9f188480e",
+    "shared-wasm-size": "8d1ea11c9b35f6e59853ebf781b0a92d86e0d2b138a3136fa3ebf5132da70365",
+    "shared-wasm-backing": "15248e8a1d4836f0f02d8616ac2a8c7feb60907cfadc20ad302bcb7c60e13a2f"
+  },
+  "base_files": {
+    "include/v8-array-buffer.h": "02ba62bd32924c3a8eec7b7a0655ec7bb1208548f4e3ca2cc44be18e1de1f0a3",
+    "include/v8-isolate.h": "e6e8a93a71e3a23a62b6647f64d3f3029086991bc047b877daa64753c059e593",
+    "src/execution/isolate.h": "b59e9d6356664229a5d5258d4ddb0f237ffd71361d3cc475c9d18c504459262c",
+    "src/api/api.cc": "af92a0ece3693a5cc219c4f7046fde13f4180f5b35c64604dfc5d7bdb1064c3b",
+    "src/builtins/builtins-arraybuffer.cc": "1ee1a341ddf31f0f70cc5707b3e555eccc94b665a7647005a7eb3d4690a6c5f6",
+    "src/wasm/wasm-objects.cc": "8fc65ab196fe534dab95d785eaaf54afe386199b63f4cb012ff39a8f73f80029",
+    "src/objects/value-serializer.cc": "a04baecb833db43e5fca4fd39113f95f14ba1a66e12d75b398616915473afea5"
+  },
+  "patched_files": {
+    "include/v8-array-buffer.h": "b6d1a000aa93e5783be36b300bcfc44bf459163d246b8be13a0742c4aea969f8",
+    "include/v8-isolate.h": "8eb6719a747123f97b4cf2f9071300dbd8290c91f82b8cfacc38cf148ba8d0cb",
+    "src/execution/isolate.h": "352cff7e1e4bd068a47c929d98dccdf3c3c024572019da01faf25d30cbe94169",
+    "src/api/api.cc": "16a32668504358a2098d90dc905658c4b1927d41a08fa2aaaf16f858d20b0645",
+    "src/builtins/builtins-arraybuffer.cc": "ff9ac373f38dd30e38739ddcbf28534e6d2ca7ebff2172d77f17d3d6bd0ce458",
+    "src/wasm/wasm-objects.cc": "d8b4257492eb4c8d7954746a0298e1aee9ef443c2222128bb3498c67943cf12f",
+    "src/objects/value-serializer.cc": "c226af00dc0d1899afd739e5cc75b30a3ba7a847c04fba3c10118b50e006bd6e"
+  },
+  "scope": "Per-isolate shared allocation authority dispatch in real SAB and Wasm constructors; native callback installation and regression integration remain open"
+}

@@ -1,0 +1,107 @@
+{
+  "wpt_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "status": "mapped caller source generation and combined review complete; no execution",
+  "literal_core_policy_matches": [
+    "webidl/ecmascript-binding/setter-argument.html",
+    "fetch/compression-dictionary/resources/static/script-001.js",
+    "fetch/compression-dictionary/resources/static/subframe-001.html",
+    "css/cssom/base-uri.html",
+    "css/selectors/link-sharing-crash.html",
+    "custom-elements/reactions/Animation.html",
+    "dom/events/scrolling/scroll_support.js",
+    "dom/events/resources/prefixed-animation-event-tests.js",
+    "dom/nodes/moveBefore/continue-css-transition-transform.html",
+    "dom/nodes/moveBefore/css-animation-commit-styles.html",
+    "html/semantics/popovers/resources/popover-utils.js",
+    "html/semantics/forms/the-select-element/customizable-select/checkmark-animation-002.html",
+    "html/semantics/forms/the-select-element/customizable-select/select-picker-option-animation-reopens.html",
+    "html/semantics/forms/the-select-element/customizable-select/picker-icon-animation.html",
+    "html/semantics/forms/the-select-element/customizable-select/checkmark-animation.html",
+    "html/semantics/forms/the-select-element/customizable-select/picker-icon-animation-002.html",
+    "html/semantics/forms/constraints/reportValidity-crash.html",
+    "css/css-cascade/revert-val-008.html",
+    "css/css-cascade/revert-val-009.html",
+    "css/css-cascade/revert-val-010.html"
+  ],
+  "comment_only_matches": [
+    "fetch/compression-dictionary/resources/static/script-001.js",
+    "fetch/compression-dictionary/resources/static/subframe-001.html"
+  ],
+  "explicit_transitive_roots": [
+    "html/semantics/interestfor/interestfor-css-properties.tentative.html",
+    "dom/events/webkit-animation-iteration-event.html",
+    "dom/events/webkit-animation-end-event.html",
+    "dom/events/webkit-animation-start-event.html",
+    "dom/events/webkit-transition-end-event.html"
+  ],
+  "explicit_transitive_helpers": [
+    "css/support/interpolation-testcommon.js",
+    "dom/events/resources/prefixed-animation-event-tests.js",
+    "html/semantics/popovers/resources/popover-utils.js"
+  ],
+  "notes": [
+    "Paths are source inventory entries, not a count of Core runnable test variants.",
+    "Whole Web Animations, SVG SMIL, scroll-driven timelines and CSS API mutation matrices are not inferred complete from these callers.",
+    "Existing fixed Core denominator and capability policy remain unchanged."
+  ],
+  "css_and_event_core_policy_matches": [
+    "css/css-cascade/important-prop.html",
+    "css/css-cascade/layer-keyframes-override.html",
+    "css/css-cascade/presentational-hints-rollback.html",
+    "css/css-cascade/revert-layer-010.html",
+    "css/css-cascade/revert-layer-011.html",
+    "css/css-cascade/revert-val-006.html",
+    "css/css-cascade/revert-val-007.html",
+    "css/css-cascade/scope-name-defining-rules.html",
+    "css/cssom/CSSKeyframeRule.html",
+    "css/cssom/CSSKeyframesRule.html",
+    "css/cssom/CSSRuleList-appendRule-keyframe-001-crash.html",
+    "css/cssom/CSSRuleList-appendRule-keyframe-002-crash.html",
+    "css/cssom/getComputedStyle-animations-replaced-into-ib-split.html",
+    "css/cssom/rule-restrictions.html",
+    "dom/events/Event-dispatch-on-disabled-elements.html",
+    "dom/events/EventListener-invoke-legacy.html",
+    "dom/events/handler-count.html",
+    "dom/events/resources/prefixed-animation-event-tests.js",
+    "dom/nodes/moveBefore/continue-css-animation-left.html",
+    "dom/nodes/moveBefore/continue-css-animation-transform.html",
+    "dom/nodes/moveBefore/continue-css-transition-left-pseudo.html",
+    "dom/nodes/moveBefore/continue-css-transition-left.html",
+    "dom/nodes/moveBefore/continue-css-transition-transform-pseudo.html",
+    "dom/nodes/moveBefore/continue-css-transition-transform.html",
+    "dom/nodes/moveBefore/css-animation-commit-styles.html",
+    "dom/nodes/moveBefore/css-transition-cross-document.html",
+    "dom/nodes/moveBefore/css-transition-cross-shadow.html",
+    "dom/nodes/moveBefore/css-transition-to-disconnected-document.html",
+    "dom/nodes/moveBefore/css-transition-trigger.html",
+    "fetch/compression-dictionary/resources/static/script-001.js",
+    "fetch/compression-dictionary/resources/static/subframe-001.html",
+    "html/dom/render-blocking/support/test-render-blocking.js",
+    "html/semantics/forms/the-select-element/customizable-select/select-picker-option-animation-reopens.html",
+    "html/webappapis/scripting/event-loops/new-scroll-event-dispatched-at-next-updating-rendering-time.html"
+  ],
+  "remaining_surface_review": {
+    "method": "Read-only literal search of policy-Core .html/.js/.xhtml plus 64 existing source files reachable through literal script src, static import/from, importScripts and META script edges from the recorded animation roots; benchmark .js/.html search including archived framework bundles. No build/test/generator execution.",
+    "resolved_static_source_files": 64,
+    "effect_mutation_callers": [
+      "css/cssom/base-uri.html:47",
+      "css/css-cascade/revert-val-010.html:28"
+    ],
+    "pseudo_option_callers": [
+      "html/semantics/forms/the-select-element/customizable-select/checkmark-animation.html:25",
+      "html/semantics/forms/the-select-element/customizable-select/checkmark-animation-002.html:32",
+      "html/semantics/forms/the-select-element/customizable-select/picker-icon-animation.html:22",
+      "html/semantics/forms/the-select-element/customizable-select/picker-icon-animation-002.html:17"
+    ],
+    "no_observed_callers": [
+      "ScrollTimeline",
+      "ViewTimeline",
+      "iterationComposite",
+      "AnimationEffect.updateTiming",
+      "Animation.persist",
+      "Animation.replaceState"
+    ],
+    "benchmark_matches": "Only React synthetic AnimationEvent/TransitionEvent pseudoElement payload declarations; no effect option or uncovered timing API call.",
+    "scope_limit": "Literal source closure is evidence for the mapped callers, not proof about arbitrary dynamically constructed member names or every Necessary Web Animations test."
+  }
+}

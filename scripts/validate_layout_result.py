@@ -8,7 +8,10 @@ import hashlib
 import json
 import subprocess
 from pathlib import Path
+from native_protocol_versions import versions as native_protocol_versions, runtime_matches
 from typing import Any
+
+from evidence_protocols import validate_protocols, validate_protocol_pair
 
 from jsonschema import Draft202012Validator, FormatChecker
 
@@ -42,9 +45,11 @@ def main() -> int:
     parser.add_argument("--repo-root", type=Path, default=root_default)
     parser.add_argument("--artifact-root", type=Path)
     parser.add_argument("--require-raw", action="store_true")
+    parser.add_argument("--allow-historical", action="store_true")
     args = parser.parse_args()
     root = args.repo_root.resolve()
     result = load(args.result.resolve())
+    validate_protocols(result.get("fingerprint", {}).get("worker"), root, fingerprint=True, historical=args.allow_historical)
     schema = load(root / "benchmarks/schema/layout-result-v2.schema.json")
     require(
         "$defs" in schema and "$defs" not in schema.get("properties", {}),
@@ -151,9 +156,10 @@ def main() -> int:
             "compact regressions do not match assertion-bound raw evidence",
         )
         runtime = load(raw / "runtime.json")
+        validate_protocol_pair(runtime, result["fingerprint"]["worker"], root, historical=args.allow_historical)
         require(
             runtime.get("contract_version") == 4
-            and runtime.get("worker_protocol_version") == 10,
+            and (args.allow_historical or runtime_matches(runtime, root)),
             "raw runtime is not v4",
         )
         require(

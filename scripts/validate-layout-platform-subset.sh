@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 manifest="$repo_root/benchmarks/layout/wpt-subset-v1.json"
 
@@ -12,7 +15,9 @@ jq -e '
   all(.subsets[]; (.sources | length) > 0 and (((.native_tests // []) + (.layout_tests // [])) | length) > 0)
 ' "$manifest" >/dev/null
 
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 cargo test --manifest-path "$repo_root/Cargo.toml" -p oryn-layout --lib
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 cargo test --manifest-path "$repo_root/Cargo.toml" -p oryn-native \
   --features v8-host,in-process-probe --lib
 

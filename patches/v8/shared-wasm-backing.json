@@ -1,0 +1,21 @@
+{
+  "status": "source_generated_unbuilt_unqualified",
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "patch_sha256": "15248e8a1d4836f0f02d8616ac2a8c7feb60907cfadc20ad302bcb7c60e13a2f",
+  "required_patch_sha256": {
+    "shared-memory-growth": "63e630f2136d2690058ed0b647533572c957604bbca83f7aaa3359ad56432acd",
+    "shared-memory-wait": "b113edc50dd5788b86e4b5c2c68c7805ae49401898fff0c88cdce1c9f188480e",
+    "shared-wasm-size": "8d1ea11c9b35f6e59853ebf781b0a92d86e0d2b138a3136fa3ebf5132da70365"
+  },
+  "base_files": {
+    "include/v8-array-buffer.h": "df612c2dd72c4b3ae1cc2a92081f3974de4f15c7d13125e58f090f55f6a007fe",
+    "src/objects/backing-store.h": "28205a3a522f41f625534427a2f86402c22bb232b8f8d5271b599882a1727094",
+    "src/objects/backing-store.cc": "dfd61ce0c47e40207bbc860852015cd62682a0959f120ad34b3b3cd116faa4c7"
+  },
+  "patched_files": {
+    "include/v8-array-buffer.h": "02ba62bd32924c3a8eec7b7a0655ec7bb1208548f4e3ca2cc44be18e1de1f0a3",
+    "src/objects/backing-store.h": "f37e1188738461db97fc4df7d90abf6545c1caf4741c897246684228e696eaef",
+    "src/objects/backing-store.cc": "0357324b636c211a30c50f5eed390617d7c3d906814e7867cc844d2301d7a843"
+  },
+  "scope": "Native mapped shared Wasm backing ownership and delta-growth delegate; constructor factory/interprocess clone adapter integration remains open"
+}

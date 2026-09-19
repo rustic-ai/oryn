@@ -51,6 +51,11 @@ pub enum PseudoElement {
 
     // Non-eager pseudos.
     Backdrop,
+    PickerSelect,
+    PickerIcon,
+    PermissionIcon,
+    InterestButton,
+    Checkmark,
     DetailsContent,
     Marker,
 
@@ -93,6 +98,11 @@ impl ToCss for PseudoElement {
             FirstLetter => "::first-letter",
             FirstLine => "::first-line",
             Backdrop => "::backdrop",
+            PickerSelect => "::picker(select)",
+            PickerIcon => "::picker-icon",
+            PermissionIcon => "::permission-icon",
+            InterestButton => "::interest-button",
+            Checkmark => "::checkmark",
             DetailsContent => "::details-content",
             Marker => "::marker",
             ColorSwatch => "::color-swatch",
@@ -116,8 +126,21 @@ impl ToCss for PseudoElement {
 impl ::selectors::parser::PseudoElement for PseudoElement {
     type Impl = SelectorImpl;
 
+    fn valid_after_slotted(&self) -> bool {
+        matches!(self, Self::Before | Self::After | Self::Marker | Self::Placeholder | Self::FileSelectorButton)
+    }
+
+    fn valid_after_before_or_after(&self) -> bool {
+        matches!(self, Self::Marker)
+    }
+
+    fn is_before_or_after(&self) -> bool {
+        matches!(self, Self::Before | Self::After)
+    }
+
+
     fn parses_as_element_backed(&self) -> bool {
-        matches!(self, Self::DetailsContent)
+        matches!(self, Self::DetailsContent | Self::PickerSelect)
     }
 }
 
@@ -253,6 +276,11 @@ impl PseudoElement {
             | PseudoElement::FirstLine
             | PseudoElement::Selection => PseudoElementCascadeType::Eager,
             PseudoElement::Backdrop
+            | PseudoElement::PickerSelect
+            | PseudoElement::PickerIcon
+            | PseudoElement::InterestButton
+            | PseudoElement::PermissionIcon
+            | PseudoElement::Checkmark
             | PseudoElement::ColorSwatch
             | PseudoElement::FileSelectorButton
             | PseudoElement::Marker
@@ -351,7 +379,7 @@ impl PseudoElement {
 }
 
 /// The type used for storing `:lang` arguments.
-pub type Lang = Box<str>;
+pub type Lang = Vec<Box<str>>;
 
 /// The type used to store the state argument to the `:state` pseudo-class.
 #[derive(Clone, Debug, Eq, Hash, MallocSizeOf, PartialEq, ToCss, ToShmem)]
@@ -370,6 +398,7 @@ pub enum NonTSPseudoClass {
     CustomState(CustomState),
     Default,
     Defined,
+    Granted,
     Disabled,
     Enabled,
     Focus,
@@ -392,6 +421,9 @@ pub enum NonTSPseudoClass {
     OutOfRange,
     PlaceholderShown,
     PopoverOpen,
+    Playing, Paused, Seeking, Buffering, Stalled,
+    InterestSource,
+    InterestTarget,
     ReadOnly,
     ReadWrite,
     Required,
@@ -435,7 +467,7 @@ impl ToCss for NonTSPseudoClass {
         use self::NonTSPseudoClass::*;
         if let Lang(ref lang) = *self {
             dest.write_str(":lang(")?;
-            serialize_identifier(lang, dest)?;
+            for (index,range) in lang.iter().enumerate(){if index!=0{dest.write_str(", ")?;}cssparser::serialize_string(range,dest)?;}
             return dest.write_char(')');
         }
 
@@ -456,6 +488,7 @@ impl ToCss for NonTSPseudoClass {
             },
             Self::Default => ":default",
             Self::Defined => ":defined",
+            Self::Granted => ":granted",
             Self::Disabled => ":disabled",
             Self::Enabled => ":enabled",
             Self::Focus => ":focus",
@@ -476,6 +509,13 @@ impl ToCss for NonTSPseudoClass {
             Self::OutOfRange => ":out-of-range",
             Self::PlaceholderShown => ":placeholder-shown",
             Self::PopoverOpen => ":popover-open",
+            Self::Playing => ":playing",
+            Self::Paused => ":paused",
+            Self::Seeking => ":seeking",
+            Self::Buffering => ":buffering",
+            Self::Stalled => ":stalled",
+            Self::InterestSource => ":interest-source",
+            Self::InterestTarget => ":interest-target",
             Self::ReadOnly => ":read-only",
             Self::ReadWrite => ":read-write",
             Self::Required => ":required",
@@ -529,7 +569,7 @@ impl NonTSPseudoClass {
             Self::UserValid => ElementState::USER_VALID,
             Self::Valid => ElementState::VALID,
             Self::Visited => ElementState::VISITED,
-            Self::CustomState(_) | Self::Lang(_) | Self::Dir(_) | Self::ServoNonZeroBorder => {
+            Self::Playing | Self::Paused | Self::Seeking | Self::Buffering | Self::Stalled | Self::InterestSource | Self::InterestTarget | Self::Granted | Self::CustomState(_) | Self::Lang(_) | Self::Dir(_) | Self::ServoNonZeroBorder => {
                 ElementState::empty()
             },
         }
@@ -627,6 +667,7 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
             "checked" => NonTSPseudoClass::Checked,
             "default" => NonTSPseudoClass::Default,
             "defined" => NonTSPseudoClass::Defined,
+            "granted" => NonTSPseudoClass::Granted,
             "disabled" => NonTSPseudoClass::Disabled,
             "enabled" => NonTSPseudoClass::Enabled,
             "focus" => NonTSPseudoClass::Focus,
@@ -636,6 +677,7 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
             "hover" => NonTSPseudoClass::Hover,
             "indeterminate" => NonTSPseudoClass::Indeterminate,
             "invalid" => NonTSPseudoClass::Invalid,
+            "in-range" => NonTSPseudoClass::InRange,
             "link" => NonTSPseudoClass::Link,
             "modal" => NonTSPseudoClass::Modal,
             "open" => NonTSPseudoClass::Open,
@@ -643,6 +685,13 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
             "out-of-range" => NonTSPseudoClass::OutOfRange,
             "placeholder-shown" => NonTSPseudoClass::PlaceholderShown,
             "popover-open" => NonTSPseudoClass::PopoverOpen,
+            "playing" => NonTSPseudoClass::Playing,
+            "paused" => NonTSPseudoClass::Paused,
+            "seeking" => NonTSPseudoClass::Seeking,
+            "buffering" => NonTSPseudoClass::Buffering,
+            "stalled" => NonTSPseudoClass::Stalled,
+            "interest-source" => NonTSPseudoClass::InterestSource,
+            "interest-target" => NonTSPseudoClass::InterestTarget,
             "read-only" => NonTSPseudoClass::ReadOnly,
             "read-write" => NonTSPseudoClass::ReadWrite,
             "required" => NonTSPseudoClass::Required,
@@ -676,9 +725,9 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
     ) -> Result<NonTSPseudoClass, ParseError<'i>> {
         let pseudo_class = match_ignore_ascii_case! { &name,
             "lang" if !after_part => {
-                NonTSPseudoClass::Lang(parser.expect_ident_or_string()?.as_ref().into())
+                NonTSPseudoClass::Lang(parser.parse_comma_separated(|parser|Ok(parser.expect_ident_or_string()?.as_ref().into()))?)
             },
-            "dir" if !after_part => {
+            "dir" => {
                 NonTSPseudoClass::Dir(parser.expect_ident()?.as_ref().into())
             },
             "state" => {
@@ -701,6 +750,10 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
             "before" => Before,
             "after" => After,
             "backdrop" => Backdrop,
+            "picker-icon" => PickerIcon,
+            "permission-icon" => PermissionIcon,
+            "interest-button" => InterestButton,
+            "checkmark" => Checkmark,
             "selection" => Selection,
             "file-selector-button" => FileSelectorButton,
             "first-letter" => FirstLetter,
@@ -765,6 +818,14 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
         };
 
         Ok(pseudo_element)
+    }
+
+    fn parse_functional_pseudo_element<'t>(&self,name:CowRcStr<'i>,parser:&mut CssParser<'i,'t>)->Result<PseudoElement,ParseError<'i>>{
+        if name.eq_ignore_ascii_case("picker") {
+            let kind=parser.expect_ident()?;
+            if kind.eq_ignore_ascii_case("select"){parser.expect_exhausted()?;return Ok(PseudoElement::PickerSelect);}
+        }
+        Err(parser.new_custom_error(SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name)))
     }
 
     fn default_namespace(&self) -> Option<Namespace> {

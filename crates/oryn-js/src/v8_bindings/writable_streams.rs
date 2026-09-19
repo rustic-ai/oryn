@@ -2,13 +2,13 @@
 use super::*;
 
 pub(super) struct Request {
-    pub(super) chunk: Option<v8::Global<v8::Value>>,
-    resolver: v8::Global<v8::PromiseResolver>,
+    pub(super) chunk: Option<stream_graph::Owned<v8::Value>>,
+    pub(super) resolver: stream_graph::Owned<v8::PromiseResolver>,
 }
 
 pub(super) struct Abort {
-    reason: v8::Global<v8::Value>,
-    resolver: v8::Global<v8::PromiseResolver>,
+    pub(super) reason: stream_graph::Owned<v8::Value>,
+    pub(super) resolver: stream_graph::Owned<v8::PromiseResolver>,
     already_erroring: bool,
 }
 
@@ -26,7 +26,7 @@ pub(super) fn abort<'s>(
             return Err(V8BindingError::Allocation("WritableStream record"));
         };
         if let Some(abort) = &stream.pending_abort {
-            return Ok(v8::Local::new(scope, &abort.resolver).get_promise(scope));
+            return Ok(stream_graph::local(scope, &abort.resolver).get_promise(scope));
         }
         if stream.closed || (stream.error.is_some() && !stream.busy && stream.started) {
             let undefined = v8::undefined(scope).into();
@@ -34,8 +34,8 @@ pub(super) fn abort<'s>(
             return Ok(resolver.get_promise(scope));
         }
         stream.pending_abort = Some(Abort {
-            reason: v8::Global::new(scope, reason),
-            resolver: v8::Global::new(scope, resolver),
+            reason: stream_graph::Owned::new(scope, reason),
+            resolver: stream_graph::Owned::new(scope, resolver),
             already_erroring: stream.error.is_some(),
         });
     }
@@ -65,12 +65,15 @@ fn abort_reaction<'s>(
 ) {
     let result = (|| -> Result<(), V8BindingError> {
         let (state, id) = reaction_owner(scope, &args)?;
+        if !stream_graph::algorithms_available(&state) {
+            return Ok(());
+        }
         let resolver = {
             let mut record = platform_object_mut(&state, id)?;
             let PlatformObjectRecord::WritableStream(stream) = &mut *record else {
                 return Err(V8BindingError::Allocation("WritableStream record"));
             };
-            v8::Local::new(
+            stream_graph::local(
                 scope,
                 stream
                     .abort_completion
@@ -79,7 +82,8 @@ fn abort_reaction<'s>(
             )
         };
         let failure = rejected.then(|| args.get(0));
-        settle_abort(scope, &state, id, resolver, failure)
+        settle_abort(scope, &state, id, resolver, failure)?;
+        stream_graph::refresh(scope, &state)
     })();
     if let Err(error) = result {
         throw_binding_error(scope, &error);
@@ -123,18 +127,19 @@ fn finish_abort(
         };
         (callback, stream.source.clone(), stream.error.clone())
     };
-    let resolver = v8::Local::new(scope, abort.resolver);
+    let resolver = stream_graph::local(scope, abort.resolver);
     if abort.already_erroring {
-        let error = v8::Local::new(
+        let error = stream_graph::local(
             scope,
             error.ok_or(V8BindingError::Allocation("abort error"))?,
         );
         return settle_abort(scope, state, id, resolver, Some(error));
     }
+    stream_graph::refresh(scope, state)?;
     let value = if let Some(callback) = callback {
-        let callback = v8::Local::new(scope, callback);
-        let source = v8::Local::new(scope, source);
-        let reason = v8::Local::new(scope, abort.reason);
+        let callback = stream_graph::local(scope, callback);
+        let source = stream_graph::local(scope, source);
+        let reason = stream_graph::local(scope, abort.reason);
         v8::tc_scope!(let scope, scope);
         match callback.call(scope, source, &[reason]) {
             Some(value) => value,
@@ -160,7 +165,7 @@ fn finish_abort(
         controller_id,
     )?;
     if let PlatformObjectRecord::WritableStream(stream) = &mut *platform_object_mut(state, id)? {
-        stream.abort_completion = Some(v8::Global::new(scope, resolver));
+        stream.abort_completion = Some(stream_graph::Owned::new(scope, resolver));
     }
     let data = controller;
     let fulfilled = v8::Function::builder(abort_fulfilled)
@@ -191,7 +196,7 @@ pub(super) fn enqueue<'s>(
             return Err(V8BindingError::Allocation("WritableStream record"));
         };
         if let Some(error) = &stream.error {
-            let error = v8::Local::new(scope, error);
+            let error = stream_graph::local(scope, error);
             resolver.reject(scope, error);
             return Ok(resolver.get_promise(scope));
         }
@@ -201,12 +206,18 @@ pub(super) fn enqueue<'s>(
             resolver.reject(scope, error);
             return Ok(resolver.get_promise(scope));
         }
+        if matches!(&stream.kind, WritableKind::Html(_)) && stream.queue.len() >= 1024 {
+            let error =
+                readable_streams::type_error(scope, "HTML stream pending write capacity exceeded")?;
+            resolver.reject(scope, error);
+            return Ok(resolver.get_promise(scope));
+        }
         if chunk.is_none() {
             stream.closing = true;
         }
         stream.queue.push_back(Request {
-            chunk: chunk.map(|value| v8::Global::new(scope, value)),
-            resolver: v8::Global::new(scope, resolver),
+            chunk: chunk.map(|value| stream_graph::Owned::new(scope, value)),
+            resolver: stream_graph::Owned::new(scope, resolver),
         });
     }
     writable_writers::refresh(scope, state, id)?;
@@ -233,7 +244,11 @@ fn reaction_owner(
 fn fulfilled(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::ReturnValue) {
     let result = (|| {
         let (state, id) = reaction_owner(scope, &args)?;
-        finish(scope, &state, id, None)
+        if !stream_graph::algorithms_available(&state) {
+            return Ok(());
+        }
+        finish(scope, &state, id, None)?;
+        stream_graph::refresh(scope, &state)
     })();
     if let Err(error) = result {
         throw_binding_error(scope, &error);
@@ -243,7 +258,11 @@ fn fulfilled(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv:
 fn rejected(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: v8::ReturnValue) {
     let result = (|| {
         let (state, id) = reaction_owner(scope, &args)?;
-        finish(scope, &state, id, Some(args.get(0)))
+        if !stream_graph::algorithms_available(&state) {
+            return Ok(());
+        }
+        finish(scope, &state, id, Some(args.get(0)))?;
+        stream_graph::refresh(scope, &state)
     })();
     if let Err(error) = result {
         throw_binding_error(scope, &error);
@@ -284,7 +303,7 @@ pub(super) fn start(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     id: u64,
-    callback: Option<v8::Global<v8::Function>>,
+    callback: Option<stream_graph::Owned<v8::Function>>,
 ) -> Result<(), V8BindingError> {
     let (source, controller_id, transform) = {
         let record = platform_object(state, id)?;
@@ -297,9 +316,10 @@ pub(super) fn start(
         };
         (stream.source.clone(), stream.controller_id, transform)
     };
+    stream_graph::refresh(scope, state)?;
     let value = if let Some(callback) = callback {
-        let receiver = v8::Local::new(scope, source);
-        let callback = v8::Local::new(scope, callback);
+        let receiver = stream_graph::local(scope, source);
+        let callback = stream_graph::local(scope, callback);
         let controller = match transform {
             Some(id) => new_platform_object(scope, state, "TransformStreamDefaultController", id)?,
             None => new_platform_object(
@@ -323,6 +343,10 @@ pub(super) fn pump(
     state: &Rc<V8BindingState>,
     id: u64,
 ) -> Result<(), V8BindingError> {
+    if !stream_graph::algorithms_available(&state) {
+        return Ok(());
+    }
+    stream_graph::refresh(scope, state)?;
     let context = match &*platform_object(state, id)? {
         PlatformObjectRecord::WritableStream(stream) => stream.creation_context.to_local(scope),
         _ => None,
@@ -340,11 +364,15 @@ pub(super) fn pump(
         if !stream.started || stream.busy || stream.closed || stream.error.is_some() {
             return Ok(());
         }
+        if matches!(&stream.kind, WritableKind::Html(_)) && state.execution_suspended() {
+            return Ok(());
+        }
         let Some(request) = stream.queue.front() else {
             return Ok(());
         };
         let closing = request.chunk.is_none();
         let (callback, transform, transform_controller) = match &stream.kind {
+            WritableKind::Html(_) => (None, None, None),
             WritableKind::Sink { write, close, .. } => (
                 if closing {
                     close.clone()
@@ -381,6 +409,41 @@ pub(super) fn pump(
             chunk,
         )
     };
+    let html = match &*platform_object(state, id)? {
+        PlatformObjectRecord::WritableStream(WritableStreamRecord {
+            kind: WritableKind::Html(sink),
+            ..
+        }) => Some(sink.clone()),
+        _ => None,
+    };
+    if let Some(sink) = html {
+        let chunk = chunk.map(|chunk| stream_graph::local(scope, chunk));
+        v8::tc_scope!(let scope,scope);
+        match sink.accept(scope, chunk) {
+            Ok(true) => {
+                let undefined = v8::undefined(scope).into();
+                return observe(scope, state, id, undefined);
+            }
+            Ok(false) => {
+                if let PlatformObjectRecord::WritableStream(stream) =
+                    &mut *platform_object_mut(state, id)?
+                {
+                    stream.busy = false;
+                }
+                return Ok(());
+            }
+            Err(error) => {
+                sink.abort();
+                let reason = if let Some(exception) = scope.exception() {
+                    scope.reset();
+                    exception
+                } else {
+                    readable_streams::type_error(scope, &error.to_string())?
+                };
+                return finish(scope, state, id, Some(reason));
+            }
+        }
+    }
     let codec = match &*platform_object(state, id)? {
         PlatformObjectRecord::WritableStream(WritableStreamRecord {
             kind: WritableKind::Transform { codec_id, .. },
@@ -389,7 +452,7 @@ pub(super) fn pump(
         _ => None,
     };
     if let Some(codec) = codec {
-        let chunk = chunk.map(|chunk| v8::Local::new(scope, chunk));
+        let chunk = chunk.map(|chunk| stream_graph::local(scope, chunk));
         v8::tc_scope!(let scope, scope);
         match text_encoding::transform_chunk(scope, state, codec, chunk) {
             Ok(output) => {
@@ -424,11 +487,12 @@ pub(super) fn pump(
             controller_id,
         )?,
     };
+    stream_graph::refresh(scope, state)?;
     let value = if let Some(callback) = callback {
-        let receiver = v8::Local::new(scope, source);
-        let callback = v8::Local::new(scope, callback);
+        let receiver = stream_graph::local(scope, source);
+        let callback = stream_graph::local(scope, callback);
         let arguments = match chunk {
-            Some(chunk) => vec![v8::Local::new(scope, chunk), controller.into()],
+            Some(chunk) => vec![stream_graph::local(scope, chunk), controller.into()],
             None if transform.is_some() => vec![controller.into()],
             None => vec![],
         };
@@ -445,7 +509,7 @@ pub(super) fn pump(
         }
     } else {
         if let (Some(controller_id), Some(chunk)) = (transform, chunk) {
-            let chunk = v8::Local::new(scope, chunk);
+            let chunk = stream_graph::local(scope, chunk);
             readable_enqueue(scope, state, controller_id, chunk)?;
         }
         v8::undefined(scope).into()
@@ -481,7 +545,7 @@ fn finish(
         (request, transform)
     };
     if let Some(request) = request {
-        let resolver = v8::Local::new(scope, request.resolver);
+        let resolver = stream_graph::local(scope, request.resolver);
         if request.chunk.is_none() {
             let pending_abort = {
                 let mut record = platform_object_mut(state, id)?;
@@ -494,7 +558,7 @@ fn finish(
                 stream.pending_abort.take()
             };
             if let Some(abort) = pending_abort {
-                let resolver = v8::Local::new(scope, abort.resolver);
+                let resolver = stream_graph::local(scope, abort.resolver);
                 if let Some(error) = failure {
                     resolver.reject(scope, error);
                 } else {
@@ -542,8 +606,12 @@ pub(super) fn error(
         if stream.closed || stream.error.is_some() {
             return Ok(());
         }
-        stream.error = Some(v8::Global::new(scope, reason));
+        stream.error = Some(stream_graph::Owned::new(scope, reason));
         match &stream.kind {
+            WritableKind::Html(sink) => {
+                sink.abort();
+                None
+            }
             WritableKind::Transform {
                 readable_controller_id,
                 ..
@@ -585,7 +653,7 @@ fn drain_error(
             stream.pending_abort.take(),
         )
     };
-    let reason = v8::Local::new(scope, reason);
+    let reason = stream_graph::local(scope, reason);
     for request in requests {
         if request.chunk.is_none() && abort.is_some() {
             if let PlatformObjectRecord::WritableStream(stream) =
@@ -594,7 +662,7 @@ fn drain_error(
                 stream.queue.push_back(request);
             }
         } else {
-            v8::Local::new(scope, request.resolver).reject(scope, reason);
+            stream_graph::local(scope, request.resolver).reject(scope, reason);
         }
     }
     if let Some(abort) = abort {

@@ -75,6 +75,23 @@ impl AgentEnvironments {
     }
 }
 
+/// Committed native secure-context ancestry, separate from origin authority.
+#[derive(Debug, Clone, Copy)]
+pub struct SecureContextState(pub bool);
+pub fn potentially_trustworthy_origin(origin: &Origin) -> bool {
+    url::Url::parse(&origin.serialize()).is_ok_and(|url| {
+        url.scheme() == "https"
+            || url.host_str().is_some_and(|host| {
+                host == "localhost"
+                    || host.ends_with(".localhost")
+                    || host
+                        .trim_matches(['[', ']'])
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback())
+            })
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RealmDescriptor {
     pub id: RealmId,
@@ -136,8 +153,35 @@ impl RealmRegistry {
         Ok(id)
     }
 
+    /// Embedder-only finalization of a committed document's broker identity.
+    /// Generation comparison prevents a late policy reply changing its successor.
+    pub fn bind_native_origin(
+        &mut self,
+        id: RealmId,
+        generation: u64,
+        origin: Origin,
+    ) -> Option<RealmDescriptor> {
+        let realm = self.realms.get_mut(&id)?;
+        if realm.document_generation != generation {
+            return None;
+        }
+        realm.origin = origin;
+        Some(realm.clone())
+    }
+
     pub fn get(&self, id: RealmId) -> Option<&RealmDescriptor> {
         self.realms.get(&id)
+    }
+
+    /// Advance the active document of a reused initial Window. Realm and
+    /// origin identity remain unchanged; environment grants rotate separately.
+    pub fn advance_document(&mut self, id: RealmId, generation: u64) -> Option<RealmDescriptor> {
+        let descriptor = self.realms.get_mut(&id)?;
+        if generation <= descriptor.document_generation {
+            return None;
+        }
+        descriptor.document_generation = generation;
+        Some(descriptor.clone())
     }
 
     pub fn remove(&mut self, id: RealmId) -> Option<RealmDescriptor> {
@@ -153,6 +197,21 @@ impl RealmRegistry {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reused_window_advances_document_without_changing_origin_or_realm() {
+        let mut registry = super::RealmRegistry::default();
+        let realm = registry.create("https://example.test", 1, Some(7));
+        let original = registry.get(realm).unwrap().clone();
+        let current = registry.advance_document(realm, 2).unwrap();
+        assert_eq!(current.id, original.id);
+        assert_eq!(current.origin, original.origin);
+        assert_eq!(current.frame_id, original.frame_id);
+        assert_eq!(current.document_generation, 2);
+        assert!(registry.advance_document(realm, 2).is_none());
+        assert!(registry.advance_document(realm, 1).is_none());
+        assert_eq!(registry.get(realm), Some(&current));
+    }
+
     use super::*;
 
     #[test]

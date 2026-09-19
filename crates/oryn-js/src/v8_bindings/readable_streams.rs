@@ -32,7 +32,7 @@ pub(super) fn stored_error<'s>(
     Ok(stream
         .error
         .as_ref()
-        .map(|error| v8::Local::new(scope, error)))
+        .map(|error| stream_graph::local(scope, error)))
 }
 
 pub(super) fn reader_error<'s>(
@@ -76,7 +76,7 @@ pub(super) fn acquire(
         )
     };
     if let Some(error) = error {
-        let error = v8::Local::new(scope, error);
+        let error = stream_graph::local(scope, error);
         closed.reject(scope, error);
         closed.get_promise(scope).mark_as_handled();
     } else if drained {
@@ -86,8 +86,9 @@ pub(super) fn acquire(
     let reader = register_platform_object(
         state,
         PlatformObjectRecord::ReadableReader {
+            byob: false,
             stream_id,
-            closed: v8::Global::new(scope, closed),
+            closed: stream_graph::Owned::new(scope, closed),
             released: false,
         },
     );
@@ -122,7 +123,7 @@ pub(super) fn settle_closed(
             ..
         } = &*record
         {
-            let resolver = v8::Local::new(scope, closed);
+            let resolver = stream_graph::local(scope, closed);
             let undefined = v8::undefined(scope).into();
             resolver.resolve(scope, undefined);
         }
@@ -136,28 +137,35 @@ pub(super) fn error(
     stream_id: u64,
     error: v8::Local<v8::Value>,
 ) -> Result<(), V8BindingError> {
-    let (waiting, reader_id, pipes) = {
+    let (waiting, reader_id, consumer) = {
         let mut record = platform_object_mut(state, stream_id)?;
         let PlatformObjectRecord::ReadableStream(stream) = &mut *record else {
             return Err(V8BindingError::Allocation("ReadableStream record"));
         };
-        if stream.error.is_some() || (stream.closed && stream.queue.is_empty()) {
+        if stream.error.is_some()
+            || (stream.closed
+                && stream.queue.is_empty()
+                && stream
+                    .bytes
+                    .as_ref()
+                    .is_none_or(|bytes| bytes.pending.is_empty()))
+        {
             return Ok(());
         }
-        stream.error = Some(v8::Global::new(scope, error));
+        stream.error = Some(stream_graph::Owned::new(scope, error));
         stream.queue.clear();
         stream.closed = true;
         (
             std::mem::take(&mut stream.waiting),
             stream.reader_id,
-            std::mem::take(&mut stream.pipes),
+            stream.consumer.take(),
         )
     };
-    for waiting in waiting {
-        v8::Local::new(scope, waiting).reject(scope, error);
+    if let Some(consumer) = consumer {
+        stream_graph::local(scope, consumer.resolver).reject(scope, error);
     }
-    for pipe in pipes {
-        v8::Local::new(scope, pipe.resolver).reject(scope, error);
+    for waiting in waiting {
+        stream_graph::local(scope, waiting).reject(scope, error);
     }
     if let Some(reader_id) = reader_id {
         let record = platform_object(state, reader_id)?;
@@ -167,11 +175,13 @@ pub(super) fn error(
             ..
         } = &*record
         {
-            let resolver = v8::Local::new(scope, closed);
+            let resolver = stream_graph::local(scope, closed);
             resolver.reject(scope, error);
             resolver.get_promise(scope).mark_as_handled();
         }
     }
+    byte_streams::fail(scope, state, stream_id, error)?;
+    stream_tee::error_branches(scope, state, stream_id, error)?;
     Ok(())
 }
 
@@ -187,6 +197,7 @@ pub(super) fn release(
             stream_id,
             closed,
             released,
+            ..
         } = &mut *record
         else {
             return Err(V8BindingError::Allocation("ReadableStream reader"));
@@ -195,11 +206,11 @@ pub(super) fn release(
             return Ok(());
         }
         *released = true;
-        let mut resolver = v8::Local::new(scope, &*closed);
+        let mut resolver = stream_graph::local(scope, &*closed);
         if resolver.get_promise(scope).state() != v8::PromiseState::Pending {
             resolver = v8::PromiseResolver::new(scope)
                 .ok_or(V8BindingError::Allocation("released reader promise"))?;
-            *closed = v8::Global::new(scope, resolver);
+            *closed = stream_graph::Owned::new(scope, resolver);
         }
         resolver.reject(scope, error);
         resolver.get_promise(scope).mark_as_handled();
@@ -215,8 +226,9 @@ pub(super) fn release(
         std::mem::take(&mut stream.waiting)
     };
     for resolver in waiting {
-        v8::Local::new(scope, resolver).reject(scope, error);
+        stream_graph::local(scope, resolver).reject(scope, error);
     }
+    byte_streams::release(scope, state, stream_id, error)?;
     Ok(())
 }
 
@@ -231,18 +243,24 @@ pub(super) fn cancel<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &V8BindingState,
     id: u64,
-    callback: Option<v8::Global<v8::Function>>,
+    callback: Option<stream_graph::Owned<v8::Function>>,
     reason: v8::Local<'s, v8::Value>,
 ) -> Result<v8::Local<'s, v8::Promise>, V8BindingError> {
+    if !stream_graph::algorithms_available(&state) {
+        let reason = dom_exception_value(scope, "AbortError")?;
+        return reject(scope, reason);
+    }
+
     let source = match &*platform_object(state, id)? {
         PlatformObjectRecord::ReadableStream(stream) => stream.source.clone(),
         _ => return Err(V8BindingError::Allocation("ReadableStream record")),
     };
     let receiver = source
-        .map(|s| v8::Local::new(scope, s))
+        .map(|s| stream_graph::local(scope, s))
         .unwrap_or_else(|| v8::undefined(scope).into());
+    stream_graph::refresh(scope, state)?;
     let value = if let Some(callback) = callback {
-        let callback = v8::Local::new(scope, callback);
+        let callback = stream_graph::local(scope, callback);
         v8::tc_scope!(let scope, scope);
         match callback.call(scope, receiver, &[reason]) {
             Some(value) => value,
@@ -274,6 +292,9 @@ fn fulfilled(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv:
             .map_err(|_| V8BindingError::Allocation("stream reaction controller"))?;
         let state = binding_state_for_receiver(scope, controller)
             .ok_or(V8BindingError::Allocation("stream reaction state"))?;
+        if !stream_graph::algorithms_available(&state) {
+            return Ok(());
+        }
         let controller_id = stateful_id(scope, controller)?;
         let id = match &*platform_object(&state, controller_id)? {
             PlatformObjectRecord::ReadableController { stream_id } => *stream_id,
@@ -295,7 +316,7 @@ fn fulfilled(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv:
         if should_pull {
             pull(scope, &state, id)?;
         }
-        Ok(())
+        stream_graph::refresh(scope, &state)
     })();
     if let Err(error) = result {
         throw_binding_error(scope, &error);
@@ -308,12 +329,16 @@ fn rejected(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _rv: 
             .map_err(|_| V8BindingError::Allocation("stream reaction controller"))?;
         let state = binding_state_for_receiver(scope, controller)
             .ok_or(V8BindingError::Allocation("stream reaction state"))?;
+        if !stream_graph::algorithms_available(&state) {
+            return Ok(());
+        }
         let controller_id = stateful_id(scope, controller)?;
         let id = match &*platform_object(&state, controller_id)? {
             PlatformObjectRecord::ReadableController { stream_id } => *stream_id,
             _ => return Err(V8BindingError::Allocation("stream reaction record")),
         };
-        error(scope, &state, id, args.get(0))
+        error(scope, &state, id, args.get(0))?;
+        stream_graph::refresh(scope, &state)
     })();
     if let Err(error) = result {
         throw_binding_error(scope, &error);
@@ -355,7 +380,7 @@ pub(super) fn start(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
     id: u64,
-    callback: Option<v8::Global<v8::Function>>,
+    callback: Option<stream_graph::Owned<v8::Function>>,
 ) -> Result<(), V8BindingError> {
     let (source, controller_id) = {
         let record = platform_object(state, id)?;
@@ -364,10 +389,11 @@ pub(super) fn start(
         };
         (stream.source.clone(), stream.controller_id)
     };
+    stream_graph::refresh(scope, state)?;
     let value = if let Some(callback) = callback {
-        let callback = v8::Local::new(scope, callback);
+        let callback = stream_graph::local(scope, callback);
         let receiver = source
-            .map(|s| v8::Local::new(scope, s))
+            .map(|s| stream_graph::local(scope, s))
             .unwrap_or_else(|| v8::undefined(scope).into());
         let controller = new_platform_object(
             scope,
@@ -389,6 +415,21 @@ pub(super) fn pull(
     state: &Rc<V8BindingState>,
     id: u64,
 ) -> Result<(), V8BindingError> {
+    if !stream_graph::algorithms_available(&state) {
+        return Ok(());
+    }
+
+    let upstream = match &*platform_object(state, id)? {
+        PlatformObjectRecord::ReadableStream(stream) => stream.tee_source,
+        _ => None,
+    };
+    if let Some((source, _)) = upstream {
+        return stream_tee::pump(scope, state, source);
+    }
+    let tee_demand = stream_tee::demand(state, id)?;
+    if tee_demand == Some(false) {
+        return Ok(());
+    }
     let transform = match &*platform_object(state, id)? {
         PlatformObjectRecord::ReadableStream(stream) => stream.transform_writable_id,
         _ => None,
@@ -404,7 +445,18 @@ pub(super) fn pull(
         if !stream.started
             || stream.closed
             || stream.error.is_some()
-            || (stream.waiting.is_empty() && stream.queue.len() as f64 >= stream.high_water_mark)
+            || stream
+                .bytes
+                .as_ref()
+                .is_some_and(|bytes| bytes.close_requested)
+            || (tee_demand != Some(true)
+                && stream.waiting.is_empty()
+                && stream.consumer.is_none()
+                && stream
+                    .bytes
+                    .as_ref()
+                    .is_none_or(|bytes| bytes.pending.is_empty())
+                && byte_streams::queue_total(scope, stream)? >= stream.high_water_mark)
         {
             return Ok(());
         }
@@ -418,9 +470,10 @@ pub(super) fn pull(
         stream.pulling = true;
         (callback, stream.source.clone(), stream.controller_id)
     };
-    let callback = v8::Local::new(scope, callback);
+    stream_graph::refresh(scope, state)?;
+    let callback = stream_graph::local(scope, callback);
     let receiver = source
-        .map(|s| v8::Local::new(scope, s))
+        .map(|s| stream_graph::local(scope, s))
         .unwrap_or_else(|| v8::undefined(scope).into());
     let controller = new_platform_object(
         scope,

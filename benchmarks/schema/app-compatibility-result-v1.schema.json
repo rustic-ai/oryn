@@ -19,10 +19,20 @@
     "outcome"
   ],
   "properties": {
-    "schema_version": { "const": 1 },
-    "gate": { "const": "G3" },
-    "run_id": { "type": "string", "minLength": 1 },
-    "recorded_at": { "type": "string", "format": "date-time" },
+    "schema_version": {
+      "const": 1
+    },
+    "gate": {
+      "const": "G3"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "fingerprint": {
       "type": "object",
       "additionalProperties": false,
@@ -38,30 +48,81 @@
         "chromium_version"
       ],
       "properties": {
-        "source_commit": { "$ref": "#/$defs/sha1" },
-        "source_dirty": { "type": "boolean" },
-        "source_tree_sha256": { "$ref": "#/$defs/sha256" },
-        "manifest_sha256": { "$ref": "#/$defs/sha256" },
-        "fixture_lock_sha256": { "$ref": "#/$defs/sha256" },
-        "wpt_subset_sha256": { "$ref": "#/$defs/sha256" },
-        "parent": { "anyOf": [{ "$ref": "#/$defs/binary" }, { "type": "null" }] },
-        "worker": { "anyOf": [{ "$ref": "#/$defs/worker" }, { "type": "null" }] },
-        "chromium_version": { "type": ["string", "null"] }
+        "source_commit": {
+          "$ref": "#/$defs/sha1"
+        },
+        "source_dirty": {
+          "type": "boolean"
+        },
+        "source_tree_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "fixture_lock_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "wpt_subset_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/binary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worker": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/worker"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "chromium_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "corpus": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manifest_cases", "required_cases", "deferred_cases"],
+      "required": [
+        "manifest_cases",
+        "required_cases",
+        "deferred_cases"
+      ],
       "properties": {
-        "manifest_cases": { "const": 48 },
-        "required_cases": { "const": 43 },
-        "deferred_cases": { "const": 5 }
+        "manifest_cases": {
+          "const": 48
+        },
+        "required_cases": {
+          "const": 43
+        },
+        "deferred_cases": {
+          "const": 5
+        }
       }
     },
     "regressions": {
       "type": "object",
-      "additionalProperties": { "enum": ["passed", "failed", "unverified"] },
+      "additionalProperties": {
+        "enum": [
+          "passed",
+          "failed",
+          "unverified"
+        ]
+      },
       "required": [
         "rust_workspace",
         "rust_v8",
@@ -94,50 +155,107 @@
         "false_semantic_reference_preservations"
       ],
       "properties": {
-        "required_passed": { "type": "integer", "minimum": 0, "maximum": 43 },
-        "required_total": { "const": 43 },
-        "deferred_expected": { "type": "integer", "minimum": 0, "maximum": 5 },
-        "deferred_total": { "const": 5 },
-        "false_semantic_reference_preservations": { "type": "integer", "minimum": 0 }
+        "required_passed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 43
+        },
+        "required_total": {
+          "const": 43
+        },
+        "deferred_expected": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "deferred_total": {
+          "const": 5
+        },
+        "false_semantic_reference_preservations": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "artifact_ledger": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/artifact" }
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
     },
     "case_ledger": {
       "type": "array",
       "minItems": 48,
       "maxItems": 48,
-      "items": { "$ref": "#/$defs/case" }
+      "items": {
+        "$ref": "#/$defs/case"
+      }
     },
     "criteria": {
       "type": "object",
-      "additionalProperties": { "type": "boolean" }
+      "additionalProperties": {
+        "type": "boolean"
+      }
     },
     "outcome": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "reason_codes", "diagnostics"],
+      "required": [
+        "status",
+        "reason_codes",
+        "diagnostics"
+      ],
       "properties": {
-        "status": { "enum": ["passed", "failed"] },
-        "reason_codes": { "type": "array", "items": { "type": "string" } },
-        "diagnostics": { "type": "array", "items": { "type": "string" } }
+        "status": {
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     }
   },
   "$defs": {
-    "sha1": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sha1": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "binary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sha256", "bytes", "build_profile"],
+      "required": [
+        "sha256",
+        "bytes",
+        "build_profile"
+      ],
       "properties": {
-        "sha256": { "$ref": "#/$defs/sha256" },
-        "bytes": { "type": "integer", "minimum": 1 },
-        "build_profile": { "const": "release" }
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "build_profile": {
+          "const": "release"
+        }
       }
     },
     "worker": {
@@ -159,31 +277,88 @@
         "entitlement_sha256"
       ],
       "properties": {
-        "sha256": { "$ref": "#/$defs/sha256" },
-        "bytes": { "type": "integer", "minimum": 1 },
-        "protocol_version": { "const": 3 },
-        "contract_version": { "const": 3 },
-        "native_v8": { "const": true },
-        "v8_version": { "type": "string", "minLength": 1 },
-        "execution_mode": { "const": "sandboxed_worker" },
-        "sandboxed": { "const": true },
-        "sandbox_state": { "const": "app_sandbox" },
-        "bundle_id": { "const": "ai.rustic.oryn.page-worker" },
-        "team_id": { "const": "5HVA9VFF8K" },
-        "signing_cert_sha1": { "type": "string", "pattern": "^[0-9A-F]{40}$" },
-        "entitlement_sha256": { "$ref": "#/$defs/sha256" }
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "protocol_version": {"type": "integer", "minimum": 1},
+        "contract_version": {"enum": [3, 4]},
+        "native_v8": {
+          "const": true
+        },
+        "v8_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution_mode": {
+          "const": "sandboxed_worker"
+        },
+        "sandboxed": {
+          "const": true
+        },
+        "sandbox_state": {
+          "const": "app_sandbox"
+        },
+        "bundle_id": {
+          "const": "ai.rustic.oryn.page-worker"
+        },
+        "team_id": {
+          "const": "5HVA9VFF8K"
+        },
+        "signing_cert_sha1": {
+          "type": "string",
+          "pattern": "^[0-9A-F]{40}$"
+        },
+        "entitlement_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "context_service_protocol_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "agent_ipc_protocol_version": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
-    "domainStatus": { "enum": ["passed", "failed", "unverified", "not_applicable"] },
+    "domainStatus": {
+      "enum": [
+        "passed",
+        "failed",
+        "unverified",
+        "not_applicable"
+      ]
+    },
     "artifact": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "path", "sha256", "bytes", "kind"],
+      "required": [
+        "id",
+        "path",
+        "sha256",
+        "bytes",
+        "kind"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "path": { "type": "string", "minLength": 1 },
-        "sha256": { "$ref": "#/$defs/sha256" },
-        "bytes": { "type": "integer", "minimum": 0 },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
         "kind": {
           "enum": [
             "test_log",
@@ -198,22 +373,61 @@
     "case": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "category", "disposition", "status", "domains", "evidence"],
+      "required": [
+        "id",
+        "category",
+        "disposition",
+        "status",
+        "domains",
+        "evidence"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "category": { "type": "string", "minLength": 1 },
-        "disposition": { "enum": ["required", "g4_deferred", "layout_deferred"] },
-        "status": { "enum": ["passed", "failed", "unverified", "expected_limitation"] },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "disposition": {
+          "enum": [
+            "required",
+            "g4_deferred",
+            "layout_deferred"
+          ]
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "unverified",
+            "expected_limitation"
+          ]
+        },
         "domains": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "native": { "$ref": "#/$defs/domainStatus" },
-            "chromium_differential": { "$ref": "#/$defs/domainStatus" }
+            "native": {
+              "$ref": "#/$defs/domainStatus"
+            },
+            "chromium_differential": {
+              "$ref": "#/$defs/domainStatus"
+            }
           }
         },
-        "expected_capability": { "type": "string", "minLength": 1 },
-        "evidence": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        "expected_capability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     }
   }

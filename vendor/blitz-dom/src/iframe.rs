@@ -55,6 +55,7 @@ impl BaseDocument {
         abort_signal: AbortSignal,
     ) -> DocumentConfig {
         DocumentConfig {
+            style_lock:None,
             viewport: None,
             base_url,
             ua_stylesheets: None,

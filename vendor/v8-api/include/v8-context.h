@@ -75,6 +75,20 @@ class V8_EXPORT Context : public Data {
   void DetachGlobal();
 
   /**
+   * Reattach this preserved context to its original, currently detached global
+   * proxy. The embedder must first detach the current document from that proxy.
+   * The supplied queue must outlive the context. Null retains a preserved queue
+   * when present, otherwise it selects the isolate queue.
+   * No author code runs; unrelated or still-attached proxies are rejected.
+   */
+  Maybe<bool> ReattachGlobal(MicrotaskQueue* microtask_queue = nullptr);
+  // Inactive history documents retain jobs without running them. Active
+  // synchronously accessible contexts continue using the common agent queue.
+  Maybe<bool> SuspendMicrotasks(MicrotaskQueue* suspended_queue);
+  Maybe<bool> ResumeMicrotasks(MicrotaskQueue* suspended_queue, bool discard);
+  void DetachGlobalPreservingMicrotasks();
+
+  /**
    * Creates a new context and returns a handle to the newly allocated
    * context.
    *

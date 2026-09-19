@@ -196,16 +196,28 @@ fn is_decimal(counter_type: &CounterStyle) -> bool {
 
 /// The non-normal, non-none values of the content property.
 #[derive(
-    Clone, Debug, Eq, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToComputedValue, ToShmem,
+    Clone, Debug, Eq, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToShmem,
 )]
 #[repr(C)]
 pub struct GenericContentItems<Image> {
+    /// Absolute declaration tree; omitted from CSS text, preserved on inheritance.
+    pub native_scope: Option<usize>,
     /// The actual content items. Note that, past the alt marker, only some subset (strings,
     /// attr(), counter())
     pub items: thin_vec::ThinVec<GenericContentItem<Image>>,
     /// The index at which alt text starts, always non-zero. If equal to items.len(), no alt text
     /// exists.
     pub alt_start: usize,
+}
+
+impl<Image:crate::values::computed::ToComputedValue> crate::values::computed::ToComputedValue for GenericContentItems<Image> {
+    type ComputedValue=GenericContentItems<Image::ComputedValue>;
+    fn to_computed_value(&self,context:&crate::values::computed::Context)->Self::ComputedValue {
+        GenericContentItems{native_scope:Some(self.native_scope.unwrap_or_else(||context.native_tree_scope())),items:crate::values::computed::ToComputedValue::to_computed_value(&self.items,context),alt_start:self.alt_start}
+    }
+    fn from_computed_value(value:&Self::ComputedValue)->Self {
+        GenericContentItems{native_scope:value.native_scope,items:crate::values::computed::ToComputedValue::from_computed_value(&value.items),alt_start:value.alt_start}
+    }
 }
 
 impl<Image> ToCss for GenericContentItems<Image>

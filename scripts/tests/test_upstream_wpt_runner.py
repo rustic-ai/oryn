@@ -695,5 +695,21 @@ class UpstreamWptRunnerTests(unittest.TestCase):
             self.assertFalse(RUNNER.is_testharness_html(plain))
 
 
+class HistoricalInputAuthorityTests(unittest.TestCase):
+    def test_production_and_historical_binary_profiles_are_disjoint(self):
+        RUNNER.validate_input_authority_profile("upstream", {"historical_test_input": False})
+        RUNNER.validate_input_authority_profile("legacy", {"historical_test_input": True})
+        for profile, value in (("upstream", True), ("legacy", False)):
+            with self.subTest(profile=profile), self.assertRaises(ValueError):
+                RUNNER.validate_input_authority_profile(profile, {"historical_test_input": value})
+
+    def test_missing_or_coercible_attribution_is_not_accepted(self):
+        for value in (None, "false", "true", 0, 1, [], {}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                RUNNER.validate_input_authority_profile("upstream", {"historical_test_input": value})
+        with self.assertRaises(ValueError):
+            RUNNER.validate_input_authority_profile("upstream", {})
+
+
 if __name__ == "__main__":
     unittest.main()

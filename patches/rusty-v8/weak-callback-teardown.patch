@@ -1,0 +1,536 @@
+--- a/src/handle.rs
++++ b/src/handle.rs
+@@ -1,5 +1,6 @@
+ use std::borrow::Borrow;
+-use std::cell::Cell;
++use std::cell::{Cell, RefCell};
++use std::rc::{Rc, Weak as RcWeak};
+ use std::ffi::c_void;
+ use std::hash::Hash;
+ use std::hash::Hasher;
+@@ -676,7 +677,7 @@
+ /// finalization callback to the clone.
+ #[derive(Debug)]
+ pub struct Weak<T> {
+-  data: Option<Box<WeakData<T>>>,
++  data: Option<Rc<WeakData<T>>>,
+   isolate_handle: IsolateHandle,
+ }
+ 
+@@ -742,7 +743,10 @@
+     data: NonNull<T>,
+     finalizer_id: Option<FinalizerId>,
+   ) -> Self {
+-    let weak_data = Box::new(WeakData {
++    let registry = unsafe { (*isolate).weak_callback_registry() };
++    let weak_data = Rc::new(WeakData {
++      registry: Rc::downgrade(&registry),
++      second_pass_pending: Cell::new(false),
+       pointer: Default::default(),
+       finalizer_id,
+       weak_dropped: Cell::new(false),
+@@ -759,6 +763,7 @@
+     weak_data
+       .pointer
+       .set(Some(unsafe { NonNull::new_unchecked(data as *mut _) }));
++    WeakCallbackRegistry::register(&registry, &weak_data);
+     Self {
+       data: Some(weak_data),
+       isolate_handle: unsafe { (*isolate).thread_safe_handle() },
+@@ -830,7 +835,7 @@
+     data: Option<NonNull<WeakData<T>>>,
+   ) -> Self {
+     Weak {
+-      data: data.map(|raw| unsafe { Box::from_raw(raw.cast().as_ptr()) }),
++      data: data.map(|raw| unsafe { Rc::from_raw(raw.cast().as_ptr()) }),
+       isolate_handle: isolate.thread_safe_handle(),
+     }
+   }
+@@ -867,7 +872,7 @@
+         None
+       } else {
+         assert!(!data.weak_dropped.get());
+-        Some(unsafe { NonNull::new_unchecked(Box::into_raw(data)) })
++        Some(unsafe { NonNull::new_unchecked(Rc::into_raw(data).cast_mut()) })
+       }
+     } else {
+       None
+@@ -928,7 +933,9 @@
+     // parameter points to hasn't been dropped.
+     let weak_data = unsafe {
+       let ptr = v8__WeakCallbackInfo__GetParameter(wci);
+-      &*(ptr as *mut WeakData<T>)
++      let ptr = ptr as *const WeakData<T>;
++      Rc::increment_strong_count(ptr);
++      Rc::from_raw(ptr)
+     };
+ 
+     let data = weak_data.pointer.take().unwrap();
+@@ -938,12 +945,15 @@
+ 
+     // Only set the second pass callback if there could be a finalizer.
+     if weak_data.finalizer_id.is_some() {
++      weak_data.second_pass_pending.set(true);
+       unsafe {
+         v8__WeakCallbackInfo__SetSecondPassCallback(
+           wci,
+           Self::second_pass_callback,
+         );
+       };
++    } else {
++      weak_data.unregister();
+     }
+   }
+ 
+@@ -955,11 +965,13 @@
+     // SAFETY: This callback might be called well after the first pass callback,
+     // which means the corresponding Weak might have been dropped. In Weak's
+     // Drop impl we make sure that if the second pass callback hasn't yet run, the
+-    // Box<WeakData<T>> is leaked, so it will still be alive by the time this
+-    // callback is called.
++    // callback registry retains an Rc even if the owning Weak was dropped,
++    // so the parameter stays alive independently of finalizer-map membership.
+     let weak_data = unsafe {
+       let ptr = v8__WeakCallbackInfo__GetParameter(wci);
+-      &*(ptr as *mut WeakData<T>)
++      let ptr = ptr as *const WeakData<T>;
++      Rc::increment_strong_count(ptr);
++      Rc::from_raw(ptr)
+     };
+ 
+     let mut isolate = unsafe { Isolate::from_raw_ptr(isolate) };
+@@ -968,13 +980,8 @@
+       isolate.get_finalizer_map_mut().map.remove(&finalizer_id)
+     };
+ 
+-    if weak_data.weak_dropped.get() {
+-      // SAFETY: If weak_dropped is true, the corresponding Weak has been dropped,
+-      // so it's safe to take ownership of the Box<WeakData<T>> and drop it.
+-      let _ = unsafe {
+-        Box::from_raw(weak_data as *const WeakData<T> as *mut WeakData<T>)
+-      };
+-    }
++    weak_data.second_pass_pending.set(false);
++    weak_data.unregister();
+ 
+     match finalizer {
+       Some(FinalizerCallback::Regular(finalizer)) => finalizer(&mut isolate),
+@@ -1007,19 +1014,19 @@
+       false
+     };
+ 
+-    if let Some(data) = self.get_pointer() {
+-      // If the pointer is not None, the first pass callback hasn't been
+-      // called yet, and resetting will prevent it from being called.
+-      unsafe { v8__Global__Reset(data.cast().as_ptr()) };
+-      remove_finalizer(self.data.as_ref().unwrap().finalizer_id);
+-    } else if let Some(weak_data) = self.data.take() {
+-      // The second pass callback removes the finalizer, so if there is one,
+-      // the second pass hasn't yet run, and WeakData will have to be alive.
+-      // In that case we leak the WeakData but remove the finalizer.
+-      if remove_finalizer(weak_data.finalizer_id) {
+-        weak_data.weak_dropped.set(true);
+-        Box::leak(weak_data);
++    if let Some(weak_data) = self.data.take() {
++      // Reset before removing registry custody. Teardown has already reset
++      // every live pointer before it revokes the public isolate handle.
++      if let Some(data) = weak_data.pointer.take() {
++        unsafe { v8__Global__Reset(data.cast().as_ptr()) };
+       }
++      remove_finalizer(weak_data.finalizer_id);
++      weak_data.weak_dropped.set(true);
++      if !weak_data.second_pass_pending.get() {
++        weak_data.unregister();
++      }
++      // A scheduled second pass retains its own registry Rc, independent of
++      // whether the finalizer map was drained or this Weak still exists.
+     }
+   }
+ }
+@@ -1073,9 +1080,62 @@
+ /// from a pointer. The fields are wrapped in [`Cell`] so they are modifiable by
+ /// both the [`Weak`] and the finalization callbacks.
+ pub struct WeakData<T> {
++  registry: RcWeak<RefCell<WeakCallbackRegistry>>,
++  second_pass_pending: Cell<bool>,
+   pointer: Cell<Option<NonNull<T>>>,
+   finalizer_id: Option<FinalizerId>,
+   weak_dropped: Cell<bool>,
++}
++
++impl<T> WeakData<T> {
++  fn unregister(&self) {
++    if let Some(registry) = self.registry.upgrade() {
++      let entry = registry.borrow_mut().entries.remove(&(self as *const Self as usize));
++      drop(entry);
++    }
++  }
++}
++
++// An erased strong Rc keeps each V8 callback parameter alive. It is released
++// after reset, after the second pass, or after V8 disposal proves that no
++// callback can run. Type erasure avoids imposing a new T: 'static API bound.
++struct WeakCallbackOwner {
++  parameter: *const c_void,
++  reset: unsafe fn(*const c_void) -> bool,
++  release: unsafe fn(*const c_void),
++}
++impl Drop for WeakCallbackOwner {
++  fn drop(&mut self) { unsafe { (self.release)(self.parameter) }; }
++}
++#[derive(Default)]
++pub(crate) struct WeakCallbackRegistry {
++  entries: std::collections::HashMap<usize, WeakCallbackOwner>,
++}
++impl WeakCallbackRegistry {
++  fn register<T>(registry: &Rc<RefCell<Self>>, data: &Rc<WeakData<T>>) {
++    unsafe fn reset<T>(parameter: *const c_void) -> bool {
++      let data = unsafe { &*parameter.cast::<WeakData<T>>() };
++      if let Some(pointer) = data.pointer.take() {
++        unsafe { v8__Global__Reset(pointer.cast().as_ptr()) };
++      }
++      data.second_pass_pending.get()
++    }
++    unsafe fn release<T>(parameter: *const c_void) {
++      drop(unsafe { Rc::from_raw(parameter.cast::<WeakData<T>>()) });
++    }
++    let parameter = Rc::into_raw(data.clone()).cast::<c_void>();
++    registry.borrow_mut().entries.insert(parameter as usize,
++      WeakCallbackOwner { parameter, reset: reset::<T>, release: release::<T> });
++  }
++  pub(crate) fn reset_before_dispose(registry: &Rc<RefCell<Self>>) {
++    // No registry borrow survives a Reset or an owner destructor.
++    let entries = std::mem::take(&mut registry.borrow_mut().entries);
++    for (key, owner) in entries {
++      if unsafe { (owner.reset)(owner.parameter) } {
++        registry.borrow_mut().entries.insert(key, owner);
++      }
++    }
++  }
+ }
+ 
+ impl<T> std::fmt::Debug for WeakData<T> {
+@@ -1248,3 +1308,42 @@
+ #[derive(Debug)]
+ #[repr(transparent)]
+ pub struct SealedLocal<T>(pub(crate) NonNull<T>);
++
++#[cfg(test)]
++mod weak_callback_custody_tests {
++  use super::*;
++  #[test]
++  fn pending_second_pass_survives_owner_release_and_teardown_reset() {
++    for complete_second_pass in [false, true] {
++    let registry = Rc::new(RefCell::new(WeakCallbackRegistry::default()));
++    // Model the post-first-pass state. The V8 global was already reset;
++    // only the queued callback parameter remains, independently of finalizers.
++    let data = Rc::new(WeakData::<crate::Object> {
++      pointer: Cell::new(None), finalizer_id: None,
++      weak_dropped: Cell::new(false), second_pass_pending: Cell::new(true),
++      registry: Rc::downgrade(&registry),
++    });
++    WeakCallbackRegistry::register(&registry, &data);
++    let observed = Rc::downgrade(&data);
++    drop(data);
++    WeakCallbackRegistry::reset_before_dispose(&registry);
++    assert!(observed.upgrade().is_some());
++    assert_eq!(registry.as_ref().borrow().entries.len(), 1);
++    if complete_second_pass {
++      // Model second-pass acquisition after the owning Weak and its finalizer
++      // map entry have gone away. The callback-local owner survives unregister.
++      let callback = observed.upgrade().unwrap();
++      callback.second_pass_pending.set(false);
++      callback.unregister();
++      assert!(registry.as_ref().borrow().entries.is_empty());
++      assert!(observed.upgrade().is_some());
++      drop(callback);
++      assert!(observed.upgrade().is_none());
++    }
++    // Equivalent to post-native-dispose annex destruction: callbacks can no
++    // longer run and their retained parameter allocation must be released.
++    drop(registry);
++    assert!(observed.upgrade().is_none());
++    }
++  }
++}
+--- a/src/isolate.rs
++++ b/src/isolate.rs
+@@ -1054,6 +1054,10 @@
+     // (ANNEX_SLOT is only cleared by code further down this teardown
+     // path).
+     unsafe {
++      // Cancel first-pass registrations while V8 and every callback parameter
++      // are still live. Pending second-pass parameters remain annex-owned.
++      let registry = (*annex_ptr).weak_callbacks.clone();
++      crate::handle::WeakCallbackRegistry::reset_before_dispose(&registry);
+       // Null the `IsolateHandle` so handles outliving the isolate see a
+       // disposed state.
+       (*annex_ptr).global_liveness().dispose();
+@@ -1117,23 +1121,6 @@
+     unsafe { drop(Box::from_raw(annex_ptr)) };
+   }
+ 
+-  /// Snapshot-path teardown.
+-  ///
+-  /// Used by [`OwnedIsolate::create_blob`], which consumes the isolate
+-  /// before V8 has run its final dispose. Cleans up the annex synchronously
+-  /// (no weak-callback re-entry to worry about here) and nulls `ANNEX_SLOT`
+-  /// so the snapshot creator's later isolate-dispose sees a clean slot.
+-  unsafe fn dispose_annex(&mut self) -> Box<dyn Any> {
+-    let (annex_ptr, create_param_allocations) =
+-      unsafe { self.prepare_annex_for_dispose() };
+-    unsafe { Self::run_remaining_guaranteed_finalizers(annex_ptr) };
+-    let taken_annex =
+-      self.take_data_internal(Self::ANNEX_SLOT) as *mut IsolateAnnex;
+-    debug_assert_eq!(taken_annex, annex_ptr);
+-    unsafe { drop(Box::from_raw(annex_ptr)) };
+-    create_param_allocations
+-  }
+-
+   #[inline(always)]
+   fn get_annex(&self) -> &IsolateAnnex {
+     let annex_ptr =
+@@ -1170,6 +1157,10 @@
+       .maybe_snapshot_creator
+       .replace(snapshot_creator);
+     assert!(prev.is_none());
++  }
++
++  pub(crate) fn weak_callback_registry(&self) -> std::rc::Rc<std::cell::RefCell<crate::handle::WeakCallbackRegistry>> {
++    self.get_annex().weak_callbacks.clone()
+   }
+ 
+   pub(crate) fn get_finalizer_map(&self) -> &FinalizerMap {
+@@ -2058,6 +2049,7 @@
+   create_param_allocations: Option<Box<dyn Any>>,
+   slots: HashMap<TypeId, RawSlot, BuildTypeIdHasher>,
+   finalizer_map: FinalizerMap,
++  weak_callbacks: std::rc::Rc<std::cell::RefCell<crate::handle::WeakCallbackRegistry>>,
+   maybe_snapshot_creator: Option<SnapshotCreator>,
+   isolate_handle: IsolateHandle,
+   global_liveness: NonNull<IsolateLiveness>,
+@@ -2073,6 +2065,7 @@
+       create_param_allocations: Some(create_param_allocations),
+       slots: HashMap::default(),
+       finalizer_map: FinalizerMap::default(),
++      weak_callbacks: Default::default(),
+       maybe_snapshot_creator: None,
+       isolate_handle: IsolateHandle::new(isolate),
+       global_liveness: NonNull::from(global_liveness),
+@@ -2389,17 +2382,17 @@
+     let mut snapshot_creator =
+       self.get_annex_mut().maybe_snapshot_creator.take().unwrap();
+ 
+-    // create_param_allocations is needed during CreateBlob
+-    // so v8 can read external references
+-    let _create_param_allocations = unsafe {
+-      // self.dispose_scope_root();
+-      self.dispose_annex()
++    // Keep callback custody and the annex alive through snapshot serialization
++    // and SnapshotCreator's final native isolate disposal, just like Drop.
++    let (annex_ptr, _create_param_allocations) = unsafe {
++      self.prepare_annex_for_dispose()
+     };
+-
+-    // The isolate is owned by the snapshot creator; we need to forget it
+-    // here as the snapshot creator will drop it when running the destructor.
++    unsafe { Isolate::run_remaining_guaranteed_finalizers(annex_ptr) };
+     std::mem::forget(self);
+-    snapshot_creator.create_blob(function_code_handling)
++    let blob = snapshot_creator.create_blob(function_code_handling);
++    drop(snapshot_creator);
++    unsafe { Isolate::finish_annex_dispose(annex_ptr) };
++    blob
+   }
+ }
+ 
+--- a/build.rs
++++ b/build.rs
+@@ -19,6 +19,13 @@
+ use which::which;
+ 
+ fn main() {
++  assert!(!env_bool("V8_FROM_SOURCE"), "Oryn vendored rusty-v8 is an authenticated archive-consumer subset; build engine sources through the isolated V8 source-checkout workflow");
++  // The retained PartitionAlloc archive queries macOS JIT entitlements.
++  // Static archives do not propagate GN framework dependencies to Rust consumers.
++  if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
++    println!("cargo:rustc-link-lib=framework=Security");
++    println!("cargo:rustc-link-lib=framework=CoreFoundation");
++  }
+   println!("cargo:rerun-if-changed=.gn");
+   println!("cargo:rerun-if-changed=BUILD.gn");
+   println!("cargo:rerun-if-changed=src/binding.cc");
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -274,3 +274,7 @@
+ 
+ [profile.dev]
+ opt-level = 1
++
++[[test]]
++name = "oryn_weak_teardown"
++path = "tests/oryn_weak_teardown.rs"
+--- a/tests/oryn_weak_teardown.rs
++++ b/tests/oryn_weak_teardown.rs
+@@ -0,0 +1,161 @@
++//! Regression target for the pinned Rust binding teardown repair.
++use std::cell::{Cell, RefCell};
++use std::rc::Rc;
++use std::sync::Once;
++fn setup() {
++    static START: Once = Once::new();
++    START.call_once(|| {
++        v8::V8::set_flags_from_string("--expose-gc");
++        let platform=v8::new_default_platform(0,false).make_shared();
++        v8::V8::initialize_platform(platform);
++        v8::V8::initialize();
++        // Initialize the process-global sandbox allocator before concurrent tests.
++        drop(v8::new_default_allocator());
++    });
++}
++fn isolate()->v8::OwnedIsolate {
++    setup();
++    let heap=v8::cppgc::Heap::create(v8::V8::get_current_platform(),Default::default());
++    v8::Isolate::new(v8::CreateParams::default().cpp_heap(heap))
++}
++#[test]
++fn slot_owned_weaks_are_reset_before_cpp_heap_teardown() {
++    for _ in 0..8 {
++        let mut isolate=isolate();
++        {
++            v8::scope!(let scope,&mut isolate);
++            let context=v8::Context::new(scope,Default::default());
++            let scope=&mut v8::ContextScope::new(scope,context);
++            let mut values=Vec::new();
++            for _ in 0..128 {
++                let object=v8::Object::new(scope);
++                values.push(v8::Weak::new(scope,object));
++            }
++            scope.set_slot(values);
++        }
++        drop(isolate);
++    }
++}
++#[test]
++fn guaranteed_finalizer_can_release_another_weak_after_revocation() {
++    let finalized=Rc::new(Cell::new(0));
++    let (survivor,ordinary,global);
++    {
++        let mut isolate=isolate();
++        v8::scope!(let scope,&mut isolate);
++        let context=v8::Context::new(scope,Default::default());
++        let scope=&mut v8::ContextScope::new(scope,context);
++        let object=v8::Object::new(scope);
++        global=v8::Global::new(scope,object);
++        let nested=v8::Weak::new(scope,object);
++        let count=finalized.clone();
++        survivor=v8::Weak::with_guaranteed_finalizer(scope,object,Box::new(move||{
++            assert!(nested.is_empty());
++            drop(nested);
++            count.set(count.get()+1);
++        }));
++        ordinary=v8::Weak::with_finalizer(scope,object,Box::new(|_|panic!("ordinary finalizer ran at isolate disposal")));
++    }
++    assert_eq!(finalized.get(),1);
++    assert!(survivor.is_empty());assert!(ordinary.is_empty());
++    drop(survivor);drop(ordinary);drop(global);
++    assert_eq!(finalized.get(),1);
++}
++#[test]
++fn weak_raw_roundtrip_and_drop_cancels_only_its_own_callback() {
++    let count=Rc::new(Cell::new(0));
++    let late;
++    {
++        let mut isolate=isolate();
++        v8::scope!(let scope,&mut isolate);
++        let context=v8::Context::new(scope,Default::default());
++        let scope=&mut v8::ContextScope::new(scope,context);
++        let object=v8::Object::new(scope);
++        let count2=count.clone();
++        let weak=v8::Weak::with_guaranteed_finalizer(scope,object,Box::new(move||count2.set(count2.get()+1)));
++        let raw=weak.into_raw();
++        let restored=unsafe{v8::Weak::from_raw(scope,raw)};
++        late=restored.clone();
++        assert!(!restored.is_empty());
++        drop(restored);
++        assert!(!late.is_empty());
++    }
++    assert_eq!(count.get(),0);assert!(late.is_empty());drop(late);
++}
++#[test]
++fn ordinary_gc_finalizer_can_drop_its_own_weak() {
++    let owner=Rc::new(RefCell::new(None::<v8::Weak<v8::Object>>));
++    let count=Rc::new(Cell::new(0));
++    let mut isolate=isolate();
++    {
++        v8::scope!(let scope,&mut isolate);
++        let context=v8::Context::new(scope,Default::default());
++        let scope=&mut v8::ContextScope::new(scope,context);
++        let object=v8::Object::new(scope);
++        let owner2=owner.clone();let count2=count.clone();
++        *owner.borrow_mut()=Some(v8::Weak::with_finalizer(scope,object,Box::new(move|_|{
++            owner2.borrow_mut().take();count2.set(count2.get()+1);
++        })));
++    }
++    isolate.request_garbage_collection_for_testing(v8::GarbageCollectionType::Full);
++    assert_eq!(count.get(),1);assert!(owner.borrow().is_none());
++    drop(isolate);assert_eq!(count.get(),1);
++}
++#[test]
++fn snapshot_teardown_keeps_weak_parameters_until_creator_is_destroyed() {
++    setup();
++    let count=Rc::new(Cell::new(0));
++    let late;
++    let finalizer;
++    let mut creator=v8::Isolate::snapshot_creator(None,None);
++    {
++        v8::scope!(let scope,&mut creator);
++        let context=v8::Context::new(scope,Default::default());
++        let scope=&mut v8::ContextScope::new(scope,context);
++        let object=v8::Object::new(scope);
++        late=v8::Weak::new(scope,object);
++        let nested=v8::Weak::new(scope,object);
++        let count2=count.clone();
++        finalizer=v8::Weak::with_guaranteed_finalizer(scope,object,Box::new(move||{
++            assert!(nested.is_empty());drop(nested);count2.set(count2.get()+1);
++        }));
++        // Preserve the finalizer owner outside slots so it is not canceled by
++        // slot destruction before the guaranteed-finalizer teardown drain.
++        let slot_weak=v8::Weak::new(scope,object);
++        scope.set_slot(slot_weak);
++        scope.set_default_context(context);
++    }
++    let blob=creator.create_blob(v8::FunctionCodeHandling::Clear).unwrap();
++    assert!(!blob.is_empty());assert!(late.is_empty());drop(late);
++    assert_eq!(count.get(),1);
++    assert!(finalizer.is_empty());drop(finalizer);
++    assert_eq!(count.get(),1);
++}
++#[test]
++fn cpp_heap_owner_releases_weak_during_native_isolate_teardown() {
++    struct Holder { weak:v8::Weak<v8::Object>, dropped:Rc<Cell<usize>> }
++    // Atomic sweeping below guarantees this thread-confined Weak is destroyed
++    // on the isolate's thread; the weak edge must not keep the JS object alive.
++    unsafe impl v8::cppgc::GarbageCollected for Holder {
++        fn trace(&self,_:&mut v8::cppgc::Visitor) {}
++        fn get_name(&self)->&'static std::ffi::CStr { c"OrynWeakTeardownHolder" }
++    }
++    impl Drop for Holder {
++        fn drop(&mut self){assert!(self.weak.is_empty());self.dropped.set(self.dropped.get()+1);}
++    }
++    setup();let dropped=Rc::new(Cell::new(0));
++    let heap=v8::cppgc::Heap::create(v8::V8::get_current_platform(),v8::cppgc::HeapCreateParams{
++        marking_support:v8::cppgc::MarkingType::Atomic,
++        sweeping_support:v8::cppgc::SweepingType::Atomic,
++    });
++    let mut isolate=v8::Isolate::new(v8::CreateParams::default().cpp_heap(heap));
++    {
++        v8::scope!(let scope,&mut isolate);
++        let context=v8::Context::new(scope,Default::default());
++        let scope=&mut v8::ContextScope::new(scope,context);
++        let object=v8::Object::new(scope);
++        let holder=Holder{weak:v8::Weak::new(scope,object),dropped:dropped.clone()};
++        unsafe{v8::cppgc::make_garbage_collected(scope.get_cpp_heap().unwrap(),holder)};
++    }
++    drop(isolate);assert_eq!(dropped.get(),1);
++}

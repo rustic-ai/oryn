@@ -1,0 +1,604 @@
+{
+  "original_operation_arms": 117,
+  "extracted_operation_arms": 116,
+  "unchanged_default": "_ => Err(V8BindingError::Unsupported {\n            interface: interface.into(),\n            member: member.into(),\n        }),\n    }\n}",
+  "evidence": {
+    "binary": "target/debug/deps/oryn_native-20366294d76e8c80",
+    "call_operation_frame_bytes": 242768,
+    "installer_frame_bytes": 153072
+  },
+  "blocks": [
+    {
+      "handler": "dispatch_htmlslotelement_assign",
+      "pattern": "(\"HTMLSlotElement\", \"assign\")",
+      "body_sha256": "3e01cfb787720d879e86412287445edb83f8ef056b0c7be469b0a009226a6a36"
+    },
+    {
+      "handler": "dispatch_htmlslotelement_assignednodes",
+      "pattern": "(\"HTMLSlotElement\", \"assignedNodes\" | \"assignedElements\")",
+      "body_sha256": "d31dc1ea4faff158057992208bb0eff733535be7ba6d4290c9e5b4ee78884a70"
+    },
+    {
+      "handler": "dispatch_node_lookupnamespaceuri",
+      "pattern": "(\"Node\", \"lookupNamespaceURI\" | \"lookupPrefix\" | \"isDefaultNamespace\")",
+      "body_sha256": "d709b1a96323ddbed7fcbfd28ddbde3df31e597e2224eaf919d8ccab185af693"
+    },
+    {
+      "handler": "dispatch_node_normalize",
+      "pattern": "(\"Node\", \"normalize\")",
+      "body_sha256": "f1a71a53af33919e9b687b0602d083d89b9d2902526df1b0f47abd83f39feca2"
+    },
+    {
+      "handler": "dispatch_characterdata_substringdata",
+      "pattern": "(\"CharacterData\", \"substringData\")",
+      "body_sha256": "57b526c402fc68ab6c910f1f58a5eddc938e02064d7800babfa7731284153701"
+    },
+    {
+      "handler": "dispatch_characterdata_appenddata",
+      "pattern": "(\"CharacterData\", \"appendData\" | \"insertData\" | \"deleteData\" | \"replaceData\")",
+      "body_sha256": "0215340daedf0cf28eaa938e8d62eac987576c5124a23364c67c75ab8a6dd320"
+    },
+    {
+      "handler": "dispatch_text_splittext",
+      "pattern": "(\"Text\", \"splitText\")",
+      "body_sha256": "ae6429fddb33c2ed1a19ef815fdb87a956956dd1169b56774b0aee1d953d2849"
+    },
+    {
+      "handler": "dispatch_eventtarget_addeventlistener",
+      "pattern": "(\"EventTarget\", \"addEventListener\" | \"removeEventListener\")",
+      "body_sha256": "75659713e002e13e1613cdfde4a952eead4d95b30a47a3f967151cacb309b963"
+    },
+    {
+      "handler": "dispatch_eventtarget_dispatchevent",
+      "pattern": "(\"EventTarget\", \"dispatchEvent\")",
+      "body_sha256": "5aaa930eaf2b6c86fd30fd5c0045d2f7d556c3e21a1d21d49fa9233cecdeaae6"
+    },
+    {
+      "handler": "dispatch_document_adoptnode",
+      "pattern": "(\"Document\", \"adoptNode\")",
+      "body_sha256": "a9fce562a5b888d1ba2758004b4c3d15233ab9f9ade633e17e4a825e4e2877e6"
+    },
+    {
+      "handler": "dispatch_document_importnode",
+      "pattern": "(\"Document\", \"importNode\")",
+      "body_sha256": "48979cfbda3e948394861e1e9b6df88aa65cd652d171a2b159593a4fe877a7f2"
+    },
+    {
+      "handler": "dispatch_document_createattribute",
+      "pattern": "(\"Document\", \"createAttribute\" | \"createAttributeNS\")",
+      "body_sha256": "deb1bdecfacfb6681e3550f258e4e10f258083ae4ef92d6e563fb042b0c32e3d"
+    },
+    {
+      "handler": "dispatch_document_createelement",
+      "pattern": "(\"Document\", \"createElement\")",
+      "body_sha256": "09589a2f68040a5475d24b767dbe45aab40e7270b9177768d9a002acb9790b75"
+    },
+    {
+      "handler": "dispatch_document_createelementns",
+      "pattern": "(\"Document\", \"createElementNS\")",
+      "body_sha256": "bef91ac032c8da4d1e4050e3926fa6ed779621540e92553c7ca557c1c0c0221e"
+    },
+    {
+      "handler": "dispatch_document_createtextnode",
+      "pattern": "(\"Document\", \"createTextNode\")",
+      "body_sha256": "c02bd0ea1bf1635fb0c8f5523f52215f8bb9f1a50259345a833f738ef117360e"
+    },
+    {
+      "handler": "dispatch_document_createcomment",
+      "pattern": "(\"Document\", \"createComment\")",
+      "body_sha256": "170d3ecf94ead47e6c0be9ba7fd4b24745a5b2dba0459f5fb88e21cba114e13e"
+    },
+    {
+      "handler": "dispatch_document_createcdatasection",
+      "pattern": "(\"Document\", \"createCDATASection\")",
+      "body_sha256": "053dd01f8b2a5cc22e7becfa23ea9d9a91d9feb3d81bd983c460f44504d2a6f4"
+    },
+    {
+      "handler": "dispatch_document_createprocessinginstruction",
+      "pattern": "(\"Document\", \"createProcessingInstruction\")",
+      "body_sha256": "34cbddd4d024dce39a7b0eab6d99487e87ead314814ab412473a5c9cce4ea77d"
+    },
+    {
+      "handler": "dispatch_document_createdocumentfragment",
+      "pattern": "(\"Document\", \"createDocumentFragment\")",
+      "body_sha256": "9768f6d5bd7c10d8593a8878ed3d0c667c066573867b8e660e0d32938c0e5c15"
+    },
+    {
+      "handler": "dispatch_document_createevent",
+      "pattern": "(\"Document\", \"createEvent\")",
+      "body_sha256": "fae75dc710d77067bcf7516a5eda1768681b755e93926bff519d582f2356a70f"
+    },
+    {
+      "handler": "dispatch_document_execcommand",
+      "pattern": "(\n            \"Document\",\n            \"execCommand\"\n            | \"queryCommandEnabled\"\n            | \"queryCommandIndeterm\"\n            | \"queryCommandState\"\n            | \"queryCommandSupported\"\n            | \"queryCommandValue\",\n        )",
+      "body_sha256": "c02b4bb216c6ba0620684d352f9949bb45346e6a367aae78a8e781d59eacd563"
+    },
+    {
+      "handler": "dispatch_htmlinputelement_htmltextareaelement",
+      "pattern": "(\"HTMLInputElement\" | \"HTMLTextAreaElement\", \"setRangeText\")",
+      "body_sha256": "c1e3bd802024f1ca4ff17b94735256428c1b4d14921c6d450bc6d3ce67cf0577"
+    },
+    {
+      "handler": "dispatch_htmlinputelement_htmltextareaelement_22",
+      "pattern": "(\"HTMLInputElement\" | \"HTMLTextAreaElement\", \"createValueRange\")",
+      "body_sha256": "270ecf98eab4a9eb099edf431b750b15415ce2c1c6057fa34cdd7d4cf8f0e065"
+    },
+    {
+      "handler": "dispatch_document_createrange",
+      "pattern": "(\"Document\", \"createRange\")",
+      "body_sha256": "f56565c80cff97a2823b80e249aa2ad2198af2fe0b3e2296d92bd605a6b6233e"
+    },
+    {
+      "handler": "dispatch_document_getselection",
+      "pattern": "(\"Document\", \"getSelection\")",
+      "body_sha256": "73d431aeb34f2c26ea5a7b6fcfc8c55f0d015e25300ed4fde7cb99d7e5b73f76"
+    },
+    {
+      "handler": "dispatch_document_createnodeiterator",
+      "pattern": "(\"Document\", \"createNodeIterator\" | \"createTreeWalker\")",
+      "body_sha256": "3939f8cd063c2224780233ebdf44e375d7a71723a4000ac06bdec202b421a218"
+    },
+    {
+      "handler": "dispatch_elementinternals",
+      "pattern": "(\"ElementInternals\", _)",
+      "body_sha256": "51a2173723b4f0b0f3f5998dd9b0f8e0b546b0e2b06a2500080f46d11cafbf0e"
+    },
+    {
+      "handler": "dispatch_htmlelement_attachinternals",
+      "pattern": "(\"HTMLElement\", \"attachInternals\")",
+      "body_sha256": "9dd956efc6657d5800a50b94bc28bbee425e07a1aa3ab666b9172fb45f88ec58"
+    },
+    {
+      "handler": "dispatch_customstateset_keys",
+      "pattern": "(\"CustomStateSet\", \"keys\" | \"values\" | \"entries\" | \"@@iterator\")",
+      "body_sha256": "7f4d5ee6bcd09738973b005b3dc5a2fb81d63cf5a45adeda9ca1f42e0cc76e1a"
+    },
+    {
+      "handler": "dispatch_customstateset_foreach",
+      "pattern": "(\"CustomStateSet\", \"forEach\")",
+      "body_sha256": "2d2b4f5426226d4ffa326870169ebdd80a3675908c8efb8745d832a7eac09b05"
+    },
+    {
+      "handler": "dispatch_customstateset_add",
+      "pattern": "(\"CustomStateSet\", \"add\" | \"delete\" | \"has\" | \"clear\")",
+      "body_sha256": "0ec67ba31ecbbd926c8ec7a2b18b316df6cc04b8d100f468433c979c607c66dd"
+    },
+    {
+      "handler": "dispatch_element_shadowroot",
+      "pattern": "(\"Element\" | \"ShadowRoot\", \"appendHTML\" | \"appendHTMLUnsafe\" | \"prependHTML\" | \"prependHTMLUnsafe\")\n        | (\"Element\", \"beforeHTML\" | \"beforeHTMLUnsafe\" | \"afterHTML\" | \"afterHTMLUnsafe\" | \"replaceWithHTML\" | \"replaceWithHTMLUnsafe\")",
+      "body_sha256": "3671fbac2c5bceb73a78d296134d13d878429a6b110003e15720edb8b3a0b3ea"
+    },
+    {
+      "handler": "dispatch_element_shadowroot_32",
+      "pattern": "(\"Element\" | \"ShadowRoot\", \"streamAppendHTMLUnsafe\")",
+      "body_sha256": "8ad3f32f9d9c12dd551569a68c2426e195850150c71c09d109e9f6b444002ae4"
+    },
+    {
+      "handler": "dispatch_element_shadowroot_33",
+      "pattern": "(\"Element\" | \"ShadowRoot\", \"setHTML\" | \"setHTMLUnsafe\")",
+      "body_sha256": "91ccefac85b23c9486d26cb67af28889c100cd0d096975967fff850fd7c47b38"
+    },
+    {
+      "handler": "dispatch_element_shadowroot_34",
+      "pattern": "(\"Element\" | \"ShadowRoot\", \"getHTML\")",
+      "body_sha256": "f83b68bd8d38071ef1e11bca625ab68851ab24151aadb9a1dbf38a210b0b1d70"
+    },
+    {
+      "handler": "dispatch_element_attachshadow",
+      "pattern": "(\"Element\", \"attachShadow\")",
+      "body_sha256": "0b50c34a1932cd1807bbf87d2c4ac8172e0d17f201290a0323f40c98aea79cf2"
+    },
+    {
+      "handler": "dispatch_element_getattributenodens",
+      "pattern": "(\"Element\", \"getAttributeNodeNS\")",
+      "body_sha256": "ad7885363aabcb91cabcb6299982157073783fe20ed58592d2fb47da5798f470"
+    },
+    {
+      "handler": "dispatch_element_getattributenode",
+      "pattern": "(\"Element\", \"getAttributeNode\")",
+      "body_sha256": "8b094996b2e4a59447593b65ffbd29f38413ee11ec3f00024c2744401403b285"
+    },
+    {
+      "handler": "dispatch_element_insertadjacenthtml",
+      "pattern": "(\"Element\", \"insertAdjacentHTML\")",
+      "body_sha256": "7d54fccd7682cb7d3b8e1747000153f133a0fc6982e8b87827cacd3b2adfc03e"
+    },
+    {
+      "handler": "dispatch_element_insertadjacentelement",
+      "pattern": "(\"Element\", \"insertAdjacentElement\" | \"insertAdjacentText\")",
+      "body_sha256": "13392465873796cc9f5d8a96d3e7e997388c79508b7e79aef866626224910e68"
+    },
+    {
+      "handler": "dispatch_document_shadowroot",
+      "pattern": "(\"Document\" | \"ShadowRoot\" | \"DocumentFragment\", \"getElementById\")",
+      "body_sha256": "3329520191374b1aed7228fd76554e2b8e8f477d4d466005f210dd22466e72f7"
+    },
+    {
+      "handler": "dispatch_document_open",
+      "pattern": "(\"Document\", \"open\")",
+      "body_sha256": "09469e75ba59fc27ecb173b494188c23b661031e0f58381d0db396b1689dd854"
+    },
+    {
+      "handler": "dispatch_document_write",
+      "pattern": "(\"Document\", \"write\" | \"writeln\")",
+      "body_sha256": "d10092930e3782c49329b5939e9d0d57ed5b6665cb847fe8aec173d26db752a1"
+    },
+    {
+      "handler": "dispatch_document_close",
+      "pattern": "(\"Document\", \"close\")",
+      "body_sha256": "5db4603348554e581cd95acf3d6d41d73b3ed597f20307a0fc8812ab91b14ac8"
+    },
+    {
+      "handler": "dispatch_appendchild_insertbefore",
+      "pattern": "(_, \"appendChild\" | \"insertBefore\")",
+      "body_sha256": "8fc33cefeeb9b6e0ab887fbc67caa273f6fbfa5c1d1df10e513b052c5899f8dd"
+    },
+    {
+      "handler": "dispatch_removechild",
+      "pattern": "(_, \"removeChild\")",
+      "body_sha256": "04cf67bbcd74f495b069df51df14910d0a085b79f9f9439cf19b9fa7d78eb34f"
+    },
+    {
+      "handler": "dispatch_replacechild",
+      "pattern": "(_, \"replaceChild\")",
+      "body_sha256": "0ce6d9b4f8cf859429bad61237497981544f8ca8723f7bf81369fce1001317c1"
+    },
+    {
+      "handler": "dispatch_movebefore",
+      "pattern": "(_, \"moveBefore\")",
+      "body_sha256": "594a25e768eddce336dec4b9a78d39c8a80fe5a30c23aff29dafdb92610a196c"
+    },
+    {
+      "handler": "dispatch_clonenode",
+      "pattern": "(_, \"cloneNode\")",
+      "body_sha256": "89773b9f4eead03ba9f0c4404cd16441d8ba4e4f0a1d287f81e1c6f08af5f875"
+    },
+    {
+      "handler": "dispatch_node_append",
+      "pattern": "(\"Node\", \"append\" | \"prepend\" | \"replaceChildren\" | \"before\" | \"after\" | \"replaceWith\")",
+      "body_sha256": "14e982128693834146995f5d99cd63a6f54ac8c4ff63ae544f788cbddaa91171"
+    },
+    {
+      "handler": "dispatch_node_remove",
+      "pattern": "(\"Node\", \"remove\")",
+      "body_sha256": "877fc9448f6ef4cfd12da4dc1d9fb733df100b9da312271a5fdeb4a13c08f445"
+    },
+    {
+      "handler": "dispatch_node_issamenode",
+      "pattern": "(\"Node\", \"isSameNode\")",
+      "body_sha256": "c827f508537968da0227509cba30d4b01e078c29811f9e9f493ff0ca76d774f7"
+    },
+    {
+      "handler": "dispatch_node_contains",
+      "pattern": "(\"Node\", \"contains\")",
+      "body_sha256": "80b98858cf1240d56cb789755cab9d4f9bb32626ff6324726929582498cb739a"
+    },
+    {
+      "handler": "dispatch_node_isequalnode",
+      "pattern": "(\"Node\", \"isEqualNode\")",
+      "body_sha256": "9c3bf802a5685951df0c37270e6ca9c95a7ad853ff712a7490f7d6d612eacfff"
+    },
+    {
+      "handler": "dispatch_node_comparedocumentposition",
+      "pattern": "(\"Node\", \"compareDocumentPosition\")",
+      "body_sha256": "0562c39d5a9b813e7a2b68e36d9c4b5a281cea2f543d5d181ee20d09ef2d06d9"
+    },
+    {
+      "handler": "dispatch_node_haschildnodes",
+      "pattern": "(\"Node\", \"hasChildNodes\")",
+      "body_sha256": "878572fab4f424b100f52e2d79d50b2482e0c8ef7eae1b9be07a76c523864669"
+    },
+    {
+      "handler": "dispatch_node_getrootnode",
+      "pattern": "(\"Node\", \"getRootNode\")",
+      "body_sha256": "e664cc76722af695f338c9cb296ac63d4a40da9d878ccf455a181df1da8ab65c"
+    },
+    {
+      "handler": "dispatch_element_setattributenode",
+      "pattern": "(\"Element\", \"setAttributeNode\" | \"setAttributeNodeNS\" | \"removeAttributeNode\")",
+      "body_sha256": "c4f795fed53c99d7f0931b9e460c6d312324c38100b6dfffb038eeaedf06867d"
+    },
+    {
+      "handler": "dispatch_element_getattribute",
+      "pattern": "(\"Element\", \"getAttribute\")",
+      "body_sha256": "3a18462e416d71e5bfd4063f89534abf070031738096ff5ef397bf12f30026ae"
+    },
+    {
+      "handler": "dispatch_element_getattributens",
+      "pattern": "(\"Element\", \"getAttributeNS\")",
+      "body_sha256": "0c2945ad31a8b6ba0eac174d13b512f40a0f944cc0aa70d07d2fb68e67a6e755"
+    },
+    {
+      "handler": "dispatch_element_getattributenames",
+      "pattern": "(\"Element\", \"getAttributeNames\")",
+      "body_sha256": "7d2b71089ff59a69a0f43468416f83f72e2c2c0c74c6af5991d616c5cb19fd41"
+    },
+    {
+      "handler": "dispatch_element_setpointercapture",
+      "pattern": "(\"Element\", \"setPointerCapture\"|\"releasePointerCapture\"|\"hasPointerCapture\")",
+      "body_sha256": "ffedc06ff14fdec1917afb15fc8ae90ada74cbb2c4ee18d41a5dd5757a2d6ad2"
+    },
+    {
+      "handler": "dispatch_element_setattribute",
+      "pattern": "(\"Element\", \"setAttribute\")",
+      "body_sha256": "947ec2d226f7c85261457432208f731603138871b898b59bb3a423303095e192"
+    },
+    {
+      "handler": "dispatch_element_setattributens",
+      "pattern": "(\"Element\", \"setAttributeNS\")",
+      "body_sha256": "bee260f0e9ac6d655378f432b0d09ec2a748fb87c9fcbe33ac04e34dfc6ea5c4"
+    },
+    {
+      "handler": "dispatch_element_removeattribute",
+      "pattern": "(\"Element\", \"removeAttribute\")",
+      "body_sha256": "f9c21a12dbe081300b77aef9136b0f522ae94586a9cae3732a576e927636213b"
+    },
+    {
+      "handler": "dispatch_element_removeattributens",
+      "pattern": "(\"Element\", \"removeAttributeNS\")",
+      "body_sha256": "17092333f2def56b50c2013e8a745b2c4e39fe9bd2a9d839060b96c5878d3268"
+    },
+    {
+      "handler": "dispatch_element_hasattribute",
+      "pattern": "(\"Element\", \"hasAttribute\")",
+      "body_sha256": "b335b020b29819ebff7f86066b2aa855fbec8079f194469f1144a12ea8f8c2d8"
+    },
+    {
+      "handler": "dispatch_element_hasattributens",
+      "pattern": "(\"Element\", \"hasAttributeNS\")",
+      "body_sha256": "bc1cc5d6a13e6376033cd1080d8213f42bfdca172c0450f54000494ce7183022"
+    },
+    {
+      "handler": "dispatch_element_hasattributes",
+      "pattern": "(\"Element\", \"hasAttributes\")",
+      "body_sha256": "dcd058a77e4412acdcc60b42aca543b978e7b10119351e067c467031981887e2"
+    },
+    {
+      "handler": "dispatch_element_toggleattribute",
+      "pattern": "(\"Element\", \"toggleAttribute\")",
+      "body_sha256": "57c4cc46c88ba1855e15c63db86a474ff77c467940fca5252b8c1f2207970df5"
+    },
+    {
+      "handler": "dispatch_queryselector",
+      "pattern": "(_, \"querySelector\")",
+      "body_sha256": "6c5d636358fa0fc1410a546ba4713d2b2e57ab11303b42f5897fc89f48c5be95"
+    },
+    {
+      "handler": "dispatch_queryselectorall",
+      "pattern": "(_, \"querySelectorAll\")",
+      "body_sha256": "d74fd4e9342b8a6d6ede1d89fe235213374bf0776dab4fa86215daa974963da5"
+    },
+    {
+      "handler": "dispatch_document_element",
+      "pattern": "(\"Document\" | \"Element\", \"getElementsByTagName\")",
+      "body_sha256": "7bdd6795e6648137328fe939271e035819a681ef133bfbd2604df7e5b6d2a6f5"
+    },
+    {
+      "handler": "dispatch_document_element_73",
+      "pattern": "(\"Document\" | \"Element\", \"getElementsByTagNameNS\")",
+      "body_sha256": "89fde0285067050a8db9074a5e425b5b96a593efd32f0be9b39d7d02bf13938a"
+    },
+    {
+      "handler": "dispatch_document_element_74",
+      "pattern": "(\"Document\" | \"Element\", \"getElementsByClassName\")",
+      "body_sha256": "d4d14eba2989b43c065776b6b2ad9447233b1043ccac835e8e11218f40c5eb10"
+    },
+    {
+      "handler": "dispatch_document_getelementsbyname",
+      "pattern": "(\"Document\", \"getElementsByName\")",
+      "body_sha256": "2d831e19ecdabf59b03f5680eb56afa745eb07a6395e4e800321d29327cc441c"
+    },
+    {
+      "handler": "dispatch_document_elementfrompoint",
+      "pattern": "(\"Document\", \"elementFromPoint\" | \"elementsFromPoint\")",
+      "body_sha256": "1ab4a9d3982aaeaf1b84036b944db75e40201a94924f4608fd16f947c0b02873"
+    },
+    {
+      "handler": "dispatch_element_remove",
+      "pattern": "(\"Element\", \"remove\")",
+      "body_sha256": "877fc9448f6ef4cfd12da4dc1d9fb733df100b9da312271a5fdeb4a13c08f445"
+    },
+    {
+      "handler": "dispatch_element_matches",
+      "pattern": "(\"Element\", \"matches\" | \"webkitMatchesSelector\")",
+      "body_sha256": "ad987b43de8a8702efaafa8c816817ac1871c524358633bcf0d6732260da071b"
+    },
+    {
+      "handler": "dispatch_element_closest",
+      "pattern": "(\"Element\", \"closest\")",
+      "body_sha256": "0d0d41be6795c290de2d4bc84543885d4f7889d5c6e8f1de70c62d418c8f7263"
+    },
+    {
+      "handler": "dispatch_element_getboundingclientrect",
+      "pattern": "(\"Element\", \"getBoundingClientRect\")",
+      "body_sha256": "da8815cf53fa20770b2b422c81c114d3e98415a4cc6a4940c1e1b4f6fdc5f9b9"
+    },
+    {
+      "handler": "dispatch_element_getclientrects",
+      "pattern": "(\"Element\", \"getClientRects\")",
+      "body_sha256": "c031d3215e5ba8b8bf5dfa9e9fbbb78c4763a393dbbc23b344af4037ded1a858"
+    },
+    {
+      "handler": "dispatch_cssstylesheet_insertrule",
+      "pattern": "(\"CSSStyleSheet\", \"insertRule\")",
+      "body_sha256": "51f53051896164670f442755cf9fb2145a0514f783de1e02ddc57b41beeb6e63"
+    },
+    {
+      "handler": "dispatch_cssstylesheet_deleterule",
+      "pattern": "(\"CSSStyleSheet\", \"deleteRule\" | \"removeRule\")",
+      "body_sha256": "323c022c004266500617cfcec930b01a08ecd339b141264cec551180030bf1a9"
+    },
+    {
+      "handler": "dispatch_cssstylesheet_addrule",
+      "pattern": "(\"CSSStyleSheet\", \"addRule\")",
+      "body_sha256": "6f6ff66146955cae748528c7da49e9787901ba46c0be0de467e2b24b0f6b6e9c"
+    },
+    {
+      "handler": "dispatch_cssstylesheet_replacesync",
+      "pattern": "(\"CSSStyleSheet\", \"replaceSync\") | (\"CSSStyleSheet\", \"replace\")",
+      "body_sha256": "4652cc0df0da6c39fd86833e5c8517c01fc8ed05ae032f1597568ebb855433b9"
+    },
+    {
+      "handler": "dispatch_cssstyledeclaration_item",
+      "pattern": "(\"CSSStyleDeclaration\", \"item\")",
+      "body_sha256": "36abb7452336aeb57d6b97576d7adc92f66663e3e8068c9149c2e931cfb6252a"
+    },
+    {
+      "handler": "dispatch_cssstyledeclaration_getpropertyvalue",
+      "pattern": "(\"CSSStyleDeclaration\", \"getPropertyValue\")",
+      "body_sha256": "24899f798454fbcc26712acdec25fbae89ca4c9fbcfd9924a908b39ac7cdb2ea"
+    },
+    {
+      "handler": "dispatch_cssstyledeclaration_getpropertypriority",
+      "pattern": "(\"CSSStyleDeclaration\", \"getPropertyPriority\")",
+      "body_sha256": "d5d80b7a373b429c324f448ec7d5197a57300c40062b44ff9a1a97f95f2601f2"
+    },
+    {
+      "handler": "dispatch_cssstyledeclaration_setproperty",
+      "pattern": "(\"CSSStyleDeclaration\", \"setProperty\")",
+      "body_sha256": "a77d4e99d8b48082061530820eccfa36cd66a706f9bda0103a647a589ee30802"
+    },
+    {
+      "handler": "dispatch_cssstyledeclaration_removeproperty",
+      "pattern": "(\"CSSStyleDeclaration\", \"removeProperty\")",
+      "body_sha256": "40e05e20701c82e0138d91de649c03f93094a8fdbf0e699ed3683b891d55831a"
+    },
+    {
+      "handler": "dispatch_htmldialogelement_show",
+      "pattern": "(\"HTMLDialogElement\", \"show\" | \"showModal\")",
+      "body_sha256": "420511588c625a541a59a3158911fec058f7c8573c9bdb308e309c9eddec7772"
+    },
+    {
+      "handler": "dispatch_element_requestfullscreen",
+      "pattern": "(\"Element\",\"requestFullscreen\")",
+      "body_sha256": "b5b24617813b5eb2f5b522eab08c1b9cdd27582be9ed7f9c81abcd5fb4c4ed4b"
+    },
+    {
+      "handler": "dispatch_document_exitfullscreen",
+      "pattern": "(\"Document\",\"exitFullscreen\")",
+      "body_sha256": "6a0c70d5837730653ece9879f21c53587835107baef49cbcb7dc6cf433f1c603"
+    },
+    {
+      "handler": "dispatch_htmlelement_showpopover",
+      "pattern": "(\"HTMLElement\",\"showPopover\"|\"hidePopover\"|\"togglePopover\")",
+      "body_sha256": "524907b4a55743f8e38e834877aa5c818d174f5bc9afa280c6554ec60a96295a"
+    },
+    {
+      "handler": "dispatch_htmldialogelement_close",
+      "pattern": "(\"HTMLDialogElement\", \"close\" | \"requestClose\")",
+      "body_sha256": "d802a768c96176a27f94ebab4c81a46511af56b0e1aed0157f541aeef52bd365"
+    },
+    {
+      "handler": "dispatch_htmlelement_focus",
+      "pattern": "(\"HTMLElement\", \"focus\")",
+      "body_sha256": "8f12fc0dcaef189bc1e8b5595b50467d8ac9923421a01dd52421b860ffaf4817"
+    },
+    {
+      "handler": "dispatch_htmlinputelement_htmltextareaelement_97",
+      "pattern": "(\"HTMLInputElement\" | \"HTMLTextAreaElement\", \"select\")",
+      "body_sha256": "1673947213772d0c91f016941b3c25bbf89bd873eaae4cdaa565685795e488ea"
+    },
+    {
+      "handler": "dispatch_htmlinputelement_htmltextareaelement_98",
+      "pattern": "(\"HTMLInputElement\" | \"HTMLTextAreaElement\", \"setSelectionRange\")",
+      "body_sha256": "868e8a327155d8e8e78a51e6a8d05f84fcdce69b91916ca45907178591f5206d"
+    },
+    {
+      "handler": "dispatch_htmlelement_blur",
+      "pattern": "(\"HTMLElement\", \"blur\")",
+      "body_sha256": "ba7cfb787a2f41cdf9e2523c410c63e0e29208f8ed38053945506b23b66a81b0"
+    },
+    {
+      "handler": "dispatch_element_scroll",
+      "pattern": "(\"Element\", \"scroll\" | \"scrollTo\" | \"scrollBy\")",
+      "body_sha256": "e3fe72d6f2fe73077a01f0d15520b26093630cf22bd3ef3ff7de32a97fb1525e"
+    },
+    {
+      "handler": "dispatch_element_scrollintoview",
+      "pattern": "(\"Element\", \"scrollIntoView\")",
+      "body_sha256": "f411bbe4a94df908d7fa0e6c2e1a62acbd7785fbd952b3630711c9278dc597b8"
+    },
+    {
+      "handler": "dispatch_htmlcanvaselement_todataurl",
+      "pattern": "(\"HTMLCanvasElement\", \"toDataURL\" | \"toBlob\")",
+      "body_sha256": "3781f13155d5f1e69f23c99c1f856131c52e2e0b65532b10c953a75c1aa51e3c"
+    },
+    {
+      "handler": "dispatch_htmlcanvaselement_getcontext",
+      "pattern": "(\"HTMLCanvasElement\", \"getContext\")",
+      "body_sha256": "57e1fc5d7e8bc7438fd034516746b94b7d39f417edffce3571450f6b230b329f"
+    },
+    {
+      "handler": "dispatch_htmlelement_click",
+      "pattern": "(\"HTMLElement\", \"click\")",
+      "body_sha256": "2191882b7926a6f1e4ec7d59ac61e8c984cb6a785a53b3bc72cfabd6c7202eda"
+    },
+    {
+      "handler": "dispatch_htmlinputelement_stepup",
+      "pattern": "(\"HTMLInputElement\", \"stepUp\" | \"stepDown\")",
+      "body_sha256": "dda80d9d7bad58143f6dcb85c8fd6ba19df145ffc2d82a36ee88fd42c2312838"
+    },
+    {
+      "handler": "dispatch_setcustomvalidity",
+      "pattern": "(interface, \"setCustomValidity\") if validation::is_control_interface(interface)",
+      "body_sha256": "aa99042f59b8185b5a646175d5d50194637adf4e6574cf15b50aa898f4567996"
+    },
+    {
+      "handler": "dispatch_checkvalidity_reportvalidity",
+      "pattern": "(interface, \"checkValidity\" | \"reportValidity\")\n            if validation::is_control_interface(interface)",
+      "body_sha256": "470e547459ec6dad871d0164653e76bbbc9eb04f6aade6fc6ed0a61a603dff29"
+    },
+    {
+      "handler": "dispatch_htmlinputelement_showpicker",
+      "pattern": "(\"HTMLInputElement\", \"showPicker\")",
+      "body_sha256": "4b8b95732d130cc9c79ce8ded10f73c266c3c2563057359a39e29bac3684c738"
+    },
+    {
+      "handler": "dispatch_htmlselectelement_showpicker",
+      "pattern": "(\"HTMLSelectElement\", \"showPicker\")",
+      "body_sha256": "8449047ca3e61381c1efba29803afa867cbd553c058dcd5bd9761fab7901ba04"
+    },
+    {
+      "handler": "dispatch_htmlselectelement_remove",
+      "pattern": "(\"HTMLSelectElement\", \"remove\")",
+      "body_sha256": "691c510004a75ba8d2347212d9767d0afa203598e3a52844df7dad9fa8cf68d5"
+    },
+    {
+      "handler": "dispatch_htmlselectelement_item",
+      "pattern": "(\"HTMLSelectElement\", \"item\" | \"namedItem\")",
+      "body_sha256": "88283ccdb04d96366ff02d9e18ee06e78b8381e1d00bba5aae1045a80ba21c4b"
+    },
+    {
+      "handler": "dispatch_htmlselectelement_add",
+      "pattern": "(\"HTMLSelectElement\", \"add\")",
+      "body_sha256": "b98977327e6b493d79eef73e38587baa5f2e42933bd5ba2aae69f3b4862ec333"
+    },
+    {
+      "handler": "dispatch_htmlformelement_checkvalidity",
+      "pattern": "(\"HTMLFormElement\", \"checkValidity\" | \"reportValidity\")",
+      "body_sha256": "3b79284aa37417f27510556f160876057aa55c7330c0011e2e2197eb53d36356"
+    },
+    {
+      "handler": "dispatch_htmlformelement_requestsubmit",
+      "pattern": "(\"HTMLFormElement\", \"requestSubmit\" | \"submit\")",
+      "body_sha256": "7f3a46e83eb72679e59456c5206e04474956456f17aa1fa10389348e05b64cf5"
+    },
+    {
+      "handler": "dispatch_htmlformelement_reset",
+      "pattern": "(\"HTMLFormElement\", \"reset\")",
+      "body_sha256": "c193227b88ccd8561a6e48ccccc36bf6bbf02f12d65d7b5a17ca16a88cde0997"
+    },
+    {
+      "phase": "create_state",
+      "body_sha256": "bdd306598c15c459a1899102528ecd85ae6600880ac2febe21222901acb620b1"
+    },
+    {
+      "phase": "install_interfaces",
+      "body_sha256": "ad6e5235d14109ebd50d1a683f814303077ec9df0bf3c958994669d4ea329b3a"
+    },
+    {
+      "phase": "publish_objects",
+      "body_sha256": "81cda363cf48ea010a5b1529b1099096447a7a3ac113829d25ff79df8262d069"
+    }
+  ]
+}

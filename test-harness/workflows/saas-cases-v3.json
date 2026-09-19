@@ -1,0 +1,935 @@
+{
+  "schema_version": 3,
+  "family": "authenticated_saas",
+  "qualification": "Adds actual PKCE relogin after controlled session expiry; complete auth rejection/isolation/fault matrix remains open",
+  "credential_notice": "Public synthetic fixture credentials; never use a real account.",
+  "cases": [
+    {
+      "id": "pkce_create_update_reload_logout",
+      "steps": [
+        "goto \"{base}/login\"",
+        "click \"Sign in with test identity\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "type \"Record title\" \"Draft\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Create record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"1\"])",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "type \"Record title\" \"Approved\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Save changes\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "click \"Reload record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Sign out\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"0\"])",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Draft",
+        "Approved",
+        "2"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 2
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 1,
+      "expected_requests": [
+        {
+          "action": "oauth_login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "login",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        }
+      ],
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "authenticated",
+          "outcome": 303
+        }
+      ],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 200
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 1
+          }
+        ],
+        "tokens": [
+          {
+            "revoked": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "pkce_logged_out_access_denied",
+      "steps": [
+        "goto \"{base}/login\"",
+        "click \"Sign in with test identity\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "type \"Record title\" \"Draft\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Create record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"1\"])",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "type \"Record title\" \"Approved\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Save changes\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "click \"Reload record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Sign out\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"0\"])",
+        "goto \"{base}/records\"",
+        "extract text --selector \"h1\"",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Draft",
+        "Approved",
+        "2",
+        "Session required"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 2
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 1,
+      "expected_requests": [
+        {
+          "action": "oauth_login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "records",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 0
+        }
+      ],
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "authenticated",
+          "outcome": 303
+        }
+      ],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 200
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 1
+          }
+        ],
+        "tokens": [
+          {
+            "revoked": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "pkce_expired_session_save_recovery",
+      "steps": [
+        "goto \"{base}/login\"",
+        "click \"Sign in with test identity\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "type \"Record title\" \"Draft\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Create record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"1\"])",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "type \"Record title\" \"Rejected edit\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Save changes\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-response=\"401\"])",
+        "extract text --selector \"h1\"",
+        "click \"Sign in again\"",
+        "click \"Sign in with test identity\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "type \"Record title\" \"Approved\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Save changes\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "click \"Reload record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Sign out\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"0\"])",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Draft",
+        "Session expired",
+        "Approved",
+        "2"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 2
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 2,
+      "expected_requests": [
+        {
+          "action": "oauth_login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 401,
+          "authorized": 0
+        },
+        {
+          "action": "oauth_login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "login",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        }
+      ],
+      "scenario": "expire_after_create",
+      "expected_expirations": [
+        "after_create"
+      ],
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "authenticated",
+          "outcome": 303
+        },
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "authenticated",
+          "outcome": 303
+        }
+      ],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 200
+          },
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 200
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 1
+          },
+          {
+            "consumed": 1
+          }
+        ],
+        "tokens": [
+          {
+            "revoked": 0
+          },
+          {
+            "revoked": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "pkce_mfa_create_update_reload_logout",
+      "steps": [
+        "goto \"{base}/login\"",
+        "click \"Sign in with test identity\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "type \"Test MFA code\" \"246810\"",
+        "click \"Authorize test application\"",
+        "type \"Record title\" \"Draft\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Create record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"1\"])",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "type \"Record title\" \"Approved\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Save changes\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "click \"Reload record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Sign out\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"0\"])",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Draft",
+        "Approved",
+        "2"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 2
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 1,
+      "expected_requests": [
+        {
+          "action": "oauth_login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "login",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        }
+      ],
+      "scenario": "mfa",
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "authenticated",
+          "outcome": 303
+        }
+      ],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "mfa_authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 200
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 1
+          }
+        ],
+        "tokens": [
+          {
+            "revoked": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "pkce_concurrent_edit_recovery",
+      "steps": [
+        "goto \"{base}/login\"",
+        "click \"Sign in with test identity\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "type \"Record title\" \"Draft\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "click \"Create record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"1\"])",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "type \"Record title\" \"Rejected stale edit\"",
+        "click \"Save changes\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-response=\"409\"])",
+        "extract text --selector \"h1\"",
+        "click \"Reload record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "type \"Record title\" \"Approved\"",
+        "click \"Save changes\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"3\"])",
+        "click \"Reload record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"3\"])",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "click \"Sign out\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"0\"])",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Draft",
+        "Record changed; reload before saving",
+        "Concurrent",
+        "2",
+        "Approved",
+        "3"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 3
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 1,
+      "expected_requests": [
+        {
+          "action": "oauth_login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 409,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "login",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        }
+      ],
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "authenticated",
+          "outcome": 303
+        }
+      ],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 200
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 1
+          }
+        ],
+        "tokens": [
+          {
+            "revoked": 0
+          }
+        ]
+      },
+      "scenario": "concurrent_edit",
+      "expected_concurrent_edits": [
+        {
+          "title": "Concurrent",
+          "version": 2
+        }
+      ]
+    },
+    {
+      "id": "pkce_expired_session_save_recovery-v3-regression",
+      "steps": [
+        "goto \"{base}/login\"",
+        "click \"Sign in with test identity\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "type \"Record title\" \"Draft\"",
+        "click \"Create record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"1\"])",
+        "wait visible css(#record)",
+        "extract text --selector \"#record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "type \"Record title\" \"Rejected edit\"",
+        "click \"Save changes\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-response=\"401\"])",
+        "extract text --selector \"h1\"",
+        "click \"Sign in again\"",
+        "click \"Sign in with test identity\"",
+        "type \"Username\" \"agent@example.test\"",
+        "type \"Password\" \"fixture-only-password\"",
+        "click \"Authorize test application\"",
+        "wait visible css(#saas-app[data-state=\"ready\"])",
+        "type \"Record title\" \"Approved\"",
+        "click \"Save changes\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-response=\"200\"])",
+        "click \"Reload record\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"2\"])",
+        "extract text --selector \"#record\"",
+        "extract text --selector \"#version\"",
+        "click \"Sign out\"",
+        "wait visible css(#saas-app[data-state=\"ready\"][data-version=\"0\"])",
+        "observe"
+      ],
+      "expected_extractions": [
+        "Draft",
+        "Session expired",
+        "Approved",
+        "2"
+      ],
+      "expected_record": {
+        "title": "Approved",
+        "version": 2
+      },
+      "expected_authenticated": 0,
+      "expected_logins": 2,
+      "expected_requests": [
+        {
+          "action": "oauth_login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "create",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "update",
+          "outcome": 401,
+          "authorized": 0
+        },
+        {
+          "action": "oauth_login",
+          "outcome": 303,
+          "authorized": 0
+        },
+        {
+          "action": "update",
+          "outcome": 303,
+          "authorized": 1
+        },
+        {
+          "action": "logout",
+          "outcome": 303,
+          "authorized": 1
+        }
+      ],
+      "final": "login",
+      "expected_views": [
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "records",
+          "authorized": 1
+        },
+        {
+          "page": "login",
+          "authorized": 0
+        }
+      ],
+      "scenario": "expire_after_create",
+      "expected_expirations": [
+        "after_create"
+      ],
+      "expected_login_events": [
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "authenticated",
+          "outcome": 303
+        },
+        {
+          "action": "started",
+          "outcome": 303
+        },
+        {
+          "action": "authenticated",
+          "outcome": 303
+        }
+      ],
+      "expected_oauth": {
+        "events": [
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 200
+          },
+          {
+            "action": "authorization_started",
+            "outcome": 200
+          },
+          {
+            "action": "code_issued",
+            "outcome": 302
+          },
+          {
+            "action": "authorized",
+            "outcome": 302
+          },
+          {
+            "action": "token_exchange",
+            "outcome": 200
+          }
+        ],
+        "codes": [
+          {
+            "consumed": 1
+          },
+          {
+            "consumed": 1
+          }
+        ],
+        "tokens": [
+          {
+            "revoked": 0
+          },
+          {
+            "revoked": 0
+          }
+        ]
+      }
+    }
+  ]
+}

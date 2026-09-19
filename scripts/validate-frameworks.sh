@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 oryn_bin="${ORYN_BIN:-$repo_root/target/debug/oryn}"
 node_bin="${ORYN_NODE_BIN:-$(command -v node || true)}"

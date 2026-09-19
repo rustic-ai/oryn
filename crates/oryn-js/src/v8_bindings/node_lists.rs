@@ -2,7 +2,9 @@
 use super::*;
 pub(super) mod all;
 pub(super) mod attributes;
+mod migration;
 mod named;
+pub(super) use migration::{Prepared as MigrationPrepared, capture_migration};
 
 #[derive(Clone)]
 pub(super) enum ElementFilter {
@@ -32,6 +34,7 @@ pub(super) enum ElementFilter {
 
 #[derive(Clone)]
 enum Contents {
+    StyleSheets(NodeId),
     Attributes(NodeId),
     Fieldset(NodeId),
     Form(NodeId),
@@ -44,7 +47,15 @@ enum Contents {
     Elements { root: NodeId, filter: ElementFilter },
 }
 
+#[derive(Clone)]
+struct ForeignNode {
+    owner: std::rc::Weak<V8BindingState>,
+    dom: SharedDom,
+    node: NodeId,
+}
+
 struct List {
+    foreign: BTreeMap<NodeId, ForeignNode>,
     contents: Contents,
     interface: &'static str,
     roots: Vec<NodeId>,
@@ -61,6 +72,7 @@ pub(super) struct Store {
     next: Cell<u64>,
     lists: RefCell<BTreeMap<u64, List>>,
     attributes: RefCell<BTreeMap<NodeId, u64>>,
+    stylesheets: RefCell<BTreeMap<NodeId, u64>>,
     children: RefCell<BTreeMap<NodeId, u64>>,
     labels: RefCell<BTreeMap<NodeId, u64>>,
     forms: RefCell<BTreeMap<NodeId, u64>>,
@@ -74,6 +86,51 @@ pub(super) struct Store {
     brand: RefCell<Option<v8::Global<v8::Symbol>>>,
     memory_delta: Cell<i64>,
     static_template: RefCell<Option<v8::Global<v8::ObjectTemplate>>>,
+}
+
+thread_local! {static ROOT_RELEASES:RefCell<Vec<(std::rc::Weak<RefCell<DomRuntime>>,NodeId)>>=const{RefCell::new(Vec::new())};}
+fn drain_root_releases() -> Result<(), BindingError> {
+    ROOT_RELEASES.with(|pending| {
+        let mut pending = pending.borrow_mut();
+        let mut index = 0;
+        while index < pending.len() {
+            let Some(dom) = pending[index].0.upgrade() else {
+                pending.swap_remove(index);
+                continue;
+            };
+            let Ok(mut dom) = dom.try_borrow_mut() else {
+                index += 1;
+                continue;
+            };
+            dom.release_native(pending[index].1)?;
+            pending.swap_remove(index);
+        }
+        Ok(())
+    })
+}
+pub(super) fn release_root(dom: &SharedDom, node: NodeId) {
+    let released = dom
+        .try_borrow_mut()
+        .is_ok_and(|mut dom| dom.release_native(node).is_ok());
+    if !released {
+        ROOT_RELEASES.with(|pending| pending.borrow_mut().push((Rc::downgrade(dom), node)));
+    }
+}
+fn retire_list(list: List, default: &SharedDom) {
+    for key in list.roots {
+        let (dom, node) = list
+            .foreign
+            .get(&key)
+            .map(|reference| (&reference.dom, reference.node))
+            .unwrap_or((default, key));
+        release_root(dom, node);
+    }
+}
+pub(super) fn retire_store(state: &mut V8BindingState) {
+    let lists = std::mem::take(state.node_lists.lists.get_mut());
+    for (_, list) in lists {
+        retire_list(list, &state.dom);
+    }
 }
 
 fn invalid_receiver() -> V8BindingError {
@@ -209,6 +266,28 @@ fn contents(state: &V8BindingState, id: u64) -> Result<Vec<NodeId>, V8BindingErr
         .map(|list| list.contents.clone())
         .ok_or_else(invalid_receiver)?;
     let (root, nodes) = match value {
+        Contents::StyleSheets(root) => {
+            let candidates = {
+                let dom = state.dom.borrow();
+                let mut candidates = dom
+                    .arena()
+                    .get(root)?
+                    .children
+                    .iter()
+                    .copied()
+                    .filter(|node| dom.arena().xml_stylesheet(*node).ok().flatten().is_some())
+                    .collect::<Vec<_>>();
+                candidates.extend(dom.query_selector_all(root, "style, link")?);
+                candidates
+            };
+            let mut sheets = Vec::new();
+            for candidate in candidates {
+                if stylesheet_ownership::available(state, candidate)? {
+                    sheets.push(candidate);
+                }
+            }
+            (root, sheets)
+        }
         Contents::Attributes(root) => {
             let keys = state
                 .dom
@@ -430,6 +509,7 @@ fn node_id_at(
 }
 
 pub(super) fn collect(state: &V8BindingState) -> Result<(), BindingError> {
+    drain_root_releases()?;
     let (Ok(mut lists), Ok(mut dom)) = (
         state.node_lists.lists.try_borrow_mut(),
         state.dom.try_borrow_mut(),
@@ -441,6 +521,29 @@ pub(super) fn collect(state: &V8BindingState) -> Result<(), BindingError> {
         .filter_map(|(id, list)| list.handle.is_empty().then_some(*id))
         .collect::<Vec<_>>();
     for id in dead {
+        // Release one lease at a time and retain the rest of the record on
+        // borrow/authority failure. Migration may split a snapshot across DOMs.
+        let list = lists.get_mut(&id).expect("enumerated list");
+        let mut blocked = false;
+        while let Some(root) = list.roots.last().copied() {
+            if let Some(reference) = list.foreign.get(&root) {
+                if Rc::ptr_eq(&reference.dom, &state.dom) {
+                    dom.release_native(reference.node)?;
+                } else {
+                    let Ok(mut target) = reference.dom.try_borrow_mut() else {
+                        blocked = true;
+                        break;
+                    };
+                    target.release_native(reference.node)?;
+                }
+            } else {
+                dom.release_native(root)?;
+            }
+            list.roots.pop();
+        }
+        if blocked {
+            continue;
+        }
         let list = lists.remove(&id).expect("enumerated list");
         if let Contents::Elements {
             root,
@@ -486,6 +589,11 @@ pub(super) fn collect(state: &V8BindingState) -> Result<(), BindingError> {
                 state.node_lists.children.borrow_mut().remove(root);
             }
         }
+        if let Contents::StyleSheets(root) = &list.contents
+            && state.node_lists.stylesheets.borrow().get(root).copied() == Some(id)
+        {
+            state.node_lists.stylesheets.borrow_mut().remove(root);
+        }
         if let Contents::Attributes(root) = &list.contents
             && state.node_lists.attributes.borrow().get(root).copied() == Some(id)
         {
@@ -511,9 +619,6 @@ pub(super) fn collect(state: &V8BindingState) -> Result<(), BindingError> {
         {
             state.node_lists.element_children.borrow_mut().remove(&root);
         }
-        for root in list.roots {
-            dom.release_native(root)?;
-        }
         state
             .node_lists
             .memory_delta
@@ -529,6 +634,14 @@ pub(super) fn account_memory(scope: &mut v8::PinScope, state: &V8BindingState) {
     }
 }
 
+pub(super) fn style_sheets<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    document: NodeId,
+) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    create(scope, state, Contents::StyleSheets(document))
+}
+
 fn create<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
@@ -539,6 +652,7 @@ fn create<'s>(
         collect(state)?;
     }
     let child_cache = match &value {
+        Contents::StyleSheets(root) => Some((*root, &state.node_lists.stylesheets)),
         Contents::Attributes(root) => Some((*root, &state.node_lists.attributes)),
         Contents::Elements {
             root,
@@ -574,6 +688,7 @@ fn create<'s>(
         }
     }
     let interface = match &value {
+        Contents::StyleSheets(_) => "StyleSheetList",
         Contents::Attributes(_) => "NamedNodeMap",
         Contents::Elements {
             filter: ElementFilter::Options,
@@ -637,7 +752,8 @@ fn create<'s>(
     };
     object.set_internal_field(2, brand.into());
     let nodes = match &value {
-        Contents::Attributes(root)
+        Contents::StyleSheets(root)
+        | Contents::Attributes(root)
         | Contents::All(root)
         | Contents::Form(root)
         | Contents::Fieldset(root)
@@ -693,7 +809,8 @@ fn create<'s>(
             * (std::mem::size_of::<NodeId>() + std::mem::size_of::<v8::Weak<v8::Object>>())
         + match &value {
             Contents::Snapshot(nodes) => nodes.len() * std::mem::size_of::<NodeId>(),
-            Contents::Attributes(_)
+            Contents::StyleSheets(_)
+            | Contents::Attributes(_)
             | Contents::Children(_)
             | Contents::All(_)
             | Contents::Labels(_)
@@ -723,6 +840,7 @@ fn create<'s>(
     state.node_lists.lists.borrow_mut().insert(
         id,
         List {
+            foreign: BTreeMap::new(),
             contents: value,
             interface,
             roots,
@@ -801,6 +919,18 @@ fn node_at<'s>(
     let Some(node) = node else {
         return Ok(None);
     };
+    if state
+        .node_lists
+        .lists
+        .borrow()
+        .get(&id)
+        .is_some_and(|list| list.interface == "StyleSheetList")
+    {
+        // Resolve the current generation every time. Caching by owner element
+        // would incorrectly return an old sheet after a source replacement.
+        let value = associated_wrapper(scope, state, node, "CSSStyleSheet")?;
+        return Ok(v8::Local::<v8::Object>::try_from(value).ok());
+    }
     let cached = state
         .node_lists
         .lists
@@ -811,7 +941,19 @@ fn node_at<'s>(
     if let Some(object) = cached {
         return Ok(Some(object));
     }
-    let object = wrap_node(scope, state, node)?;
+    let foreign = state
+        .node_lists
+        .lists
+        .borrow()
+        .get(&id)
+        .and_then(|list| list.foreign.get(&node))
+        .cloned();
+    let object = if let Some(reference) = foreign {
+        let owner = reference.owner.upgrade().ok_or_else(invalid_receiver)?;
+        wrap_node(scope, &owner, reference.node)?
+    } else {
+        wrap_node(scope, state, node)?
+    };
     // Live children remain rooted by their parent; the cached wrapper keeps
     // identity while the corresponding child remains in this list.
     {
@@ -850,11 +992,12 @@ pub(super) fn item<'s>(
     interface: &str,
     value: v8::Local<v8::Value>,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    let id = identity_as(scope, state, object, interface)?;
-    let Some(index) = value.uint32_value(scope) else {
-        return Ok(v8::undefined(scope).into());
-    };
-    Ok(node_at(scope, state, id, index)?.map_or_else(|| v8::null(scope).into(), Into::into))
+    identity_as(scope, state, object, interface)?;
+    let index = value
+        .uint32_value(scope)
+        .ok_or(V8BindingError::JavaScriptException)?;
+    let (state, id) = owner(scope, object)?;
+    Ok(node_at(scope, &state, id, index)?.map_or_else(|| v8::null(scope).into(), Into::into))
 }
 
 fn owner(
@@ -1041,7 +1184,7 @@ fn indexed_setter(
     if let Ok((state, id)) = owner(scope, args.holder())
         && let Some(select) = indexed_options_select(&state, id)
     {
-        match set_option_index(scope, &state, select, index, value) {
+        match set_option_index_with_reactions(scope, &state, select, index, value) {
             Ok(()) => rv.set_bool(true),
             Err(error) => throw_binding_error(scope, &error),
         }
@@ -1076,7 +1219,7 @@ fn indexed_definer(
         } else {
             v8::undefined(scope).into()
         };
-        match set_option_index(scope, &state, select, index, value) {
+        match set_option_index_with_reactions(scope, &state, select, index, value) {
             Ok(()) => rv.set_bool(true),
             Err(error) => throw_binding_error(scope, &error),
         }
@@ -1130,6 +1273,19 @@ pub(super) fn configure(instance: v8::Local<v8::ObjectTemplate>) {
     );
 }
 
+fn set_option_index_with_reactions(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    select: NodeId,
+    index: u32,
+    value: v8::Local<v8::Value>,
+) -> Result<(), V8BindingError> {
+    let boundary = custom_elements::ReactionBoundary::begin(scope)?;
+    let mutation = set_option_index(scope, state, select, index, value);
+    let completion = boundary.complete_result(scope);
+    mutation.and(completion)
+}
+
 fn set_option_index(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
@@ -1149,8 +1305,8 @@ fn set_option_index(
         }
         return Ok(());
     }
-    let option = argument_node(scope, state, value)?;
-    if !state
+    let (source, option) = node_identity::argument(scope, value)?.ok_or_else(invalid_receiver)?;
+    if !source
         .dom
         .borrow()
         .is_element(option, "http://www.w3.org/1999/xhtml", "option")
@@ -1167,17 +1323,27 @@ fn set_option_index(
             .borrow()
             .parent(replaced)?
             .ok_or_else(invalid_receiver)?;
-        validate_pre_insertion(
-            &state.dom.borrow(),
+        let insertion = node_migration::insertion_argument(
+            scope,
+            state,
             parent,
-            option,
+            value,
             Some(replaced),
             Some(replaced),
         )?;
-        state
-            .dom
-            .borrow_mut()
-            .replace_child(parent, option, replaced)?;
+        if insertion.replacement_removed {
+            insertion.owner.dom.borrow_mut().insert_before(
+                insertion.parent,
+                insertion.node,
+                insertion.reference,
+            )?;
+        } else {
+            insertion.owner.dom.borrow_mut().replace_child(
+                insertion.parent,
+                insertion.node,
+                insertion.replaced.ok_or_else(invalid_receiver)?,
+            )?;
+        }
     } else {
         // Indexed padding has no length-setter ceiling in the HTML algorithm.
         if !state.dom.borrow_mut().append_new_options(
@@ -1187,10 +1353,16 @@ fn set_option_index(
         )? {
             return Err(V8BindingError::JavaScriptException);
         }
-        validate_pre_insertion(&state.dom.borrow(), select, option, None, None)?;
-        state.dom.borrow_mut().append_child(select, option)?;
+        let insertion =
+            node_migration::insertion_argument(scope, state, select, value, None, None)?;
+        insertion
+            .owner
+            .dom
+            .borrow_mut()
+            .append_child(insertion.parent, insertion.node)?;
     }
-    prepare_dynamic_script_subtree(scope, state, option)?;
+    let (owner, option) = node_identity::argument(scope, value)?.ok_or_else(invalid_receiver)?;
+    prepare_dynamic_script_subtree(scope, &owner, option)?;
     Ok(())
 }
 
@@ -1244,25 +1416,34 @@ pub(super) fn options_attribute<'s>(
     member: &str,
     value: Option<v8::Local<v8::Value>>,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
+    options_select(scope, state, object)?; // brand before authored conversion
+    let converted = match value {
+        Some(value) => Some(if member == "selectedIndex" {
+            value
+                .int32_value(scope)
+                .ok_or(V8BindingError::JavaScriptException)? as u32
+        } else {
+            value
+                .uint32_value(scope)
+                .ok_or(V8BindingError::JavaScriptException)?
+        }),
+        None => None,
+    };
+    let (owner, _) = owner(scope, object)?;
+    let state = &owner;
     let select = options_select(scope, state, object)?;
     if member == "selectedIndex" {
-        if let Some(value) = value {
-            let index = value
-                .int32_value(scope)
-                .ok_or(V8BindingError::JavaScriptException)?;
+        if let Some(index) = converted {
             state
                 .dom
                 .borrow_mut()
-                .set_select_selected_index(select, index)?;
+                .set_select_selected_index(select, index as i32)?;
         }
         return Ok(
             v8::Integer::new(scope, state.dom.borrow().select_selected_index(select)?).into(),
         );
     }
-    if let Some(value) = value {
-        let length = value
-            .uint32_value(scope)
-            .ok_or(V8BindingError::JavaScriptException)?;
+    if let Some(length) = converted {
         state.dom.borrow_mut().set_select_length(select, length)?;
     }
     Ok(v8::Integer::new_from_unsigned(
@@ -1270,6 +1451,107 @@ pub(super) fn options_attribute<'s>(
         state.dom.borrow().select_options(select)?.len() as u32,
     )
     .into())
+}
+
+/// Shared native select/options add conversion. Author numeric conversion may
+/// move the receiver and either argument into another live Document.
+pub(super) fn select_add<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    select: NodeId,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
+    let receiver = wrap_node(scope, state, select)?;
+    let (source, element) =
+        node_identity::argument(scope, args.get(0))?.ok_or_else(invalid_receiver)?;
+    if !["option", "optgroup"].iter().any(|tag| {
+        source
+            .dom
+            .borrow()
+            .is_element(element, "http://www.w3.org/1999/xhtml", tag)
+    }) {
+        return Err(V8BindingError::Unsupported {
+            interface: "HTMLSelectElement".into(),
+            member: "TypeError: add requires an option or optgroup".into(),
+        });
+    }
+    let before = args.get(1);
+    let before_is_element = if before.is_null_or_undefined() {
+        false
+    } else {
+        node_identity::canonical(scope,before)?.is_some_and(|(owner,node)|{let dom=owner.dom.borrow();matches!(dom.arena().get(node).map(|record|&record.kind),Ok(NodeKind::Element{name})if name.ns.as_ref()=="http://www.w3.org/1999/xhtml")})
+    };
+    let index = if !before_is_element && !before.is_null_or_undefined() {
+        Some(
+            before
+                .int32_value(scope)
+                .ok_or(V8BindingError::JavaScriptException)?,
+        )
+    } else {
+        None
+    };
+    let (state, select) =
+        node_identity::argument(scope, receiver.into())?.ok_or_else(invalid_receiver)?;
+    let (source, element) =
+        node_identity::argument(scope, args.get(0))?.ok_or_else(invalid_receiver)?;
+    let before_node = if before_is_element {
+        let (owner, node) = node_identity::argument(scope, before)?.ok_or_else(invalid_receiver)?;
+        if !Rc::ptr_eq(&owner.dom, &state.dom) {
+            return Err(V8BindingError::Unsupported {
+                interface: "HTMLSelectElement".into(),
+                member: "NotFoundError".into(),
+            });
+        }
+        Some(node)
+    } else {
+        None
+    };
+    let (parent, reference) = {
+        let dom = state.dom.borrow();
+        if Rc::ptr_eq(&source.dom, &state.dom) && dom.arena().ancestors(select)?.contains(&element)
+        {
+            return Err(V8BindingError::Unsupported {
+                interface: "HTMLSelectElement".into(),
+                member: "HierarchyRequestError".into(),
+            });
+        }
+        if let Some(before) = before_node {
+            if !dom.arena().ancestors(before)?.contains(&select) {
+                return Err(V8BindingError::Unsupported {
+                    interface: "HTMLSelectElement".into(),
+                    member: "NotFoundError".into(),
+                });
+            }
+            if Rc::ptr_eq(&source.dom, &state.dom) && before == element {
+                return Ok(None);
+            }
+        }
+        let reference = match before_node {
+            Some(node) => Some(node),
+            None => index.filter(|index| *index >= 0).and_then(|index| {
+                dom.select_options(select)
+                    .ok()?
+                    .get(index as usize)
+                    .copied()
+            }),
+        };
+        (
+            match reference {
+                Some(node) => dom.parent(node)?.unwrap_or(select),
+                None => select,
+            },
+            reference,
+        )
+    };
+    let insertion =
+        node_migration::insertion_argument(scope, &state, parent, args.get(0), reference, None)?;
+    insertion.owner.dom.borrow_mut().insert_before(
+        insertion.parent,
+        insertion.node,
+        insertion.reference,
+    )?;
+    prepare_dynamic_script_subtree(scope, &insertion.owner, insertion.node)?;
+    Ok(None)
 }
 
 pub(super) fn options_operation<'s>(
@@ -1281,7 +1563,7 @@ pub(super) fn options_operation<'s>(
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let select = options_select(scope, state, object)?;
     if member == "add" {
-        return call_operation(scope, state, select, "HTMLSelectElement", "add", args);
+        return select_add(scope, state, select, args);
     }
     if args.length() == 0 {
         return Err(V8BindingError::Unsupported {
@@ -1293,6 +1575,9 @@ pub(super) fn options_operation<'s>(
         .get(0)
         .int32_value(scope)
         .ok_or(V8BindingError::JavaScriptException)?;
+    let (owner, _) = owner(scope, object)?;
+    let state = &owner;
+    let select = options_select(scope, state, object)?;
     state.dom.borrow_mut().remove_select_option(select, index)?;
     Ok(None)
 }
@@ -1328,10 +1613,12 @@ pub(super) fn form_named_item<'s>(
     object: v8::Local<v8::Object>,
     value: v8::Local<v8::Value>,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    let id = identity_as(scope, state, object, "HTMLFormControlsCollection")?;
-    let Some(name) = value.to_string(scope) else {
-        return Ok(v8::undefined(scope).into());
-    };
+    identity_as(scope, state, object, "HTMLFormControlsCollection")?;
+    let name = value
+        .to_string(scope)
+        .ok_or(V8BindingError::JavaScriptException)?;
+    let (owner, id) = owner(scope, object)?;
+    let state = &owner;
     let form = match state
         .node_lists
         .lists
@@ -1352,7 +1639,7 @@ pub(super) fn radio_value<'s>(
     object: v8::Local<v8::Object>,
     value: Option<v8::Local<v8::Value>>,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    let id = identity_as(scope, state, object, "RadioNodeList")?;
+    identity_as(scope, state, object, "RadioNodeList")?;
     let desired = match value {
         Some(value) => {
             let Some(value) = value.to_string(scope) else {
@@ -1362,6 +1649,8 @@ pub(super) fn radio_value<'s>(
         }
         None => None,
     };
+    let (owner, id) = owner(scope, object)?;
+    let state = &owner;
     let nodes = contents(state, id)?;
     sync_wrapper_roots(scope, state, id);
     let mut selected = None;
@@ -1486,4 +1775,91 @@ mod window_named_tests {
         assert!(!window_named_match(&dom, svg, "foreign"));
         assert!(!window_named_match(&dom, svg, ""));
     }
+}
+
+/// Snapshot only genuinely branded DOM node collections, using native contents
+/// rather than author-replaceable length, indices, or iterator properties.
+pub(super) fn native_snapshot(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    object: v8::Local<v8::Object>,
+) -> Result<Option<Vec<(Rc<V8BindingState>, NodeId)>>, V8BindingError> {
+    if object.is_proxy() || object.internal_field_count() < 3 {
+        return Ok(None);
+    }
+    let Some(actual) = object
+        .get_internal_field(scope, 2)
+        .and_then(|field| v8::Local::<v8::Value>::try_from(field).ok())
+    else {
+        return Ok(None);
+    };
+    let branded = [
+        state.node_lists.brand.borrow().clone(),
+        state.node_lists.collection_brand.borrow().clone(),
+        state.node_lists.all_brand.borrow().clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|brand| actual.strict_equals(v8::Local::new(scope, &brand).into()));
+    if !branded {
+        return Ok(None);
+    }
+    let id = identity(scope, state, object)?;
+    let valid_interface = state
+        .node_lists
+        .lists
+        .borrow()
+        .get(&id)
+        .is_some_and(|list| {
+            matches!(
+                list.interface,
+                "NodeList"
+                    | "RadioNodeList"
+                    | "HTMLCollection"
+                    | "HTMLFormControlsCollection"
+                    | "HTMLOptionsCollection"
+                    | "HTMLAllCollection"
+            )
+        });
+    if !valid_interface {
+        return Ok(None);
+    }
+    let nodes = contents(state, id)?;
+    let lists = state.node_lists.lists.borrow();
+    let list = lists.get(&id).ok_or_else(invalid_receiver)?;
+    nodes
+        .into_iter()
+        .map(|node| {
+            if let Some(reference) = list.foreign.get(&node) {
+                Ok((
+                    reference.owner.upgrade().ok_or_else(invalid_receiver)?,
+                    reference.node,
+                ))
+            } else {
+                Ok((state.clone(), node))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
+#[cfg(test)]
+mod conversion_migration_tests;
+
+/// Snapshot keys may still name the source arena after adoption. Native leases
+/// have already moved, so account against each committed foreign identity.
+pub(super) fn owned_native_roots(
+    state: &V8BindingState,
+    roots: &mut traced_native_roots::Snapshot,
+) -> Result<(), V8BindingError> {
+    for list in state.node_lists.lists.borrow().values() {
+        for node in &list.roots {
+            if let Some(foreign) = list.foreign.get(node) {
+                roots.add(&foreign.dom, foreign.node)?;
+            } else {
+                roots.add(&state.dom, *node)?;
+            }
+        }
+    }
+    Ok(())
 }

@@ -1,7 +1,1962 @@
-# Oryn2 implementation status
+# Current full-plan status — September 18, 2026
 
-> **Current priority: complete conformance. Not a release candidate.**
-> Historical selected-inventory measurement: **3,144/4,022 (78.2%)**, **878 remaining**. Not a current full-WPT baseline.
+## Latest checkpoint — September 19: native31 compile result; repair46 in progress
+
+Repair45 is integrated, independently reviewed and frozen: **51 requirements, 961 bound paths and 19,463 whole-source inputs**. Its declaration is `d07a624e5e2d4830e1e0b6e3b9fc565461d263edb7840cdf0f18a26ba9c8af66`. Formatting and WebIDL freshness passed. Native31 is **terminal, exit 101 after 56.49 seconds**; all source hashes matched before and after, and owned process cleanup completed.
+
+The previous Stylo `ToTyped` compiler errors no longer occur. Compilation stopped at **three distinct JavaScript compiler sites**: storage-event weak-handle conversion, clipboard scope/context lifetimes, and an encrypted-media regression using a contextless scope. Cargo's two library and three library-test errors overlap; they are not five distinct defects. **No native runtime assertions executed.** Repair46 assigns all three corrections and needed regression coverage in parallel, followed by complete integration and independent review before the next frozen run.
+
+Latest Python evidence remains **727 passed, zero failures/errors, 12 skipped out of 739** in Python12. Both previous Chromium failures passed; the signed-runtime prerequisites for the skips remain open. The earlier native29 results remain the latest runtime observations: 5,166 observed passes, 174 failures, seven ignored and one unfinished IPC case, with incomplete aggregates. Source repairs do not establish recovery of those outcomes.
+
+Full Core conformance in every required profile, all five families/eight frameworks, required workspace checks, signed reproducible release, clean-source acceptance and the requested code commit remain outstanding. The requested `cargo clean` and exact restoration of its pinned validation dependencies are complete.
+
+Evidence: [native31 result](../../artifacts/completion-validation-2026-09-18/native-js-tests-31.json), [native31 compiler log](../../artifacts/completion-validation-2026-09-18/native-js-tests-31.log), [source custody](../../artifacts/completion-validation-2026-09-18/repair45-native31-whole-custody.json), [WebIDL freshness](../../artifacts/completion-validation-2026-09-18/webidl-check-31.json), [Python12 result](../../artifacts/completion-validation-2026-09-18/fq-python-regressions-12/test-results.json). Earlier checkpoints below are historical.
+
+## Latest checkpoint — September 19: repair44 executed; repair45 compile correction
+
+Repair44 was frozen after complete source and independent review: **51 requirements, 957 bound paths, 19,460 whole-source inputs and 103 Python regression sources**. Its declaration is `ffa81614dfecf6cd2bfedfe6aff8e7b88d449f3037f7b4bd21458bc4d57be09d`. Both validation processes are terminal, with source hashes unchanged before and after and owned process cleanup complete.
+
+**Native30:** WebIDL freshness passed. The clean build exited 101 after 53.96 seconds on two Stylo `ToTyped` compile errors for the constrained integer used by generated `orphans`/`widows` properties. No native runtime assertions executed. Repair45 is preparing the complete wrapper correction and specified/computed Typed OM regressions; it is not yet integrated or tested. The earlier 174 native29 failures, including 41 materially unresolved source dispositions and the separate unfinished IPC case, remain unverified by a newer runtime run.
+
+**Python12:** 739 tests collected and executed: **727 passed, zero failures, zero errors, 12 skipped**. Both previous Chromium failures now pass. The strict full-regression gate exited 1 because signed native CLI/worker prerequisites remain missing; skips are open obligations. Environment identities also matched before and after.
+
+The requested `cargo clean` completed. All 2,026 pinned V8 ABI inputs and the ICU data required for validation were restored with their exact original hashes. Final Core profiles, five families/eight frameworks, required workspace gates, signed reproducible release, clean-source acceptance and requested commit remain outstanding.
+
+Evidence: [native30 terminal inventory](../../artifacts/completion-validation-2026-09-18/repair44-native30-terminal-inventory-01.json), [Python12 terminal inventory](../../artifacts/completion-validation-2026-09-18/repair44-python12-terminal-inventory-01.json), [actual freeze readback](../../artifacts/completion-validation-2026-09-18/repair44-actual-freeze-root-readback-01.json), [post-clean dependency restoration](../../artifacts/completion-validation-2026-09-18/repair44-post-clean-abi-restoration-02.json). Earlier checkpoints below are historical.
+
+## Latest checkpoint — repair44 authored source complete; derivative checks passed
+
+All authored repair and regression sources are integrated through receipt57: **49 successful reviewed patch applications across 135 source paths**. Full historical source readback found no unexplained changes. The complete135-path integration is distinct from the later generated and formatted output.
+
+The independently accepted failure ledger preserves all174 original named failures: **133 corrective source mappings,16 partial and25 diagnostic-only**. There are no missing mappings;41 cases remain materially unresolved. The unfinished IPC case and original143-case comparison (111 passed/32 failed in native29) remain separate. Source mapping does not change an observed failed result into a pass.
+
+Canonical WebIDL generation and freshness check passed, followed by `cargo +1.98.0 fmt --all` and its check. The postformat readback covers19,460 source inputs: one canonical generated file and88 formatted files changed; no unexpected non-Rust changes occurred. Independent derivative/format review and final source/evidence binding are underway. **No repair44 candidate declaration or native/Python/workspace test result exists yet.** Freeze only after these reviews close, then execute the complete required validation batch.
+
+Latest runtime evidence remains native29:5,166 observed passes,174 failures,7 ignored and one unfinished case, with incomplete aggregates; Python11:715 passed,2 failed,12 skipped. Full Core profiles, all five families/eight frameworks, required workspace gates, signed reproducible release and requested commit remain outstanding.
+
+Evidence: [authored-source admission](../../artifacts/completion-validation-2026-09-18/repair44-authored-source-complete-01.json), [coverage ledger03](../../artifacts/completion-validation-2026-09-18/repair44-native29-failure-coverage-reconciliation-03.md), [prederivative readback](../../artifacts/completion-validation-2026-09-18/repair44-prederivative-source-readback-01.json), [postformat manifest](../../artifacts/completion-validation-2026-09-18/repair44-postformat-source-snapshot-01/manifest.json). Earlier checkpoints below are historical.
+
+## Latest integrated checkpoint — repair44 receipt56
+
+Repair44 has **48 successful reviewed patch applications across 130 source paths**. The coordinator read back every latest source hash against its integration receipt; all match. Since receipt50, integrated changes cover retained-history fixtures, bounded startup diagnostics, the foreign custom-element regression, navigation/authority corrections, retained DOM identity and the three remaining history diagnostics.
+
+The last outstanding source proposal covers raw Window failures22/23/34/36. Independent review is checking that its COOP/session reference correction preserves synchronous logical-close behavior for still-related session references. This proposal is not integrated. Final per-test coverage, requirement/source bindings and evidence reconciliation remain in progress. Corrective, partial and diagnostic-only source dispositions remain distinct; diagnostics do not mean a failure is repaired.
+
+**No repair44 declaration, build or test result exists.** Finish the complete source batch and review, canonical WebIDL generation and formatting, then freeze and execute the full candidate. Latest executed evidence remains native29:5,166 observed passes,174 named failures,7 ignored and one unfinished case, with incomplete aggregate results; Python11:715 passed,2 failed,12 skipped. Final Core profiles, five families/eight frameworks, required workspace gates, signed release and requested commit remain outstanding.
+
+Evidence: [current source readback](../../artifacts/completion-validation-2026-09-18/repair44-current-state-03.json), [integration receipts](../../artifacts/completion-validation-2026-09-18/repair44-integration-receipts/), [retained DOM review](../../artifacts/completion-validation-2026-09-18/repair44-retained-dom-independent-review-01.json), [history diagnostic review](../../artifacts/completion-validation-2026-09-18/repair44-history-gap-diagnostics-independent-review-03.json). Earlier snapshots below are historical; source-reviewed changes remain execution-unverified.
+
+## Latest integrated checkpoint — repair44 receipt50
+
+Repair44 has **42 successful reviewed patch applications across 118 source paths**. The coordinator read back every latest source hash against its integration receipt; all match. The latest integration adds the supported-hash integrity parsing correction and nine navigation/worker/policy fixture or diagnostic changes. Six of these ten cases have cause-backed corrections; four remain unresolved with diagnostics only.
+
+Additional complete proposals cover13 navigation cases and18 retained-history cases; independent review is underway. Native wrapper/lifetime, foreign custom-element constructor, popup lifecycle and corrected startup diagnostics remain in generation/review. Earlier coverage counts and allocations below are historical; final per-test reconciliation is pending these deliveries. Diagnostic coverage does not mean a failure is repaired.
+
+**No repair44 declaration, build or test result exists.** Complete all remaining source integration and review, canonical WebIDL generation and formatting, then freeze and execute the full candidate. Latest executed evidence remains native29:5,166 observed passes,174 named failures,7 ignored and one unfinished case, with incomplete aggregate results; Python11:715 passed,2 failed,12 skipped. Final Core profiles, five families/eight frameworks, required workspace gates, signed release and requested commit remain outstanding.
+
+Evidence: [current source readback](../../artifacts/completion-validation-2026-09-18/repair44-current-state-02.json), [receipt50](../../artifacts/completion-validation-2026-09-18/repair44-integration-receipts/50.json), [independent residual10 review](../../artifacts/completion-validation-2026-09-18/repair44-navigation-residual-independent-review-02.json). Source-reviewed changes remain execution-unverified.
+
+## Repair44 coverage audit — source generation remains open
+
+The final per-test audit found **55 native failures without an accepted cause-specific repair/diagnostic mapping**, plus startup failure142 with a diagnostic correction still under review. These are assigned across four parallel lanes:17 navigation/data/form/history,18 retained-history/cache/close,10 named-target/policy/message, and10 raw Window/wrapper/lifetime cases. Existing integrated fixes must be checked first; a shared file or group label is not proof of coverage.
+
+Current audit accounting for174 named failures is110 accepted corrective proposals,8 accepted diagnostic-only proposals, and56 lacking accepted coverage. The unfinished IPC case is separately repaired in source. These are source dispositions, not passing results. Repair44 remains unfrozen; no repair44 tests/builds have run. See [exact residual allocation](../../artifacts/completion-validation-2026-09-18/repair44-residual-native-allocation-01.json).
+
+## Current checkpoint — repair43 executed; repair44 integration
+
+Native29 under repair43 is terminal (exit 101). Compilation and canonical WebIDL freshness passed. Across observed test lines there were **5,166 passes, 174 failures and 7 ignored tests**; these are observations, not a complete aggregate. JavaScript aborted with a borrow panic; the native library was terminated after process sampling and source analysis established an IPC inventory deadlock, leaving one test unfinished. Of the original 143 native27 failures, **111 now pass and 32 still fail**. Completed suites include DOM 446/446, layout 514 passed/2 failed, render 166 passed/11 failed, and window targets 7 passed/1 failed.
+
+Python11 remains **715 passed, 2 failed, 12 skipped out of 729**. Browser diagnostics proved a macOS Keychain wait; the reviewed Darwin-only disposable-profile launcher correction is integrated but not yet tested. Twelve skips still require current signed native executables.
+
+Both admitted required Clippy profiles failed. Separate diagnostic collection found five unique compile-error sites and 126 warning issues, plus 15 native compiler warnings; downstream lint coverage is incomplete because compilation stopped. Diagnostic lint caps are not acceptance evidence.
+
+Repair44 is open for source integration. Through integration receipt41, 33 accepted patches are integrated across 112 source paths with exact before/after receipts. Loading, corrected service activation/opaque authority, geometry with ancestor occlusion, semantic/action and all primary lint repair proposals are integrated. Print-capture followup, remaining diagnostics and runner cleanup revisions are in final generation/review. Combined canonical WebIDL generation, final source reconciliation, formatting, freeze and all repair44 execution remain pending. No repair44 tests or builds have run.
+
+Final Core conformance in all required profiles, all five families/eight frameworks, required workspace checks, signed reproducible clean-source release and requested commit remain outstanding. Preserve all original failures and qualification denominators.
+
+Evidence: [native29 terminal inventory](../../artifacts/completion-validation-2026-09-18/repair43-native29-terminal-inventory.md), [Clippy inventory](../../artifacts/completion-validation-2026-09-18/repair43-clippy-terminal-diagnostic-inventory-01.md), [integration receipts](../../artifacts/completion-validation-2026-09-18/repair44-integration-receipts/), [preserved repair43 baseline](../../artifacts/completion-validation-2026-09-18/repair44-preintegration-checkpoint-01/manifest.json). Earlier checkpoints below are historical and do not describe current execution.
+
+## Current checkpoint — repair42 terminal; repair43 preparation
+
+Repair42 was frozen with all51 requirements,908 bound source paths and19,449 checked source files. Whole-workspace formatting passed; all684 formatting changes received independent review. Native28 and Python11 ran outside the sandbox with unchanged source/review hashes before and after.
+
+- **Native28:** terminal exit101 after144.945s; canonical WebIDL freshness passed, compilation failed with one E0603 private-import reference in a new activation regression. No runtime tests ran; all143 native27 failures remain unobserved under this candidate.
+- **Python11:**729 tests,715 passed,2 failed,12 skipped; no collection, execution, cleanup or environment drift errors. The two Chromium Page.navigate timeouts remain. New server evidence shows accepted connections reached EOF without request-line bytes; no fixture handler was entered. Twelve skips still require current signed native executables.
+- **Repair43:** the canonical enum-path correction is integrated with unchanged assertions. Browser timeout diagnosis and next-candidate preparation continue. No repair43 execution result exists.
+- **Delivery:** full Core in all required profiles, five families/eight frameworks, required workspace/clippy checks, signed clean-source release and requested commit remain outstanding. Source review and formatting are not runtime qualification.
+
+Evidence: [native28 terminal inventory](../../artifacts/completion-validation-2026-09-18/repair42-native28-terminal-inventory.md), [Python11 execution](../../artifacts/completion-validation-2026-09-18/fq-python-regressions-11/execution.json), [whole-source custody](../../artifacts/completion-validation-2026-09-18/repair42-native28-whole-custody.json). Earlier checkpoints below are historical.
+
+## Latest verified checkpoint — repair41 / native27 / Python10
+
+Native27 compiled and passed canonical WebIDL freshness, then ended with exit101 after437.560s. Five targets failed. Completed targets totaled1,355 passes/20 failures; JavaScript and native libraries aborted with SIGABRT and have no complete aggregate totals. Python10 executed718 tests across102 sources:704 passed,2 failed,12 skipped, no errors/collection errors. Full formatting check failed. [Exact terminal inventory](../../artifacts/completion-validation-2026-09-18/repair41-test27-inventory.md) preserves all143 named failures and original evidence.
+
+Repair42 implementation, regression and diagnostic code is generated and integrated. All eight initial functional deliveries and the loading, remote Window, worker, secure-exposure, popup, activation and JavaScript realm/XML follow-ups have source acceptance. Final review and source reconciliation, whole-workspace formatting and candidate admission remain before tests. Several original failures have diagnostics only; they are not claimed repaired. Native28/Python11 are prepared but have not run. The unchanged browser diagnostic reproduced navigation timeout despite exact-file HTTP success and an established Chrome-to-fixture connection; its cause remains unresolved. Full Core, five-family/eight-framework acceptance, clean-source signed release and requested commit remain outstanding. The [granular checklist](CORE-AND-OIL-GENERATION-CHECKLIST-2026-09-15.md) separates reviewed source from verified execution. Earlier snapshots below are historical.
+
+## Current execution phase: generate all code and tests first
+
+Parent image responses now identify opaque no-CORS results; image reads retain
+origin-clean state into decoded pixels. Canvas drawing preserves taint across
+later clean draws and propagates it from source canvases. getImageData rejects
+tainted canvases with SecurityError; width/height changes reset bitmap and taint.
+Generated coverage checks rejection, propagation, persistence, reset and clean
+readback. **Unbuilt and untested.** Canvas export/rendering APIs, SVG rasterization,
+full redirect qualification and remaining full-plan work remain open.
+
+Image CORS mode now travels explicitly from native element preparation through
+platform and parent-service requests. Ordinary images use the no-CORS path;
+crossorigin images retain Origin/preflight/response authorization while image CSP
+and bodyless-GET restrictions remain enforced. Generated parent-broker coverage
+checks ordinary cross-origin loads, missing permissions, anonymous wildcard
+permission and credentialed exact-origin permission. **Unbuilt and untested.**
+Canvas origin tainting, full redirect/fetch qualification, responsive selection
+and remaining full-plan requirements remain open.
+
+Image source removal and request-key changes now cancel outstanding work for
+that image before replacement preparation. Other image operations remain owned
+and pending. The shared cancellation path aborts known streams and handles late
+start responses without replacing the newer generation. Generated coverage checks
+targeted cancellation, unrelated-request preservation, removal and late-stream
+abort. **Unbuilt and untested.** Full CORS/HTTP behavior, responsive selection,
+incremental streams and remaining full-plan work remain open.
+
+Image preparation reuse keys now include source, native base, CORS state and
+effective referrer policy. Relevant attribute changes can prepare a new request
+with unchanged src; equivalent anonymous CORS values share the same key.
+Whitespace-padded use-credentials follows the invalid-value anonymous state.
+Generated coverage checks request URL/credentials/policy across those mutations.
+**Unbuilt and untested.** Full CORS response handling, superseded-request cancellation,
+responsive image selection and remaining full-plan work remain open.
+
+Empty and malformed image URLs now queue generation/stream-bound native error
+tasks instead of throwing from DOM insertion. Missing src remains distinct, and
+removing/replacing a failed source invalidates its queued error. Whitespace URL
+input reaches URL parsing rather than being treated as absent. Generated coverage
+checks insertion return values, asynchronous trusted errors and stale-error
+suppression. **Unbuilt and untested.** HTTP-status behavior still needs pinned
+specification/test evidence; responsive image selection, incremental streams and
+remaining full-plan work remain open.
+
+Image URLs now resolve against the native document base while keeping native
+document request-initiator identity. Completion and load-barrier checks verify
+current image generation and document ownership; browser image load/error events
+are trusted native events. Generated coverage checks base/initiator separation,
+shadowed public baseURI, replaced Event/dispatchEvent and success/failure flags.
+**Unbuilt and untested.** Responsive image selection, complete fetch semantics,
+incremental stream parsing and remaining full-plan work remain open.
+
+Effective document.open cancels pending image operations, aborts known response
+streams, releases request target leases and clears deferred-image load barriers.
+Canceled operation IDs remain recognized so late completions cannot publish old
+pixels or become unmatched-completion failures. Generated coverage checks stream
+abort, barrier release, source reset and ignored late decoded dimensions.
+**Unbuilt and untested.** Complete image fetch/event semantics, incremental stream
+parsing and remaining full-plan requirements remain open.
+
+Parser frame fetch responses now carry their owning frame and native document
+identity. Stale generations/streams, adopted owners and disconnected frames are
+rejected before returning loaded frame resources to bootstrap. Effective open
+also clears queued frame preparation. Generated coverage rejects responses for
+an old stream and for a removed frame. **Unbuilt and untested.** Frame navigation
+revision checks, image cancellation, complete scheduling and remaining full-plan
+requirements remain open.
+
+Stylesheet completion tasks carry stream epochs, and effective open clears queued
+stylesheet preparation/events so old work cannot hold the new load barrier.
+External and inline parser stylesheet responses carry native document identity
+and reject stale streams before CSS publication or event queuing. Generated
+coverage checks old task removal and stale response rejection.
+**Unbuilt and untested.** Image cancellation, incremental parsing, complete
+resource scheduling and remaining full-plan requirements remain open.
+
+Effective document.open sets loading readiness. Document.close prepares native
+frame/image/stylesheet work and records a generation/epoch-bound completion request
+after inline parser execution. The driver consumes it after queued script work,
+then uses the native readiness/DOMContentLoaded/load barrier. Existing loader
+completion acknowledges the marker to avoid duplicate lifecycle dispatch.
+Generated coverage checks loading during inline execution, subsequent readiness
+and event order, and repeated close. **Unbuilt and untested.** Incremental stream
+parsing, external parser blocking, full resource cancellation and remaining
+full-plan work remain open.
+
+Pending document-load barriers now store stream epoch alongside document
+generation, rejecting completions after document.open on the same Document.
+Readiness/DOMContentLoaded callback checks and frame load delivery also recheck
+stream identity. Generated coverage checks stale pending loads and open calls
+inside readiness callbacks without conflating stream replacement with realm
+replacement. **Unbuilt and untested.** New-stream close/load scheduling,
+stylesheet/image tasks and the remaining full-plan work remain open.
+
+Document input streams now have a native epoch advanced by effective open calls.
+Dynamic/parser preparation, deferred execution and parser broker completions check
+the captured epoch in addition to realm/document generation. Opening clears queued
+dynamic preparations; script-error tasks from old streams are suppressed, and
+classic execution does not restore an old currentScript after stream replacement.
+Generated coverage retains and reinserts an old external script after open/write/
+close and checks only new-stream execution. **Unbuilt and untested.** Load barriers,
+stylesheet/image tasks, complete stream parsing and remaining full-plan work still
+need integration with stream replacement.
+
+Parser script queues now retain native node leases through live parsing and
+deferred execution. Snapshot, static-frame and dynamic-frame script batches hold
+equivalent leases; scope cleanup releases them on completion or error. Worker
+messages continue carrying plain records while ownership stays on the DOM thread.
+Generated lifetime coverage removes a script, releases mutation-journal roots,
+checks survival while queued and reclamation when the lease drops.
+**Unbuilt and untested.** Same-document stream epochs, complete script scheduling
+and remaining full-plan requirements remain open.
+
+Snapshot and child-frame script records now capture parser document identity,
+and script scans restrict results to their native owning document. Static and
+dynamic frame bootstrap stop after realm retirement instead of continuing later
+scripts or preparing load resources for a removed frame. Generated cases remove
+a frame from its first script and check that later child scripts do not execute
+in both parser-created and dynamically inserted frames. **Unbuilt and untested.**
+Detached parser-node retention, stream epochs, complete scheduling and remaining
+full-plan work remain open.
+
+Live parser script records now retain realm/document/generation identity through
+fetch completion, deferred queues and final execution. The execution gate checks
+both realm identity and the script's current document ownership before entering
+the recorded realm. Generated coverage passes a resource through the actual
+deferred queue, rejects a mismatched generation, and executes a matching control.
+**Unbuilt and untested.** Snapshot/frame preparation capture, detached parser-node
+retention, same-document stream epochs and remaining full-plan work remain open.
+
+Parser script fetch completions carry captured realm/document/generation identity
+and reject stale or retired results before resource publication, deferred queuing,
+execution or failure events. Parser execution rechecks realm liveness/generation
+after script callbacks and microtasks before dispatching completion. Generated
+coverage injects stale success/failure completions for async/deferred work and
+checks no publication, execution or diagnostics. **Unbuilt and untested.** Deferred
+records still need identity preservation through their final execution queue;
+same-document stream epochs and remaining full-plan work remain open.
+
+Parser and dynamic classic scripts now share native browser execution, resource
+origins, exception reporting and currentScript restoration. The execution result
+separates reported script errors from host failures, preserving diagnostics while
+allowing successful external resources to emit native load after the microtask
+checkpoint. Parser script URL identity uses native document metadata. Generated
+coverage checks exception identity, diagnostic retention, currentScript cleanup
+and trusted load before the next parser script. **Unbuilt and untested.** Complete
+module completion semantics, parser generation guards and all remaining work
+packages remain open.
+
+Live parser preparation marks nonempty classic/module nodes started before
+async/deferred scheduling. Reinsertion while resource work is pending cannot
+queue a duplicate dynamic execution. Nomodule classics are suppressed before
+resource scheduling, and empty inline modules remain unprepared. Generated
+coverage reinserts deferred, module and suppressed external nodes from a later
+parser script and checks single execution plus no suppressed-resource diagnostic.
+**Unbuilt and untested.** Complete preparation snapshots, native success events,
+module/error semantics and the remaining work packages remain open.
+
+Parser executable records now mark their nodes started before execution or
+failure; suppressed nonempty nomodule classics retain started-state, while empty
+inline scripts remain preparable. Missing sources, broker load failures and
+scheduled async/deferred fetch failures queue native element error events.
+Generated coverage checks failure delivery and no inline fallback/restart for
+classic, async, deferred and module scripts, plus successful/suppressed/empty
+parser-script reinsertion. **Unbuilt and untested.** Preparation-time scheduling
+snapshots, complete parser success events and remaining full-plan work stay open.
+
+Parser scripts with empty src now queue native error delivery before resource
+authorization/fetch. Async/defer/module parser scheduling handles that failure
+at preparation, and record URL resolution preserves empty src for snapshot/frame
+execution. The shared failure path marks scripts started, preventing reinsertion
+from executing fallback text. Generated coverage checks classic, async, deferred
+and module errors plus no document fetch, inline execution or restart.
+**Unbuilt and untested.** Complete parser resource lifecycle, ordering and remaining
+full-plan requirements remain open.
+
+Dynamic classic execution now uses native browser script execution with resource
+origins, currentScript restoration and Window exception reporting. A script's
+ordinary runtime/syntax exception no longer becomes an element resource error;
+the successful resource completion emits load after the checkpoint. The dynamic
+path no longer writes the author-visible legacy referrer-policy global. Generated
+coverage checks thrown-object identity, filename, currentScript/checkpoint order,
+trusted load and resistance to a poisoned policy setter. **Unbuilt and untested.**
+CORS taint metadata, script-specific import policy, module completion semantics
+and the remaining full-plan requirements remain open.
+
+Prepared dynamic scripts carry realm, document generation and retained DOM/document
+identity. The scheduler validates those identities before starting work, before
+executing completion source and before dispatching completion events. Broker
+threads return batch indices rather than detached node-only execution records;
+the owning preparation leases remain held until completion. Generated lifecycle
+coverage checks detached-node validity, document replacement, adoption and realm
+retirement. **Unbuilt and untested.** Same-document stream epochs, complete task
+scheduling and the remaining full-plan implementation requirements remain open.
+
+Dynamic script queues now contain preparation records capturing script kind,
+source/src, nonce, document base and request referrer policy. The loader consumes
+these records instead of rereading mutable DOM attributes. Native target leases
+remain held through each loading batch, including detached nodes and broker
+completions. Generated coverage mutates src, type, module text and base after
+insertion and removes an external script before execution. **Unbuilt and untested.**
+Generation-bound completion, execution-time policy propagation, module base
+identity, full script ordering and the remaining work packages stay open.
+
+Dynamic external-script loading resolves URLs using the active document's native
+base in broker and resource-backed paths. Whitespace-only src values remain
+external URLs; only absent src selects inline source, and empty src is rejected.
+Generated coverage checks base-element resolution, a shadowed public baseURI,
+whitespace URL resolution and inline fallback suppression. **Unbuilt and untested.**
+Preparation-time snapshots, parser empty-src behavior, complete request authority
+and asynchronous execution ordering remain open full-plan requirements.
+
+Dynamic script completion now dispatches load/error through native event creation
+and dispatch, replacing the injected JavaScript constructor/dispatchEvent path.
+Events are trusted, nonbubbling and noncancelable; native document ownership and
+retirement checks guard delivery. Generated resource success/failure coverage
+checks target identity, flags and resistance to replaced Event/dispatchEvent.
+**Unbuilt and untested.** Script execution errors versus fetch failures, complete
+task ordering, preparation snapshots and generation-bound asynchronous loading
+remain open; this change alone does not complete script lifecycle conformance.
+
+Dynamic and document.write-inserted classic/module scripts with an empty src
+attribute now queue a native trusted, nonbubbling, noncancelable error task during
+preparation. They retain started-state and do not enter the loader's inline
+fallback. The task retains its native target and checks document ownership and
+realm retirement before delivery. Generated coverage checks asynchronous event
+order, event flags/target, author dispatch override resistance, inline fallback
+suppression and reinsertion. **Unbuilt and untested.** Parser-record empty-src
+handling, native external-script completion events and complete resource/task
+scheduling still require work; the complete plan remains the acceptance scope.
+
+Dynamic and document.write-inserted scripts now share native preparation and
+started-state tracking. The write path resolves active document ownership,
+ignores data blocks/nomodule classics, queues external/module work and avoids
+rerunning prepared nodes. Whitespace-only source counts as a started classic
+script; truly empty inline source remains preparable. Generated cases cover
+close-time classification, module queuing, reinsertion and empty/whitespace source.
+**Unbuilt and untested.** Parser-blocking external resource order and remaining
+full-plan requirements remain open.
+
+Dynamic inline and document.write-inserted classic scripts now share native
+exception reporting and currentScript restoration. Syntax/runtime exceptions are
+reported through the owning document's error path without escaping ordinary DOM
+insertion or preventing later parser-inserted scripts; execution termination
+still propagates. Generated cases cover exception identity, syntax errors,
+insertion return values, currentScript restoration and close continuation.
+**Unbuilt and untested.** Full script/resource scheduling and remaining full-plan
+implementation/qualification requirements remain open.
+
+Nomodule suppression now applies only to classic scripts in native record
+execution and dynamic preparation. Modules remain executable with the attribute;
+suppressed dynamic classic scripts retain their prepared state so attribute
+removal/reinsertion cannot restart them. Empty scripts remain unprepared until
+they have source. Generated cases cover parser modules and dynamic suppression,
+reinsertion, empty-then-filled scripts and modules. **Unbuilt and untested.** Full
+script preparation and remaining full-plan requirements remain open.
+
+Script block type resolution now shares explicit type precedence and legacy
+language fallback across parser events, native script records and dynamic
+preparation/loading. Empty type defaults to JavaScript, whitespace-only type
+remains a data block, and language cannot override an explicit type. Generated
+cases cover legacy language values, unsupported languages, empty/whitespace
+types and reinsertion after a data block becomes executable. **Unbuilt and
+untested.** Remaining script/module preparation and full-plan requirements remain
+open.
+
+HTML script preparation now shares the JavaScript MIME essence-match list across
+parser scheduling, native script records/execution and dynamic inline insertion.
+Type normalization strips HTML ASCII whitespace and handles ASCII case; MIME
+parameters and non-ASCII whitespace do not become valid JavaScript type values.
+Generated cases cover legacy MIME values, parser blocking, invalid data blocks
+and dynamic insertion order. **Unbuilt and untested.** Full type/language and
+module preparation semantics, plus remaining full-plan work, remain open.
+
+Parser nesting now wraps the shared script-record execution path, covering live,
+snapshot and child-document parser-blocking scripts. Dynamic child scripts use
+the common record classifier instead of hard-coded scheduling flags. Inline
+classic scripts ignore async/defer in both parser events and record classification;
+external async/defer and module distinctions remain explicit. Generated cases
+cover parser pauses, live/snapshot execution order and child open/write behavior.
+**Unbuilt and untested.** Full script scheduling, stream lifecycle and remaining
+full-plan implementation/qualification requirements remain open.
+
+Live parser-blocking script execution now carries a native nesting guard that
+unwinds on errors. Document.open during that execution returns the same Document
+without resetting the parser, currentScript, insertion point or listeners. Nested
+parser-inserted write scripts use their existing nesting depth for the same rule.
+Generated coverage checks preserved old/written/following nodes, listener and
+currentScript identity, and a later open after the guard exits. The replacement
+test now opens after parsing, where replacement is required. **Unbuilt and
+untested.** Full script scheduling/stream semantics and remaining full-plan work
+remain open.
+
+Explicit/implicit stream opening now clears native listeners and handler slots
+for the replaced document tree and associated Window across shared binding
+states. It updates DOM listener-presence metadata and suppresses later wrapper
+compilation of old content handlers without removing their attributes. Detached
+nodes and unrelated documents are excluded. Generated coverage includes Window,
+document, retained body, shadow descendants, detached nodes, inert documents and
+previously unwrapped content-handler nodes. **Unbuilt and untested.** Legacy
+expando handler paths, parser-active open, stream scheduling and the remaining
+full-plan implementation/qualification remain open.
+
+Writes outside an active parser now implicitly open a replacement stream instead
+of serializing and appending to the previous document. Explicit and implicit open
+share child removal, buffer reset and native-lease ownership; reopening reuses
+the lease and discards earlier buffered input. Open leaves the existing Document
+without children rather than inserting a synthetic empty HTML tree. Generated
+cases cover replacement, conversion failure before mutation, open identity and
+reopening. **Unbuilt and untested.** Incremental buffered parsing, listener reset,
+readiness/resource completion and remaining full-plan work remain open.
+
+Attaching a live HTML parser now changes parser mode without resetting the host
+Document's URL, inherited base, encoding or readiness. Text-parser setup shares
+that preservation and still installs its own content type. Generated cases
+exercise both parser modes through completion with host-supplied identity and
+loading state. **Unbuilt and untested.** Document-stream lifecycle and the
+remaining full-plan implementation/qualification requirements remain open.
+
+HTML document-stream operations now reject native XML documents, including XHTML
+documents created through DOMImplementation, with InvalidStateError before stream
+mutation. Write/writeln perform variadic union conversion first, then validate
+the document before invoking the Trusted Types default policy. Generated cases
+cover all four operations, empty calls, conversion side effects/exceptions,
+unchanged XML trees and policy suppression. **Unbuilt and untested.** Remaining
+document-stream semantics and the full-plan implementation/qualification remain
+open.
+
+Document write/writeln IDL now accepts variadic TrustedHTML-or-string arguments.
+Native conversion processes arguments in order before mutating the stream,
+preserves all-trusted concatenation, and applies the default policy once to mixed
+input. No-argument calls and writeln's trailing newline are handled explicitly.
+Generated cases cover conversion order, exception atomicity, no-argument calls
+and trusted/mixed concatenation. **Unbuilt and untested; binding regeneration is
+deferred.** Stream lifecycle, full Trusted Types qualification and remaining
+full-plan work remain open.
+
+Replacing a Document's parsed tree now preserves its URL, inherited base,
+encoding and readiness instead of copying those defaults from a temporary
+Document. Parser-derived HTML/quirks metadata still updates. Generated DOM and
+page cases cover preserved identity/readiness and open/write/close URL/base
+behavior. **Unbuilt and untested.** Stream readiness transitions, pending-resource
+completion, reentrant open/write/close behavior and remaining full-plan work
+still require implementation/qualification.
+
+Document metadata now stores native readiness, with a read-only `readyState` IDL
+declaration. Live parsing and committed frame setup enter loading; parser
+completion enters interactive; lifecycle completion enters complete. Changes
+dispatch trusted non-bubbling readystatechange events, and lifecycle dispatch
+rechecks document generation after their callbacks. Inert document metadata
+defaults to complete. Generated coverage checks script/DCL/load ordering, native
+event trust, author override resistance and inert-document independence.
+**Unbuilt and untested; bindings regeneration is deferred.** Full frame/defer
+ordering, document.open integration and remaining full-plan work remain open.
+
+Removed the late parser-local-frame scan and repeated live-event replay. Live
+frames use parser/insertion preparation; snapshot inputs use one early scan
+restricted to connected HTML frames owned by their document, including snapshots
+without parser events. Dynamic insertion filtering also excludes frames belonging
+to another document. Generated coverage clears snapshot parser events and checks
+initial Window availability, stable identity and one srcdoc execution. **Unbuilt
+and untested.** Full frame lifecycle and remaining full-plan requirements remain
+open.
+
+Pending document loads now retain document generation alongside realm identity.
+DOMContentLoaded completion checks that its document remains live before queuing
+load, and flush discards obsolete generations before releasing parent barriers.
+Frame completion uses the queued generation, and flush attempts to restore the
+previous active realm even on an error. Generated cases cover stale child work
+unblocking its parent and removal during DOMContentLoaded suppressing child load.
+**Unbuilt and untested.** Full lifecycle scheduling and the remaining full-plan
+implementation/qualification requirements remain open.
+
+Native Window handler dispatch now requires both native `error` event type and
+ErrorEvent identity before applying five-argument invocation and true-return
+cancellation. An ErrorEvent named `load` and an ordinary Event named `error`
+retain ordinary one-argument/false-return semantics. Generated coverage includes
+strict boolean returns and a shadowed public event type. **Unbuilt and untested.**
+This closes a source-level dispatch gap; full-plan generation and qualification
+remain incomplete.
+
+The IDL source now declares `HTMLFrameSetElement` (including rows/cols) and body/
+frameset page-transition handler properties. Native element selection and receiver
+validation distinguish body and frameset; `onpageshow`/`onpagehide` share Window
+registration, lazy content compilation, mutation/removal and parser-merge paths.
+Generated cases cover interface identity, aliases, dispatch order, replacement,
+removal and receiver checks. **Unbuilt and untested; generated bindings still need
+regeneration in the deferred build phase.** Remaining handler aliases, scope
+semantics and all remaining full-plan generation/qualification remain open.
+
+Parser attribute merging now emits a native handler-change event when a later
+body tag adds a missing `onload` or `onerror` attribute. The live parser delivers
+it through the shared native attribute path before processing later scripts,
+including when a body wrapper already exists. Ignored duplicate attributes emit
+no update and cannot overwrite a later IDL assignment. Generated parser and page
+cases cover the boundary, wrapper identity, registration order and duplicate
+suppression. **Unbuilt and untested.** Remaining handler aliases/scope semantics
+and the rest of the full-plan implementation and qualification remain open.
+
+Body/frameset `onerror` now aliases the owning Window registration alongside
+`onload`, including content attributes and mutation/removal. Lazy compilation
+supplies the Window error handler's five named parameters; native dispatch uses
+its existing true-return cancellation rule. Document handler preparation is
+renamed to reflect both events. Retirement removes pending-source registrations
+together with their source, preventing internal placeholder objects from being
+returned by retained getters. Generated cases cover argument identity, receiver,
+cancellation, element-dispatch exclusion and retirement. **Unbuilt and untested.**
+Remaining aliases, handler scope semantics, parser-merged attributes and all
+remaining full-plan generation/qualification requirements remain open.
+
+Window load content handlers now retain source in native state and compile only
+when read or dispatched, preserving their original listener registration position.
+Syntax errors are caught and reported through the owning document's error path;
+failed source is consumed once, and reentrant error-handler assignments survive.
+IDL assignment/removal discards pending source, and document retirement clears it.
+Generated cases cover lazy errors, replacement/removal before compilation and
+reentrant recovery. **Unbuilt and untested.** HTML handler scope chains, full
+content-handler/alias coverage, parser-merged attributes and the remaining full
+implementation/qualification requirements remain open.
+
+Null-namespace body/frameset `onload` content-attribute mutations now update the
+native Window registration through the shared attribute hook, including Attr
+values, NamedNodeMap attachment/removal and detached elements. Handler source
+compilation uses V8's function-body API instead of evaluating a generated script;
+Window content handlers compile in their native document's context. Generated
+cases cover mutation/removal ordering, namespace isolation and prevention of
+source execution during registration. **Unbuilt and untested.** Lazy compilation,
+syntax-error reporting, HTML handler scope chains, parser-merged attributes and
+remaining handler aliases remain open, as do full-plan generation and qualification.
+
+Body load-handler preparation now runs after each live-parser slice and before
+recorded/child-document scripts execute. It uses the native owning document and
+reuses the body wrapper, so a later Window assignment or removal is not replaced
+at load time. Generated cases cover replacement/removal without accessing the
+body, a head assignment followed by a body content handler, and srcdoc child
+script replacement. **Unbuilt and untested.** Dynamic/merged content attributes,
+lazy compilation and its scope/error semantics remain open; this is source
+generation progress and does not qualify conformance or the full plan.
+
+Body and frameset `onload` IDL properties now share their native owner document's
+Window handler registration. Detached elements keep their document association;
+inert documents have no Window handler slot, and adoption resolves the new owner.
+Element load dispatch does not invoke the aliased Window handler. Generated cases
+cover identity, ordering, reassignment/removal, detached and inert documents,
+adoption, framesets and ordinary element independence. The JavaScript load
+preparation script has been removed: native lifecycle preparation locates the
+body in the owning document, and body wrapper creation registers its content
+handler directly. Generated cases override public DOM/Function properties and
+verify a cleared content handler is not reactivated. **Unbuilt and untested.**
+Parser-time handler registration order, content-attribute mutation, compilation
+scope/error behavior and the remaining aliases still require completion, along
+with the rest of the full plan.
+
+Window `onload` now registers in the native event listener registry, preserving
+its position when replaced and moving it when removed and reactivated. Dispatch
+uses the registered callback without consulting a public `onload` getter. The
+native handler inventory is shared by installation and dispatch and distinguishes
+Window from Worker exposure. Generated cases cover registration order, mutation
+during dispatch, cancellation, property overrides and trusted document load.
+**Unbuilt and untested.** Remaining body/Window aliases and full content-attribute
+semantics still require native integration; the full-plan generation and
+qualification gates remain open.
+
+Frame-element load events now use native trusted dispatch. Before delivery the
+host verifies the current child environment, document generation and frame
+connection lifetime, preventing child load handlers from causing an obsolete
+completion to target a removed or replaced frame. Generated cases poison author
+constructors/dispatchers and remove the frame during its child's load handler.
+**Unbuilt and untested.** Body handler forwarding, complete lifecycle scheduling
+and the remaining full-plan implementation/qualification remain open.
+
+DOMContentLoaded and document load now use native trusted event construction and
+dispatch. DOMContentLoaded follows the document propagation path; load dispatches
+to Window with the legacy document target. The native Window dispatcher accepts
+this target override without changing ordinary global event targets. Generated
+coverage replaces author constructors/dispatchers and checks trust, propagation,
+target/currentTarget and bubbling. **Unbuilt and untested.** Body-onload forwarding
+still uses the compatibility preparation script; native handler ownership, frame
+load dispatch and the remaining full-plan requirements remain open.
+
+Document load barriers now include queued stylesheet completion events. Completion
+processing repeats while documents are released, so finishing a child unblocks its
+parent within the same flush rather than requiring another external checkpoint.
+Generated coverage holds child/parent loads behind a stylesheet task, then checks
+sheet-before-child-before-parent order and an empty pending set. **Unbuilt and
+untested.** Full document lifecycle/event authority, loading semantics and the
+remaining full-plan implementation and qualification remain open.
+
+Dynamic frame navigation now reads effective policy from the native owner realm,
+removing DOM meta rescans and the fallback to a top-page policy query. Removed
+meta elements and invalid later meta values therefore cannot replace an established
+policy during srcdoc creation. Disconnected queued frame targets are discarded
+before owner lookup. Generated coverage checks srcdoc inheritance after valid-meta
+removal followed by an invalid update. **Unbuilt and untested.** Full policy and
+navigation qualification, plus all remaining full-plan work, remain open.
+
+Parsed child documents now prepare their own nested iframe contexts/navigation
+queues before running child scripts. Discovery checks native ownerDocument so a
+shared DOM arena does not attribute a nested frame to the top realm. Document
+load completion also waits for queued frame navigation work in that realm.
+Generated nested-srcdoc coverage checks one-time script execution, parent/top
+ownership and inner-before-outer load ordering. **Unbuilt and untested.** Complete
+navigation cancellation/load barriers and the remaining full plan are still open.
+
+Parser-created srcdoc and absent/empty-src frames now emit a local-document event,
+create their native initial Window at insertion and enter the frame lifecycle
+queue. Network frames also create their initial Window before later parser scripts.
+Snapshot frame collection no longer fetches a competing src when srcdoc exists.
+Generated cases cover srcdoc execution/base inheritance through live and snapshot
+entry points and empty-src about:blank without a broker. **Unbuilt and untested.**
+Full navigation timing, cancellation and remaining Core/workflow implementation
+and qualification are still open.
+
+Stylesheet completions now enqueue native networking tasks with rooted targets,
+realm/document generation and owner revision. The event loop exposes pending
+completion work and performs a microtask checkpoint between deliveries; retirement
+clears the queue. Generated cases check deferred delivery, native event identity,
+stale revision suppression and microtask ordering. **Unbuilt and untested.**
+Cross-source scheduling fairness, stylesheet load barriers/applicability and the
+rest of the full-plan implementation and qualification remain open.
+
+Parser and dynamic stylesheet completions now dispatch native trusted load/error
+events without invoking author Event constructors or dispatchEvent properties.
+Dispatch checks the owner document, connection and stylesheet revision; DOM borrows
+are released before listeners run. Generated coverage checks event flags, target,
+author overrides and stale-revision suppression. **Unbuilt and untested.** Separate
+network-task scheduling, full stylesheet applicability/loading and all remaining
+full-plan implementation/qualification remain open.
+
+Dynamic inline sheets with no parsed imports or external references now install
+without a broker. Resource detection ignores comment/string lookalikes and handles
+escaped CSS syntax. Inline completions no longer cache CSS under the containing
+document URL, preventing unrelated resource cache collisions. Generated cases
+cover resource detection and broker-free native publication with cache retention.
+**Unbuilt and untested.** Full stylesheet load/error event semantics, applicability
+and all remaining full-plan implementation/qualification remain open.
+
+Stylesheet-owner eligibility is shared across parser discovery, dynamic preparation,
+CSSOM availability, frame loading, native publication and layout. Non-CSS owners
+and empty link hrefs no longer qualify through divergent checks. Dynamic CSS
+owners no longer depend on literal `url(` or `@import` substrings for preparation.
+Parser frame discovery suppresses src fetches when srcdoc is present, including
+empty srcdoc. Generated cases cover types, rel tokens, empty hrefs, srcdoc
+precedence and rejection of publication to an ineligible link. **Unbuilt and
+untested.** Disabled/alternate sheet loading and full loading/event semantics,
+plus all remaining full-plan requirements, remain open.
+
+Live parsing now yields after resource/policy events before consuming later tags,
+so queued request snapshots cannot see a later base or meta value in the same
+input chunk. Parser resource events are emitted on connected insertion instead
+of element allocation; template contents therefore do not enqueue loads or meta
+policies. Rel token matching now recognizes stylesheet among multiple link tokens.
+Generated parser cases cover tag boundaries, base visibility, suffix preservation
+and inert template resources. **Unbuilt and untested.** Full parser scheduling,
+resource applicability and all remaining full-plan requirements remain open.
+
+Queued parser script, link stylesheet and frame fetches now snapshot native base,
+initiator and effective referrer policy at scheduling time. Element policies use
+the modern attribute token set; invalid values retain the document policy. URL
+resolution failures are delivered as resource failures, preserving parser error
+handling. Generated cases mutate the base and policy after capture and check the
+queued context stays unchanged. **Unbuilt and untested.** Parser event batching
+and full discovery-time semantics, along with remaining full-plan requirements,
+still need completion and qualification.
+
+Meta-policy updates now ignore invalid and comma-list values in both native
+bindings and the parent policy store. Snapshot extraction uses parsed document
+nodes instead of a regex, ignores comments/script strings/template contents and
+selects the last valid policy. Static frame fetch records now retain response
+policy, and frame meta selection preserves it when later meta values are invalid.
+Generated cases cover these meta-token and source-extraction rules. **Unbuilt
+and untested.** Complete policy-container behavior and all remaining full-plan
+implementation/qualification remain open.
+
+Executable initialization now installs the native navigation policy before any
+parser script: standalone loads use the runtime snapshot, and broker-backed loads
+read the parent context's authoritative policy. Response-header initialization
+uses all recognized header tokens without erasing a valid policy when a later
+header is invalid; a new response without a policy starts from the default.
+Generated cases cover repeated headers and policy inheritance by a frame created
+inside a parser script. **Unbuilt and untested.** Worker creation authority,
+remaining policy-container behavior and the rest of the full plan remain open.
+
+Initial child documents now snapshot their creator's native referrer policy;
+later parent changes or writable globals do not replace that snapshot. Reusing
+the initial Window resets policy for the new document and selects that document's
+inherited-base metadata. Worker binding installation now consumes the supplied
+worker policy before executing script. Generated initial-frame tests cover
+inheritance, parent/child independence and policy reset at first navigation.
+**Unbuilt and untested.** Worker creation authority, response policy initialization
+and full policy-container lifecycle still require integration and qualification;
+the full-plan goal remains open.
+
+Fetch, XHR, native image loading and the host module loader now obtain fallback
+referrer policy from native realm state rather than reading the author global.
+Explicit Fetch policy and empty-referrer overrides remain request-specific.
+A generated binding-to-host test records Fetch/XHR/image requests while the
+legacy global has a throwing getter. **Unbuilt and untested.** Worker bootstrap,
+response policy initialization, complete policy-container lifecycle and all
+remaining full-plan requirements are still open.
+
+Document realms now retain native referrer-policy state with host accessors.
+Parser/dynamic meta updates and frame commits install this state; inline parser
+stylesheet scheduling captures it rather than hardcoding the default. Native
+page orchestration reads (including stylesheet loads and frame inheritance) no
+longer consult the author-writable policy global. Generated cases cover global
+tampering, throwing getters, dynamic meta updates and invalid-policy retention.
+**Unbuilt and untested.** Legacy binding/worker consumers of the global, response
+policy initialization and complete policy-container lifecycle remain open, as
+do the other full-plan requirements.
+
+Inline stylesheet loading now carries the resource base separately from the
+initiator URL through parser, dynamic-style, attribute-style and frame paths.
+Imports resolve against the base but carry the containing document's request
+identity; fetched sheet descendants use that sheet's final URL. The CSS resource
+request builder has generated cases for a cross-origin HTML base and imported
+font paths, retaining page identity, destination and referrer policy. **Unbuilt
+and untested.** Parser policy propagation, CSSOM imported base retention and all
+remaining full-plan generation and qualification remain open.
+
+Document base selection is now shared by native DOM source and live bindings:
+the first HTML base with href controls resolution, invalid/forbidden first bases
+retain the fallback, and template contents, shadow trees and hosted documents do
+not supply the containing document's base. Frame link loads use this selection;
+dynamic srcdoc/about:blank parsing retains the parent's base before stylesheet
+loading. Generated cases cover first-base selection, invalid schemes, disabled
+base lookup and inert template contents. **Unbuilt and untested.** Inline-sheet
+base/referrer separation, static inherited frames, XML stylesheet ownership,
+imported-sheet URL preservation and the remaining full plan are still open.
+
+Frame loading now retains fetched link CSS and expanded inline CSS on the parsed
+owner nodes. Both frame paths transfer loaded source into the committed document;
+same-origin transfer uses a navigation-specific helper so ordinary DOM imports do
+not acquire CSSOM state. Resource discovery traverses the document tree rather
+than all arena slots, excluding detached template contents, and frame link URLs
+resolve against the supplied document URL. Generated transfer cases cover native
+source retention, unchanged DOM text, ordinary imports and empty loaded sheets.
+**Unbuilt and untested.** XML processing-instruction sheet installation, inherited
+and HTML-base handling, imported-sheet base retention and full-plan work remain open.
+
+CSS subresource discovery now uses cssparser tokens instead of a URL regex.
+Generated coverage includes escaped function names/URLs, quoted parentheses,
+comments and literal strings, local fragments, malformed URL recovery, nested
+rules, image-set string candidates and font/image destination separation.
+Font destinations are scoped to the containing font-face rule rather than inferred
+from a substring anywhere in the stylesheet. **Unbuilt and untested.** Discovery
+is still lexical: declaration applicability, custom-property substitution and
+resource scheduling require further integration. Imported-sheet base URL retention
+and native CSSOM import ownership remain open; flattening imports does not prove
+those requirements. All remaining full-plan work and qualification remain open.
+
+CSS imports now track URL ancestry per branch, including redirect aliases and
+fragment normalization. Cyclic branches yield no imported rules; independent
+sibling imports remain repeatable, and failed loads release ancestry entries.
+Generated cases cover cycles, sibling repetition and error cleanup. **Unbuilt and
+untested.** The existing import-depth bound, CSSOM import ownership, URL/base
+handling and remaining full-plan requirements are still open.
+
+CSS import loading now consumes Stylo import metadata, preserving source order,
+media/supports conditions and named/anonymous layers; false supports imports are
+not fetched. Parser inline styles schedule one ordered expansion and publish into
+the owning style source instead of appending surrogate nodes. Generated metadata
+and expansion cases are added. **Unbuilt and untested.** Import cycles, imported
+CSSOM ownership, URL/base propagation and full-plan qualification remain open.
+
+Parser and dynamic linked-CSS completion now install source on the original link
+instead of appending synthetic style elements. Parser completion carries a native
+stylesheet revision; publication rejects stale, disconnected or no-longer-linked
+owners. Layout collects native loaded links in document order. Generated publication
+cases cover stale loads, empty sources and absence of surrogate nodes. **Unbuilt
+and untested.** Inline import expansion, full CSS loading semantics and remaining
+full-plan implementation/qualification are still open.
+
+Document.styleSheets now uses a native live StyleSheetList with cached collection
+identity, indexed access, item/length, native document retention and current-sheet
+generation lookup. Generated cases cover membership changes, type filtering,
+readonly indices, receiver brands and source replacement. **Unbuilt and untested.**
+WebIDL registry regeneration, external loader integration and remaining full-plan
+implementation/qualification remain open.
+
+Stylesheet ownership now checks connected native owners, supported type and an
+installed source for linked CSS. Unloaded links no longer manufacture empty sheet
+objects; retained sheets detach when availability or generation changes. Document
+enumeration preserves tree order. Generated cases cover invalid types, empty
+loaded sources and replaced links. **Unbuilt and untested.** Live StyleSheetList,
+external loader integration and all remaining full-plan requirements remain open.
+
+Native stylesheet generations now invalidate on link href/rel/type changes and
+style type changes, including Attr writes and removals. Source overrides are
+cleared while ordinary media changes preserve sheet identity. Generated cases
+cover retained-source invalidation, namespace isolation and no-op writes.
+**Unbuilt and untested.** Full stylesheet loading/ownership qualification and the
+remaining completion plan are still open.
+
+Resource-affecting attribute mutations now share owner-document hooks across
+set/removeAttribute, namespace variants, reflected properties, Attr setters and
+NamedNodeMap operations. Script src mutation preserves already-started state.
+Generated cases cover frame rescheduling across mutation paths and script
+non-reexecution. **Unbuilt and untested.** Full resource lifecycle qualification,
+registry regeneration and all remaining completion-plan work are still open.
+
+Attached Attr value/nodeValue/textContent writes and attribute-node insertion now
+apply the shared Trusted Types sink rules. Insertion rechecks ownership after
+policy callbacks before changing data. Generated tests cover direct and NamedNodeMap
+insertion, rejected writes, detached attributes and callback-driven ownership
+changes. **Unbuilt and untested.** Remaining lifecycle integration, registry
+regeneration and the rest of the full plan remain open.
+
+Trusted Types attribute queries and setAttribute/setAttributeNS now share native
+namespace-aware sink lookup, including SVG script href and XLink href. Known event
+handler names replace the broad `on*` test, and frame attribute names no longer
+convert twice. Generated cases cover namespaces, case, trusted URL bodies and
+query conversion errors. **Unbuilt and untested.** Remaining sink entry points,
+registry regeneration and all other full-plan work remain open.
+
+Trusted Types property queries now use a separate case-sensitive property map
+instead of content-attribute rules, with namespace-aware lookup and ordered
+argument conversion. Generated Rust/API cases cover markup, script text/URL,
+handler properties, namespace filtering and conversion exceptions. **Unbuilt and
+untested.** Attribute sink mapping, remaining integration and full-plan
+qualification are still open.
+
+Trusted Types policy dictionary conversion now completes before native name
+reservation and mutable policy-map access. Failed getters/callback conversion do
+not consume names; reentrant creation is checked after conversion. The default
+policy remains unique with allow-duplicates. Callback IDL includes variadic
+arguments. Generated cases cover conversion order, exceptions, reentrancy and
+uniqueness. **Unbuilt and untested.** Full-plan generation remains incomplete.
+
+Trusted values now use a distinct native layout and resolve their backing data
+from their owning context, preventing numeric-ID collisions with unrelated
+wrappers. Policy calls convert input, forward extra arguments, and reject missing
+callbacks. Document.parseHTMLUnsafe now requires input and enforces TrustedHTML.
+Generated cases exercise wrapper collisions, forged brands, callback omissions
+and parsing sinks. **Unbuilt and untested.** Full-plan generation remains open.
+
+DOMParser now checks native receiver identity, converts input/type in order with
+exception propagation, applies TrustedHTML enforcement, and retains the native
+source document URL. Shared trusted-sink conversion preserves branded contents,
+passes default-policy type/sink arguments, propagates callback errors and rejects
+null policy results. API regression cases are generated. **Unbuilt and untested.**
+Binding registry regeneration and all remaining full-plan implementation and
+qualification work remain pending.
+
+XMLSerializer IDL, native receiver branding, Node argument handling and API tests
+are generated. A source-generation attempt using the existing WebIDL executable
+failed on the ProgressEvent dictionary default `{}`; it did not update the binding
+registry. Parser source now handles nested braces, quoted delimiters and comments,
+with generated regression cases. **No build or tests ran.** Rebuilding the generator
+and refreshing the registry remain pending, as do XML edge cases and the rest of
+the full completion plan.
+
+Native XML serialization and XHR Document body extraction are generated. Document
+wrappers retain native identity instead of invoking author string conversion;
+HTML/XML serialization selects the body MIME type and UTF-8 bytes, and GET/HEAD
+suppresses the body. Generated cases cover namespace scopes, prefix collisions,
+XML escaping, document uploads and charset overrides. **Unbuilt and untested.**
+Full XML serialization edge cases/API exposure, synchronous XHR, incremental upload
+notifications and all other remaining full-plan requirements are still open.
+
+HTML serialization now limits void-element suppression to HTML namespaces,
+preserves qualified foreign element names, and serializes XML/XMLNS/XLink
+attribute names from native namespace records. Generated cases cover foreign
+void-name elements, HTML void children and attribute ordering/escaping. **Unbuilt
+and untested.** XML Document upload serialization and remaining full-plan work
+are still open.
+
+XHR open now converts nullable username/password arguments before method/URL
+validation, applies URL credential encoding, and emits readystatechange only when
+entering OPENED from another state. Generated cases cover conversion exceptions,
+credential preservation/clearing and reentrant open calls. **Unbuilt and untested.**
+Synchronous XHR, Document request bodies, incremental upload notifications and all
+other outstanding full-plan work remain open.
+
+The context service now forwards the original request's measured upload snapshot
+through redirects and the typed JS host (context protocol v15). XHR emits upload
+progress and emits load/loadend only for measured completion, with generation
+checks when callbacks replace the request. Generated cases cover absent, partial,
+complete and reentrant snapshots. **Unbuilt and untested.** Incremental upload
+notification cadence and the rest of the full completion plan remain open.
+
+Native stream responses and broker header events now carry measured upload
+snapshots through live cache decorators and broker IPC (protocol v6). Buffered,
+cached and replayed responses retain unknown upload state. Generated wire cases
+cover unknown, empty, partial and complete measurements while preserving response
+header filtering. **Unbuilt and untested.** Context-service/JS delivery, incremental
+upload events and the remaining full-plan implementation and qualification are open.
+
+Transport and Fetch-pipeline responses now retain measured upload snapshots,
+including partial consumption and absent measurements. Response receipt does not
+imply upload completion. Generated propagation cases cover unknown, partial and
+complete body consumption. **Unbuilt and untested.** Native broker/IPC notification
+plumbing and all remaining full-plan implementation/qualification remain open.
+
+Rustls request bodies now expose operation-scoped byte-consumption snapshots using
+bounded chunks. Counts advance only when the transport polls body data; cancellation
+prevents further consumption. Content-Length remains available for known bodies.
+Generated tests cover partial/final consumption and cancellation. **Unbuilt and
+untested.** Parent/worker upload notification plumbing, event cadence and all
+remaining full-plan implementation and qualification gates remain open.
+
+Rustls transport cancellation registration now has an ownership lease spanning
+request start and response-body disposal. Failure, cancellation, unpolled-body drop
+and normal completion release registration; duplicate live IDs are rejected and
+old leases cannot remove replacements. Generated lifecycle cases cover these
+ownership paths. **Unbuilt and untested.** Upload transport notifications and all
+remaining full-plan implementation and qualification gates remain open.
+
+XHR upload start and failure events now use native ProgressEvent targets and request
+generation ownership. Upload abort/error/timeout and loadend precede request error
+events, and callbacks that replace the request stop stale dispatch. Generated
+cases abort/reopen from upload handlers before transport submission.
+**Unbuilt and untested.** Successful upload byte-progress/completion still requires
+transport notifications; all remaining full-plan implementation/gates remain open.
+
+XHR upload listener presence is now captured at send time and forwarded through
+typed HTTP requests to parent preflight enforcement, including otherwise-simple
+cross-origin requests. Context protocol is version 14. Generated capture cases
+cover handlers, listeners, removal, abort signals and late registration.
+**Unbuilt and untested.** Upload transport notifications, complete request modes
+and all remaining full-plan implementation and qualification gates remain open.
+
+XHR now owns a stable native XMLHttpRequestUpload target. Shared event-handler
+attributes live on XMLHttpRequestEventTarget, inherited by both request and upload
+objects. Generated cases cover identity across open/abort, independent listeners
+and event inheritance. **Unbuilt and untested.** Upload transport notifications,
+listener-triggered preflight and all remaining full-plan gates remain open.
+
+Native ProgressEvent now stores branded computable/loaded/total data. XHR download
+notifications use ProgressEvent with received byte counts and known network/blob
+lengths; request-error notifications report zero counts. Generated cases cover
+constructor defaults/conversion, brand checks and trusted blob download events.
+**Unbuilt and untested.** Upload events, compressed-length accounting, progress
+cadence and all remaining full-plan implementation/qualification remain open.
+
+XHR Blob responses now lowercase serialized MIME metadata for Blob.type. Generated
+decoding cases cover BOM precedence, legacy text charsets, UTF-8 JSON despite a
+conflicting charset, invalid JSON and cached response identity. **Unbuilt and
+untested.** Partial-chunk decoding qualification, Document bodies, remaining XHR
+behavior and all full-plan implementation/qualification gates remain open.
+
+XHR withCredentials now rejects changes after send or beyond OPENED state;
+overrideMimeType enforces its required argument. Generated state-matrix cases
+cover credentials, responseType, missing MIME arguments and reentrant conversion.
+**Unbuilt and untested.** Synchronous XHR, upload events, Document bodies and all
+remaining full-plan implementation and qualification gates remain open.
+
+XHR timeouts now retain the original send timestamp, recompute deadlines on active
+updates and convert values before borrowing native state. Expiry clears response
+metadata, invalidates queued generations and respects callback replacement.
+Generated timestamp-driven tests cover deadline updates, zero timeout and reentrant
+open()/conversion. **Unbuilt and untested.** Upload events, synchronous XHR rules,
+Document bodies and all remaining full-plan implementation/qualification remain open.
+
+XHR network start/read completions now carry request generations and recheck them
+after author callbacks. Stale error completions cannot overwrite replacement
+requests; cancelled HTTP starts release returned streams. Error completion clears
+response metadata. Generated cases reopen during headers, progress, DONE and load
+callbacks. **Unbuilt and untested.** Timeout/upload event semantics, Document bodies,
+remaining request modes and all full-plan qualification gates remain open.
+
+Queued blob XHR completions now carry request generations and stop after callbacks
+replace or abort their request. Abort clears response metadata, dispatches active
+request events in DONE state, then resets to UNSENT without clobbering reentrant
+open(). Generated cases cover queued stale completions and callback replacement.
+**Unbuilt and untested.** Document bodies, network callback generation coverage,
+remaining XHR behavior and all full-plan gates remain open.
+
+XHR string-body sends now normalize an existing non-UTF-8 charset parameter using
+the shared MIME record. MIME parameter updates validate names/values and preserve
+parameter order. Generated transport cases cover UTF-8 bytes, quoted parameters,
+Blob content types and GET suppression. **Unbuilt and untested.** Document bodies,
+remaining XHR lifecycle behavior, request modes and all full-plan gates remain open.
+
+XHR send now shares native body extraction for FormData, URLSearchParams, Blob and
+buffer views; GET/HEAD suppress payloads after argument conversion. Inferred body
+content types are added only when absent. Generated transport-capture cases cover
+payload bytes, multipart content, explicit types and GET/HEAD conversion.
+**Unbuilt and untested.** Document bodies, string charset normalization, complete
+XHR lifecycle, request modes and all remaining full-plan gates remain open.
+
+XHR open/header setters now use ByteString argument conversion, preserve extension
+method case and distinguish SyntaxError, SecurityError and InvalidStateError.
+Header conversions finish before native borrowing/state validation, preserving
+reentrant open() calls and thrown values. Generated cases cover conversion order,
+invalid state, method rules and repeated headers. **Unbuilt and untested.**
+Remaining XHR lifecycle/body behavior, request modes and all full-plan gates remain open.
+
+Request/XHR and the parent network boundary now share forbidden-request-header
+rules. Request headers preserve guards through clones; standalone Headers copies
+remain independent. Parent sanitization validates header syntax and permits author
+Authorization/custom headers while rejecting browser-owned fields and injection.
+XHR combines repeated request headers and rejects changes after send. Generated
+cases cover guards, author credentials and boundary syntax. **Unbuilt and untested.**
+No-CORS guards, complete XHR ordering, request modes and all full-plan gates remain open.
+
+CORS exposed-header and preflight permission lists now share HTTP token-list
+parsing. Malformed tokens invalidate the full list, including across repeated
+fields; empty list members remain accepted and method case is preserved.
+Generated cases cover malformed names, quoted tokens, repeated fields and method
+case. **Unbuilt and untested.** Preflight caching, environment authority, request
+modes and all remaining full-plan implementation and qualification remain open.
+
+Parent and fallback hosts now share preflight triggering and response validation.
+Safelist checks include 128-byte values, unsafe bytes, language syntax, single
+ranges and the 1024-byte aggregate limit. Fallback cross-origin requests issue
+credential-free OPTIONS before non-simple requests; method case is preserved.
+Generated cases cover boundaries, wildcard permissions and Authorization.
+**Unbuilt and untested.** Preflight caching, referrer parity, request modes and
+all remaining full-plan implementation and qualification remain open.
+
+Parent and fallback hosts now share CORS response authorization/exposure code in
+oryn-net. Fallback redirects use the shared request rewrite, authorize each response
+before following Location, retain missing-Location responses, preserve opaque
+redirect origin and filter final headers. Duplicate fallback logic was removed;
+shared generated cases cover authorization and exposure. **Unbuilt and untested.**
+Fallback preflight/referrer parity, legacy replacement, request modes and all
+remaining full-plan implementation/qualification remain open.
+
+The legacy streamed-host result now retains parent CORS classification and passes
+it with redirected metadata to its response wrapper. Fetch redirect defaults now
+allow twenty hops in the pipeline, parent broker and fallback host; generated
+pipeline cases cover twenty-hop success and twenty-one-hop rejection.
+**Unbuilt and untested.** Legacy semantic-path replacement, fallback policy parity,
+request modes and all remaining full-plan implementation/qualification remain open.
+
+Parent CORS classification now crosses context IPC and the typed platform host to
+native Response.type (`basic`/`cors`); clones retain it and blob fetches report
+`basic`. Context protocol is version 13 for the new response field. Generated
+cases cover both parent classifications and same-origin redirect classification.
+**Unbuilt and untested.** Opaque responses, request/redirect modes, legacy-path
+migration and all remaining full-plan implementation/qualification remain open.
+
+Parent HTTP streaming now applies CORS response-header exposure for Fetch/XHR
+after authorization and redirect processing, preserving cross-origin filtering
+across redirects. The filter handles safelisted names, combined exposure lists,
+credential-sensitive wildcards and forbidden cookie headers. Generated cases cover
+duplicates, malformed lists and wildcard behavior. **Unbuilt and untested.**
+Response type propagation, request modes/redirect modes and all remaining plan
+implementation and qualification gates remain open.
+
+Fetch/XHR JavaScript header exposure now removes Set-Cookie and Set-Cookie2 without
+changing parent-side cookie processing. Constructed Response headers carry the
+response guard, including clones; standalone Headers copies remain independent.
+XHR getters combine duplicate values and serialize sorted lowercase names.
+Generated cases cover guards, copies and cookie filtering. **Unbuilt and untested.**
+CORS exposed-header filtering/response tainting, remaining plan code and all
+qualification gates remain open.
+
+Native Response.error() and Response.redirect() now construct null-body responses
+with immutable headers, validated redirect statuses and native base URL resolution.
+Response type metadata is stored and copied by clone. Generated cases cover error/
+redirect metadata, guards, relative URLs and conversion exceptions. **Unbuilt and
+untested.** Network response tainting/filtering and the complete remaining plan
+implementation and qualification gates remain open.
+
+Response BodyInit conversion now retains native object identity until extraction
+after dictionary conversion. This defers stream usability checks and mutable body
+snapshots while preserving string conversion before option getters. Generated cases
+cover getter exceptions, lock/release during conversion, byte snapshot timing and
+URLSearchParams mutation. **Unbuilt and untested.** Remaining Request body transport,
+Fetch guards/filtering, environment policy and full-plan work remain open.
+
+ResponseInit now separates WebIDL conversion from HTTP validation. Header iterables
+and records are converted before later dictionary members; status/reason validation
+precedes header filling. Response.json() converts its dictionary before invoking
+JSON serialization, preserving conversion/serialization exception precedence.
+Generated tests cover observable getter order and competing failures. **Unbuilt and
+untested.** Remaining constructor BodyInit ordering, guards/filtering, environment
+policy and full-plan implementation/qualification remain open.
+
+Response.json() and the Response constructor now share metadata initialization,
+including status range, null-body status and reason-phrase validation. Static JSON
+responses retain statusText and explicit content types, reject unserializable data,
+and preserve exceptions thrown by serialization. Generated regression cases cover
+these paths. **Unbuilt and untested.** Complete WebIDL conversion ordering, Fetch
+filtering/guards, native environment policy and all full-plan gates remain open.
+
+Dynamic frame loading now reads native document URL/base state through the host API
+and resolves relative frame sources against the document base. Script-loading
+initiator paths no longer fall back to evaluating public location.href. The shared
+base resolver has generated coverage for inherited srcdoc bases, author property
+shadows, prohibited base schemes and subsequent document commits.
+**Unbuilt and untested.** Full origin/referrer authority, remaining plan code and
+all qualification gates remain open.
+
+Fetch and native resource-loading paths now obtain initiator URLs from the active
+native document through the host API. The writable initiator global and its setup/
+history writes were removed. Generated cases poison the old property and verify
+native history/referrer behavior; the frame-history case now reads document.URL.
+**Unbuilt and untested.** Opaque/inherited origin authority, referrer-policy metadata
+and the remaining full-plan qualification work remain open.
+
+Platform URL resolution now uses native document/base metadata (and worker fallback
+metadata) rather than reading public location.href. Generated Request cases cover
+base-element updates/removal, document.baseURI shadowing and absolute URLs.
+**Unbuilt and untested.** Full environment-origin/referrer authority and the
+remaining lifecycle/Fetch qualification work remain open.
+
+Multipart header parsing now validates parameter/header token names and rejects
+NUL or bare line controls in header values while preserving binary payload bytes.
+Generated cases cover repeated/empty parts, preamble/epilogue, quoted semicolons
+and control-byte separation. **Unbuilt and untested.** Complete multipart parsing
+compatibility and the remaining plan qualification work remain open.
+
+Multipart formData() now uses a shared byte-oriented parser and creates native File
+entries, preserving field order, filenames, content types and binary bytes.
+Boundary matching is case-sensitive and requires complete delimiter lines.
+Generated parser/binding cases cover round trips, boundary-like payload bytes,
+missing metadata and truncated bodies. **Unbuilt and untested.** Full multipart
+header/encoding edge cases, streaming resource limits and qualification remain open.
+
+Request/Response formData() now decodes URL-encoded bodies with UTF-8, duplicate
+entry order and empty fields preserved. Body MIME metadata retains parameter case;
+Blob conversion applies its own lowercase type rule. Generated cases cover both
+constructors, malformed bytes, MIME rejection and null bodies. **Unbuilt and
+untested.** Multipart FormData decoding, streaming uploads and complete Body/Fetch
+qualification remain open.
+
+Request now exposes shared JSON/Blob consumption, and Request/Response expose
+bytes() returning Uint8Array. Request.body is declared as a nullable ReadableStream.
+JSON parsing clears captured exceptions before rejecting the consumer promise.
+Generated cases cover result types, invalid JSON, repeat consumption and null
+bodies. **Unbuilt and untested.** FormData decoding, streaming uploads and the
+remaining full-plan qualification work remain open.
+
+Request and Response now share byte-body extraction for strings, Blob/File,
+URLSearchParams, FormData and buffer views. Inferred Content-Type is installed only
+when absent; URLSearchParams uses its native list and buffer views preserve their
+selected bytes. Generated cases cover both constructors, content types, snapshots
+and conversion exceptions. **Unbuilt and untested.** Streaming Request extraction,
+complete BodyInit/dictionary ordering and full qualification remain open.
+
+Request byte bodies now expose native ReadableStreams, distinguish absent and empty
+bodies, reject GET/HEAD bodies and use shared stream consumption. Clone tees the
+body; deriving a request checks source usability and marks transferred byte bodies
+consumed. Generated cases cover null/empty bodies, locks, clones and transfer.
+**Unbuilt and untested.** Streaming upload/transfer, BodyInit extraction, request
+body cancellation and full qualification remain open.
+
+Request exposes its client-referrer sentinel as about:client, resolves explicit
+referrer URLs and rejects differing origins. Empty referrers force no-referrer
+when submitting Fetch to the host. Generated cases cover defaults, relative URLs,
+copying and scheme/host/port mismatches. **Unbuilt and untested.** Authoritative
+native client/base ownership, dedicated referrer metadata transport and complete
+referrer/Fetch qualification remain open.
+
+Request now validates credentials/referrer-policy enums with case-sensitive values,
+converts explicit null values rather than treating them as absent, and propagates
+option getter/string-conversion exceptions through checked dictionary access.
+Generated cases cover enum inheritance, invalid values and all current option
+getters. **Unbuilt and untested.** Complete dictionary ordering, referrer URL rules,
+body transfer and full qualification remain open.
+
+Request construction and cloning now create distinct dependent AbortSignals,
+copy already-aborted reasons and register future abort propagation. Null signal
+options detach inherited signals; invalid signal objects and getter failures are
+rejected. Generated cases cover identity, transitive propagation, event visibility,
+overrides and branding. **Unbuilt and untested.** Cross-realm signal ownership,
+dependent-record reclamation, complete RequestInit ordering and qualification
+remain open.
+
+Request method validation now accepts HTTP token digits, preserves extension-method
+case, normalizes the six standard methods and rejects forbidden methods regardless
+of case. URL conversion propagates exceptions and rejects embedded credentials.
+Fetch creates a derived native Request so init overrides apply to Request inputs;
+undefined headers preserve inherited headers. Generated cases cover these paths.
+**Unbuilt and untested.** Full RequestInit ordering, body transfer/stream semantics,
+signal following and Fetch qualification remain open.
+
+Fetch startup failures now reject promises, preserving captured JavaScript
+exception values. Preaborted requests reject with the signal's original reason.
+Generated cases cover unavailable host service, abort identity and startup
+exceptions. **Unbuilt and untested.** Fetch also retains the realm native Request constructor instead of consulting the
+replaceable global. Full input/init semantics, constructor lifetime cleanup and
+Fetch qualification remain open.
+
+Fetch now carries HEAD request metadata into response construction. HEAD and
+null-body response statuses produce no ReadableStream and release the unused host
+stream; clones and repeated null-body consumption preserve that state. Generated
+cases cover HEAD/204/205/304 and host-stream release. **Unbuilt and untested.**
+Informational-response handling in transports, response filtering and full Fetch
+qualification remain open.
+
+Fetched HTTP/blob response headers now carry native immutability, preserved by
+Response.clone. Mutations validate/convert arguments before rejecting immutable
+lists; new Headers copies and synthetic Response headers remain mutable. Generated
+cases cover mutation methods, conversion ordering and independent copies.
+**Unbuilt and untested.** Request/no-CORS/response guards, complete response filtering
+and full conformance qualification remain open.
+
+Headers now uses native live entries/keys/values iterators and forEach, replacing
+the array-snapshot iterator path. Sorted iteration combines ordinary duplicate
+fields while preserving separate Set-Cookie fields; getSetCookie returns those
+values intact. Generated cases cover mutation, independent/sticky cursors, callback
+arguments and cookie values with commas. **Unbuilt and untested.** Header guards,
+response filtering and full Fetch/IDL qualification remain open.
+
+Headers initialization now converts generic nested iterables using shared sequence
+conversion with IteratorClose, honors custom iterators on native Headers objects,
+and reads enumerable own record properties. Syntax validation follows full input
+conversion. URLSearchParams shares the extracted iterator helper. Generated cases
+cover nested generators, closure/exception precedence, native iterator overrides
+and invalid union inputs. **Unbuilt and untested.** Header guards, live iteration,
+remaining conversion edge cases and full conformance qualification remain open.
+
+Headers mutation now converts ByteString arguments before native list borrowing,
+rejects whitespace in names, trims only HTTP edge whitespace from values and
+rejects NUL/embedded CRLF/non-byte characters. Array inputs require exact pairs;
+array/record getter failures propagate. Generated cases cover reentrant conversion,
+argument order, malformed pairs and byte validation. **Unbuilt and untested.**
+Generic iterable conversion, header guards, live iteration and full Fetch
+qualification remain open.
+
+Response now stores and exposes statusText and preserves it through clone.
+Constructor initialization reads headers, status and statusText in dictionary
+order, propagates getter/conversion failures and validates ByteString/reason-phrase
+constraints. Generated cases cover order, exceptions, defaults, invalid controls
+and cloned metadata. **Unbuilt and untested.** Complete HeadersInit conversion,
+network reason phrases and full Fetch qualification remain open.
+
+Response text/JSON consumption removes exactly one UTF-8 BOM while binary results
+preserve it; Blob results use the parsed response Content-Type. Constructor status
+conversion propagates exceptions, rejects values outside 200–599 and rejects
+non-null bodies for 204/205/304. Generated cases cover these behaviors, including
+empty versus absent bodies and unsigned-short conversion. **Unbuilt and untested.**
+Full ResponseInit ordering/statusText, header guards and overall Fetch qualification
+remain open.
+
+Tee delivery now runs through a native queued microtask and skips retired execution
+services. In-flight combined cancellation suppresses queued delivery settlement;
+already-terminal sources do not invoke cancel again. Generated cases cover source
+cancellation rejection identity, single cancellation invocation, closed queued
+sources and an error reaching the uncancelled branch. **Unbuilt and untested.**
+Exact per-chunk scheduling, BYOB behavior and complete lifecycle qualification
+remain open.
+
+Native stream tee now connects branch demand, chunk fan-out, close/error propagation
+and combined cancellation. Response.clone replaces its body with one tee branch
+and gives the clone the other, copying byte chunks before exposure. The same native
+machinery backs ReadableStream.tee. Generated cases cover delayed nested clones,
+byte isolation, cancellation reasons/settlement and host response body cloning.
+**Unbuilt and untested.** Exact microtask scheduling, BYOB/byte-stream tee semantics,
+retirement cleanup and full stream qualification remain open.
+
+Response body consumers now drain the native ReadableStream queue for both host
+HTTP and author-created byte streams. The separate ResponseRead HTTP loop was
+removed. Consumers preserve source error values, demand chunks at zero high-water
+mark, reject non-Uint8Array chunks and wait for close before decoding. The Response
+constructor accepts native readable bodies without stringifying them. Generated
+cases cover delayed/split UTF-8 chunks, demand, errors and invalid chunks.
+**Unbuilt and untested.** Stream tee/clone and full body/stream qualification remain
+open, along with the other incomplete plan work packages.
+
+Native readable streams now track disturbance from reader reads and cancellation.
+Response bodyUsed reflects that state; clone rejects locked/disturbed bodies, and
+body-consumption methods reject with a promise without consuming a merely locked
+body. Empty-string bodies retain a stream, while absent bodies stay reusable.
+Generated cases cover reader release, cancellation, locked cloning, repeat reads
+and empty-versus-null bodies. **Unbuilt and untested.** Streaming tee/clone, generic
+stream-body consumption and pipe lifecycle integration remain open.
+
+Parent HTTP results now carry final response URL (without fragment) and redirect
+history through context protocol v12 and typed platform completions. Native
+Response exposes `redirected`, preserves it on clone, and XHR receives the final
+URL. Parent-managed legacy host Fetch preserves credential mode and uses the
+parent's completed response directly instead of repeating redirects/CORS checks.
+Generated tests cover response metadata and redirect history even when the final
+URL equals the input. **Unbuilt and untested.** Fallback Fetch policy, streaming
+clone semantics and the remaining full-plan work are still open.
+
+Streaming Fetch redirect chains now retain opaque request origins across later
+hops, including a return to the source origin, and omit same-origin credentials
+once the origin is opaque. Each redirect receives a new broker operation ID.
+CORS checks reject duplicate singleton permission fields and require exact `true`;
+preflight checks respect credentials, method case, combined permission lists and
+the Authorization exception to wildcard headers. Generated broker and permission
+cases cover these changes. **Unbuilt and untested.** Full Fetch modes, host fallback
+integration, preflight caching and conformance qualification remain open.
+
+Parent HTTP streaming now uses the shared redirect method/body/header rewrite,
+checks CORS before following Location, preserves responses without Location and
+cancels discarded operations before validating the redirect URL. Redirect response
+policies update a progressively reduced referrer. Generated broker cases cover
+method preservation/rewrite, body headers, referrer suppression, missing Location
+and denied cross-origin redirects. **Unbuilt and untested.** Host fallback Fetch,
+opaque redirect origins and full Fetch qualification remain open.
+
+Shared Fetch redirect handling now preserves HEAD on 303, removes body headers
+when rewriting a request to GET, drops cross-origin Authorization, clears stale
+address resolution and records redirect history independently of final URL.
+Redirect statuses without Location return their response normally. Generated
+transport tests inspect redirected requests and missing-Location response bodies.
+**Unbuilt and untested.** Native-path migration and full Fetch qualification remain
+open.
+
+Page-resource redirects now preserve referrer reductions and report the exact
+referrer sent on the final request to child-document metadata. Final response
+policy parsing retains the last recognized header token. Generated broker cases
+cover stylesheet and frame redirects without recovering the original path/query.
+**Unbuilt and untested.** Remaining fetch paths and full referrer qualification
+remain open.
+
+Script redirect chains now carry the reduced referrer forward rather than
+recomputing from the original document URL. Generated broker cases verify that
+unsafe-url cannot restore a removed path/query or a suppressed referrer after an
+earlier hop. **Unbuilt and untested.** Remaining resource/fetch paths and full
+referrer-policy qualification remain open.
+
+Parent script and page-resource redirect chains now apply Referrer-Policy response
+headers to subsequent requests, preserving the current policy for absent/invalid
+values. Generated tests cover last-recognized-token selection and inspect a
+redirected script request after no-referrer. **Unbuilt and untested.** Remaining
+fetch paths and full referrer-policy qualification remain open.
+
+Native fetch, script, worker-resource and image paths now share the Fetch redirect
+status classifier (301/302/303/307/308). Document security preparation uses the
+same distinction. Generated broker coverage ensures other 3xx responses with
+Location headers do not trigger another script request. **Unbuilt and untested.**
+Full redirect/fetch qualification remains pending.
+
+Parent module redirect chains now retain an opaque request origin after crossing
+between foreign origins. Subsequent requests send Origin: null, validate CORS
+against that origin and do not regain same-origin credentials when returning to
+the original site. Generated broker coverage exercises a three-origin chain.
+**Unbuilt and untested.** Explicit credential modes and complete fetch/module
+qualification remain open.
+
+Parent module fetches now apply default same-origin credentials, send Origin for
+cross-origin requests, reject duplicate allow-origin headers and check CORS before
+following a cross-origin redirect. Generated broker tests inspect outgoing
+credentials/headers and reject unauthorized redirect and duplicate-header cases.
+**Unbuilt and untested.** Explicit crossorigin credential modes, redirect-origin
+tainting and complete fetch/module qualification remain open.
+
+Stylesheet loading now shares nosniff token parsing with scripts and rejects
+nosniff responses without a text/css MIME essence. Parent-served stylesheets also
+reject unsuccessful HTTP status responses. Generated tests cover absent, invalid,
+case-varied and parameterized MIME types. **Unbuilt and untested.** Additional CSS
+MIME rules and full loading/security qualification remain open.
+
+Script response MIME validation is now shared across parent, local dynamic and
+preload loading. It applies nosniff and classic-script blocking for audio/image/
+video/CSV types; data-URL script decoding also applies MIME blocking. Generated
+coverage exercises missing types, JavaScript aliases, module strictness and
+nosniff token handling. **Unbuilt and untested.** Worker loading, stylesheet
+nosniff and full network/security qualification remain open.
+
+Module page-loading paths now require a recognized JavaScript MIME essence using
+the shared parser, and parent/local dynamic script loading rejects unsuccessful
+HTTP status responses. Generated tests enumerate the standard legacy MIME names
+and reject missing, malformed and lookalike module types. **Unbuilt and untested.**
+Classic-script nosniff handling, worker loading and complete module qualification
+remain open.
+
+Module script resources now use explicit UTF-8 decoding independent of transport
+charset, removing only a UTF-8 BOM. Parent-served page scripts, local dynamic
+loading and preload decoding select the module path. Generated tests cover legacy
+headers, UTF-16 byte signatures and chunk boundaries. **Unbuilt and untested.**
+Worker module integration and full module/loading qualification remain open.
+
+XML encoding declaration scanning now uses XML whitespace and encoding-name
+syntax, and requires separators between pseudo-attributes. Generated cases cover
+non-XML whitespace, missing separators, invalid label spacing and stylesheet
+processing instructions. **Unbuilt and untested.** Complete XML loading and
+encoding qualification remain pending.
+
+HTML encoding prescan now requires a valid delimiter after the meta tag name,
+preventing meta-prefixed foreign/custom/lookalike names from selecting charset.
+Generated cases cover punctuation, vertical tab, form feed and slash delimiters.
+**Unbuilt and untested.** Complete HTML encoding-detection qualification remains
+pending.
+
+Production stylesheet requests now carry document encoding as the environment
+fallback, and recursive imports inherit the decoded parent stylesheet encoding.
+Linked, inline-imported, dynamic and frame stylesheet paths supply that value;
+BOM/header/@charset selection still takes precedence. Generated native-loader
+coverage uses legacy-encoded selectors to verify document and import inheritance.
+**Unbuilt and untested.** Full stylesheet loading and encoding qualification remain
+pending.
+
+Stylesheet decoding now recognizes the strict leading CSS byte-level @charset
+declaration within the prescan window, below BOM and transport charset priority.
+UTF-16 labels in that declaration select UTF-8 as required by CSS Syntax.
+Generated coverage checks precedence, malformed declarations and every split of
+a legacy-encoded stylesheet. **Unbuilt and untested.** Environment fallback,
+stylesheet loading integration and full CSS/encoding qualification remain open.
+
+Browser MIME parsing now lives in oryn-common and is shared by JavaScript APIs
+and document encoding selection. Header charset lookup no longer splits quoted
+parameters on semicolons or accepts invalid MIME essences. Generated loading
+regressions cover quoted separators/escapes, duplicates and malformed parameters
+for both buffered and incremental decoding. Existing MIME parser tests move with
+the shared implementation. **Unbuilt and untested.** Full MIME/loading/encoding
+qualification remains pending.
+
+Incremental document decoding now copies at most the 1,024-byte prescan window
+before processing the remainder of a network chunk. Fixed-size scratch decoding
+handles output-full results without worst-case output reservation and preserves
+legacy decoder state across empty chunks. Generated regressions cover large
+multibyte chunks, prescan splits and empty transport chunks. **Unbuilt and
+untested.** Full loading/encoding and memory qualification remain pending.
+
+TextDecoderStream's terminal failure path no longer retains unread chunk bytes
+for recovery that the stream cannot perform. Standalone TextDecoder retains its
+recoverable streaming queue. Generated coverage checks a large malformed stream
+chunk leaves no retained input allocation while preserving decoder attributes.
+**Unbuilt and untested.** General stream-registry reclamation and encoding/RSS
+qualification remain open.
+
+Fatal streaming TextDecoder errors now retain unconsumed input and append later
+chunks to that queue. Nonstreaming completion/error resets it for the next decode
+sequence. Generated regressions cover ordered recovery, consecutive errors and
+streaming-to-final transitions. **Unbuilt and untested.** Full encoding WPT and
+memory qualification remain pending with the programme's final verification phase.
+
+Scroll bounds, wheel routing and notification targeting now identify the active
+document element through native ownership instead of an html tag-name check.
+Generated coverage checks a nested html scroller and a replacement document root
+with a different tag name, including Window offsets and event bubbling.
+**Unbuilt and untested.** Quirks-mode body scrolling and full scroll qualification
+remain open.
+
+Deferred scroll-end delivery now waits when the same target/document has another
+scroll notification pending, including changes made by a scroll listener. The
+bounded drain defers the pending end event without spinning. Generated regression
+coverage checks two scroll notifications followed by one final scroll-end event.
+**Unbuilt and untested.** Rendering-phase scheduling, gesture completion and
+smooth-scroll timelines remain open.
+
+Queued scroll notifications now coalesce by target/type/document, retain native
+targets until delivery or cancellation, reject delivery after adoption or document
+retirement, and dispatch trusted events. Generated coverage checks repeated
+updates, event flags and cross-document adoption; the existing repeated-update
+expectation now requires one scroll notification. **Unbuilt and untested.**
+Rendering-phase scheduling, reentrant scroll-end ordering and full scrolling
+qualification remain open.
+
+Synchronous layout providers now receive viewport updates through native binding
+installation, including provider replacement after a viewport is already set.
+The live provider stores the updated viewport and uses it for geometry and CSS
+viewport units. Generated coverage checks resize geometry and provider/cache
+behavior with unchanged DOM revisions. **Unbuilt and untested.** Child-frame
+viewport sizing and full rendering/scroll qualification remain open.
+
+Native document offsets now feed synchronous layout and the parent page layout
+input. Page scroll commands synchronize native offsets before layout; clamped
+layout output synchronizes them back. Scroll changes invalidate the synchronous
+layout cache, and viewport resizing retains the current offset for layout to
+clamp. Generated tests cover geometry movement and mixed script/page scrolling.
+**Unbuilt and untested.** Nested scroller geometry, viewport provider refresh,
+scroll notification timing and full rendering/scroll qualification remain open.
+
+Window scroll/scrollTo/scrollBy and replaceable scrollX/scrollY/page offset
+accessors now use native document offsets. The JavaScript-only offset shim is
+removed. Shared execution uses native bounds and queues document scroll events;
+Window access checks precede coordinate conversion. Generated coverage checks
+Element/Window coherence, public property replacement, receiver errors, clamping
+and document-element removal. The existing integration regression now supplies
+actual overflowing content. **Unbuilt and untested.** Rendering integration,
+restoration, quirks-mode behavior and complete scroll qualification remain open.
+
+Element scroll/scrollTo/scrollBy now share native coordinate conversion and bounded
+offsets. Generated overloads support options and numeric coordinates, preserve
+omitted axes, normalize non-finite input, preserve getter exceptions and avoid
+notifications for unchanged offsets. Generated coverage includes conversion order,
+invalid enums, partial options and zero-range containers. **Unbuilt and untested.**
+Window scroll ownership, scroll geometry, smooth behavior and full scrolling
+qualification remain open.
+
+Native layout snapshots and live layout providers now carry the owning viewport
+in CSS pixels into bindings. Root scrolling uses those dimensions and the layout-reported document scrolling
+area instead of a fixed 1280 × 720 viewport and the root border box. Generated coverage exercises narrow, resized and larger
+viewports plus absent layout viewport data. **Unbuilt and untested.** Descendant
+overflow geometry and complete scrolling qualification remain open.
+
+Pixel-wheel default actions now apply overscroll-behavior independently per axis,
+containing unconsumed deltas at eligible scroll containers for contain/none and
+passing them upward for auto. Generated nested-scroller Actions coverage compares
+contained and chained results. **Unbuilt and untested.** Viewport extent accuracy,
+nonpixel modes, duration interpolation and complete scrolling qualification remain open.
+
+Wheel Actions now validate and dispatch typed trusted pixel WheelEvents through
+the native input path. Uncanceled pixel deltas scroll eligible flat-tree ancestors
+and queue scroll notifications; cancellation prevents that default action.
+Generated Actions coverage checks payloads, scrolling and preventDefault.
+**Unbuilt and untested.** Line/page modes, overscroll policy, duration interpolation,
+viewport extent accuracy and full input qualification remain open.
+
+Native action payload generation now supplies the originating Window view,
+zero detail for pointer-prefixed events and mouse-compatible button values for
+boundary events, while preserving click count on click/mouse down/up. Generated
+Actions coverage checks ordered event types, button masks, detail, view and trust.
+**Unbuilt and untested.** Native device-state migration, capture and the complete
+input/conformance matrix remain open.
+
+The action controller now captures its original native dispatch/focus/keyboard
+bridges, mouse/pointer constructors and geometry methods before author scripts.
+Generated Actions regression coverage replaces those public properties and checks
+that trusted input still dispatches through retained engine functions. **Unbuilt
+and untested.** This hardens the current controller; full Rust-owned input state,
+private host entry points and broader mutation resistance remain open.
+
+Actions cleanup now uses one cancellation stack for keys and pointer buttons,
+releasing active inputs in reverse press order. An explicit release entry point
+joins the realm's serialized action queue and avoids synthesizing clicks.
+Generated Actions coverage checks mixed-input ordering and repeated release.
+**Unbuilt and untested.** Native device-state ownership, source identity semantics
+and full input qualification remain open.
+
+The action controller now retains the compatibility-mouse suppression flag after
+a canceled initial pointerdown through movement and button release. Final release
+and controller cleanup reset it; click/auxclick remain separately dispatched.
+Generated Actions regression coverage checks suppressed down/move/up, retained
+click delivery and the next unsuppressed sequence. **Unbuilt and untested.** Native
+device-state migration, capture and full pointer qualification remain open.
+
+Pointer Actions now select the native nearest common ancestor for click/auxclick
+when down/up targets differ, rejecting disconnected or cross-document endpoints.
+Generated native and Actions tests cover sibling release, same-target clicks and
+removed endpoints. **Unbuilt and untested.** Pointer-capture overrides, device-state
+migration and full input qualification remain open.
+
+The action controller now consumes native pointer-boundary snapshots and emits
+ancestor leave/enter notifications in inside-out/outside-in order, excluding shared
+ancestors. Snapshotting precedes listener dispatch. Generated Actions coverage
+checks ordering, ancestor exclusion, target identity and event flags. **Unbuilt and
+untested.** Full native device-state migration, pointer capture and reentrant
+hit-testing/retirement behavior remain open.
+
+Source review found that the action controller emits enter/leave only for leaf
+targets. A native pointer-boundary path calculation now snapshots inside-out leave
+and outside-in enter targets, excludes shared ancestors and consumes manual slot
+assignment. Generated tests cover sibling/ancestor transitions and stable captured
+paths. **Unbuilt and untested; not yet wired into the action controller.** Native
+controller migration and ancestor boundary dispatch remain open requirements.
+
+MouseEvent, PointerEvent and WheelEvent now use the same captured related-target
+retargeting, equal-target path suppression and post-dispatch cleanup as FocusEvent.
+The native subtype payload adapter replaces focus-only handling. Generated tests
+cover all three interfaces with internal shadow transitions and outside observers.
+**Unbuilt and untested.** Touch target lists, native boundary-event generation and
+full event qualification remain open.
+
+Focus-event paths now stop before a boundary where target and relatedTarget
+retarget to the same node, and host dispatch is suppressed when an internal
+related target retargets to that host. Generated tests cover internal delivery,
+closed-root path boundaries, outside-listener exclusion and suppressed dispatch.
+**Unbuilt and untested.** Mouse/pointer related targets, touch targets and broader
+event/conformance qualification remain open.
+
+FocusEvent dispatch now snapshots retargeted relatedTarget values with the native
+path and applies them per listener, preserving boundary visibility through tree
+mutation. Internal related targets are cleared with noncomposed shadow targets.
+Generated tests cover capture-time relocation and post-dispatch cleanup.
+**Unbuilt and untested.** Equal-target path suppression, mouse/touch related targets
+and full event conformance remain open.
+
+Native shadow retargeting now resolves node targets against shadow-including
+ancestry, stopping at document boundaries and keeping projected light-DOM targets
+unchanged. Generated tests cover nested open/closed roots, host/outside observers
+and slotted nodes. Native focus-event trusted/composed flags were confirmed in
+source. **Unbuilt and untested.** Integrating relatedTarget snapshots and event-path
+suppression remains open; the helper alone does not complete event conformance.
+
+Delegating-host blur now resolves the currently focused descendant through the
+native flat tree, then uses the existing blur/change event lifecycle. Delegation
+rejects disconnected and inert hosts before descendant selection. Generated
+regression coverage includes a changed focused descendant, blur-callback refocus,
+unrelated focus, inert hosts and detached hosts. **Unbuilt and untested.** Pointer,
+nested-scope and cross-context focus qualification remain open.
+
+Inert and focus-visibility ancestry now consume native slot assignment through a
+shared flat-tree parent operation. Unassigned light children and fallback hidden
+by assigned content are excluded from focus visibility. The independent named-slot
+inert calculation was removed. Generated tests cover manual assignment, inert
+ancestors, hidden fallback and unassigned-node focus rejection. **Unbuilt and
+untested.** Full style/layout flat-tree integration and focus qualification remain open.
+
+ShadowRootInit delegatesFocus and its native getter/storage are generated, with
+clone/import preservation. Host focus resolves a descendant using native flat-tree
+slot assignment, focus eligibility and autofocus preference. Focus navigation's
+separate named-slot calculation was removed. Generated tests cover disabled/hidden
+controls, negative tabindex, cloned flags and manual projection order. **Unbuilt
+and untested.** Pointer delegation nuances, nested focus scopes and cross-context
+focus qualification remain open.
+
+ElementInternals now exposes its host's shadow root, including closed roots,
+through a native lookup shared with Element.shadowRoot and slot assignment.
+Generated regressions cover null-before-attachment, wrapper identity, closed/open
+visibility, detached hosts, separate hosts and receiver validation. **Unbuilt and
+untested.** Declarative-root availability flags, form-associated internals and the
+remaining completion-plan packages are still open.
+
+Weak-release processing now prunes custom-state values/order and per-element
+custom-element records when their native identities have been reclaimed, while
+preserving live-node state and registry definitions. Generated regression coverage
+checks retained versus reclaimed nodes and replacement identity isolation.
+**Unbuilt and untested.** Full JavaScript GC, cross-realm ownership and remaining
+completion-plan qualification are still open.
+
+Custom-state iteration now uses monotonic insertion identities over live entries,
+replacing permanent tombstones. Delete/clear release strings immediately while
+active iterators retain ordering through reinsertion. Identity exhaustion is
+checked before mutation and never resets into aliasing. Generated native tests
+cover repeated mutation, cursor continuity and boundary exhaustion. **Unbuilt and
+untested.** Cross-realm/lifetime qualification and the wider plan remain open.
+
+Custom-state iterators now share a per-realm prototype chained to V8's original
+IteratorPrototype, captured before author code. The native next method and string
+tag use platform descriptors; per-instance methods were removed. Generated tests
+cover identity, descriptors, nonconstructibility and replaced Array methods.
+**Unbuilt and untested.** Storage compaction, realm/lifetime qualification and
+remaining completion-plan implementation continue to be open.
+
+CustomStateSet now has native live `values`, `keys`, `entries` and default iteration,
+with shared method aliases, private cursors, source retention and permanent
+exhaustion. Generated regressions cover mutation while iterating, entry pairs,
+spread syntax, method identity and invalid receivers. **Unbuilt and untested.**
+Iterator prototype conformance, storage compaction and full qualification remain open.
+
+Custom-state storage is shared across binding realms in the same native DOM.
+CustomStateSet accepts DOM strings without the obsolete `--` restriction and
+tracks insertion order for live `forEach()` mutation semantics. Generated tests
+cover duplicate insertion, arbitrary strings, deletion, append, clear/reinsert,
+callback receiver/arguments and exception propagation. **Unbuilt and untested.**
+Iterator methods, order-storage compaction and cross-realm qualification remain open.
+
+ElementInternals attachment now consults the element's retained custom-element
+definition, honors `disabledFeatures: ["internals"]`, rejects undefined/failed
+custom elements and duplicate attachment, and allows upgrade-constructor use.
+Generated regressions cover definition requirements, disabled-feature independence,
+duplicate calls and upgrade attachment. **Unbuilt and untested.** Form-associated
+internals, cross-realm state ownership and full qualification remain open.
+
+Custom-element definitions now capture the `disabledFeatures` iterable and enforce
+`shadow` restrictions for attachment and upgrades with existing roots. Adopted
+custom elements consult their retained definition. Generated tests cover captured
+feature lists, ignored unknown features, getter failure/retry and upgrade rejection
+before constructor invocation. **Unbuilt and untested.** Cross-realm execution,
+other disabled features and remaining shadow options still require qualification
+or generation as applicable.
+
+ShadowRootInit generation now uses required, case-sensitive mode values and
+lexicographic dictionary conversion with original JavaScript exceptions preserved.
+Host eligibility and duplicate-root checks precede creation; native TypeError
+requests produce JavaScript TypeErrors. Generated regressions cover rejected
+inputs, conversion order, getter exceptions and unchanged host state on failure.
+**Unbuilt and untested.** Custom-element shadow-disable rules, remaining shadow
+options and the broader completion-plan packages still require generation.
+
+Slot collection now uses non-destructive peek/acknowledgement: native leases and
+remaining queue entries survive wrapper-allocation failure, and acknowledgement
+occurs only after a wrapper is rooted. Collection and dispatch reject targets
+whose owning document no longer matches the active instance. Generated native
+tests cover queue order, repeat peeks, acknowledgement and lease release.
+**Unbuilt and untested.** V8 fault injection and suspension/recovery qualification
+remain open alongside the remaining completion-plan packages.
+
+Slot notification batches now restore undispatched targets on early checkpoint
+exit, preserving order ahead of newly queued targets and deduplicating retries.
+Collection prunes notifications for retired or missing document instances.
+Generated native regression coverage exercises restoration, coalescing, successful
+batch cleanup and retirement pruning. **Unbuilt and untested.** Actual V8
+termination recovery, collection failures and document suspension semantics still
+require implementation review and eventual execution evidence.
+
+Fallback child-list changes now signal slot notifications only for unassigned
+slots in shadow trees. Text-data edits and fallback changes hidden by assigned
+nodes do not signal. Native slot indexing replaces full-arena scans during
+assignment refresh. Generated tests cover these distinctions and reentrant manual
+assignment delivery. **Unbuilt and untested.** Affected-root indexing and
+termination/retirement handling still need review and qualification.
+
+Native mutation publication now snapshots effective slot assignments, retaining
+transient changes and coalescing each changed slot. Rooted targets transfer to the
+agent mutation-observer microtask queue; trusted bubbling, noncomposed slot events
+run after observer callbacks, including when no observers exist. Generated tests
+cover assignment/reversion, delivery ordering and manual no-op assignment.
+**Unbuilt and untested.** Fallback-content-only notifications, mutation scan cost,
+termination recovery and full cross-realm lifecycle qualification remain open.
+
+Shadow assignment mode now lives on the native node, so cloning and arena import
+preserve it without copying manual assignment edges. Host cloning creates clonable
+roots while omitting ordinary roots; direct `ShadowRoot.cloneNode()` is rejected.
+Generated regressions cover deep clone/import, independent assignment lists,
+shallow host mode preservation and ordinary-root exclusion. **Unbuilt and
+untested.** Slot-change delivery remains open; the agent mutation-observer
+microtask path has been identified for integration.
+
+Manual slot assignment is generated in native DOM state with `slotAssignment`
+root options/accessors and `HTMLSlotElement.assign()`. Ordered deduplicated lists,
+node reassignment, detached-node persistence, named-mode isolation and reclamation
+cleanup share the same assignment authority consumed by event dispatch. Generated
+regressions cover those paths and invalid argument/mode rejection. **Unbuilt and
+untested.** Clone/import preservation, slot-change microtask delivery and remaining
+event lifecycle work are still open.
+
+Event dispatch now consumes native named-slot assignment while capturing its path.
+Noncomposed events stop at their originating shadow root, while light-DOM events
+can pass through a slot and return to their document. Captured closed-root and
+slot-entry levels drive `composedPath()` filtering, and target retargeting occurs
+only when leaving the adjusted target's own root. Generated regressions cover
+closed-slot visibility, assignment changes during dispatch and nested projection.
+**Unbuilt and untested.** Related-target handling, manual slot assignment and
+`slotchange` scheduling still need implementation and qualification.
+
+Native named-slot assignment and generated `assignedSlot`, `assignedNodes()` and
+`assignedElements()` bindings now derive results from the current DOM. Generated
+regressions cover first-slot precedence, name/order mutations, text versus element
+results, closed-root access, recursive fallback flattening, snapshot arrays and
+reentrant options conversion. **Unbuilt and untested.** Manual assignment and queued `slotchange` delivery remain open requirements.
+
+Shadow dispatch now captures native shadow-boundary metadata beside the event
+path. Listener targets retarget to each enclosing host, closed-root path prefixes
+are hidden from outside listeners, and composed nonbubbling events invoke host
+listeners in the at-target phase. Final target cleanup uses the captured path.
+Generated native tests cover nested roots, mutation during capture, host phases,
+and noncomposed target cleanup. These changes are **unbuilt and untested**;
+slot-aware paths, related-target handling, and full event qualification remain open.
+
+The user's updated directive governs the entire completion plan: generate the
+implementation and tests for **all** packages G/R/P/L/W/S/V/F/Q, including caller
+migration and removal of superseded routes, before any build or test execution.
+Source inspection is allowed during generation. After generation is complete,
+build, run tests, fix failures, then perform full same-candidate qualification.
+
+The working tree is in this generation phase. Native parent/top/opener routing,
+cross-origin callbacks, frame linking, initial-frame creation and regression tests
+are being rewritten. The JavaScript provisional/committed frame factories have
+been removed. Navigation reuse, lifecycle policy and the remaining packages still
+need generation and integration. **These edits have not been built or tested.**
+The source-less dynamic loader now claims the insertion-created native realm
+instead of replacing its Window, Document, constructors and author state. The
+handoff also preserves sandboxed opaque identity and avoids rerunning scripts
+already executed in the initial document. Native and loader regression tests have
+been generated for these cases but have not run. Same-origin first navigation,
+later navigation acceptance and the other plan packages remain open. Both frame
+loaders now route replacement through a native commit method that retains the
+WindowProxy, advances document generation, retires the previous environment and
+updates the hosted Document. Static frame origin selection also applies sandbox
+restrictions. Native commit/retirement tests are generated, not executed. The
+initial same-origin navigation now has a generated Window-reuse path: active
+Document identity and execution generation are mutable independently of the
+Window's wrapper leases and interface templates. Native environment identity
+rotates, runtime bootstrap is claimed once per Window, and later navigation uses
+ordinary rebinding. Added native and loader tests cover retained Documents,
+constructors, author properties, adoption and Range ownership. This path remains
+unbuilt and untested, and does not close lifecycle or qualification gates.
+Document metadata now retains inherited base URLs, and native URL/baseURI getters
+use committed document state. Retirement clears queued navigation, parser,
+resource-preparation and default-action work before an initial Window is reused.
+Additional generated tests cover pending navigation and retained Document/node
+base URLs, including changes to a retained Document's base element.
+
+Historical passing results below apply to their recorded commits, not to the
+current generation-phase working tree.
+
+### Process ownership generation
+
+The process stream, response buffer, correlation counter, RSS enforcement and
+termination now belong to `WorkerProcessSession`. `WorkerClient` submits through
+a shared session mutex and retains page-route metadata. Reset/rebind reject
+surviving handles and reset rotates the process-session counter in the dispatcher.
+A generated concurrency regression exercises shared dispatch and last-owner
+cleanup; existing transport fault tests use the new owner. None have been run.
+The broker now stores bounded per-environment routes, selects by full grant,
+and provides environment-specific drain and generation-checked rotation. Added
+tests cover sibling isolation, revoked grants, capacity and failed-drain
+retirement. Production document registration/rotation and connected placement
+still need integration, along with the rest of package P. These generated changes
+do not qualify the package.
+
+The generated worker protocol is now v11: its command loop stores authenticated
+per-environment page sessions, retains a process-wide message sequence, and
+supports releasing one environment. Reset/exit reject live sibling sessions;
+legacy diagnostic exit cannot terminate an authenticated process. Current build
+and evidence scripts require v11. Historical v10 results are unchanged. A new
+wire-level test covers two independent documents, sibling-preserving release,
+stale-grant rejection and reset restrictions. No v11 build or test has run.
+The parent now has a generated attachment path that checks the source grant,
+context ownership, direct opener, process limits and policy before initialization.
+Failed preflight attachment cannot release the source page. Rejection tests have
+been added. Placement selection, shared-agent synchronous access and document
+registration/rotation are still open, so this is not enabled product qualification.
+Process retirement now revokes all grants before waiting for admitted work.
+Environment rotation retains a reserved entry throughout drain and validates the
+replacement owner before revoking the old grant. Added concurrency tests cover
+both ordering requirements and malformed replacements; they remain unrun.
+
+### Five-family contract generation
+
+Added `test-harness/workflows/five-family-contract-v1.json` with 29 required
+behavior cells, explicit independent outcomes, frontend coverage dimensions and
+frozen sampling: three serial and three mixed-family attempts per cell, plus 30
+repeats and four fault controls for recovery-sensitive cells. Existing family
+corpora and auth/framework regression inputs remain unchanged and are hash-pinned.
+`scripts/workflow_contract.py` validates the frozen contract and generates unique
+planned attempt IDs; it does not execute workflows or certify outcomes. Negative
+tests reject omitted families/cells, missing oracles, reduced sampling and changed
+regression inputs. The expanded frontends, case bindings, oracles and integrated
+runner still require implementation. No contract tests or workflow runs occurred.
+
+Added `scripts/run-oil-integrated-outcomes.py` to reuse all five existing family
+runners in serial and mixed-family modes, plus the eight framework gates and
+three auth-mechanics samples. It preserves raw reports, exact case/sample
+coverage, signed-source and parent/worker identities, oracle flags and cleanup
+outcomes. Its report explicitly lists the expanded attempts as unexecuted and
+cannot promote regression success into full family qualification. Validator
+negative controls are generated; the controller and tests have not run.
+
+### Expanded booking frontend generation
+
+Added a versioned client-rendered booking frontend over the existing SQLite
+reservation backend. A native date/time control and zone selector resolve local
+times with browser Intl data; folds require choosing an occurrence and gaps show
+an explicit rejection. The backend independently validates local/zone/UTC/slot
+agreement before issuing an offer and records that decision in a persisted audit.
+The original booking corpus remains unchanged. Eleven new v2 OIL cases cover both
+fold occurrences, UTC/Vancouver conversion, New York/Vancouver gaps, persisted
+video/phone options, required-field rejection, stale-slot recovery, cancellation
+and retry, and duplicate reservation requests. Cancelled offers are retired in
+SQLite and cannot reserve a slot; retries require a fresh review. Options remain
+bound to the offer through confirmation and duplicate requests. Availability
+refresh retires the old client snapshot before awaiting I/O, and stale responses
+cannot replace a newer result.
+The existing booking runner accepts `--frontend-v2`, verifies the new audit from
+reopened SQLite state, and is included in the generated integrated controller.
+JavaScript conversion and refresh-race tests, plus Python backend authority,
+options, cancellation and duplicate controls, are written but unrun.
+Other booking matrix behavior and full family qualification remain open.
+
+### Expanded SaaS identity provider generation
+
+Added a controlled OAuthlib 3.3.1 authorization-code provider and separate
+loopback HTTP transport for the versioned SaaS corpus. Exact registered
+callbacks and mandatory S256 bind grants to the client; codes expire and are
+single-use, replay revokes their issued tokens, and token identity is scoped to
+the client. The credential form binds its submission to an HttpOnly pending-flow
+cookie. Synthetic MFA requires an explicit form entry. Persisted oracle views
+expose event outcomes and consumption/revocation state without codes, verifiers,
+passwords or tokens. Tests cover wrong verifier/client/redirect, expiry, replay,
+concurrent exchange, MFA, duplicate parameters and redaction.
+
+This is generated source, not qualified authentication evidence. Dependency
+installation and all tests remain deferred until whole-plan generation is done.
+The versioned SaaS application adapter now binds callbacks to expiring one-use
+state and a separate HttpOnly browser cookie. It exchanges the code over HTTP with
+the separate-origin provider, validates token identity, and only then creates the
+session used by the existing records backend. Login generations retire in-flight
+callbacks when a newer login or logout occurs. No application lock spans identity
+network I/O. Five added OIL cases cover record create/update/reload/logout,
+post-logout denial, expired-session reauthentication, explicit synthetic MFA and
+stale-save recovery after a concurrent writer changes the record. The concurrent
+writer commits through a separate SQLite connection after the original edit form
+is generated; the stale request must fail, reload must expose the competing
+version, and recovery must create version 3. Its durable writer history is
+verified separately from user requests. Validator controls reject missing
+callback/exchange/writer evidence and unconsumed or revoked grants.
+The existing runner and integrated controller select this corpus with
+`--frontend-v2`; final read-only snapshots include both application and OAuth
+state, and both database identities are retained. Generated controls cover
+callback state/cookie isolation, replay/expiry, foreign identity and a new login
+during a delayed exchange. None have run.
+
+The records frontend now hydrates the server-rendered forms, submits through the
+same authenticated backend asynchronously, and updates its document and history
+from the returned server state. OIL cases wait for the persisted version to be
+rendered. In-flight duplicate submits are suppressed; transport uncertainty
+requires a reload before retry, and page retirement aborts pending work and
+ignores late responses. Generated client controls cover duplicate submits,
+uncertain writes, foreign responses and navigation retirement. These changes and
+tests remain unbuilt and unrun.
+
+Popup/SSO behavior, full negative/fault OIL coverage and release
+redaction/provenance qualification remain open. The original direct-login fixture
+and original corpus are unchanged.
+
+### Parent-owned related-page liveness generation
+
+Script-close and related-origin-read checks now inspect both endpoints under a
+single parent page-registry lock. Equal IDs alone no longer authorize operations
+on missing, closed or crashed pages; retained opener relationships do not restore
+retired source authority. Generated controls cover self, opener/child, unrelated,
+missing and retired endpoints. This closes the stale-registry eligibility gap in
+source only; tests have not run. Parent retirement also now emits close once, ignores late/duplicate crash
+notifications for retired pages, and prevents worker-start completions from
+reopening a closed page. All PageHandle close notifications use that single
+transition; a crash selects a remaining live active page and advances generation
+once. Observation/load updates preserve parent-owned page identity and opener
+relationships; late observation/navigation/revision results cannot modify retired
+pages or emit navigation events. Navigation publication is serialized with the
+registry update. Generated tests cover duplicate close/crash, late startup,
+active-page replacement, forged opener metadata and post-close completions.
+Worker handles now also carry page-local retirement: closed retained handles
+cannot enter the request queue or launch replacement workers. Requests already
+queued recheck retirement after taking the client lock, and startup rechecks
+retirement before sending a command. Script close retains ordered teardown;
+explicit host close retains cancellation. Added no-launch and queued-retirement
+controls, still unrun. None have run. History-based script-close eligibility, unload
+ordering and full connected-window/environment authority remain open.
+
+### Worker/document generation allocation
+
+Worker incarnation allocation now checks the 32-bit prefix limit before issuing
+an identity; exhaustion returns an explicit error and never wraps. Document
+allocation uses a separate high-water mark from the currently active document,
+so restoring an older BFCache entry cannot cause the next navigation to reuse a
+previously issued generation. Document allocation checks its incarnation boundary
+before suspending the current page. Generated boundary/concurrency controls and
+an extended BFCache regression cover these paths; none have run.
+Forward-history truncation now retires cached documents for discarded entries,
+and replacing an entry retires its superseded cached document. Both normal and
+fragment navigation use the shared truncation path. A generated history-branch
+regression inspects retained cache indices and allocation identity after restore,
+branch and replacement; it remains unrun.
+Cached-document retention is now capped at two inactive documents per page,
+evicting the oldest retained entry without removing session history. Restoration
+selects its target before enforcing the cap. Suspension checks document ownership
+before suspending execution, avoiding a suspended live executable on that fallback
+path. A generated capacity/history/restoration control covers the limit. This is
+source generation, not measured memory or performance qualification.
+Cached location is now validated before suspending the incumbent document.
+Restoration installs document/history state and commits the parent URL before
+invoking pageshow, then synchronizes callback mutations into semantics/layout.
+A generated invalid-destination control verifies the incumbent remains active
+when location preflight fails. PageTransitionEvent now has a Window-exposed generated interface, constructor
+and readonly persisted getter. Browser pagehide/pageshow dispatch uses private
+native templates and the Window listener registry, sets isTrusted, and replaces
+the evaluated-JavaScript lifecycle path. A generated control replaces public
+constructors/dispatchEvent and checks native event identity, flags and target.
+Window onpageshow/onpagehide now use native listener slots alongside onerror.
+Replacing a handler retains its registration position; clearing/readding creates
+a new position. Lifecycle dispatch no longer consults the public handler property.
+A generated ordering/hostile-getter control covers these changes. Broader
+navigation transaction rollback remains open; these controls are unrun.
+
+### Native event lifetime generation
+
+Event, UI/error/message event and native event creation now share checked ID
+allocation within JavaScript's exact-integer range. Weak handles enqueue collected
+event IDs; allocation and task checkpoints remove their Rust records and weak
+handles without finalizer-time map mutation. Retained JavaScript events keep
+their records. Generated GC and allocation-boundary controls cover this lifetime;
+they have not run. Author dispatch now clears trust after checking dispatch
+eligibility and obtains event type from native state, rather than a replaceable
+public getter. Global, node and platform dispatch entry points use this check;
+platform cancellation reads the event owner's registry. A generated native-event
+redispatch control checks trust and a hostile type getter. This is not evidence
+of resolved WPT memory failures or complete cross-realm event conformance.
+Node dispatch, listener flags and form preactivation now resolve event records
+from the creating realm while retaining target-document listeners/DOM ownership.
+Target/currentTarget retain actual native wrappers, and Window propagation uses
+the target document explicitly. A generated foreign-event regression checks
+capture/target/bubble, cancellation isolation and target identity; it is unrun.
+Node and Window composedPath now use a private snapshot captured before
+listeners run, return fresh arrays and clear the snapshot after dispatch.
+A generated detach-during-capture control covers path stability, copy isolation
+and cleanup. Native path construction now stops at Document boundaries instead of following
+internal hosted-document edges and stops non-composed events at their shadow
+root. A generated boundary control checks non-composed containment and a composed
+propagation control. Slot-aware event parenting, shadow retargeting/closed-tree
+filtering and platform propagation
+completeness remain open; this is not full event conformance evidence.
 
 ## Completion implementation in progress — September 15
 

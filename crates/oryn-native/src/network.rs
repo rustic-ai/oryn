@@ -12,6 +12,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use futures_util::StreamExt;
 use oryn_net::HttpTransport as _;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::Ordering;
 use url::Url;
 
 use oryn_net::cache::{CacheEntry, CacheKey, MemoryCache};
@@ -22,11 +23,44 @@ use crate::{
     security::{NetworkPolicy, PolicyDenied},
 };
 
-const BROKER_PROTOCOL_VERSION: u32 = 5;
+const BROKER_PROTOCOL_VERSION: u32 = 6;
 use crate::worker_route::WorkerRoute;
 const MAX_BROKER_FRAME_BYTES: usize = 24 * 1024 * 1024;
 const MAX_DECODED_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const PERSISTENT_HTTP_CACHE: TableDefinition<&str, &[u8]> = TableDefinition::new("http_cache_v1");
+
+/// Decode a document response using the same MIME distinction as native parsing.
+pub(crate) fn decode_navigation_text(
+    bytes: &[u8],
+    content_type: Option<&str>,
+) -> (String, &'static str) {
+    if oryn_dom::xml::media_document_tag(content_type.unwrap_or("")).is_some() {
+        return (String::new(), "UTF-8");
+    }
+    let mut decoder =
+        oryn_net::IncrementalTextDecoder::new(content_type, navigation_text_kind(content_type))
+            .with_html_detection();
+    let mut source = decoder.push(bytes);
+    source.push_str(&decoder.finish());
+    (source, decoder.encoding_name().unwrap_or("UTF-8"))
+}
+
+pub(crate) fn navigation_text_kind(content_type: Option<&str>) -> oryn_net::TextResourceKind {
+    let essence = content_type
+        .unwrap_or("text/html")
+        .split(';')
+        .next()
+        .unwrap_or("text/html")
+        .trim()
+        .to_ascii_lowercase();
+    if matches!(essence.as_str(), "text/xml" | "application/xml") || essence.ends_with("+xml") {
+        oryn_net::TextResourceKind::Xml
+    } else if oryn_dom::xml::is_text_mime(&essence) {
+        oryn_net::TextResourceKind::PlainText
+    } else {
+        oryn_net::TextResourceKind::Html
+    }
+}
 
 pub(crate) fn decode_data_url(url: &Url) -> Result<(Option<String>, Vec<u8>), NetworkError> {
     // Fetch's data-URL processor excludes the fragment, preserves malformed
@@ -129,6 +163,8 @@ const fn default_credentials() -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkResponse {
+    #[serde(default)]
+    pub timing: Option<oryn_net::TransportTiming>,
     pub request_id: u64,
     pub status: u16,
     pub headers: Vec<(String, String)>,
@@ -138,10 +174,13 @@ pub struct NetworkResponse {
 /// A policy-approved response whose body remains owned by the parent and is
 /// consumed only when the worker asks for another bounded chunk.
 pub struct NetworkStreamResponse {
+    pub encoded_bytes: Option<Arc<std::sync::atomic::AtomicU64>>,
+    pub timing: Option<oryn_net::TransportTiming>,
     pub request_id: u64,
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub content_length: Option<usize>,
+    pub upload: Option<oryn_net::UploadProgress>,
     pub body: Box<dyn Read + Send>,
 }
 
@@ -152,16 +191,19 @@ pub struct NetworkStreamResponse {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkEvent {
     Headers {
+        timing: Option<oryn_net::TransportTiming>,
         request_id: u64,
         status: u16,
         headers: Vec<(String, String)>,
         content_length: Option<usize>,
+        upload: Option<oryn_net::UploadProgress>,
     },
     Chunk {
         request_id: u64,
         bytes: bytes::Bytes,
     },
     Complete {
+        encoded_body_size: Option<u64>,
         request_id: u64,
     },
     Failed {
@@ -171,17 +213,217 @@ pub enum NetworkEvent {
 }
 
 pub struct NetworkOperation {
+    pub(crate) body_demand_pending: std::cell::Cell<bool>,
+    pub(crate) prefetched: std::collections::VecDeque<NetworkEvent>,
     pub request_id: u64,
     pub events: tokio::sync::mpsc::Receiver<NetworkEvent>,
     pub(crate) demand: Option<tokio::sync::mpsc::Sender<()>>,
 }
 
 impl NetworkOperation {
-    pub fn request_body_chunk(&self) {
-        if let Some(demand) = &self.demand {
-            let _ = demand.try_send(());
+    fn observe_event(&self, event: &NetworkEvent) {
+        if matches!(
+            event,
+            NetworkEvent::Chunk { .. }
+                | NetworkEvent::Complete { .. }
+                | NetworkEvent::Failed { .. }
+        ) {
+            self.body_demand_pending.set(false);
         }
     }
+    pub fn try_event(&mut self) -> Result<NetworkEvent, tokio::sync::mpsc::error::TryRecvError> {
+        if let Some(event) = self.prefetched.pop_front() {
+            return Ok(event);
+        }
+        let event = self.events.try_recv()?;
+        self.observe_event(&event);
+        Ok(event)
+    }
+    pub fn blocking_event(&mut self) -> Option<NetworkEvent> {
+        if let Some(event) = self.prefetched.pop_front() {
+            return Some(event);
+        }
+        let event = self.events.blocking_recv()?;
+        self.observe_event(&event);
+        Some(event)
+    }
+    pub async fn next_event(&mut self) -> Option<NetworkEvent> {
+        if let Some(event) = self.prefetched.pop_front() {
+            return Some(event);
+        }
+        let event = self.events.recv().await?;
+        self.observe_event(&event);
+        Some(event)
+    }
+    pub fn request_body_chunk(&self) {
+        if !self.prefetched.is_empty() || self.body_demand_pending.get() {
+            return;
+        }
+        if let Some(demand) = &self.demand {
+            match demand.try_send(()) {
+                Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                    self.body_demand_pending.set(true)
+                }
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {}
+            }
+        }
+    }
+}
+
+/// Retained MIME sniffing stage for page actors. Poll never waits for IO;
+/// admitted demand, replay chunks and terminal ACK retain one operation owner.
+pub(crate) struct DocumentMimeSniff {
+    operation: Option<NetworkOperation>,
+    state: MimePrefixState,
+}
+impl DocumentMimeSniff {
+    pub(crate) fn new(
+        operation: NetworkOperation,
+        supplied: Option<String>,
+        no_sniff: bool,
+    ) -> Self {
+        Self {
+            operation: Some(operation),
+            state: MimePrefixState::new(supplied, no_sniff),
+        }
+    }
+    pub(crate) fn poll(&mut self) -> std::task::Poll<Result<(NetworkOperation, String), String>> {
+        let Some(operation) = self.operation.as_mut() else {
+            return std::task::Poll::Ready(Err("MIME sniff already consumed".into()));
+        };
+        match self.state.poll(operation) {
+            std::task::Poll::Pending => std::task::Poll::Pending,
+            std::task::Poll::Ready(result) => {
+                std::task::Poll::Ready(result.map(|mime| (self.operation.take().unwrap(), mime)))
+            }
+        }
+    }
+}
+struct MimePrefixState {
+    supplied: Option<String>,
+    no_sniff: bool,
+    deadline: std::time::Instant,
+    prefix: Vec<u8>,
+    retained: std::collections::VecDeque<NetworkEvent>,
+    done: bool,
+}
+impl MimePrefixState {
+    fn new(supplied: Option<String>, no_sniff: bool) -> Self {
+        Self {
+            supplied,
+            no_sniff,
+            deadline: std::time::Instant::now() + Duration::from_millis(300),
+            prefix: Vec::new(),
+            retained: Default::default(),
+            done: false,
+        }
+    }
+    fn finish(
+        &mut self,
+        operation: &mut NetworkOperation,
+    ) -> std::task::Poll<Result<String, String>> {
+        self.done = true;
+        self.retained.append(&mut operation.prefetched);
+        operation.prefetched = std::mem::take(&mut self.retained);
+        std::task::Poll::Ready(Ok(oryn_net::mime_sniff::document_type(
+            self.supplied.as_deref(),
+            self.no_sniff,
+            &self.prefix,
+        )))
+    }
+    fn poll(
+        &mut self,
+        operation: &mut NetworkOperation,
+    ) -> std::task::Poll<Result<String, String>> {
+        use std::task::Poll;
+        if self.done {
+            return Poll::Ready(Err("MIME prefix already consumed".into()));
+        }
+        if !oryn_net::mime_sniff::needs_prefix(self.supplied.as_deref(), self.no_sniff) {
+            return self.finish(operation);
+        }
+        for _ in 0..16 {
+            if self.prefix.len() >= oryn_net::mime_sniff::PREFIX_LIMIT
+                || std::time::Instant::now() >= self.deadline
+            {
+                return self.finish(operation);
+            }
+            match operation.try_event() {
+                Ok(event) => {
+                    match &event {
+                        NetworkEvent::Chunk { request_id, bytes }
+                            if *request_id == operation.request_id =>
+                        {
+                            let count = bytes
+                                .len()
+                                .min(oryn_net::mime_sniff::PREFIX_LIMIT - self.prefix.len());
+                            self.prefix.extend_from_slice(&bytes[..count]);
+                        }
+                        NetworkEvent::Complete {
+                            encoded_body_size,
+                            request_id,
+                        } if *request_id == operation.request_id => {
+                            self.retained.push_back(event);
+                            return self.finish(operation);
+                        }
+                        NetworkEvent::Failed { request_id, error }
+                            if *request_id == operation.request_id =>
+                        {
+                            return Poll::Ready(Err(error.clone()));
+                        }
+                        _ => {
+                            return Poll::Ready(Err(
+                                "MIME prefix response identity/order mismatch".into(),
+                            ));
+                        }
+                    }
+                    self.retained.push_back(event);
+                    if self.retained.len() > oryn_net::mime_sniff::PREFIX_LIMIT + 1 {
+                        return Poll::Ready(Err("MIME prefix event budget exceeded".into()));
+                    }
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                    operation.request_body_chunk();
+                    return Poll::Pending;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    return Poll::Ready(Err(
+                        "MIME prefix disconnected before terminal acknowledgement".into(),
+                    ));
+                }
+            }
+        }
+        Poll::Pending
+    }
+}
+/// Worker-side compatibility driver. Page actors use DocumentMimeSniff directly.
+pub(crate) fn sniff_document_operation(
+    operation: &mut NetworkOperation,
+    supplied: Option<&str>,
+    no_sniff: bool,
+    mut checkpoint: impl FnMut() -> Result<(), String>,
+) -> Result<String, String> {
+    let mut state = MimePrefixState::new(supplied.map(str::to_owned), no_sniff);
+    let result = loop {
+        if let Err(error) = checkpoint() {
+            break Err(error);
+        }
+        match state.poll(operation) {
+            std::task::Poll::Ready(result) => break result,
+            std::task::Poll::Pending => std::thread::park_timeout(Duration::from_millis(1)),
+        }
+    };
+    state.retained.append(&mut operation.prefetched);
+    operation.prefetched = std::mem::take(&mut state.retained);
+    result
+}
+pub(crate) fn response_no_sniff(headers: &[(String, String)]) -> bool {
+    headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("x-content-type-options"))
+        .flat_map(|(_, value)| value.split(','))
+        .next()
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("nosniff"))
 }
 
 /// Compatibility collector for APIs whose public result is intentionally a
@@ -218,6 +460,137 @@ pub fn collect_operation_bounded(
 /// valid. The flag is observed between every transport event and wait; setting
 /// it guarantees the parent broker is cancelled before a late completion can
 /// be consumed by a replacement document.
+/// Drain an already admitted response after its headers. Used when integrity
+/// requires complete representation bytes before exposing a Response. The
+/// caller retains cancellation custody for the operation throughout this call.
+pub(crate) fn collect_started_body(
+    operation: &mut NetworkOperation,
+    deadline: std::time::Instant,
+    limit: usize,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<Vec<u8>, NetworkError> {
+    collect_started_body_with_check(operation, deadline, limit, cancelled, None)
+}
+pub(crate) fn collect_started_body_with_check(
+    operation: &mut NetworkOperation,
+    deadline: std::time::Instant,
+    limit: usize,
+    cancelled: &std::sync::atomic::AtomicBool,
+    external: Option<&dyn Fn() -> bool>,
+) -> Result<Vec<u8>, NetworkError> {
+    let mut body = Vec::new();
+    operation.request_body_chunk();
+    loop {
+        if cancelled.load(std::sync::atomic::Ordering::Acquire)
+            || external.is_some_and(|check| check())
+        {
+            return Err(NetworkError::Cancelled);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(NetworkError::TimedOut {
+                timeout: Duration::ZERO,
+            });
+        }
+        let event = match operation.try_event() {
+            Ok(event) => event,
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                std::thread::park_timeout(Duration::from_millis(1));
+                continue;
+            }
+            Err(_) => {
+                return Err(NetworkError::Transport(
+                    "response closed before completion".into(),
+                ));
+            }
+        };
+        match event {
+            NetworkEvent::Chunk { request_id, bytes } if request_id == operation.request_id => {
+                if body.len().saturating_add(bytes.len()) > limit {
+                    return Err(NetworkError::ResponseTooLarge { limit });
+                }
+                body.extend_from_slice(&bytes);
+                operation.request_body_chunk();
+            }
+            NetworkEvent::Complete {
+                encoded_body_size,
+                request_id,
+            } if request_id == operation.request_id => return Ok(body),
+            NetworkEvent::Failed { request_id, error } if request_id == operation.request_id => {
+                return Err(NetworkError::Transport(error));
+            }
+            _ => {
+                return Err(NetworkError::Transport(
+                    "unmatched or out-of-order response body event".into(),
+                ));
+            }
+        }
+    }
+}
+
+pub(crate) fn buffered_response_operation(
+    request_id: u64,
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+) -> Result<NetworkOperation, NetworkError> {
+    let (sender, events) = tokio::sync::mpsc::channel(3);
+    sender
+        .try_send(NetworkEvent::Headers {
+            timing: None,
+            request_id,
+            status,
+            headers,
+            content_length: Some(body.len()),
+            upload: None,
+        })
+        .map_err(|error| NetworkError::Transport(error.to_string()))?;
+    sender
+        .try_send(NetworkEvent::Chunk {
+            request_id,
+            bytes: body.into(),
+        })
+        .map_err(|error| NetworkError::Transport(error.to_string()))?;
+    sender
+        .try_send(NetworkEvent::Complete {
+            encoded_body_size: None,
+            request_id,
+        })
+        .map_err(|error| NetworkError::Transport(error.to_string()))?;
+    Ok(NetworkOperation {
+        body_demand_pending: Default::default(),
+        prefetched: Default::default(),
+        request_id,
+        events,
+        demand: None,
+    })
+}
+
+pub(crate) fn buffered_body_operation(
+    request_id: u64,
+    body: Vec<u8>,
+) -> Result<NetworkOperation, NetworkError> {
+    let (sender, events) = tokio::sync::mpsc::channel(2);
+    sender
+        .try_send(NetworkEvent::Chunk {
+            request_id,
+            bytes: body.into(),
+        })
+        .map_err(|error| NetworkError::Transport(error.to_string()))?;
+    sender
+        .try_send(NetworkEvent::Complete {
+            encoded_body_size: None,
+            request_id,
+        })
+        .map_err(|error| NetworkError::Transport(error.to_string()))?;
+    Ok(NetworkOperation {
+        body_demand_pending: Default::default(),
+        prefetched: Default::default(),
+        request_id,
+        events,
+        demand: None,
+    })
+}
+
 pub fn collect_operation_bounded_with_cancel(
     broker: &(impl NetworkBroker + ?Sized),
     request: NetworkRequest,
@@ -238,6 +611,8 @@ fn collect_operation_bounded_inner(
     let mut operation = broker.start_operation(request)?;
     let expected_request_id = operation.request_id;
     let deadline = std::time::Instant::now() + timeout;
+    let mut transport_timing: Option<oryn_net::TransportTiming> = None;
+    let mut timing_headers = None;
     let mut status = None;
     let mut headers = Vec::new();
     let mut body = Vec::new();
@@ -249,7 +624,7 @@ fn collect_operation_bounded_inner(
                 let _ = broker.cancel_operation(expected_request_id);
                 return Err(NetworkError::Cancelled);
             }
-            match operation.events.try_recv() {
+            match operation.try_event() {
                 Ok(event) => break event,
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
                     let _ = broker.cancel_operation(expected_request_id);
@@ -269,7 +644,7 @@ fn collect_operation_bounded_inner(
         let event_request_id = match &event {
             NetworkEvent::Headers { request_id, .. }
             | NetworkEvent::Chunk { request_id, .. }
-            | NetworkEvent::Complete { request_id }
+            | NetworkEvent::Complete { request_id, .. }
             | NetworkEvent::Failed { request_id, .. } => *request_id,
         };
         if event_request_id != expected_request_id {
@@ -280,10 +655,13 @@ fn collect_operation_bounded_inner(
         }
         match event {
             NetworkEvent::Headers {
+                timing,
                 status: value,
                 headers: values,
                 ..
             } => {
+                transport_timing = timing;
+                timing_headers = Some(std::time::Instant::now());
                 status = Some(value);
                 headers = values;
                 operation.request_body_chunk();
@@ -298,8 +676,20 @@ fn collect_operation_bounded_inner(
                 body.extend_from_slice(&bytes);
                 operation.request_body_chunk();
             }
-            NetworkEvent::Complete { request_id } => {
+            NetworkEvent::Complete {
+                encoded_body_size,
+                request_id,
+            } => {
                 return Ok(NetworkResponse {
+                    timing: transport_timing.map(|mut timing| {
+                        timing.encoded_body_size = encoded_body_size.or(timing.encoded_body_size);
+                        timing.response_end = Some(timing.response_start.saturating_add(
+                            timing_headers.map_or(0, |headers: std::time::Instant| {
+                                headers.elapsed().as_micros().min(u64::MAX as u128) as u64
+                            }),
+                        ));
+                        timing
+                    }),
                     request_id,
                     status: status.ok_or_else(|| {
                         NetworkError::Transport("operation completed before headers".into())
@@ -316,18 +706,24 @@ fn collect_operation_bounded_inner(
     }
 }
 
-fn operation_from_response(response: NetworkResponse) -> NetworkOperation {
+pub(crate) fn operation_from_response(response: NetworkResponse) -> NetworkOperation {
     let request_id = response.request_id;
     let (sender, events) = tokio::sync::mpsc::channel(3);
     let (demand, mut requested) = tokio::sync::mpsc::channel(1);
     operation_runtime().spawn(async move {
         let length = response.body.len();
+        let encoded_body_size = response
+            .timing
+            .as_ref()
+            .and_then(|timing| timing.encoded_body_size);
         if sender
             .send(NetworkEvent::Headers {
+                timing: response.timing,
                 request_id,
                 status: response.status,
                 headers: response.headers,
                 content_length: Some(length),
+                upload: None,
             })
             .await
             .is_err()
@@ -346,9 +742,16 @@ fn operation_from_response(response: NetworkResponse) -> NetworkOperation {
         {
             return;
         }
-        let _ = sender.send(NetworkEvent::Complete { request_id }).await;
+        let _ = sender
+            .send(NetworkEvent::Complete {
+                encoded_body_size,
+                request_id,
+            })
+            .await;
     });
     NetworkOperation {
+        body_demand_pending: Default::default(),
+        prefetched: Default::default(),
         request_id,
         events,
         demand: Some(demand),
@@ -356,6 +759,17 @@ fn operation_from_response(response: NetworkResponse) -> NetworkOperation {
 }
 
 pub trait NetworkBroker: Send + Sync {
+    /// Read-only activity of this native owner, excluding sibling namespaces.
+    /// SharedNetworkBroker's identity layer supplies transport-independent
+    /// admission and acknowledged completion accounting.
+    fn owned_operation_activity(&self) -> (usize, Option<std::time::Instant>) {
+        (0, None)
+    }
+    /// Drain only this native owner's accepted operations; sibling namespaces
+    /// sharing the same underlying transport must not enter this barrier.
+    fn drain_owned_operations(&self, _timeout: Duration) -> Result<(), NetworkError> {
+        Ok(())
+    }
     fn start_routed(
         &self,
         route: Option<&WorkerRoute>,
@@ -385,11 +799,19 @@ pub trait NetworkBroker: Send + Sync {
     fn start_stream(&self, request: NetworkRequest) -> Result<NetworkStreamResponse, NetworkError> {
         let response = self.send(request)?;
         let content_length = Some(response.body.len());
+        let encoded_bytes = response
+            .timing
+            .as_ref()
+            .and_then(|timing| timing.encoded_body_size)
+            .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes)));
         Ok(NetworkStreamResponse {
+            encoded_bytes,
+            timing: response.timing,
             request_id: response.request_id,
             status: response.status,
             headers: response.headers,
             content_length,
+            upload: None,
             body: Box::new(std::io::Cursor::new(response.body)),
         })
     }
@@ -402,45 +824,58 @@ pub trait NetworkBroker: Send + Sync {
         let (sender, events) = tokio::sync::mpsc::channel(8);
         let (demand, mut requested) = tokio::sync::mpsc::channel(1);
         let mut response = self.start_stream(request)?;
+        let background_owner = network_identity::capture_background_owner();
         std::thread::spawn(move || {
-            let _ = sender.blocking_send(NetworkEvent::Headers {
-                request_id,
-                status: response.status,
-                headers: response.headers,
-                content_length: response.content_length,
-            });
-            let mut buffer = vec![0_u8; 64 * 1024];
-            loop {
-                if requested.blocking_recv().is_none() {
-                    break;
-                }
-                match response.body.read(&mut buffer) {
-                    Ok(0) => {
-                        let _ = sender.blocking_send(NetworkEvent::Complete { request_id });
+            network_identity::with_background_owner(background_owner, || {
+                let _ = sender.blocking_send(NetworkEvent::Headers {
+                    timing: response.timing,
+                    request_id,
+                    status: response.status,
+                    headers: response.headers,
+                    content_length: response.content_length,
+                    upload: response.upload,
+                });
+                let mut buffer = vec![0_u8; 64 * 1024];
+                loop {
+                    if requested.blocking_recv().is_none() {
                         break;
                     }
-                    Ok(read) => {
-                        if sender
-                            .blocking_send(NetworkEvent::Chunk {
+                    match response.body.read(&mut buffer) {
+                        Ok(0) => {
+                            let _ = sender.blocking_send(NetworkEvent::Complete {
+                                encoded_body_size: response
+                                    .encoded_bytes
+                                    .as_ref()
+                                    .map(|count| count.load(Ordering::Relaxed)),
                                 request_id,
-                                bytes: bytes::Bytes::copy_from_slice(&buffer[..read]),
-                            })
-                            .is_err()
-                        {
+                            });
+                            break;
+                        }
+                        Ok(read) => {
+                            if sender
+                                .blocking_send(NetworkEvent::Chunk {
+                                    request_id,
+                                    bytes: bytes::Bytes::copy_from_slice(&buffer[..read]),
+                                })
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            let _ = sender.blocking_send(NetworkEvent::Failed {
+                                request_id,
+                                error: error.to_string(),
+                            });
                             break;
                         }
                     }
-                    Err(error) => {
-                        let _ = sender.blocking_send(NetworkEvent::Failed {
-                            request_id,
-                            error: error.to_string(),
-                        });
-                        break;
-                    }
                 }
-            }
+            })
         });
         Ok(NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
             request_id,
             events,
             demand: Some(demand),
@@ -453,6 +888,12 @@ pub trait NetworkBroker: Send + Sync {
 }
 
 impl NetworkBroker for Box<dyn NetworkBroker> {
+    fn owned_operation_activity(&self) -> (usize, Option<std::time::Instant>) {
+        (**self).owned_operation_activity()
+    }
+    fn drain_owned_operations(&self, timeout: Duration) -> Result<(), NetworkError> {
+        (**self).drain_owned_operations(timeout)
+    }
     fn start_routed(
         &self,
         route: Option<&WorkerRoute>,
@@ -511,6 +952,7 @@ pub enum NetworkError {
 pub struct PolicyBroker<B> {
     policy: NetworkPolicy,
     inner: B,
+    endpoint_routes: Option<EndpointRoutes>,
 }
 
 /// Browser cookie semantics around any transport/cache stack. This adapter is
@@ -527,6 +969,7 @@ impl<B> CookieBroker<B> {
     }
 
     fn prepare(&self, mut request: NetworkRequest) -> Result<(NetworkRequest, Url), NetworkError> {
+        crate::fetch_metadata::apply(&mut request)?;
         let url = Url::parse(&request.url)
             .map_err(|error| NetworkError::InvalidUrl(error.to_string()))?;
         let mut context = request.security.clone();
@@ -589,7 +1032,7 @@ impl<B: NetworkBroker> NetworkBroker for CookieBroker<B> {
         let store = self.store.clone();
         let (sender, events) = tokio::sync::mpsc::channel(8);
         operation_runtime().spawn(async move {
-            while let Some(event) = operation.events.recv().await {
+            while let Some(event) = operation.next_event().await {
                 if let NetworkEvent::Headers { headers, .. } = &event {
                     let _ = store.store_response(
                         &url,
@@ -606,6 +1049,8 @@ impl<B: NetworkBroker> NetworkBroker for CookieBroker<B> {
             }
         });
         Ok(NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
             request_id,
             events,
             demand,
@@ -617,6 +1062,8 @@ impl<B: NetworkBroker> NetworkBroker for CookieBroker<B> {
     }
 }
 
+#[path = "network_identity.rs"]
+mod network_identity;
 pub struct SharedNetworkBroker {
     inner: Option<Arc<Box<dyn NetworkBroker>>>,
     audit: crate::resource_audit::ResourceAudit,
@@ -626,7 +1073,40 @@ pub struct SharedNetworkBroker {
 
 /// Context-owned browser memory cache. Policy remains outside this adapter so
 /// every hit and miss is still authorized against the current request URL.
+/// Applies Fetch cache semantics when storage is disabled, without buffering bodies.
+pub(crate) struct UncachedBroker<B>(pub B);
+impl<B: NetworkBroker> NetworkBroker for UncachedBroker<B> {
+    fn send(&self, mut request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        cache_miss_requires_error(&request)?;
+        prepare_cache_network(&mut request, None);
+        self.0.send(request)
+    }
+    fn start_stream(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkStreamResponse, NetworkError> {
+        cache_miss_requires_error(&request)?;
+        prepare_cache_network(&mut request, None);
+        self.0.start_stream(request)
+    }
+    fn start_operation(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
+        cache_miss_requires_error(&request)?;
+        prepare_cache_network(&mut request, None);
+        self.0.start_operation(request)
+    }
+    fn cancel_operation(&self, id: u64) -> Result<(), NetworkError> {
+        self.0.cancel_operation(id)
+    }
+    fn owned_operation_activity(&self) -> (usize, Option<std::time::Instant>) {
+        self.0.owned_operation_activity()
+    }
+}
+
 pub struct MemoryCachingBroker<B> {
+    revalidating: Arc<Mutex<std::collections::BTreeSet<CacheKey>>>,
     inner: B,
     partition: String,
     cache: Arc<Mutex<MemoryCache>>,
@@ -644,6 +1124,7 @@ impl<B> MemoryCachingBroker<B> {
         Self {
             inner,
             partition: partition.into(),
+            revalidating: Default::default(),
             cache: Arc::new(Mutex::new(MemoryCache::new(
                 max_entries,
                 max_bytes,
@@ -667,21 +1148,50 @@ impl<B> MemoryCachingBroker<B> {
     }
 
     fn cached(&self, request: &NetworkRequest) -> Option<NetworkResponse> {
-        if request.method != "GET" && request.method != "HEAD" {
+        if !cache_lookup_allowed(request) {
             return None;
         }
         let key = self.key(request);
-        self.cache
+        let entry = self
+            .cache
             .lock()
             .ok()?
-            .get(&key, &request.headers, unix_time_ms())
-            .cloned()
-            .map(|entry| NetworkResponse {
-                request_id: request.request_id,
-                status: entry.status,
-                headers: entry.headers,
-                body: entry.body,
-            })
+            .get_matching(&key, &request.headers, None)
+            .filter(|entry| entry.status != 206)
+            .cloned()?;
+        if !entry.is_fresh(unix_time_ms())
+            && !cache_accepts_stale(request)
+            && !(cache_swr_allowed(request, &entry)
+                && schedule_cache_revalidation(
+                    request,
+                    key,
+                    &self.revalidating,
+                    self.max_entry_bytes,
+                ))
+        {
+            return None;
+        }
+        Some(NetworkResponse {
+            timing: Some(oryn_net::TransportTiming {
+                encoded_body_size: entry.encoded_body_size,
+                delivery: oryn_common::transport_timing::ResponseDelivery::LocalCache,
+                ..Default::default()
+            }),
+            request_id: request.request_id,
+            status: entry.status,
+            headers: cache_representation_headers(&entry.headers),
+            body: entry.body,
+        })
+    }
+
+    fn prepare(&self, request: &mut NetworkRequest) -> Option<CacheEntry> {
+        let entry = self.cache.lock().ok().and_then(|mut cache| {
+            cache
+                .get_matching(&self.key(request), &request.headers, None)
+                .filter(|entry| entry.status != 206)
+                .cloned()
+        });
+        prepare_cache_network(request, entry)
     }
 
     fn entry(
@@ -691,7 +1201,8 @@ impl<B> MemoryCachingBroker<B> {
         headers: &[(String, String)],
         body: Vec<u8>,
     ) -> Option<(CacheKey, CacheEntry)> {
-        if body.len() > self.max_entry_bytes || !cache_authorized(request, headers) {
+        if status == 206 || body.len() > self.max_entry_bytes || !cache_authorized(request, headers)
+        {
             return None;
         }
         let freshness_lifetime_ms = cache_freshness_ms(headers)?;
@@ -699,8 +1210,9 @@ impl<B> MemoryCachingBroker<B> {
         Some((
             self.key(request),
             CacheEntry {
+                encoded_body_size: None,
                 status,
-                headers: headers.to_vec(),
+                headers: cache_representation_headers(headers),
                 body,
                 stored_at_ms: unix_time_ms(),
                 freshness_lifetime_ms,
@@ -710,13 +1222,17 @@ impl<B> MemoryCachingBroker<B> {
     }
 
     fn store(&self, request: &NetworkRequest, response: &NetworkResponse) {
-        if let Some((key, entry)) = self.entry(
+        if let Some((key, mut entry)) = self.entry(
             request,
             response.status,
             &response.headers,
             response.body.clone(),
         ) && let Ok(mut cache) = self.cache.lock()
         {
+            entry.encoded_body_size = response
+                .timing
+                .as_ref()
+                .and_then(|timing| timing.encoded_body_size);
             cache.insert(key, entry);
         }
     }
@@ -731,6 +1247,7 @@ impl<B> MemoryCachingBroker<B> {
 }
 
 struct CachingReader {
+    encoded_bytes: Option<Arc<std::sync::atomic::AtomicU64>>,
     inner: Box<dyn Read + Send>,
     cache: Arc<Mutex<MemoryCache>>,
     key: Option<CacheKey>,
@@ -742,13 +1259,41 @@ struct CachingReader {
 
 impl Read for CachingReader {
     fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
-        let read = self.inner.read(output)?;
+        if output.is_empty() {
+            return Ok(0);
+        }
+        let read = match self.inner.read(output) {
+            Ok(read) => read,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    self.entry = None;
+                    self.key = None;
+                    self.complete = true;
+                }
+                return Err(error);
+            }
+        };
         if read == 0 {
+            if self.expected_length.is_some_and(|length| {
+                self.entry
+                    .as_ref()
+                    .is_some_and(|entry| entry.body.len() != length)
+            }) {
+                self.entry = None;
+                self.key = None;
+                return Err(std::io::Error::other(
+                    "cached response length differs at EOF",
+                ));
+            }
             if !self.complete {
                 self.complete = true;
-                if let (Some(key), Some(entry)) = (self.key.take(), self.entry.take())
+                if let (Some(key), Some(mut entry)) = (self.key.take(), self.entry.take())
                     && let Ok(mut cache) = self.cache.lock()
                 {
+                    entry.encoded_body_size = self
+                        .encoded_bytes
+                        .as_ref()
+                        .map(|count| count.load(Ordering::Relaxed));
                     cache.insert(key, entry);
                 }
             }
@@ -760,20 +1305,6 @@ impl Read for CachingReader {
             } else {
                 self.key = None;
                 self.entry = None;
-            }
-        }
-        if !self.complete
-            && self.expected_length.is_some_and(|length| {
-                self.entry
-                    .as_ref()
-                    .is_some_and(|entry| entry.body.len() >= length)
-            })
-        {
-            self.complete = true;
-            if let (Some(key), Some(entry)) = (self.key.take(), self.entry.take())
-                && let Ok(mut cache) = self.cache.lock()
-            {
-                cache.insert(key, entry);
             }
         }
         Ok(read)
@@ -827,6 +1358,7 @@ impl PersistentCacheStore {
         &self,
         key: &CacheKey,
         request_headers: &[(String, String)],
+        fresh_at: Option<u64>,
     ) -> Result<Option<CacheEntry>, NetworkError> {
         let encoded_key = Self::encoded_key(key)?;
         let read = self
@@ -843,8 +1375,9 @@ impl PersistentCacheStore {
             .transpose()
             .map_err(|error| NetworkError::Transport(error.to_string()))?;
         Ok(record.and_then(|record| {
-            (record.entry.is_fresh(unix_time_ms()) && record.entry.matches_vary(request_headers))
-                .then_some(record.entry)
+            (fresh_at.is_none_or(|now| record.entry.is_fresh(now))
+                && record.entry.matches_vary(request_headers))
+            .then_some(record.entry)
         }))
     }
 
@@ -965,6 +1498,7 @@ impl PersistentCacheStore {
 }
 
 pub struct PersistentCachingBroker<B> {
+    revalidating: Arc<Mutex<std::collections::BTreeSet<CacheKey>>>,
     inner: B,
     partition: String,
     store: Arc<PersistentCacheStore>,
@@ -980,6 +1514,7 @@ impl<B> PersistentCachingBroker<B> {
         max_entry_bytes: usize,
     ) -> Result<Self, NetworkError> {
         Ok(Self {
+            revalidating: Default::default(),
             inner,
             partition: partition.into(),
             store: Arc::new(PersistentCacheStore::open(
@@ -1005,18 +1540,48 @@ impl<B> PersistentCachingBroker<B> {
     }
 
     fn cached(&self, request: &NetworkRequest) -> Result<Option<NetworkResponse>, NetworkError> {
-        if request.method != "GET" && request.method != "HEAD" {
+        if !cache_lookup_allowed(request) {
             return Ok(None);
         }
-        Ok(self
+        let key = self.key(request);
+        let Some(entry) = self
             .store
-            .get(&self.key(request), &request.headers)?
-            .map(|entry| NetworkResponse {
-                request_id: request.request_id,
-                status: entry.status,
-                headers: entry.headers,
-                body: entry.body,
-            }))
+            .get(&key, &request.headers, None)?
+            .filter(|entry| entry.status != 206)
+        else {
+            return Ok(None);
+        };
+        if !entry.is_fresh(unix_time_ms())
+            && !cache_accepts_stale(request)
+            && !(cache_swr_allowed(request, &entry)
+                && schedule_cache_revalidation(
+                    request,
+                    key,
+                    &self.revalidating,
+                    self.store.max_entry_bytes,
+                ))
+        {
+            return Ok(None);
+        }
+        Ok(Some(NetworkResponse {
+            timing: Some(oryn_net::TransportTiming {
+                encoded_body_size: entry.encoded_body_size,
+                delivery: oryn_common::transport_timing::ResponseDelivery::LocalCache,
+                ..Default::default()
+            }),
+            request_id: request.request_id,
+            status: entry.status,
+            headers: cache_representation_headers(&entry.headers),
+            body: entry.body,
+        }))
+    }
+
+    fn prepare(&self, request: &mut NetworkRequest) -> Result<Option<CacheEntry>, NetworkError> {
+        let entry = self
+            .store
+            .get(&self.key(request), &request.headers, None)?
+            .filter(|entry| entry.status != 206);
+        Ok(prepare_cache_network(request, entry))
     }
 
     fn entry(
@@ -1026,14 +1591,18 @@ impl<B> PersistentCachingBroker<B> {
         headers: &[(String, String)],
         body: Vec<u8>,
     ) -> Option<(CacheKey, CacheEntry)> {
-        if body.len() > self.store.max_entry_bytes || !cache_authorized(request, headers) {
+        if status == 206
+            || body.len() > self.store.max_entry_bytes
+            || !cache_authorized(request, headers)
+        {
             return None;
         }
         Some((
             self.key(request),
             CacheEntry {
+                encoded_body_size: None,
                 status,
-                headers: headers.to_vec(),
+                headers: cache_representation_headers(headers),
                 body,
                 stored_at_ms: unix_time_ms(),
                 freshness_lifetime_ms: cache_freshness_ms(headers)?,
@@ -1044,6 +1613,7 @@ impl<B> PersistentCachingBroker<B> {
 }
 
 struct PersistentCachingReader {
+    encoded_bytes: Option<Arc<std::sync::atomic::AtomicU64>>,
     inner: Box<dyn Read + Send>,
     store: Arc<PersistentCacheStore>,
     key: Option<CacheKey>,
@@ -1054,11 +1624,39 @@ struct PersistentCachingReader {
 
 impl Read for PersistentCachingReader {
     fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
-        let read = self.inner.read(output)?;
+        if output.is_empty() {
+            return Ok(0);
+        }
+        let read = match self.inner.read(output) {
+            Ok(read) => read,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    self.entry = None;
+                    self.key = None;
+                    self.complete = true;
+                }
+                return Err(error);
+            }
+        };
         if read == 0 {
+            if self.expected_length.is_some_and(|length| {
+                self.entry
+                    .as_ref()
+                    .is_some_and(|entry| entry.body.len() != length)
+            }) {
+                self.entry = None;
+                self.key = None;
+                return Err(std::io::Error::other(
+                    "cached response length differs at EOF",
+                ));
+            }
             if !self.complete {
                 self.complete = true;
-                if let (Some(key), Some(entry)) = (self.key.take(), self.entry.take()) {
+                if let (Some(key), Some(mut entry)) = (self.key.take(), self.entry.take()) {
+                    entry.encoded_body_size = self
+                        .encoded_bytes
+                        .as_ref()
+                        .map(|count| count.load(Ordering::Relaxed));
                     self.store
                         .insert(key, entry)
                         .map_err(|error| std::io::Error::other(error.to_string()))?;
@@ -1074,20 +1672,6 @@ impl Read for PersistentCachingReader {
                 self.entry = None;
             }
         }
-        if !self.complete
-            && self.expected_length.is_some_and(|length| {
-                self.entry
-                    .as_ref()
-                    .is_some_and(|entry| entry.body.len() >= length)
-            })
-        {
-            self.complete = true;
-            if let (Some(key), Some(entry)) = (self.key.take(), self.entry.take()) {
-                self.store
-                    .insert(key, entry)
-                    .map_err(|error| std::io::Error::other(error.to_string()))?;
-            }
-        }
         Ok(read)
     }
 }
@@ -1098,7 +1682,9 @@ impl SharedNetworkBroker {
     }
     pub fn new(broker: impl NetworkBroker + 'static) -> Self {
         Self {
-            inner: Some(Arc::new(Box::new(broker))),
+            inner: Some(Arc::new(Box::new(network_identity::IdentityBroker::new(
+                Arc::new(Box::new(broker)),
+            )))),
             audit: Default::default(),
             audit_page_id: None,
             audit_worker_pid: None,
@@ -1106,6 +1692,15 @@ impl SharedNetworkBroker {
     }
     pub fn resource_audit(&self) -> crate::resource_audit::ResourceAudit {
         self.audit.clone()
+    }
+    /// New native owner, preserving transport and audit attribution while
+    /// separating caller IDs from all previous owners of that transport.
+    pub(crate) fn new_request_scope(mut self) -> Self {
+        let inner = self.inner.take().expect("live network scope");
+        self.inner = Some(Arc::new(Box::new(network_identity::IdentityBroker::new(
+            inner,
+        ))));
+        self
     }
     pub fn for_page(mut self, page_id: u64) -> Self {
         self.audit_page_id = Some(page_id);
@@ -1128,6 +1723,29 @@ struct RoutedNetworkBroker {
 }
 
 impl NetworkBroker for RoutedNetworkBroker {
+    fn start_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
+        self.inner
+            .inner
+            .as_ref()
+            .expect("live route transport")
+            .start_routed(route.or(Some(&self.route)), request)
+    }
+    fn cancel_routed(
+        &self,
+        route: Option<&WorkerRoute>,
+        request_id: u64,
+    ) -> Result<(), NetworkError> {
+        self.inner
+            .inner
+            .as_ref()
+            .expect("live route transport")
+            .cancel_routed(route.or(Some(&self.route)), request_id)
+    }
+
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         collect_operation_bounded(
             self,
@@ -1174,7 +1792,20 @@ impl Drop for SharedNetworkBroker {
 }
 
 impl NetworkBroker for SharedNetworkBroker {
-    fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+    fn owned_operation_activity(&self) -> (usize, Option<std::time::Instant>) {
+        self.inner
+            .as_ref()
+            .expect("live network scope")
+            .owned_operation_activity()
+    }
+    fn drain_owned_operations(&self, timeout: Duration) -> Result<(), NetworkError> {
+        self.inner
+            .as_ref()
+            .expect("live network scope")
+            .drain_owned_operations(timeout)
+    }
+    fn send(&self, mut request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        crate::fetch_metadata::apply(&mut request)?;
         let mut observation = self.observe(&request);
         let result = self
             .inner
@@ -1194,7 +1825,11 @@ impl NetworkBroker for SharedNetworkBroker {
         result
     }
 
-    fn start_stream(&self, request: NetworkRequest) -> Result<NetworkStreamResponse, NetworkError> {
+    fn start_stream(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkStreamResponse, NetworkError> {
+        crate::fetch_metadata::apply(&mut request)?;
         let observation = self.observe(&request);
         let result = self
             .inner
@@ -1218,7 +1853,11 @@ impl NetworkBroker for SharedNetworkBroker {
         }
     }
 
-    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+    fn start_operation(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
+        crate::fetch_metadata::apply(&mut request)?;
         let observation = self.observe(&request);
         let result = self
             .inner
@@ -1238,8 +1877,15 @@ impl NetworkBroker for SharedNetworkBroker {
         let request_id = operation.request_id;
         let demand = operation.demand.take();
         let (sender, events) = tokio::sync::mpsc::channel(8);
-        std::thread::spawn(move || {
-            while let Some(event) = operation.events.blocking_recv() {
+        operation_runtime().spawn(async move {
+            loop {
+                let event = tokio::select! {
+                    event=operation.next_event()=>event,
+                    _=sender.closed()=>break,
+                };
+                let Some(event) = event else {
+                    break;
+                };
                 match &event {
                     NetworkEvent::Headers {
                         status, headers, ..
@@ -1248,12 +1894,14 @@ impl NetworkBroker for SharedNetworkBroker {
                     NetworkEvent::Complete { .. } => observation.finish("complete"),
                     NetworkEvent::Failed { .. } => observation.finish("failed"),
                 }
-                if sender.blocking_send(event).is_err() {
+                if sender.send(event).await.is_err() {
                     break;
                 }
             }
         });
         Ok(NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
             request_id,
             events,
             demand,
@@ -1270,29 +1918,83 @@ impl NetworkBroker for SharedNetworkBroker {
 }
 
 impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
-    fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+    fn send(&self, mut request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         if let Some(response) = self.cached(&request) {
             return Ok(response);
         }
+        cache_miss_requires_error(&request)?;
         self.invalidate_after_mutation(&request);
-        let response = self.inner.send(request.clone())?;
+        let retained = self.prepare(&mut request);
+        let mut response = self.inner.send(request.clone())?;
+        if response.status == 304 {
+            if let Some(entry) = retained {
+                let timing = response.timing.take();
+                response = revalidated_response(request.request_id, entry, &response.headers);
+                response.timing = validated_cache_timing_with_size(
+                    timing,
+                    response
+                        .timing
+                        .as_ref()
+                        .and_then(|timing| timing.encoded_body_size),
+                );
+            }
+        }
         self.store(&request, &response);
         Ok(response)
     }
 
-    fn start_stream(&self, request: NetworkRequest) -> Result<NetworkStreamResponse, NetworkError> {
+    fn start_stream(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkStreamResponse, NetworkError> {
         if let Some(response) = self.cached(&request) {
             let content_length = Some(response.body.len());
+            let encoded_bytes = response
+                .timing
+                .as_ref()
+                .and_then(|timing| timing.encoded_body_size)
+                .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes)));
             return Ok(NetworkStreamResponse {
+                encoded_bytes,
+                timing: response.timing,
                 request_id: response.request_id,
                 status: response.status,
                 headers: response.headers,
                 content_length,
+                upload: None,
                 body: Box::new(std::io::Cursor::new(response.body)),
             });
         }
+        cache_miss_requires_error(&request)?;
         self.invalidate_after_mutation(&request);
-        let response = self.inner.start_stream(request.clone())?;
+        let retained = self.prepare(&mut request);
+        let mut response = self.inner.start_stream(request.clone())?;
+        if response.status == 304 {
+            if let Some(entry) = retained {
+                finish_empty_revalidation_body(&mut response.body)?;
+                let merged = revalidated_response(request.request_id, entry, &response.headers);
+                response = NetworkStreamResponse {
+                    encoded_bytes: merged
+                        .timing
+                        .as_ref()
+                        .and_then(|timing| timing.encoded_body_size)
+                        .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes))),
+                    timing: validated_cache_timing_with_size(
+                        response.timing.take(),
+                        merged
+                            .timing
+                            .as_ref()
+                            .and_then(|timing| timing.encoded_body_size),
+                    ),
+                    request_id: merged.request_id,
+                    status: merged.status,
+                    headers: merged.headers,
+                    content_length: Some(merged.body.len()),
+                    upload: None,
+                    body: Box::new(std::io::Cursor::new(merged.body)),
+                };
+            }
+        }
         let candidate = self
             .entry(&request, response.status, &response.headers, Vec::new())
             .filter(|_| {
@@ -1302,11 +2004,15 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
             });
         let (key, entry) = candidate.unzip();
         Ok(NetworkStreamResponse {
+            encoded_bytes: response.encoded_bytes.clone(),
+            timing: response.timing,
             request_id: response.request_id,
             status: response.status,
             headers: response.headers,
             content_length: response.content_length,
+            upload: response.upload,
             body: Box::new(CachingReader {
+                encoded_bytes: response.encoded_bytes.clone(),
                 inner: response.body,
                 cache: self.cache.clone(),
                 key,
@@ -1318,11 +2024,16 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
         })
     }
 
-    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+    fn start_operation(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
         if let Some(response) = self.cached(&request) {
             return Ok(operation_from_response(response));
         }
+        cache_miss_requires_error(&request)?;
         self.invalidate_after_mutation(&request);
+        let retained = self.prepare(&mut request);
         let request_id = request.request_id;
         let key = self.key(&request);
         let request_headers = request.headers.clone();
@@ -1330,12 +2041,12 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
         let eligible = matches!(request.method.as_str(), "GET" | "HEAD");
         let cache = self.cache.clone();
         let max_entry_bytes = self.max_entry_bytes;
-        let mut operation = self.inner.start_operation(request)?;
+        let mut operation = revalidation_operation(self.inner.start_operation(request)?, retained);
         let demand = operation.demand.take();
         let (sender, events) = tokio::sync::mpsc::channel(8);
         operation_runtime().spawn(async move {
             let mut candidate: Option<CacheEntry> = None;
-            while let Some(event) = operation.events.recv().await {
+            while let Some(event) = operation.next_event().await {
                 match &event {
                     NetworkEvent::Headers {
                         status,
@@ -1345,13 +2056,15 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
                     } => {
                         if eligible
                             && content_length.is_none_or(|length| length <= max_entry_bytes)
+                            && *status != 206
                             && cache_authorized(&cacheable_request, headers)
                         {
                             candidate =
                                 cache_freshness_ms(headers).and_then(|freshness_lifetime_ms| {
                                     cache_vary(headers, &request_headers).map(|vary| CacheEntry {
+                                        encoded_body_size: None,
                                         status: *status,
-                                        headers: headers.clone(),
+                                        headers: cache_representation_headers(headers),
                                         body: Vec::new(),
                                         stored_at_ms: unix_time_ms(),
                                         freshness_lifetime_ms,
@@ -1369,10 +2082,13 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
                             }
                         }
                     }
-                    NetworkEvent::Complete { .. } => {
-                        if let Some(entry) = candidate.take()
+                    NetworkEvent::Complete {
+                        encoded_body_size, ..
+                    } => {
+                        if let Some(mut entry) = candidate.take()
                             && let Ok(mut cache) = cache.lock()
                         {
+                            entry.encoded_body_size = *encoded_body_size;
                             cache.insert(key.clone(), entry);
                         }
                     }
@@ -1384,6 +2100,8 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
             }
         });
         Ok(NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
             request_id,
             events,
             demand,
@@ -1396,40 +2114,98 @@ impl<B: NetworkBroker> NetworkBroker for MemoryCachingBroker<B> {
 }
 
 impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
-    fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+    fn send(&self, mut request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         if let Some(response) = self.cached(&request)? {
             return Ok(response);
         }
+        cache_miss_requires_error(&request)?;
         if !matches!(request.method.as_str(), "GET" | "HEAD") {
             self.store.invalidate_url(&self.partition, &request.url)?;
         }
-        let response = self.inner.send(request.clone())?;
-        if let Some((key, entry)) = self.entry(
+        let retained = self.prepare(&mut request)?;
+        let mut response = self.inner.send(request.clone())?;
+        if response.status == 304 {
+            if let Some(entry) = retained {
+                let timing = response.timing.take();
+                response = revalidated_response(request.request_id, entry, &response.headers);
+                response.timing = validated_cache_timing_with_size(
+                    timing,
+                    response
+                        .timing
+                        .as_ref()
+                        .and_then(|timing| timing.encoded_body_size),
+                );
+            }
+        }
+        if let Some((key, mut entry)) = self.entry(
             &request,
             response.status,
             &response.headers,
             response.body.clone(),
         ) {
+            entry.encoded_body_size = response
+                .timing
+                .as_ref()
+                .and_then(|timing| timing.encoded_body_size);
             self.store.insert(key, entry)?;
         }
         Ok(response)
     }
 
-    fn start_stream(&self, request: NetworkRequest) -> Result<NetworkStreamResponse, NetworkError> {
+    fn start_stream(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkStreamResponse, NetworkError> {
         if let Some(response) = self.cached(&request)? {
             let content_length = Some(response.body.len());
+            let encoded_bytes = response
+                .timing
+                .as_ref()
+                .and_then(|timing| timing.encoded_body_size)
+                .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes)));
             return Ok(NetworkStreamResponse {
+                encoded_bytes,
+                timing: response.timing,
                 request_id: response.request_id,
                 status: response.status,
                 headers: response.headers,
                 content_length,
+                upload: None,
                 body: Box::new(std::io::Cursor::new(response.body)),
             });
         }
+        cache_miss_requires_error(&request)?;
         if !matches!(request.method.as_str(), "GET" | "HEAD") {
             self.store.invalidate_url(&self.partition, &request.url)?;
         }
-        let response = self.inner.start_stream(request.clone())?;
+        let retained = self.prepare(&mut request)?;
+        let mut response = self.inner.start_stream(request.clone())?;
+        if response.status == 304 {
+            if let Some(entry) = retained {
+                finish_empty_revalidation_body(&mut response.body)?;
+                let merged = revalidated_response(request.request_id, entry, &response.headers);
+                response = NetworkStreamResponse {
+                    encoded_bytes: merged
+                        .timing
+                        .as_ref()
+                        .and_then(|timing| timing.encoded_body_size)
+                        .map(|bytes| Arc::new(std::sync::atomic::AtomicU64::new(bytes))),
+                    timing: validated_cache_timing_with_size(
+                        response.timing.take(),
+                        merged
+                            .timing
+                            .as_ref()
+                            .and_then(|timing| timing.encoded_body_size),
+                    ),
+                    request_id: merged.request_id,
+                    status: merged.status,
+                    headers: merged.headers,
+                    content_length: Some(merged.body.len()),
+                    upload: None,
+                    body: Box::new(std::io::Cursor::new(merged.body)),
+                };
+            }
+        }
         let candidate = self
             .entry(&request, response.status, &response.headers, Vec::new())
             .filter(|_| {
@@ -1439,11 +2215,15 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
             });
         let (key, entry) = candidate.unzip();
         Ok(NetworkStreamResponse {
+            encoded_bytes: response.encoded_bytes.clone(),
+            timing: response.timing,
             request_id: response.request_id,
             status: response.status,
             headers: response.headers,
             content_length: response.content_length,
+            upload: response.upload,
             body: Box::new(PersistentCachingReader {
+                encoded_bytes: response.encoded_bytes.clone(),
                 inner: response.body,
                 store: self.store.clone(),
                 key,
@@ -1454,25 +2234,30 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
         })
     }
 
-    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+    fn start_operation(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
         if let Some(response) = self.cached(&request)? {
             return Ok(operation_from_response(response));
         }
+        cache_miss_requires_error(&request)?;
         if !matches!(request.method.as_str(), "GET" | "HEAD") {
             self.store.invalidate_url(&self.partition, &request.url)?;
         }
+        let retained = self.prepare(&mut request)?;
         let request_id = request.request_id;
         let key = self.key(&request);
         let request_headers = request.headers.clone();
         let cacheable_request = request.clone();
         let max_entry_bytes = self.store.max_entry_bytes;
         let store = self.store.clone();
-        let mut operation = self.inner.start_operation(request)?;
+        let mut operation = revalidation_operation(self.inner.start_operation(request)?, retained);
         let demand = operation.demand.take();
         let (sender, events) = tokio::sync::mpsc::channel(8);
         operation_runtime().spawn(async move {
             let mut candidate: Option<CacheEntry> = None;
-            while let Some(event) = operation.events.recv().await {
+            while let Some(event) = operation.next_event().await {
                 match &event {
                     NetworkEvent::Headers {
                         status,
@@ -1481,13 +2266,15 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
                         ..
                     } => {
                         if content_length.is_none_or(|length| length <= max_entry_bytes)
+                            && *status != 206
                             && cache_authorized(&cacheable_request, headers)
                         {
                             candidate =
                                 cache_freshness_ms(headers).and_then(|freshness_lifetime_ms| {
                                     cache_vary(headers, &request_headers).map(|vary| CacheEntry {
+                                        encoded_body_size: None,
                                         status: *status,
-                                        headers: headers.clone(),
+                                        headers: cache_representation_headers(headers),
                                         body: Vec::new(),
                                         stored_at_ms: unix_time_ms(),
                                         freshness_lifetime_ms,
@@ -1505,8 +2292,11 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
                             }
                         }
                     }
-                    NetworkEvent::Complete { .. } => {
-                        if let Some(entry) = candidate.take() {
+                    NetworkEvent::Complete {
+                        encoded_body_size, ..
+                    } => {
+                        if let Some(mut entry) = candidate.take() {
+                            entry.encoded_body_size = *encoded_body_size;
                             let _ = store.insert(key.clone(), entry);
                         }
                     }
@@ -1518,6 +2308,8 @@ impl<B: NetworkBroker> NetworkBroker for PersistentCachingBroker<B> {
             }
         });
         Ok(NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
             request_id,
             events,
             demand,
@@ -1542,26 +2334,450 @@ fn response_header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'
         .map(|(_, value)| value.as_str())
 }
 
-fn cache_freshness_ms(headers: &[(String, String)]) -> Option<u64> {
-    let control = response_header(headers, "cache-control")?;
-    if control.split(',').any(|part| {
-        matches!(
-            part.trim().to_ascii_lowercase().as_str(),
-            "no-store" | "no-cache" | "private"
-        )
-    }) {
+fn cache_timing(headers: &[(String, String)], now: std::time::SystemTime) -> Option<(u64, u64)> {
+    let control = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("cache-control"))
+        .map(|(_, value)| value.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    if control
+        .split(',')
+        .any(|v| v.trim().eq_ignore_ascii_case("no-store"))
+    {
         return None;
     }
-    control.split(',').find_map(|part| {
-        let (name, value) = part.trim().split_once('=')?;
-        name.eq_ignore_ascii_case("max-age")
-            .then(|| value.trim_matches('"').parse::<u64>().ok())
-            .flatten()
-            .map(|seconds| seconds.saturating_mul(1_000))
+    if control
+        .split(',')
+        .any(|v| v.trim().eq_ignore_ascii_case("no-cache"))
+    {
+        return Some((0, 0));
+    }
+    let age = response_header(headers, "age")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0)
+        .saturating_mul(1000);
+    let date = response_header(headers, "date")
+        .and_then(|v| httpdate::parse_http_date(v).ok())
+        .unwrap_or(now);
+    let lifetime = control
+        .split(',')
+        .find_map(|part| {
+            let (name, value) = part.trim().split_once('=')?;
+            name.eq_ignore_ascii_case("max-age")
+                .then(|| value.trim().trim_matches('"').parse::<u64>().ok())
+                .flatten()
+                .map(|v| v.saturating_mul(1000))
+        })
+        .or_else(|| {
+            response_header(headers, "expires")
+                .and_then(|v| httpdate::parse_http_date(v).ok())
+                .map(|expires| {
+                    expires
+                        .duration_since(date)
+                        .unwrap_or_default()
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64
+                })
+        })
+        .or_else(|| {
+            response_header(headers, "last-modified")
+                .and_then(|v| httpdate::parse_http_date(v).ok())
+                .map(|last| {
+                    date.duration_since(last)
+                        .unwrap_or_default()
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64
+                        / 10
+                })
+        })
+        .unwrap_or(0);
+    let apparent = now
+        .duration_since(date)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
+    Some((lifetime, age.max(apparent)))
+}
+
+fn cache_freshness_ms(headers: &[(String, String)]) -> Option<u64> {
+    cache_timing(headers, std::time::SystemTime::now())
+        .map(|(lifetime, age)| lifetime.saturating_sub(age))
+}
+fn cache_swr_allowed(request: &NetworkRequest, entry: &CacheEntry) -> bool {
+    if request.security.fetch_cache != oryn_js::platform::FetchCacheMode::Default
+        || cache_has_condition(request)
+        || cache_requires_network(&request.headers)
+    {
+        return false;
+    }
+    let controls = entry
+        .headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("cache-control"))
+        .flat_map(|(_, value)| value.split(','))
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    if controls.iter().any(|part| {
+        [
+            "no-cache",
+            "no-store",
+            "must-revalidate",
+            "proxy-revalidate",
+        ]
+        .iter()
+        .any(|name| part.eq_ignore_ascii_case(name))
+    }) {
+        return false;
+    }
+    let Some(window) = controls
+        .iter()
+        .find_map(|part| {
+            let (name, value) = part.split_once('=')?;
+            name.eq_ignore_ascii_case("stale-while-revalidate")
+                .then(|| value.trim().trim_matches('"').parse::<u64>().ok())
+                .flatten()
+        })
+        .map(|seconds| seconds.saturating_mul(1000))
+    else {
+        return false;
+    };
+    let Some((lifetime, initial_age)) = cache_timing(
+        &entry.headers,
+        std::time::UNIX_EPOCH + Duration::from_millis(entry.stored_at_ms),
+    ) else {
+        return false;
+    };
+    let age = initial_age.saturating_add(unix_time_ms().saturating_sub(entry.stored_at_ms));
+    age >= lifetime && age < lifetime.saturating_add(window)
+}
+fn schedule_cache_revalidation(
+    request: &NetworkRequest,
+    key: CacheKey,
+    pending: &Arc<Mutex<std::collections::BTreeSet<CacheKey>>>,
+    limit: usize,
+) -> bool {
+    let Some(owner) = network_identity::capture_background_owner() else {
+        return false;
+    };
+    if owner.cancelled.load(std::sync::atomic::Ordering::Acquire) {
+        return false;
+    }
+    {
+        let mut active = pending.lock().unwrap_or_else(|error| error.into_inner());
+        if active.contains(&key) {
+            return true;
+        }
+        if active.len() >= 16 {
+            return false;
+        }
+        active.insert(key.clone());
+    }
+    struct Permit {
+        pending: Arc<Mutex<std::collections::BTreeSet<CacheKey>>>,
+        key: CacheKey,
+    }
+    impl Drop for Permit {
+        fn drop(&mut self) {
+            self.pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&self.key);
+        }
+    }
+    let permit = Permit {
+        pending: pending.clone(),
+        key,
+    };
+    let mut request = request.clone();
+    request.security.fetch_cache = oryn_js::platform::FetchCacheMode::NoCache;
+    crate::executable::resource_io_executor::submit(move || {
+        let broker = owner.broker();
+        // Re-enter policy/cookie/cache admission with a private identity. The
+        // normal NoCache route owns validators, 304 merging and publication.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            owner.run(|| {
+                collect_operation_bounded_with_cancel(
+                    &broker,
+                    request,
+                    Duration::from_secs(30),
+                    limit,
+                    &owner.cancelled,
+                )
+            })
+        }));
+        operation_runtime().spawn(async move {
+            while broker.drain_owned_operations(Duration::ZERO).is_err() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            drop((owner, permit, broker));
+        });
+    })
+    .is_ok()
+}
+
+fn cache_representation_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .filter(|(name, _)| {
+            !matches!(
+                name.to_ascii_lowercase().as_str(),
+                "set-cookie" | "set-cookie2"
+            )
+        })
+        .cloned()
+        .collect()
+}
+fn cache_has_condition(request: &NetworkRequest) -> bool {
+    request.headers.iter().any(|(name, _)| {
+        matches!(
+            name.to_ascii_lowercase().as_str(),
+            "if-modified-since" | "if-none-match" | "if-unmodified-since" | "if-match" | "if-range"
+        )
+    })
+}
+fn prepare_cache_network(
+    request: &mut NetworkRequest,
+    entry: Option<CacheEntry>,
+) -> Option<CacheEntry> {
+    use oryn_js::platform::FetchCacheMode as Mode;
+    if cache_request_no_store(request)
+        || (request.security.fetch_cache == Mode::Default && cache_has_condition(request))
+    {
+        request.security.fetch_cache = Mode::NoStore;
+    }
+    let mode = request.security.fetch_cache;
+    let may_validate = matches!(mode, Mode::Default | Mode::NoCache)
+        && !cache_has_condition(request)
+        && !request
+            .headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("range"));
+    let retained = entry.filter(|_| may_validate);
+    let mut conditional = false;
+    if let Some(entry) = &retained {
+        for (response, condition) in [
+            ("etag", "if-none-match"),
+            ("last-modified", "if-modified-since"),
+        ] {
+            if let Some(value) = response_header(&entry.headers, response) {
+                request.headers.push((condition.into(), value.into()));
+                conditional = true;
+            }
+        }
+    }
+    apply_fetch_cache_headers(request);
+    conditional.then_some(retained).flatten()
+}
+// This final transport operation is idempotent and does not reinterpret native
+// conditional validators as authored headers after a cache adapter prepared them.
+fn apply_fetch_cache_headers(request: &mut NetworkRequest) {
+    use oryn_js::platform::FetchCacheMode as Mode;
+    let mode = request.security.fetch_cache;
+    let has = |name: &str| {
+        request
+            .headers
+            .iter()
+            .any(|(key, _)| key.eq_ignore_ascii_case(name))
+    };
+    let (control, pragma) = (has("cache-control"), has("pragma"));
+    if matches!(mode, Mode::NoStore | Mode::Reload) {
+        if !control {
+            request
+                .headers
+                .push(("cache-control".into(), "no-cache".into()));
+        }
+        if !pragma {
+            request.headers.push(("pragma".into(), "no-cache".into()));
+        }
+    } else if mode == Mode::NoCache && !control {
+        request
+            .headers
+            .push(("cache-control".into(), "max-age=0".into()));
+    }
+}
+
+fn finish_empty_revalidation_body(body: &mut Box<dyn Read + Send>) -> Result<(), NetworkError> {
+    let mut byte = [0];
+    loop {
+        match body.read(&mut byte) {
+            Ok(0) => return Ok(()),
+            Ok(_) => {
+                return Err(NetworkError::Transport(
+                    "conditional 304 response contained body bytes".into(),
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(NetworkError::Transport(error.to_string())),
+        }
+    }
+}
+fn validated_cache_timing_with_size(
+    timing: Option<oryn_net::TransportTiming>,
+    encoded_body_size: Option<u64>,
+) -> Option<oryn_net::TransportTiming> {
+    let mut timing = timing.unwrap_or_default();
+    timing.encoded_body_size = encoded_body_size;
+    validated_cache_timing(Some(timing))
+}
+fn validated_cache_timing(
+    timing: Option<oryn_net::TransportTiming>,
+) -> Option<oryn_net::TransportTiming> {
+    let mut timing = timing.unwrap_or_default();
+    timing.delivery = oryn_common::transport_timing::ResponseDelivery::ValidatedCache;
+    Some(timing)
+}
+fn revalidated_response(
+    request_id: u64,
+    mut entry: CacheEntry,
+    headers: &[(String, String)],
+) -> NetworkResponse {
+    entry.headers = cache_representation_headers(&entry.headers);
+    let mut replaced = std::collections::BTreeSet::new();
+    for (name, value) in headers {
+        // A 304 has no representation body; its framing never replaces cached bytes.
+        if matches!(
+            name.to_ascii_lowercase().as_str(),
+            "content-length" | "transfer-encoding" | "connection"
+        ) {
+            continue;
+        }
+        if replaced.insert(name.to_ascii_lowercase()) {
+            entry
+                .headers
+                .retain(|(old, _)| !old.eq_ignore_ascii_case(name));
+        }
+        entry.headers.push((name.clone(), value.clone()));
+    }
+    entry.headers.retain(|(name, value)| {
+        !name.eq_ignore_ascii_case("warning") || !value.trim_start().starts_with('1')
+    });
+    NetworkResponse {
+        timing: validated_cache_timing(Some(oryn_net::TransportTiming {
+            encoded_body_size: entry.encoded_body_size,
+            ..Default::default()
+        })),
+        request_id,
+        status: entry.status,
+        headers: entry.headers,
+        body: entry.body,
+    }
+}
+fn revalidation_operation(
+    mut operation: NetworkOperation,
+    entry: Option<CacheEntry>,
+) -> NetworkOperation {
+    let Some(entry) = entry else { return operation };
+    let request_id = operation.request_id;
+    let (sender, events) = tokio::sync::mpsc::channel(8);
+    let (demand, mut requests) = tokio::sync::mpsc::channel(1);
+    operation_runtime().spawn(async move{
+        let Some(first)=operation.next_event().await else{return};
+        match first{
+            NetworkEvent::Headers{timing,status:304,headers,..}=>{
+                // Consume the terminal receipt before replacing the empty 304
+                // operation. Dropping it at headers would cancel shared work.
+                loop{operation.request_body_chunk();let event=tokio::select!{event=operation.next_event()=>event,_=sender.closed()=>return};match event{
+                    Some(NetworkEvent::Complete{encoded_body_size,request_id:id})if id==request_id=>break,
+                    Some(NetworkEvent::Chunk{request_id:id,bytes})if id==request_id&&bytes.is_empty()=>{},
+                    Some(NetworkEvent::Failed{request_id,error})=>{let _=sender.send(NetworkEvent::Failed{request_id,error}).await;return},
+                    _=>{let _=sender.send(NetworkEvent::Failed{request_id,error:"invalid conditional response body".into()}).await;return},
+                }}
+                let mut response=revalidated_response(request_id,entry,&headers);response.timing=validated_cache_timing_with_size(timing,response.timing.as_ref().and_then(|timing|timing.encoded_body_size));operation=operation_from_response(response);
+            }
+            other=>{if sender.send(other).await.is_err(){return}}
+        }
+        loop{tokio::select!{
+            request=requests.recv()=>{if request.is_none(){break}operation.request_body_chunk();}
+            event=operation.next_event()=>{let Some(event)=event else{break};let done=matches!(event,NetworkEvent::Complete{..}|NetworkEvent::Failed{..});if sender.send(event).await.is_err()||done{break}}
+        }}
+    });
+    NetworkOperation {
+        body_demand_pending: Default::default(),
+        prefetched: Default::default(),
+        request_id,
+        events,
+        demand: Some(demand),
+    }
+}
+fn cache_request_no_store(request: &NetworkRequest) -> bool {
+    request.headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("cache-control")
+            && value
+                .split(',')
+                .any(|v| v.trim().eq_ignore_ascii_case("no-store"))
+    })
+}
+fn cache_lookup_allowed(request: &NetworkRequest) -> bool {
+    if request
+        .headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("range"))
+    {
+        return false;
+    }
+    use oryn_js::platform::FetchCacheMode as Mode;
+    matches!(request.method.as_str(), "GET" | "HEAD")
+        && !cache_request_no_store(request)
+        && !cache_has_condition(request)
+        && !matches!(
+            request.security.fetch_cache,
+            Mode::NoStore | Mode::Reload | Mode::NoCache
+        )
+        && (matches!(
+            request.security.fetch_cache,
+            Mode::ForceCache | Mode::OnlyIfCached
+        ) || !cache_requires_network(&request.headers))
+}
+fn cache_accepts_stale(request: &NetworkRequest) -> bool {
+    matches!(
+        request.security.fetch_cache,
+        oryn_js::platform::FetchCacheMode::ForceCache
+            | oryn_js::platform::FetchCacheMode::OnlyIfCached
+    )
+}
+fn cache_miss_requires_error(request: &NetworkRequest) -> Result<(), NetworkError> {
+    if request.security.fetch_cache == oryn_js::platform::FetchCacheMode::OnlyIfCached {
+        return Err(NetworkError::Transport("only-if-cached cache miss".into()));
+    }
+    Ok(())
+}
+
+fn cache_requires_network(headers: &[(String, String)]) -> bool {
+    headers.iter().any(|(name, value)| {
+        (name.eq_ignore_ascii_case("cache-control")
+            && value.split(',').any(|directive| {
+                let directive = directive.trim();
+                directive.eq_ignore_ascii_case("no-cache")
+                    || directive.eq_ignore_ascii_case("no-store")
+                    || directive.split_once('=').is_some_and(|(name, value)| {
+                        name.trim().eq_ignore_ascii_case("max-age")
+                            && value.trim().trim_matches('"') == "0"
+                    })
+            }))
+            || (name.eq_ignore_ascii_case("pragma")
+                && value
+                    .split(',')
+                    .any(|value| value.trim().eq_ignore_ascii_case("no-cache")))
     })
 }
 
 fn cache_authorized(request: &NetworkRequest, headers: &[(String, String)]) -> bool {
+    if request.method != "GET" {
+        return false;
+    }
+    if request.security.fetch_cache == oryn_js::platform::FetchCacheMode::NoStore {
+        return false;
+    }
+    if request.headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("cache-control")
+            && value
+                .split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case("no-store"))
+    }) {
+        return false;
+    }
+
     let has_authorization = request
         .headers
         .iter()
@@ -1578,33 +2794,140 @@ fn cache_vary(
     response_headers: &[(String, String)],
     request_headers: &[(String, String)],
 ) -> Option<Vec<(String, String)>> {
-    let Some(vary) = response_header(response_headers, "vary") else {
-        return Some(Vec::new());
-    };
-    let mut values = Vec::new();
-    for name in vary.split(',').map(str::trim) {
+    let mut values = std::collections::BTreeMap::new();
+    for name in response_headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("vary"))
+        .flat_map(|(_, value)| value.split(','))
+        .map(str::trim)
+    {
         if name == "*" {
+            return None;
+        }
+        if name.is_empty() {
+            continue;
+        }
+        if !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+        {
             return None;
         }
         let value = request_headers
             .iter()
-            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
-            .map(|(_, value)| value.clone())
-            .unwrap_or_default();
-        values.push((name.to_ascii_lowercase(), value));
+            .filter(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        values.insert(name.to_ascii_lowercase(), value);
     }
-    Some(values)
+    Some(values.into_iter().collect())
+}
+
+/// Parent-owned exact host/scheme/port routes. Socket destinations change without
+/// rewriting web origins or TLS names. No worker-supplied resolved address is used.
+#[derive(Clone, Debug, Default)]
+pub struct EndpointRoutes {
+    routes: BTreeMap<(String, String, u16), IpAddr>,
+}
+
+impl EndpointRoutes {
+    pub fn new(
+        entries: impl IntoIterator<Item = (String, String, u16, IpAddr)>,
+    ) -> Result<Self, NetworkError> {
+        let mut routes = BTreeMap::new();
+        for (scheme, host, port, ip) in entries {
+            if routes.len() >= 4096
+                || !matches!(scheme.as_str(), "http" | "https" | "ws" | "wss")
+                || port == 0
+                || ip.is_unspecified()
+                || ip.is_multicast()
+            {
+                return Err(NetworkError::InvalidUrl("invalid endpoint route".into()));
+            }
+            let url = Url::parse(&format!("{scheme}://{host}:{port}/"))
+                .map_err(|_| NetworkError::InvalidUrl("invalid endpoint hostname".into()))?;
+            if url.host_str() != Some(host.as_str())
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.path() != "/"
+                || url.query().is_some()
+                || url.fragment().is_some()
+                || host.parse::<IpAddr>().is_ok()
+                || host.len() > 253
+                || host.split('.').any(|label| {
+                    label.is_empty()
+                        || label.len() > 63
+                        || label.starts_with('-')
+                        || label.ends_with('-')
+                        || !label
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                })
+            {
+                return Err(NetworkError::InvalidUrl(
+                    "endpoint route requires canonical DNS hostname".into(),
+                ));
+            }
+            if routes.insert((scheme, host, port), ip).is_some() {
+                return Err(NetworkError::InvalidUrl("duplicate endpoint route".into()));
+            }
+        }
+        Ok(Self { routes })
+    }
+
+    pub fn resolve(
+        &self,
+        policy: &NetworkPolicy,
+        url: &Url,
+    ) -> Result<Vec<SocketAddr>, NetworkError> {
+        policy.check_url(url)?;
+        let host = url
+            .host_str()
+            .unwrap_or_default()
+            .trim_end_matches('.')
+            .to_ascii_lowercase();
+        let port = url
+            .port_or_known_default()
+            .ok_or_else(|| NetworkError::InvalidUrl("missing endpoint port".into()))?;
+        if let Some(ip) = self
+            .routes
+            .get(&(url.scheme().to_string(), host.clone(), port))
+        {
+            policy.check_ip(*ip)?;
+            return Ok(vec![SocketAddr::new(*ip, port)]);
+        }
+        if !self.routes.is_empty() {
+            return Err(NetworkError::Resolution {
+                host,
+                detail: "fixture endpoint has no configured scheme/port route".into(),
+            });
+        }
+        resolve_and_authorize(policy, url)
+    }
 }
 
 impl<B> PolicyBroker<B> {
     pub fn new(policy: NetworkPolicy, inner: B) -> Self {
-        Self { policy, inner }
+        Self {
+            policy,
+            inner,
+            endpoint_routes: None,
+        }
+    }
+
+    pub fn with_endpoint_routes(mut self, routes: EndpointRoutes) -> Self {
+        self.endpoint_routes = Some(routes);
+        self
     }
 
     fn authorize(&self, request: &NetworkRequest) -> Result<Vec<SocketAddr>, NetworkError> {
         let url = Url::parse(&request.url)
             .map_err(|error| NetworkError::InvalidUrl(error.to_string()))?;
-        resolve_and_authorize(&self.policy, &url)
+        match &self.endpoint_routes {
+            Some(routes) => routes.resolve(&self.policy, &url),
+            None => resolve_and_authorize(&self.policy, &url),
+        }
     }
 }
 
@@ -1668,6 +2991,7 @@ pub struct RustlsTransport {
 }
 
 struct AsyncBodyReader {
+    encoded_bytes: Arc<std::sync::atomic::AtomicU64>,
     runtime: Arc<tokio::runtime::Runtime>,
     stream: oryn_net::BodyStream,
     current: bytes::Bytes,
@@ -1683,6 +3007,8 @@ impl Read for AsyncBodyReader {
             let next = self.runtime.block_on(self.stream.next());
             match next {
                 Some(Ok(chunk)) => {
+                    self.encoded_bytes
+                        .fetch_add(chunk.len() as u64, Ordering::Relaxed);
                     self.current = chunk;
                     self.offset = 0;
                 }
@@ -1763,6 +3089,19 @@ impl RustlsTransport {
         })
     }
 
+    /// Configure fixture CA bytes in the parent-owned transport. The worker
+    /// receives neither certificate paths nor authority to alter this trust set.
+    pub fn with_trusted_roots(mut self, roots: &[Vec<u8>]) -> Result<Self, NetworkError> {
+        let transport = Arc::try_unwrap(self.transport)
+            .map_err(|_| {
+                NetworkError::Transport("cannot reconfigure shared transport trust".into())
+            })?
+            .with_trusted_roots(roots)
+            .map_err(|error| NetworkError::Transport(error.to_string()))?;
+        self.transport = Arc::new(transport);
+        Ok(self)
+    }
+
     #[cfg(test)]
     fn with_test_http2_prior_knowledge(mut self) -> Self {
         let transport = Arc::try_unwrap(self.transport)
@@ -1774,10 +3113,46 @@ impl RustlsTransport {
     }
 }
 
+// Validate framing independently from decoded length. Compressed bodies expose no
+// decoded expectation; HEAD/304 lengths describe the selected representation.
+fn decoded_response_length(
+    headers: &[(String, String)],
+    bodyless: bool,
+    identity: bool,
+) -> Result<Option<usize>, NetworkError> {
+    let mut expected = None;
+    for (_, value) in headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+    {
+        for value in value.split(',') {
+            let value = value.trim();
+            if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(NetworkError::Transport("invalid Content-Length".into()));
+            }
+            let length = value
+                .parse::<usize>()
+                .map_err(|_| NetworkError::Transport("Content-Length overflow".into()))?;
+            if expected.is_some_and(|prior| prior != length) {
+                return Err(NetworkError::Transport("conflicting Content-Length".into()));
+            }
+            expected = Some(length);
+        }
+    }
+    Ok(if bodyless {
+        Some(0)
+    } else if identity {
+        expected
+    } else {
+        None
+    })
+}
+
 impl NetworkBroker for RustlsTransport {
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         let max_response_bytes = self.max_response_bytes;
         let mut response = self.start_stream(request)?;
+        let headers_received = std::time::Instant::now();
         let mut body = Vec::new();
         response
             .body
@@ -1790,7 +3165,17 @@ impl NetworkBroker for RustlsTransport {
                 limit: max_response_bytes,
             });
         }
+        if let Some(timing) = &mut response.timing {
+            timing.encoded_body_size = response
+                .encoded_bytes
+                .as_ref()
+                .map(|count| count.load(Ordering::Relaxed));
+            timing.response_end = Some(timing.response_start.saturating_add(
+                headers_received.elapsed().as_micros().min(u64::MAX as u128) as u64,
+            ));
+        }
         Ok(NetworkResponse {
+            timing: response.timing,
             request_id: response.request_id,
             status: response.status,
             headers: response.headers,
@@ -1798,10 +3183,18 @@ impl NetworkBroker for RustlsTransport {
         })
     }
 
-    fn start_stream(&self, request: NetworkRequest) -> Result<NetworkStreamResponse, NetworkError> {
+    fn start_stream(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkStreamResponse, NetworkError> {
+        crate::fetch_metadata::apply(&mut request)?;
+        cache_miss_requires_error(&request)?;
+        apply_fetch_cache_headers(&mut request);
+        let head = request.method.eq_ignore_ascii_case("HEAD");
         let response = self
             .runtime
             .block_on(self.transport.start(oryn_net::HttpRequest {
+                dns_timing: request.security.dns_timing,
                 operation_id: request.request_id,
                 method: request.method,
                 url: request.url,
@@ -1816,17 +3209,15 @@ impl NetworkBroker for RustlsTransport {
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
             .map(|(_, value)| value.as_str());
-        let content_length = encoding
-            .is_none_or(|encoding| encoding.eq_ignore_ascii_case("identity"))
-            .then(|| {
-                headers
-                    .iter()
-                    .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
-                    .and_then(|(_, value)| value.parse::<usize>().ok())
-            })
-            .flatten();
+        let content_length = decoded_response_length(
+            &headers,
+            head || matches!(status, 204 | 304),
+            encoding.is_none_or(|encoding| encoding.eq_ignore_ascii_case("identity")),
+        )?;
+        let encoded_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let body = decoded_body_reader(
             Box::new(AsyncBodyReader {
+                encoded_bytes: encoded_bytes.clone(),
                 runtime: self.runtime.clone(),
                 stream: response.body,
                 current: bytes::Bytes::new(),
@@ -1836,16 +3227,26 @@ impl NetworkBroker for RustlsTransport {
             self.max_response_bytes,
         )?;
         Ok(NetworkStreamResponse {
+            encoded_bytes: Some(encoded_bytes),
+            timing: Some(response.timing),
             request_id: response.operation_id,
             status,
             headers,
             content_length,
+            upload: response.upload,
             body,
         })
     }
 
-    fn start_operation(&self, request: NetworkRequest) -> Result<NetworkOperation, NetworkError> {
+    fn start_operation(
+        &self,
+        mut request: NetworkRequest,
+    ) -> Result<NetworkOperation, NetworkError> {
+        crate::fetch_metadata::apply(&mut request)?;
+        cache_miss_requires_error(&request)?;
+        apply_fetch_cache_headers(&mut request);
         let request_id = request.request_id;
+        let head = request.method.eq_ignore_ascii_case("HEAD");
         let transport = self.transport.clone();
         let decoded_limit = self.max_response_bytes;
         let (sender, events) = tokio::sync::mpsc::channel(8);
@@ -1853,6 +3254,7 @@ impl NetworkBroker for RustlsTransport {
         self.runtime.spawn(async move {
             let response = transport
                 .start(oryn_net::HttpRequest {
+                    dns_timing: request.security.dns_timing,
                     operation_id: request_id,
                     method: request.method,
                     url: request.url,
@@ -1890,21 +3292,31 @@ impl NetworkBroker for RustlsTransport {
                     return;
                 }
             };
-            let content_length = (encoding == oryn_net::ContentEncoding::Identity)
-                .then(|| {
-                    response
-                        .headers
-                        .iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
-                        .and_then(|(_, value)| value.parse::<usize>().ok())
-                })
-                .flatten();
+            let content_length = match decoded_response_length(
+                &response.headers,
+                head || matches!(response.status, 204 | 304),
+                encoding == oryn_net::ContentEncoding::Identity,
+            ) {
+                Ok(length) => length,
+                Err(error) => {
+                    let _ = transport.cancel(request_id).await;
+                    let _ = sender
+                        .send(NetworkEvent::Failed {
+                            request_id,
+                            error: error.to_string(),
+                        })
+                        .await;
+                    return;
+                }
+            };
             if sender
                 .send(NetworkEvent::Headers {
+                    timing: Some(response.timing),
                     request_id,
                     status: response.status,
                     headers: response.headers,
                     content_length,
+                    upload: response.upload,
                 })
                 .await
                 .is_err()
@@ -1912,15 +3324,28 @@ impl NetworkBroker for RustlsTransport {
                 let _ = transport.cancel(request_id).await;
                 return;
             }
+            let encoded_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let counter = encoded_bytes.clone();
+            let raw_body = response.body.map(move |chunk| {
+                if let Ok(bytes) = &chunk {
+                    counter.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                }
+                chunk
+            });
             let mut body = oryn_net::decode_content_stream(
-                response.body,
+                Box::pin(raw_body),
                 encoding,
                 decoded_limit,
                 decoded_limit,
             );
             while requested.recv().await.is_some() {
                 let Some(chunk) = body.next().await else {
-                    let _ = sender.send(NetworkEvent::Complete { request_id }).await;
+                    let _ = sender
+                        .send(NetworkEvent::Complete {
+                            encoded_body_size: Some(encoded_bytes.load(Ordering::Relaxed)),
+                            request_id,
+                        })
+                        .await;
                     return;
                 };
                 match chunk {
@@ -1951,6 +3376,8 @@ impl NetworkBroker for RustlsTransport {
             let _ = transport.cancel(request_id).await;
         });
         Ok(NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
             request_id,
             events,
             demand: Some(demand),
@@ -2012,16 +3439,21 @@ struct BrokerResponseEnvelope {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum EncodedNetworkEvent {
     Headers {
+        #[serde(default)]
+        timing: Option<oryn_net::TransportTiming>,
         request_id: u64,
         status: u16,
         headers: Vec<(String, String)>,
         content_length: Option<usize>,
+        upload: Option<oryn_net::UploadProgress>,
     },
     Chunk {
         request_id: u64,
         body_base64: String,
     },
     Complete {
+        #[serde(default)]
+        encoded_body_size: Option<u64>,
         request_id: u64,
     },
     Failed {
@@ -2045,6 +3477,8 @@ struct EncodedNetworkRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct EncodedNetworkResponse {
+    #[serde(default)]
+    timing: Option<oryn_net::TransportTiming>,
     request_id: u64,
     status: u16,
     headers: Vec<(String, String)>,
@@ -2082,16 +3516,21 @@ impl Drop for IpcNetworkBroker {
 impl NetworkBroker for IpcNetworkBroker {
     fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
         let mut operation = self.start_operation(request)?;
+        let mut transport_timing: Option<oryn_net::TransportTiming> = None;
+        let mut timing_headers = None;
         let mut status = None;
         let mut headers = Vec::new();
         let mut body = Vec::new();
-        while let Some(event) = operation.events.blocking_recv() {
+        while let Some(event) = operation.blocking_event() {
             match event {
                 NetworkEvent::Headers {
+                    timing,
                     status: value,
                     headers: values,
                     ..
                 } => {
+                    transport_timing = timing;
+                    timing_headers = Some(std::time::Instant::now());
                     status = Some(value);
                     headers = values;
                 }
@@ -2103,8 +3542,21 @@ impl NetworkBroker for IpcNetworkBroker {
                         });
                     }
                 }
-                NetworkEvent::Complete { request_id } => {
+                NetworkEvent::Complete {
+                    encoded_body_size,
+                    request_id,
+                } => {
                     return Ok(NetworkResponse {
+                        timing: transport_timing.map(|mut timing| {
+                            timing.encoded_body_size =
+                                encoded_body_size.or(timing.encoded_body_size);
+                            timing.response_end = Some(timing.response_start.saturating_add(
+                                timing_headers.map_or(0, |headers: std::time::Instant| {
+                                    headers.elapsed().as_micros().min(u64::MAX as u128) as u64
+                                }),
+                            ));
+                            timing
+                        }),
                         request_id,
                         status: status.ok_or_else(|| {
                             NetworkError::Transport("broker completed before headers".into())
@@ -2196,6 +3648,8 @@ impl NetworkBroker for IpcNetworkBroker {
             return Err(error);
         }
         Ok(NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
             request_id,
             events,
             demand: None,
@@ -2297,17 +3751,26 @@ fn broker_response_loop(
         } else if let Some(response) = response.response {
             let body = BASE64.decode(response.body_base64).unwrap_or_default();
             let request_id = response.request_id;
+            let encoded_body_size = response
+                .timing
+                .as_ref()
+                .and_then(|timing| timing.encoded_body_size);
             let _ = sender.blocking_send(NetworkEvent::Headers {
+                timing: response.timing,
                 request_id,
                 status: response.status,
                 headers: response.headers,
                 content_length: Some(body.len()),
+                upload: None,
             });
             let _ = sender.blocking_send(NetworkEvent::Chunk {
                 request_id,
                 bytes: bytes::Bytes::from(body),
             });
-            NetworkEvent::Complete { request_id }
+            NetworkEvent::Complete {
+                encoded_body_size,
+                request_id,
+            }
         } else {
             NetworkEvent::Failed {
                 request_id: 0,
@@ -2337,17 +3800,27 @@ fn broker_response_loop(
 }
 
 fn decode_network_event(event: EncodedNetworkEvent) -> Result<NetworkEvent, NetworkError> {
+    if matches!(&event,EncodedNetworkEvent::Headers{timing:Some(timing),..}if !timing.valid_snapshot())
+    {
+        return Err(NetworkError::Transport(
+            "invalid native transport timing snapshot".into(),
+        ));
+    }
     Ok(match event {
         EncodedNetworkEvent::Headers {
+            timing,
             request_id,
             status,
             headers,
             content_length,
+            upload,
         } => NetworkEvent::Headers {
+            timing,
             request_id,
             status,
             headers,
             content_length,
+            upload,
         },
         EncodedNetworkEvent::Chunk {
             request_id,
@@ -2360,7 +3833,13 @@ fn decode_network_event(event: EncodedNetworkEvent) -> Result<NetworkEvent, Netw
                     .map_err(|error| NetworkError::Transport(error.to_string()))?,
             ),
         },
-        EncodedNetworkEvent::Complete { request_id } => NetworkEvent::Complete { request_id },
+        EncodedNetworkEvent::Complete {
+            encoded_body_size,
+            request_id,
+        } => NetworkEvent::Complete {
+            encoded_body_size,
+            request_id,
+        },
         EncodedNetworkEvent::Failed { request_id, error } => {
             NetworkEvent::Failed { request_id, error }
         }
@@ -2436,7 +3915,7 @@ pub fn serve_ipc_broker(
                         Ok(mut operation) => {
                             let writer = writer.clone();
                             operation_runtime().spawn(async move {
-                                while let Some(event) = operation.events.recv().await {
+                                while let Some(event) = operation.next_event().await {
                                     let event = encode_network_event(event);
                                     let terminal = matches!(
                                         event,
@@ -2505,21 +3984,31 @@ pub fn serve_ipc_broker(
 fn encode_network_event(event: NetworkEvent) -> EncodedNetworkEvent {
     match event {
         NetworkEvent::Headers {
+            timing,
             request_id,
             status,
             headers,
             content_length,
+            upload,
         } => EncodedNetworkEvent::Headers {
+            timing,
             request_id,
             status,
             headers: sanitize_parent_response_headers(headers),
             content_length,
+            upload,
         },
         NetworkEvent::Chunk { request_id, bytes } => EncodedNetworkEvent::Chunk {
             request_id,
             body_base64: BASE64.encode(bytes),
         },
-        NetworkEvent::Complete { request_id } => EncodedNetworkEvent::Complete { request_id },
+        NetworkEvent::Complete {
+            encoded_body_size,
+            request_id,
+        } => EncodedNetworkEvent::Complete {
+            encoded_body_size,
+            request_id,
+        },
         NetworkEvent::Failed { request_id, error } => {
             EncodedNetworkEvent::Failed { request_id, error }
         }
@@ -2542,22 +4031,13 @@ fn write_broker_response(
 }
 
 pub(crate) fn sanitize_worker_headers(headers: Vec<(String, String)>) -> Vec<(String, String)> {
-    const ALLOWED: &[&str] = &[
-        "accept",
-        "accept-language",
-        "cache-control",
-        "content-type",
-        "if-match",
-        "if-modified-since",
-        "if-none-match",
-        "if-unmodified-since",
-        "pragma",
-        "range",
-        "user-agent",
-    ];
     headers
         .into_iter()
-        .filter(|(name, _)| ALLOWED.contains(&name.to_ascii_lowercase().as_str()))
+        .filter(|(name, value)| {
+            oryn_common::http_headers::valid_header_name(name)
+                && oryn_common::http_headers::valid_header_value(value)
+                && !oryn_common::http_headers::forbidden_request_header(name, value)
+        })
         .collect()
 }
 
@@ -2587,7 +4067,12 @@ fn read_bounded_line(
 
 impl<B: NetworkBroker> NetworkBroker for PolicyBroker<B> {
     fn send(&self, mut request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+        let dns_start = std::time::Instant::now();
         request.resolved_addrs = self.authorize(&request)?;
+        request.security.dns_timing = Some(oryn_net::DnsTiming {
+            start: dns_start,
+            end: std::time::Instant::now(),
+        });
         self.inner.send(request)
     }
 
@@ -2595,7 +4080,12 @@ impl<B: NetworkBroker> NetworkBroker for PolicyBroker<B> {
         &self,
         mut request: NetworkRequest,
     ) -> Result<NetworkStreamResponse, NetworkError> {
+        let dns_start = std::time::Instant::now();
         request.resolved_addrs = self.authorize(&request)?;
+        request.security.dns_timing = Some(oryn_net::DnsTiming {
+            start: dns_start,
+            end: std::time::Instant::now(),
+        });
         self.inner.start_stream(request)
     }
 
@@ -2603,7 +4093,12 @@ impl<B: NetworkBroker> NetworkBroker for PolicyBroker<B> {
         &self,
         mut request: NetworkRequest,
     ) -> Result<NetworkOperation, NetworkError> {
+        let dns_start = std::time::Instant::now();
         request.resolved_addrs = self.authorize(&request)?;
+        request.security.dns_timing = Some(oryn_net::DnsTiming {
+            start: dns_start,
+            end: std::time::Instant::now(),
+        });
         self.inner.start_operation(request)
     }
 
@@ -2631,6 +4126,332 @@ mod tests {
     };
 
     use super::*;
+    #[test]
+    fn extracted_response_mime_aligns_document_decoder_and_timing() {
+        for (values, bytes, expected_type, expected_text) in [
+            (
+                vec![
+                    "application/octet-stream",
+                    "text/html;charset=windows-1252",
+                    "text/html, */*, invalid",
+                ],
+                &b"<p>\xe9</p>"[..],
+                "text/html",
+                "<p>é</p>",
+            ),
+            (
+                vec![
+                    "text/html",
+                    "application/example+xml;charset=windows-1252",
+                    "application/example+xml",
+                ],
+                &b"<r>\xe9</r>"[..],
+                "application/example+xml",
+                "<r>é</r>",
+            ),
+            (
+                vec![
+                    "application/octet-stream",
+                    "text/plain;charset=windows-1252",
+                ],
+                &b"<meta charset=utf-8>\xe9"[..],
+                "text/plain",
+                "<meta charset=utf-8>é",
+            ),
+        ] {
+            let response = NetworkResponse {
+                timing: None,
+                request_id: 1,
+                status: 200,
+                headers: values
+                    .into_iter()
+                    .map(|value| ("Content-Type".into(), value.into()))
+                    .collect(),
+                body: bytes.to_vec(),
+            };
+            let mime = oryn_common::mime_type::MimeType::from_headers(&response.headers)
+                .unwrap()
+                .serialize();
+            assert_eq!(
+                decode_navigation_text(&response.body, Some(&mime)).0,
+                expected_text
+            );
+            let timing =
+                resource_timing_metadata("https://mime.test", false, Vec::new(), &response, 1);
+            assert_eq!(timing.content_type, expected_type);
+            for split in 0..=bytes.len() {
+                let mut decoder = oryn_net::IncrementalTextDecoder::new(
+                    Some(&mime),
+                    navigation_text_kind(Some(&mime)),
+                );
+                let mut text = decoder.push(&bytes[..split]);
+                text.push_str(&decoder.push(&bytes[split..]));
+                text.push_str(&decoder.finish());
+                assert_eq!(text, expected_text, "split {split}, MIME {mime}");
+            }
+        }
+    }
+
+    #[test]
+    fn buffered_and_streamed_documents_preserve_mime_encoding_rules() {
+        let cases: [(&str, &[u8], &str); 3] = [
+            ("text/plain", &[0xff, 0xfe, b'<', 0, 0xe9, 0], "<é"),
+            (
+                "application/example+xml",
+                b"<?xml version='1.0' encoding='ISO-8859-1'?><r>\xe9</r>",
+                "<?xml version='1.0' encoding='ISO-8859-1'?><r>é</r>",
+            ),
+            (
+                "text/html",
+                b"<meta charset=windows-1252><p>\x80</p>",
+                "<meta charset=windows-1252><p>€</p>",
+            ),
+        ];
+        for (mime, bytes, expected) in cases {
+            let (buffered, encoding) = decode_navigation_text(bytes, Some(mime));
+            assert_eq!(buffered, expected);
+            for split in 0..=bytes.len() {
+                let mut decoder = oryn_net::IncrementalTextDecoder::new(
+                    Some(mime),
+                    navigation_text_kind(Some(mime)),
+                );
+                let mut streamed = decoder.push(&bytes[..split]);
+                streamed.push_str(&decoder.push(&[]));
+                streamed.push_str(&decoder.push(&bytes[split..]));
+                streamed.push_str(&decoder.finish());
+                assert_eq!(streamed, expected, "{mime} split {split}");
+                assert_eq!(decoder.encoding_name(), Some(encoding));
+            }
+        }
+    }
+
+    #[test]
+    fn endpoint_routes_select_actual_ip_by_port_without_rewriting_origin() {
+        let routes = EndpointRoutes::new([
+            (
+                "https".into(),
+                "web-platform.test".into(),
+                8443,
+                "127.0.0.1".parse().unwrap(),
+            ),
+            (
+                "https".into(),
+                "web-platform.test".into(),
+                8446,
+                "10.0.0.2".parse().unwrap(),
+            ),
+        ])
+        .unwrap();
+        let policy = NetworkPolicy {
+            allow_loopback: true,
+            allow_private_networks: true,
+            ..Default::default()
+        };
+        for (port, ip) in [(8443, "127.0.0.1"), (8446, "10.0.0.2")] {
+            let original = format!("https://web-platform.test:{port}/resource");
+            let url = Url::parse(&original).unwrap();
+            assert_eq!(
+                routes.resolve(&policy, &url).unwrap(),
+                vec![format!("{ip}:{port}").parse::<SocketAddr>().unwrap()]
+            );
+            assert_eq!(url.as_str(), original);
+            assert!(routes.resolve(&NetworkPolicy::default(), &url).is_err());
+        }
+        assert!(
+            routes
+                .resolve(
+                    &policy,
+                    &Url::parse("https://web-platform.test:9999/").unwrap()
+                )
+                .is_err()
+        );
+        assert!(
+            routes
+                .resolve(
+                    &policy,
+                    &Url::parse("http://web-platform.test:8443/").unwrap()
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn configured_fixture_mapping_never_resolves_unlisted_hosts_or_uses_supplied_addresses() {
+        let routes = EndpointRoutes::new([(
+            "https".into(),
+            "web-platform.test".into(),
+            8443,
+            "127.0.0.1".parse().unwrap(),
+        )])
+        .unwrap();
+        let policy = NetworkPolicy {
+            allow_loopback: true,
+            allow_private_networks: true,
+            ..Default::default()
+        };
+        let broker = PolicyBroker::new(policy, UnavailableBroker).with_endpoint_routes(routes);
+        for url in [
+            "https://nonexistent.web-platform.test:8443/",
+            "https://localhost:8443/",
+            "https://127.0.0.1:8443/",
+            "https://web-platform.test:443/",
+        ] {
+            let mut request = request(url);
+            request.resolved_addrs = vec!["127.0.0.1:8443".parse().unwrap()];
+            assert!(
+                matches!(broker.send(request),Err(NetworkError::Resolution{detail,..})
+                if detail=="fixture endpoint has no configured scheme/port route")
+            );
+        }
+    }
+
+    #[test]
+    fn endpoint_routes_reject_ambiguous_configuration_and_respect_host_denial() {
+        let entry = (
+            "https".to_string(),
+            "web-platform.test".to_string(),
+            8443,
+            "127.0.0.1".parse::<IpAddr>().unwrap(),
+        );
+        assert!(EndpointRoutes::new([entry.clone(), entry.clone()]).is_err());
+        for host in [
+            "user@web-platform.test",
+            "web-platform.test/path",
+            "*.test",
+            "127.0.0.1",
+        ] {
+            assert!(EndpointRoutes::new([("https".into(), host.into(), 8443, entry.3)]).is_err());
+        }
+        let routes = EndpointRoutes::new([entry]).unwrap();
+        let policy = NetworkPolicy {
+            allow_loopback: true,
+            allow_private_networks: true,
+            denied_hosts: ["web-platform.test".into()].into_iter().collect(),
+            ..Default::default()
+        };
+        assert!(
+            routes
+                .resolve(
+                    &policy,
+                    &Url::parse("https://web-platform.test:8443/").unwrap()
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn upload_measurements_survive_broker_wire_round_trip() {
+        for upload in [
+            None,
+            Some(oryn_net::UploadProgress {
+                bytes_consumed: 0,
+                total_bytes: 0,
+                body_complete: true,
+            }),
+            Some(oryn_net::UploadProgress {
+                bytes_consumed: 65536,
+                total_bytes: 100000,
+                body_complete: false,
+            }),
+            Some(oryn_net::UploadProgress {
+                bytes_consumed: 100000,
+                total_bytes: 100000,
+                body_complete: true,
+            }),
+        ] {
+            let encoded = encode_network_event(NetworkEvent::Headers {
+                timing: Some(oryn_net::TransportTiming {
+                    measured_response: true,
+                    dns_start: Some(2),
+                    dns_end: Some(5),
+                    connect_start: Some(5),
+                    connect_end: Some(9),
+                    secure_start: Some(9),
+                    secure_end: Some(14),
+                    request_start: 14,
+                    response_start: 22,
+                    next_hop_protocol: "h2".into(),
+                    ..Default::default()
+                }),
+                request_id: 27,
+                status: 200,
+                headers: vec![
+                    ("set-cookie".into(), "private=value".into()),
+                    ("content-type".into(), "text/plain".into()),
+                ],
+                content_length: Some(2),
+                upload,
+            });
+            let wire = serde_json::to_vec(&encoded).unwrap();
+            let decoded = decode_network_event(serde_json::from_slice(&wire).unwrap()).unwrap();
+            assert_eq!(
+                decoded,
+                NetworkEvent::Headers {
+                    timing: Some(oryn_net::TransportTiming {
+                        measured_response: true,
+                        dns_start: Some(2),
+                        dns_end: Some(5),
+                        connect_start: Some(5),
+                        connect_end: Some(9),
+                        secure_start: Some(9),
+                        secure_end: Some(14),
+                        request_start: 14,
+                        response_start: 22,
+                        next_hop_protocol: "h2".into(),
+                        ..Default::default()
+                    }),
+                    request_id: 27,
+                    status: 200,
+                    headers: vec![("content-type".into(), "text/plain".into())],
+                    content_length: Some(2),
+                    upload,
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn boxed_broker_preserves_owned_operation_activity() {
+        struct Activity(std::time::Instant);
+        impl NetworkBroker for Activity {
+            fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                Err(NetworkError::Unavailable)
+            }
+            fn owned_operation_activity(&self) -> (usize, Option<std::time::Instant>) {
+                (1, Some(self.0))
+            }
+        }
+        let observed = std::time::Instant::now();
+        let direct = Activity(observed);
+        assert_eq!(direct.owned_operation_activity(), (1, Some(observed)));
+        let boxed: Box<dyn NetworkBroker> = Box::new(direct);
+        assert_eq!(boxed.owned_operation_activity(), (1, Some(observed)));
+        let shared = SharedNetworkBroker::new(boxed);
+        assert_eq!(
+            shared.owned_operation_activity(),
+            (0, None),
+            "a fresh document identity owns no IO from its underlying transport"
+        );
+    }
+
+    #[test]
+    fn buffered_response_does_not_invent_upload_completion() {
+        let mut operation = operation_from_response(NetworkResponse {
+            timing: None,
+            request_id: 41,
+            status: 200,
+            headers: Vec::new(),
+            body: b"response".to_vec(),
+        });
+        assert!(matches!(
+            operation.blocking_event(),
+            Some(NetworkEvent::Headers {
+                request_id: 41,
+                upload: None,
+                ..
+            })
+        ));
+    }
 
     struct MalformedCompletionBroker {
         cancelled: Arc<AtomicUsize>,
@@ -2650,10 +4471,12 @@ mod tests {
             if self.stale {
                 sender
                     .blocking_send(NetworkEvent::Headers {
+                        timing: None,
                         request_id: request.request_id + 1,
                         status: 200,
                         headers: Vec::new(),
                         content_length: Some(0),
+                        upload: None,
                     })
                     .unwrap();
             } else {
@@ -2663,6 +4486,8 @@ mod tests {
                 });
             }
             Ok(NetworkOperation {
+                body_demand_pending: Default::default(),
+                prefetched: Default::default(),
                 request_id: request.request_id,
                 events,
                 demand: None,
@@ -2708,6 +4533,7 @@ mod tests {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             self.requests.lock().unwrap().push(request.clone());
             Ok(NetworkResponse {
+                timing: None,
                 request_id: request.request_id,
                 status: 200,
                 headers: vec![("content-type".into(), "text/plain".into())],
@@ -2751,6 +4577,48 @@ mod tests {
     }
 
     #[test]
+    fn native_fetch_metadata_reaches_transport_after_cookie_admission() {
+        struct Inspect;
+        impl NetworkBroker for Inspect {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                let values = |name: &str| {
+                    request
+                        .headers
+                        .iter()
+                        .filter(|(n, _)| n.eq_ignore_ascii_case(name))
+                        .map(|(_, v)| v.as_str())
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(values("sec-fetch-site"), vec!["cross-site"]);
+                assert_eq!(values("sec-fetch-mode"), vec!["no-cors"]);
+                assert_eq!(values("sec-fetch-dest"), vec!["audio"]);
+                assert!(values("sec-fetch-user").is_empty());
+                Ok(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                    timing: None,
+                })
+            }
+        }
+        let broker = CookieBroker::new(Inspect, ContextCookieStore::memory());
+        let mut input = request("https://source.test/final");
+        input.security.initiator_url = Some("https://source.test/".into());
+        input.security.fetch_metadata =
+            crate::fetch_metadata::Metadata::resource("no-cors", "audio", false);
+        input.security.fetch_metadata.observe(
+            Some("https://source.test/"),
+            &Url::parse("https://other.test/redirect").unwrap(),
+        );
+        input.headers = vec![
+            ("Sec-Fetch-Site".into(), "none".into()),
+            ("Sec-Fetch-User".into(), "?1".into()),
+        ];
+        broker.send(input).unwrap();
+    }
+
+    #[test]
     fn cookie_broker_applies_same_site_before_transport_and_hides_set_cookie() {
         struct CookieFixture {
             requests: Arc<Mutex<Vec<NetworkRequest>>>,
@@ -2759,6 +4627,7 @@ mod tests {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 self.requests.lock().unwrap().push(request.clone());
                 Ok(NetworkResponse {
+                    timing: None,
                     request_id: request.request_id,
                     status: 200,
                     headers: if request.request_id == 1 {
@@ -2784,11 +4653,15 @@ mod tests {
             }
         }
         let requests = Arc::new(Mutex::new(Vec::new()));
+        // Isolate SameSite filtering from the independently tested default
+        // third-party blocking profile.
+        let store = ContextCookieStore::memory();
+        store.set_third_party_policy(crate::cookies::ThirdPartyCookiePolicy::Allow);
         let broker = CookieBroker::new(
             CookieFixture {
                 requests: requests.clone(),
             },
-            ContextCookieStore::memory(),
+            store,
         );
         let mut initial = request("https://auth.example.test/set");
         initial.security = CookieRequestContext::navigation(Some(initial.url.clone()));
@@ -2797,6 +4670,7 @@ mod tests {
         let mut subresource = request("https://auth.example.test/data");
         subresource.request_id = 2;
         subresource.security = CookieRequestContext {
+            dns_timing: None,
             kind: crate::cookies::CookieRequestKind::Fetch,
             initiator_url: Some("https://rp.other.test/".into()),
             top_level_url: Some("https://rp.other.test/".into()),
@@ -2900,19 +4774,42 @@ mod tests {
         });
         let broker = IpcNetworkBroker::new(worker);
         let mut network_request = request("https://example.test/");
-        network_request.headers = vec![
+        // Fetch's credentials mode controls ambient credentials, not explicit
+        // author headers. Pinned WPT authentication-basic.any.js covers this
+        // Authorization distinction for include, same-origin and omit.
+        let author_headers = vec![
             ("Accept".into(), "text/plain".into()),
             ("Authorization".into(), "secret".into()),
             ("X-Worker-Secret".into(), "secret".into()),
         ];
-        let response = broker.send(network_request).expect("broker response");
-        assert_eq!(response.body, b"brokered");
+        network_request.headers = author_headers.clone();
+        network_request.headers.extend([
+            ("Cookie".into(), "session=forged".into()),
+            ("Origin".into(), "https://forged.test".into()),
+            ("Referer".into(), "https://forged.test/path".into()),
+            ("Sec-Fetch-Site".into(), "same-origin".into()),
+            ("Proxy-Authorization".into(), "forged".into()),
+            ("Content-Length".into(), "999".into()),
+            ("Invalid Name".into(), "invalid".into()),
+            ("X-Injection".into(), "value\r\nCookie: forged".into()),
+        ]);
+        for (index, credentials) in [true, false].into_iter().enumerate() {
+            network_request.request_id = 1 + index as u64;
+            network_request.credentials = credentials;
+            let response = broker
+                .send(network_request.clone())
+                .expect("broker response");
+            assert_eq!(response.request_id, network_request.request_id);
+            assert_eq!(response.body, b"brokered");
+        }
         drop(broker);
         server.join().unwrap().expect("broker server");
-        assert_eq!(
-            requests.lock().unwrap()[0].headers,
-            vec![("Accept".into(), "text/plain".into())]
-        );
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for (request, credentials) in requests.iter().zip([true, false]) {
+            assert_eq!(request.headers, author_headers);
+            assert_eq!(request.credentials, credentials);
+        }
     }
 
     #[test]
@@ -2968,16 +4865,29 @@ mod tests {
                 }
                 assert_ne!(frames[0].route, frames[1].route);
                 assert_eq!(frames[0].route, frames[2].route);
-                assert!(matches!(
-                    frames[2].command,
-                    BrokerCommand::Cancel { request_id: 5 }
-                ));
+                let native_ids = frames[..2]
+                    .iter()
+                    .map(|frame| match &frame.command {
+                        BrokerCommand::Start { request } => request.request_id,
+                        other => panic!("expected start, got {other:?}"),
+                    })
+                    .collect::<Vec<_>>();
+                assert_ne!(
+                    native_ids[0], native_ids[1],
+                    "route-local IDs need distinct native cancellation authority"
+                );
+                assert!(
+                    matches!(frames[2].command,BrokerCommand::Cancel{request_id} if request_id==native_ids[0])
+                );
                 let response = BrokerResponseEnvelope {
                     protocol_version: BROKER_PROTOCOL_VERSION,
                     route: frames[usize::from(!wrong_reply)].route.clone(),
                     correlation_id: frames[1].message_id,
                     response: None,
-                    event: Some(EncodedNetworkEvent::Complete { request_id: 5 }),
+                    event: Some(EncodedNetworkEvent::Complete {
+                        encoded_body_size: None,
+                        request_id: native_ids[1],
+                    }),
                     error: None,
                 };
                 write_broker_response(&Arc::new(Mutex::new(parent)), &response).unwrap();
@@ -2992,12 +4902,18 @@ mod tests {
             let mut old = first.start_operation(req.clone()).unwrap();
             let mut live = second.start_operation(req).unwrap();
             first.cancel_operation(5).unwrap();
-            assert!(old.events.blocking_recv().is_none());
-            let event = live.events.blocking_recv().unwrap();
+            assert!(old.blocking_event().is_none());
+            let event = live.blocking_event().unwrap();
             if wrong_reply {
                 assert!(matches!(event, NetworkEvent::Failed { .. }));
             } else {
-                assert!(matches!(event, NetworkEvent::Complete { request_id: 5 }));
+                assert!(matches!(
+                    event,
+                    NetworkEvent::Complete {
+                        encoded_body_size: None,
+                        request_id: 5
+                    }
+                ));
             }
             server.join().unwrap();
         }
@@ -3040,6 +4956,7 @@ mod tests {
         impl NetworkBroker for CancelRecording {
             fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
                 Ok(NetworkResponse {
+                    timing: None,
                     request_id: request.request_id,
                     status: 200,
                     headers: Vec::new(),
@@ -3095,7 +5012,7 @@ mod tests {
         fn collect(operation: &mut NetworkOperation) -> (u16, Vec<u8>) {
             let mut status = 0;
             let mut body = Vec::new();
-            while let Some(event) = operation.events.blocking_recv() {
+            while let Some(event) = operation.blocking_event() {
                 match event {
                     NetworkEvent::Headers { status: value, .. } => status = value,
                     NetworkEvent::Chunk { bytes, .. } => body.extend_from_slice(&bytes),
@@ -3132,6 +5049,7 @@ mod tests {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             *self.requests.lock().unwrap() += 1;
             Ok(NetworkResponse {
+                timing: None,
                 request_id: request.request_id,
                 status: 200,
                 headers: vec![
@@ -3141,6 +5059,235 @@ mod tests {
                 body: b"cached".to_vec(),
             })
         }
+    }
+
+    #[derive(Clone)]
+    struct ValidatorFixture {
+        seen: Arc<Mutex<Vec<NetworkRequest>>>,
+    }
+    impl NetworkBroker for ValidatorFixture {
+        fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            self.seen.lock().unwrap().push(request.clone());
+            let conditional =
+                response_header(&request.headers, "if-none-match") == Some("\"native\"");
+            Ok(NetworkResponse {
+                timing: None,
+                request_id: request.request_id,
+                status: if conditional { 304 } else { 200 },
+                headers: vec![
+                    (
+                        "cache-control".into(),
+                        if conditional {
+                            "max-age=60"
+                        } else {
+                            "max-age=0"
+                        }
+                        .into(),
+                    ),
+                    ("etag".into(), "\"native\"".into()),
+                    ("x-revalidated".into(), conditional.to_string()),
+                ],
+                body: if conditional {
+                    Vec::new()
+                } else {
+                    b"representation".to_vec()
+                },
+            })
+        }
+    }
+    #[test]
+    fn conditional_cache_merge_preserves_repeated_policy_headers_and_cookie_custody() {
+        let entry = CacheEntry {
+            encoded_body_size: None,
+            status: 200,
+            headers: vec![
+                ("set-cookie".into(), "old=1".into()),
+                ("content-security-policy".into(), "old".into()),
+                ("content-length".into(), "4".into()),
+            ],
+            body: b"body".to_vec(),
+            stored_at_ms: 0,
+            freshness_lifetime_ms: 0,
+            vary: Vec::new(),
+        };
+        let response = revalidated_response(
+            8,
+            entry,
+            &[
+                ("content-security-policy".into(), "script-src 'none'".into()),
+                ("content-security-policy".into(), "img-src 'none'".into()),
+                ("set-cookie".into(), "a=1".into()),
+                ("set-cookie".into(), "b=2".into()),
+                ("content-length".into(), "0".into()),
+            ],
+        );
+        assert_eq!(
+            response
+                .headers
+                .iter()
+                .filter(|(n, _)| n == "content-security-policy")
+                .count(),
+            2
+        );
+        assert_eq!(
+            response
+                .headers
+                .iter()
+                .filter(|(n, _)| n == "set-cookie")
+                .map(|(_, v)| v.as_str())
+                .collect::<Vec<_>>(),
+            ["a=1", "b=2"]
+        );
+        let stored = cache_representation_headers(&response.headers);
+        assert!(!stored.iter().any(|(n, _)| n == "set-cookie"));
+        assert_eq!(response_header(&stored, "content-length"), Some("4"));
+        let vary = cache_vary(
+            &[
+                ("vary".into(), "Origin".into()),
+                ("Vary".into(), "Accept-Language".into()),
+            ],
+            &[
+                ("origin".into(), "https://a.test".into()),
+                ("accept-language".into(), "en".into()),
+                ("Accept-Language".into(), "fr".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            vary,
+            vec![
+                ("accept-language".into(), "en, fr".into()),
+                ("origin".into(), "https://a.test".into())
+            ]
+        );
+        assert_eq!(
+            cache_freshness_ms(&[
+                ("cache-control".into(), "max-age=600".into()),
+                ("Cache-Control".into(), "no-store".into())
+            ]),
+            None
+        );
+    }
+    #[test]
+    fn native_fetch_cache_modes_revalidate_and_replay_body_with_backpressure() {
+        use oryn_js::platform::FetchCacheMode as Mode;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let broker = MemoryCachingBroker::new(
+            ValidatorFixture { seen: seen.clone() },
+            "native-cache-modes",
+            8,
+            8192,
+            1024,
+        );
+        let mut input = request("https://example.test/cache-mode");
+        assert_eq!(broker.send(input.clone()).unwrap().body, b"representation");
+        input.security.fetch_cache = Mode::ForceCache;
+        let cached = broker.send(input.clone()).unwrap();
+        assert_eq!(cached.body, b"representation");
+        assert_eq!(
+            cached.timing.unwrap().delivery,
+            oryn_common::transport_timing::ResponseDelivery::LocalCache
+        );
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        input.security.fetch_cache = Mode::NoCache;
+        let response =
+            collect_operation_bounded(&broker, input.clone(), Duration::from_secs(2), 1024)
+                .unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, b"representation");
+        assert_eq!(
+            response_header(&response.headers, "x-revalidated"),
+            Some("true")
+        );
+        assert_eq!(
+            response.timing.as_ref().unwrap().delivery,
+            oryn_common::transport_timing::ResponseDelivery::ValidatedCache
+        );
+        assert_eq!(
+            response_header(&seen.lock().unwrap()[1].headers, "cache-control"),
+            Some("max-age=0")
+        );
+        input.security.fetch_cache = Mode::OnlyIfCached;
+        assert_eq!(broker.send(input.clone()).unwrap().body, b"representation");
+        assert_eq!(seen.lock().unwrap().len(), 2);
+        input.url.push_str("-miss");
+        assert!(broker.start_operation(input.clone()).is_err());
+        assert_eq!(seen.lock().unwrap().len(), 2);
+        input.security.fetch_cache = Mode::NoStore;
+        broker.send(input.clone()).unwrap();
+        input.security.fetch_cache = Mode::OnlyIfCached;
+        assert!(broker.send(input).is_err());
+    }
+    #[test]
+    fn persistent_native_cache_revalidation_preserves_representation() {
+        use oryn_js::platform::FetchCacheMode as Mode;
+        let directory = std::env::temp_dir().join(format!(
+            "oryn-native-cache-modes-{}-{}",
+            std::process::id(),
+            unix_time_ms()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        {
+            let broker = PersistentCachingBroker::open(
+                ValidatorFixture { seen: seen.clone() },
+                &directory,
+                "native-modes",
+                8,
+                8192,
+                1024,
+            )
+            .unwrap();
+            let mut input = request("https://example.test/persistent-mode");
+            broker.send(input.clone()).unwrap();
+            input.security.fetch_cache = Mode::NoCache;
+            let response =
+                collect_operation_bounded(&broker, input.clone(), Duration::from_secs(2), 1024)
+                    .unwrap();
+            assert_eq!(response.status, 200);
+            assert_eq!(response.body, b"representation");
+            input.security.fetch_cache = Mode::OnlyIfCached;
+            assert_eq!(broker.send(input).unwrap().body, b"representation");
+            assert_eq!(seen.lock().unwrap().len(), 2);
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn request_cache_control_revalidates_without_disabling_response_storage() {
+        let requests = Arc::new(Mutex::new(0));
+        let broker = MemoryCachingBroker::new(
+            CacheFixture {
+                requests: requests.clone(),
+            },
+            "cache-request-control",
+            8,
+            1024,
+            512,
+        );
+        let plain = request("https://example.test/data");
+        broker.send(plain.clone()).unwrap();
+        let mut refresh = plain.clone();
+        refresh
+            .headers
+            .push(("cache-control".into(), "no-cache".into()));
+        broker.send(refresh).unwrap();
+        assert_eq!(*requests.lock().unwrap(), 2);
+        broker.send(plain).unwrap();
+        assert_eq!(
+            *requests.lock().unwrap(),
+            2,
+            "revalidation response may replace cached bytes"
+        );
+        let mut uncached = request("https://example.test/private");
+        uncached
+            .headers
+            .push(("cache-control".into(), "no-store".into()));
+        broker.send(uncached).unwrap();
+        broker
+            .send(request("https://example.test/private"))
+            .unwrap();
+        assert_eq!(*requests.lock().unwrap(), 4);
     }
 
     #[test]
@@ -3424,10 +5571,16 @@ mod tests {
             ("Origin".into(), "https://forged.example".into()),
             ("Referer".into(), "https://forged.example/path".into()),
             ("Cookie".into(), "session=forged".into()),
-            ("Authorization".into(), "Bearer forged".into()),
+            ("Authorization".into(), "Bearer author".into()),
             ("Accept".into(), "application/json".into()),
         ]);
-        assert_eq!(headers, vec![("Accept".into(), "application/json".into())]);
+        assert_eq!(
+            headers,
+            vec![
+                ("Authorization".into(), "Bearer author".into()),
+                ("Accept".into(), "application/json".into())
+            ]
+        );
     }
 
     #[test]
@@ -3485,5 +5638,1509 @@ mod tests {
             decode_data_url(&malformed),
             Err(NetworkError::Transport(message)) if message.starts_with("invalid data URL base64:")
         ));
+    }
+}
+
+#[cfg(test)]
+mod integrity_body_source_tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+    #[test]
+    fn verification_body_rejects_truncation_wrong_identity_limits_and_cancellation() {
+        let collect = |events: Vec<NetworkEvent>, limit, cancelled| {
+            let (tx, rx) = tokio::sync::mpsc::channel(4);
+            for event in events {
+                tx.try_send(event).unwrap();
+            }
+            drop(tx);
+            let mut operation = NetworkOperation {
+                body_demand_pending: Default::default(),
+                prefetched: Default::default(),
+                request_id: 7,
+                events: rx,
+                demand: None,
+            };
+            collect_started_body(
+                &mut operation,
+                std::time::Instant::now() + Duration::from_secs(1),
+                limit,
+                &AtomicBool::new(cancelled),
+            )
+        };
+        assert_eq!(
+            collect(
+                vec![
+                    NetworkEvent::Chunk {
+                        request_id: 7,
+                        bytes: bytes::Bytes::from_static(b"hello")
+                    },
+                    NetworkEvent::Complete {
+                        encoded_body_size: None,
+                        request_id: 7
+                    }
+                ],
+                5,
+                false
+            )
+            .unwrap(),
+            b"hello"
+        );
+        assert!(
+            collect(
+                vec![NetworkEvent::Chunk {
+                    request_id: 7,
+                    bytes: bytes::Bytes::from_static(b"hello")
+                }],
+                5,
+                false
+            )
+            .is_err()
+        );
+        assert!(
+            collect(
+                vec![NetworkEvent::Complete {
+                    encoded_body_size: None,
+                    request_id: 8
+                }],
+                5,
+                false
+            )
+            .is_err()
+        );
+        assert!(matches!(
+            collect(
+                vec![NetworkEvent::Chunk {
+                    request_id: 7,
+                    bytes: bytes::Bytes::from_static(b"hello")
+                }],
+                4,
+                false
+            ),
+            Err(NetworkError::ResponseTooLarge { limit: 4 })
+        ));
+        assert!(matches!(
+            collect(
+                vec![NetworkEvent::Complete {
+                    encoded_body_size: None,
+                    request_id: 7
+                }],
+                5,
+                true
+            ),
+            Err(NetworkError::Cancelled)
+        ));
+    }
+}
+
+#[cfg(test)]
+mod transport_cache_header_tests {
+    use super::*;
+    struct Capture(std::sync::Arc<std::sync::Mutex<Vec<NetworkRequest>>>);
+    impl NetworkBroker for Capture {
+        fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            let id = request.request_id;
+            self.0.lock().unwrap().push(request);
+            Ok(NetworkResponse {
+                timing: None,
+                request_id: id,
+                status: 304,
+                headers: Vec::new(),
+                body: Vec::new(),
+            })
+        }
+    }
+    #[test]
+    fn uncached_authored_condition_is_no_store_and_cache_only_never_dispatches() {
+        use oryn_js::platform::FetchCacheMode as Mode;
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let broker = UncachedBroker(Capture(seen.clone()));
+        let mut request = NetworkRequest {
+            request_id: 1,
+            method: "GET".into(),
+            url: "https://cache.test/".into(),
+            headers: vec![("if-none-match".into(), "authored".into())],
+            body: Vec::new(),
+            credentials: false,
+            security: CookieRequestContext::default(),
+            resolved_addrs: Vec::new(),
+        };
+        assert_eq!(broker.send(request.clone()).unwrap().status, 304);
+        {
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen[0].security.fetch_cache, Mode::NoStore);
+            assert_eq!(
+                response_header(&seen[0].headers, "cache-control"),
+                Some("no-cache")
+            );
+        }
+        request.security.fetch_cache = Mode::OnlyIfCached;
+        assert!(broker.send(request.clone()).is_err());
+        assert!(broker.start_stream(request.clone()).is_err());
+        assert!(broker.start_operation(request).is_err());
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn explicit_modes_are_idempotent_and_preserve_native_validators() {
+        use oryn_js::platform::FetchCacheMode as Mode;
+        for (mode, control) in [
+            (Mode::Reload, "no-cache"),
+            (Mode::NoStore, "no-cache"),
+            (Mode::NoCache, "max-age=0"),
+        ] {
+            let mut request = NetworkRequest {
+                request_id: 1,
+                method: "GET".into(),
+                url: "https://cache.test/".into(),
+                headers: Vec::new(),
+                body: Vec::new(),
+                credentials: false,
+                security: CookieRequestContext {
+                    dns_timing: None,
+                    fetch_cache: mode,
+                    ..Default::default()
+                },
+                resolved_addrs: Vec::new(),
+            };
+            apply_fetch_cache_headers(&mut request);
+            apply_fetch_cache_headers(&mut request);
+            assert_eq!(
+                request
+                    .headers
+                    .iter()
+                    .filter(|(name, _)| name == "cache-control")
+                    .count(),
+                1
+            );
+            assert_eq!(
+                response_header(&request.headers, "cache-control"),
+                Some(control)
+            );
+            request.security.fetch_cache = Mode::Default;
+            request.headers = vec![("if-none-match".into(), "native-validator".into())];
+            apply_fetch_cache_headers(&mut request);
+            assert_eq!(request.security.fetch_cache, Mode::Default);
+            assert_eq!(request.headers.len(), 1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod stale_revalidation_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Gated {
+        validator: bool,
+        calls: Arc<AtomicUsize>,
+        started: std::sync::mpsc::Sender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+    impl NetworkBroker for Gated {
+        fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+            let count = self.calls.fetch_add(1, Ordering::SeqCst);
+            if count > 0 {
+                assert_eq!(
+                    request
+                        .headers
+                        .iter()
+                        .any(|(name, value)| name == "if-none-match" && value == "first"),
+                    self.validator
+                );
+                self.started.send(()).unwrap();
+                self.release.lock().unwrap().recv().unwrap();
+            }
+            Ok(NetworkResponse {
+                timing: None,
+                request_id: request.request_id,
+                status: 200,
+                headers: {
+                    let mut headers = vec![(
+                        "cache-control".into(),
+                        if count == 0 {
+                            "private, max-age=0, stale-while-revalidate=600"
+                        } else {
+                            "max-age=600"
+                        }
+                        .into(),
+                    )];
+                    if self.validator {
+                        headers.push(("etag".into(), "first".into()));
+                    }
+                    headers
+                },
+                body: if count == 0 {
+                    b"first".to_vec()
+                } else {
+                    b"updated".to_vec()
+                },
+            })
+        }
+    }
+    fn request(id: u64) -> NetworkRequest {
+        NetworkRequest {
+            request_id: id,
+            method: "GET".into(),
+            url: "https://swr.test/script.js".into(),
+            headers: Vec::new(),
+            body: Vec::new(),
+            credentials: false,
+            security: Default::default(),
+            resolved_addrs: Vec::new(),
+        }
+    }
+    #[test]
+    fn stale_memory_and_persistent_revalidation_retains_only_initiating_document() {
+        for (persistent, validator) in [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let (started, waiting) = std::sync::mpsc::channel();
+            let (release, gate) = std::sync::mpsc::channel();
+            let calls = Arc::new(AtomicUsize::new(0));
+            let inner = Gated {
+                validator,
+                calls: calls.clone(),
+                started,
+                release: Mutex::new(gate),
+            };
+            let directory = std::env::temp_dir().join(format!(
+                "oryn-swr-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let cache: Box<dyn NetworkBroker> = if persistent {
+                std::fs::create_dir_all(&directory).unwrap();
+                Box::new(
+                    PersistentCachingBroker::open(inner, &directory, "swr", 16, 65536, 4096)
+                        .unwrap(),
+                )
+            } else {
+                Box::new(MemoryCachingBroker::new(inner, "swr", 16, 65536, 4096))
+            };
+            let shared = SharedNetworkBroker::new(cache);
+            let first = shared.clone().new_request_scope();
+            let other = shared.clone().new_request_scope();
+            assert_eq!(first.send(request(1)).unwrap().body, b"first");
+            assert_eq!(first.send(request(2)).unwrap().body, b"first");
+            waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert!(
+                first.owned_operation_activity().0 > 0,
+                "foreground completion must retain background owner"
+            );
+            assert_eq!(other.owned_operation_activity().0, 0);
+            assert_eq!(other.send(request(3)).unwrap().body, b"first");
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                2,
+                "matching concurrent stale load shares one refresh"
+            );
+            assert_eq!(
+                other.owned_operation_activity().0,
+                0,
+                "shared cache counts cannot make another document busy"
+            );
+            release.send(()).unwrap();
+            first
+                .drain_owned_operations(Duration::from_secs(2))
+                .unwrap();
+            assert_eq!(first.send(request(4)).unwrap().body, b"updated");
+            assert_eq!(calls.load(Ordering::SeqCst), 2);
+            drop((first, other, shared));
+            if persistent {
+                let _ = std::fs::remove_dir_all(directory);
+            }
+        }
+    }
+    #[test]
+    fn partial_representation_is_not_reused_as_complete_cached_script() {
+        struct Partial(Arc<AtomicUsize>);
+        impl NetworkBroker for Partial {
+            fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                let call = self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(NetworkResponse {
+                    timing: None,
+                    request_id: request.request_id,
+                    status: if call == 0 { 206 } else { 200 },
+                    headers: vec![("cache-control".into(), "max-age=600".into())],
+                    body: if call == 0 {
+                        b"partial".to_vec()
+                    } else {
+                        b"complete".to_vec()
+                    },
+                })
+            }
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let cache = MemoryCachingBroker::new(Partial(calls.clone()), "partial", 8, 8192, 1024);
+        assert_eq!(cache.send(request(1)).unwrap().status, 206);
+        assert_eq!(cache.send(request(2)).unwrap().body, b"complete");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let mut ranged = request(3);
+        ranged.headers.push(("range".into(), "bytes=0-2".into()));
+        cache.send(ranged).unwrap();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            3,
+            "range request reaches range-capable origin without whole-response substitution"
+        );
+    }
+    #[test]
+    fn stale_window_obeys_age_and_forbids_mandatory_revalidation() {
+        let now = unix_time_ms();
+        let mut entry = CacheEntry {
+            encoded_body_size: None,
+            status: 200,
+            headers: vec![
+                (
+                    "cache-control".into(),
+                    "max-age=10, stale-while-revalidate=5".into(),
+                ),
+                ("age".into(), "20".into()),
+            ],
+            body: Vec::new(),
+            stored_at_ms: now,
+            freshness_lifetime_ms: 0,
+            vary: Vec::new(),
+        };
+        assert!(!cache_swr_allowed(&request(1), &entry));
+        entry.headers[1].1 = "12".into();
+        assert!(cache_swr_allowed(&request(1), &entry));
+        entry
+            .headers
+            .push(("cache-control".into(), "must-revalidate".into()));
+        assert!(!cache_swr_allowed(&request(1), &entry));
+    }
+}
+
+#[cfg(test)]
+mod response_length_tests {
+    use super::decoded_response_length;
+    #[test]
+    fn malformed_and_conflicting_lengths_fail_closed() {
+        for value in [
+            "",
+            "-1",
+            "+1",
+            "1x",
+            "1, 2",
+            "999999999999999999999999999999",
+        ] {
+            assert!(
+                decoded_response_length(&[("Content-Length".into(), value.into())], false, true)
+                    .is_err()
+            );
+        }
+        assert!(
+            decoded_response_length(
+                &[
+                    ("content-length".into(), "1".into()),
+                    ("Content-Length".into(), "2".into())
+                ],
+                false,
+                true
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn framing_is_validated_without_confusing_decoded_and_representation_lengths() {
+        let headers = vec![("content-length".into(), "12, 12".into())];
+        assert_eq!(
+            decoded_response_length(&headers, false, true).unwrap(),
+            Some(12)
+        );
+        assert_eq!(
+            decoded_response_length(&headers, false, false).unwrap(),
+            None
+        );
+        assert_eq!(
+            decoded_response_length(&headers, true, true).unwrap(),
+            Some(0)
+        );
+        assert!(
+            decoded_response_length(&[("content-length".into(), "bad".into())], false, false)
+                .is_err()
+        );
+    }
+}
+
+/// Resource Timing TAO is independent from Fetch's CORS response filtering.
+pub(crate) fn timing_allow_origin(
+    headers: &[(String, String)],
+    origin: &str,
+    same_origin: bool,
+) -> bool {
+    same_origin
+        || headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("timing-allow-origin"))
+            .flat_map(|(_, value)| value.split(','))
+            .any(|value| {
+                let value = value.trim();
+                value == "*" || value == origin
+            })
+}
+#[cfg(test)]
+mod timing_allow_origin_tests {
+    use super::timing_allow_origin;
+    #[test]
+    fn tao_is_exact_and_independent_of_cors() {
+        assert!(timing_allow_origin(&[], "https://a.test", true));
+        assert!(!timing_allow_origin(&[], "https://a.test", false));
+        for value in ["*", "https://b.test, https://a.test"] {
+            assert!(timing_allow_origin(
+                &[("Timing-Allow-Origin".into(), value.into())],
+                "https://a.test",
+                false
+            ));
+        }
+        assert!(!timing_allow_origin(
+            &[("timing-allow-origin".into(), "https://a.test.evil".into())],
+            "https://a.test",
+            false
+        ));
+    }
+}
+
+pub(crate) fn timing_hop(url: &Url, headers: &[(String, String)]) -> oryn_js::platform::TimingHop {
+    oryn_js::platform::TimingHop {
+        url: url.to_string(),
+        allow_origin: headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("timing-allow-origin"))
+            .map(|(_, value)| value.clone())
+            .collect(),
+    }
+}
+pub(crate) fn timing_metadata_allows(
+    metadata: &oryn_js::platform::ResourceTimingMetadata,
+    origin: &str,
+    opaque: bool,
+) -> bool {
+    if !metadata.valid_native_snapshot() {
+        return false;
+    }
+    if metadata.hops.is_empty() {
+        return metadata.allow_details && metadata.origin == origin;
+    }
+    metadata.hops.len() <= 21
+        && metadata.hops.iter().all(|hop| {
+            let same = !opaque
+                && Url::parse(&hop.url)
+                    .is_ok_and(|url| url.origin().ascii_serialization() == origin);
+            let headers = hop
+                .allow_origin
+                .iter()
+                .map(|value| ("timing-allow-origin".into(), value.clone()))
+                .collect::<Vec<_>>();
+            timing_allow_origin(&headers, origin, same)
+        })
+}
+
+/// Same-host native IPC alignment. This clock uses Instant's platform elapsed
+/// domain; wall-clock adjustments never enter phase duration calculations.
+pub(crate) fn timing_clock_micros() -> Option<u64> {
+    #[cfg(unix)]
+    {
+        let mut value = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        #[cfg(target_os = "macos")]
+        let clock = libc::CLOCK_UPTIME_RAW;
+        #[cfg(not(target_os = "macos"))]
+        let clock = libc::CLOCK_MONOTONIC;
+        if unsafe { libc::clock_gettime(clock, &mut value) } != 0
+            || value.tv_sec < 0
+            || value.tv_nsec < 0
+        {
+            return None;
+        }
+        return (value.tv_sec as u64)
+            .checked_mul(1_000_000)?
+            .checked_add(value.tv_nsec as u64 / 1000);
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+pub(crate) fn timing_clock_origin(elapsed: u64) -> Option<u64> {
+    timing_clock_micros()?.checked_sub(elapsed)
+}
+pub(crate) fn timing_instant(
+    metadata: &oryn_js::platform::ResourceTimingMetadata,
+) -> Option<std::time::Instant> {
+    let now = std::time::Instant::now();
+    let elapsed = timing_clock_micros()?.checked_sub(metadata.producer_clock_micros?)?;
+    now.checked_sub(std::time::Duration::from_micros(elapsed))
+}
+
+pub(crate) fn resource_timing_metadata(
+    origin: &str,
+    opaque: bool,
+    hops: Vec<oryn_js::platform::TimingHop>,
+    response: &NetworkResponse,
+    elapsed: u64,
+) -> oryn_js::platform::ResourceTimingMetadata {
+    let exposure = response
+        .timing
+        .as_ref()
+        .and_then(|timing| timing.exposure.as_ref());
+    let local_allowed = exposure.is_some_and(|exposure| {
+        exposure.hops.is_empty() && exposure.allowed && exposure.origin == origin
+    });
+    let hops = exposure.map_or(hops, |exposure| exposure.hops.clone());
+    let transport = response.timing.clone().map(|timing| {
+        let offset = elapsed.saturating_sub(timing.response_end.unwrap_or(timing.response_start));
+        timing.shifted(offset)
+    });
+    let response_start_micros = transport
+        .as_ref()
+        .filter(|timing| timing.measured_response)
+        .map_or(elapsed, |timing| timing.response_start);
+    let mut metadata = oryn_js::platform::ResourceTimingMetadata {
+        server_timing: oryn_js::server_timing::parse(&response.headers),
+        response_end_micros: Some(elapsed),
+        navigation_phases: None,
+        producer_clock_micros: timing_clock_origin(elapsed),
+        decoded_body_size: Some(response.body.len() as u64),
+        origin: origin.into(),
+        hops,
+        transport,
+        allow_details: local_allowed,
+        response_status: response.status,
+        response_start_micros,
+        encoded_body_size: if response
+            .headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
+            .all(|(_, value)| value.trim().eq_ignore_ascii_case("identity"))
+        {
+            Some(response.body.len() as u64)
+        } else {
+            response
+                .timing
+                .as_ref()
+                .and_then(|timing| timing.encoded_body_size)
+                .or_else(|| {
+                    response
+                        .headers
+                        .iter()
+                        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                        .and_then(|(_, value)| value.parse().ok())
+                })
+        },
+        content_type: oryn_common::mime_type::MimeType::from_headers(&response.headers)
+            .map(|mime| mime.essence().to_owned())
+            .unwrap_or_default(),
+    };
+    metadata.allow_details = timing_metadata_allows(&metadata, origin, opaque);
+    metadata
+}
+
+/// Service response reuse carries timing permission provenance, never timestamps
+/// from the earlier fetch into the new request's transport phases.
+pub(crate) fn service_timing_provenance(
+    metadata: Option<&oryn_js::platform::ResourceTimingMetadata>,
+) -> Option<oryn_net::TransportTiming> {
+    metadata.map(|metadata| oryn_net::TransportTiming {
+        encoded_body_size: metadata.encoded_body_size,
+        exposure: Some(oryn_common::transport_timing::TimingExposure {
+            origin: metadata.origin.clone(),
+            hops: metadata.hops.clone(),
+            allowed: metadata.allow_details,
+        }),
+        ..Default::default()
+    })
+}
+
+#[cfg(test)]
+mod timing_provenance_tests {
+    use super::*;
+    fn metadata() -> oryn_js::platform::ResourceTimingMetadata {
+        let response = NetworkResponse {
+            timing: Some(oryn_net::TransportTiming {
+                measured_response: true,
+                connect_start: Some(1),
+                connect_end: Some(2),
+                request_start: 2,
+                response_start: 4,
+                response_end: Some(8),
+                next_hop_protocol: "h2".into(),
+                ..Default::default()
+            }),
+            request_id: 1,
+            status: 200,
+            headers: vec![("content-type".into(), "text/javascript".into())],
+            body: b"void 0".to_vec(),
+        };
+        resource_timing_metadata(
+            "https://a.test",
+            false,
+            vec![
+                oryn_js::platform::TimingHop {
+                    url: "https://a.test/start".into(),
+                    allow_origin: Vec::new(),
+                },
+                oryn_js::platform::TimingHop {
+                    url: "https://cdn.test/end".into(),
+                    allow_origin: vec!["*".into()],
+                },
+            ],
+            &response,
+            12,
+        )
+    }
+    #[test]
+    fn completed_identity_response_uses_observed_size_not_service_header() {
+        for encoding in [None, Some("identity")] {
+            let mut response = NetworkResponse {
+                timing: None,
+                request_id: 1,
+                status: 200,
+                headers: vec![("Content-Length".into(), "99999".into())],
+                body: b"actual".to_vec(),
+            };
+            if let Some(encoding) = encoding {
+                response
+                    .headers
+                    .push(("Content-Encoding".into(), encoding.into()));
+            }
+            let details = resource_timing_metadata(
+                "https://a.test",
+                false,
+                vec![oryn_js::platform::TimingHop {
+                    url: "https://a.test/".into(),
+                    allow_origin: Vec::new(),
+                }],
+                &response,
+                5,
+            );
+            assert_eq!(details.encoded_body_size, Some(6));
+            assert_eq!(details.decoded_body_size, Some(6));
+        }
+    }
+    #[test]
+    fn external_metadata_uses_raw_bytes_and_current_hop_measurements() {
+        let metadata = metadata();
+        assert!(metadata.allow_details);
+        assert_eq!(metadata.decoded_body_size, Some(6));
+        assert_eq!(metadata.encoded_body_size, Some(6));
+        assert_eq!(metadata.transport.as_ref().unwrap().connect_start, Some(5));
+    }
+    #[test]
+    fn redirected_service_reuse_rechecks_every_hop_for_new_origin() {
+        let metadata = metadata();
+        assert!(timing_metadata_allows(&metadata, "https://a.test", false));
+        assert!(!timing_metadata_allows(&metadata, "https://b.test", false));
+        let mut wildcard = metadata.clone();
+        wildcard.hops[0].allow_origin = vec!["*".into()];
+        assert!(timing_metadata_allows(&wildcard, "https://b.test", false));
+        assert!(!timing_metadata_allows(
+            &metadata,
+            "https://a.test.evil",
+            false
+        ));
+    }
+    #[test]
+    fn local_service_timing_permission_is_bound_to_original_origin() {
+        let metadata = local_resource_timing_metadata("https://a.test", b"abc", None, 1);
+        let response = NetworkResponse {
+            request_id: 1,
+            status: 200,
+            headers: Vec::new(),
+            body: b"abc".to_vec(),
+            timing: service_timing_provenance(Some(&metadata)),
+        };
+        assert!(
+            resource_timing_metadata("https://a.test", false, Vec::new(), &response, 3)
+                .allow_details
+        );
+        assert!(
+            !resource_timing_metadata("https://b.test", false, Vec::new(), &response, 3)
+                .allow_details
+        );
+    }
+    #[test]
+    fn service_reuse_does_not_replay_old_network_phase_timestamps() {
+        let metadata = metadata();
+        let carried = service_timing_provenance(Some(&metadata)).unwrap();
+        assert!(carried.connect_start.is_none());
+        assert!(carried.next_hop_protocol.is_empty());
+        assert_eq!(carried.exposure.unwrap().hops, metadata.hops);
+    }
+}
+
+pub(crate) fn local_resource_timing_metadata(
+    origin: &str,
+    body: &[u8],
+    content_type: Option<&str>,
+    elapsed: u64,
+) -> oryn_js::platform::ResourceTimingMetadata {
+    oryn_js::platform::ResourceTimingMetadata {
+        server_timing: Vec::new(),
+        response_end_micros: Some(elapsed),
+        navigation_phases: None,
+        producer_clock_micros: timing_clock_origin(elapsed),
+        decoded_body_size: Some(body.len() as u64),
+        origin: origin.into(),
+        hops: Vec::new(),
+        transport: None,
+        allow_details: true,
+        response_status: 200,
+        response_start_micros: elapsed,
+        encoded_body_size: Some(body.len() as u64),
+        content_type: content_type
+            .unwrap_or("")
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .into(),
+    }
+}
+
+#[cfg(test)]
+mod document_mime_prefix_tests {
+    use super::*;
+    fn make_operation(events: Vec<NetworkEvent>) -> NetworkOperation {
+        let (sender, receiver) = tokio::sync::mpsc::channel(events.len().max(1));
+        for event in events {
+            sender.try_send(event).unwrap();
+        }
+        drop(sender);
+        NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
+            request_id: 7,
+            events: receiver,
+            demand: None,
+        }
+    }
+    #[test]
+    fn pending_prefix_is_nonblocking_and_preserves_one_outstanding_demand() {
+        let (sender, events) = tokio::sync::mpsc::channel(8);
+        let (demand, mut requests) = tokio::sync::mpsc::channel(8);
+        sender
+            .try_send(NetworkEvent::Chunk {
+                request_id: 7,
+                bytes: bytes::Bytes::from_static(b"abc"),
+            })
+            .unwrap();
+        let operation = NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
+            request_id: 7,
+            events,
+            demand: Some(demand),
+        };
+        let mut sniff = DocumentMimeSniff::new(operation, None, false);
+        assert!(sniff.poll().is_pending());
+        assert_eq!(requests.try_recv(), Ok(()));
+        assert!(sniff.poll().is_pending());
+        assert!(requests.try_recv().is_err());
+        sniff.state.deadline = std::time::Instant::now();
+        let std::task::Poll::Ready(Ok((mut operation, mime))) = sniff.poll() else {
+            panic!("sniff deadline")
+        };
+        assert_eq!(mime, "text/plain");
+        assert!(operation.body_demand_pending.get());
+        assert!(matches!(
+            operation.try_event(),
+            Ok(NetworkEvent::Chunk { .. })
+        ));
+        operation.request_body_chunk();
+        assert!(
+            requests.try_recv().is_err(),
+            "replay cannot reset in-flight demand"
+        );
+        sender
+            .try_send(NetworkEvent::Chunk {
+                request_id: 7,
+                bytes: bytes::Bytes::from_static(b"def"),
+            })
+            .unwrap();
+        assert!(matches!(
+            operation.try_event(),
+            Ok(NetworkEvent::Chunk { .. })
+        ));
+        operation.request_body_chunk();
+        assert_eq!(requests.try_recv(), Ok(()));
+        let mut again = DocumentMimeSniff::new(operation, None, false);
+        assert!(again.poll().is_pending());
+        assert!(requests.try_recv().is_err());
+        drop(again);
+        assert!(
+            sender.is_closed(),
+            "abandoned prefix closes original custody"
+        );
+    }
+    #[test]
+    fn sniff_replays_all_bytes_and_actual_completion_in_order() {
+        let chunk = NetworkEvent::Chunk {
+            request_id: 7,
+            bytes: bytes::Bytes::from_static(b"<!--comment--><p>value</p>"),
+        };
+        let terminal = NetworkEvent::Complete {
+            encoded_body_size: None,
+            request_id: 7,
+        };
+        let mut operation = make_operation(vec![chunk.clone(), terminal.clone()]);
+        assert_eq!(
+            sniff_document_operation(&mut operation, None, false, || Ok(())).unwrap(),
+            "text/html"
+        );
+        assert_eq!(operation.try_event().unwrap(), chunk);
+        assert_eq!(operation.try_event().unwrap(), terminal);
+        assert!(operation.try_event().is_err());
+    }
+    #[test]
+    fn sniff_does_not_treat_prefix_or_channel_close_as_terminal() {
+        let bytes = bytes::Bytes::from(vec![b'x'; oryn_net::mime_sniff::PREFIX_LIMIT + 100]);
+        let chunk = NetworkEvent::Chunk {
+            request_id: 7,
+            bytes,
+        };
+        let mut operation = make_operation(vec![chunk.clone()]);
+        assert_eq!(
+            sniff_document_operation(&mut operation, None, false, || Ok(())).unwrap(),
+            "text/plain"
+        );
+        assert_eq!(operation.try_event().unwrap(), chunk);
+        assert!(operation.try_event().is_err());
+        let mut short = make_operation(vec![NetworkEvent::Chunk {
+            request_id: 7,
+            bytes: bytes::Bytes::from_static(b"abc"),
+        }]);
+        assert!(
+            sniff_document_operation(&mut short, None, false, || Ok(()))
+                .unwrap_err()
+                .contains("terminal")
+        );
+        assert!(matches!(short.try_event(), Ok(NetworkEvent::Chunk { .. })));
+    }
+    #[test]
+    fn sniff_rejects_wrong_owner_and_honors_cancellation() {
+        let mut wrong = make_operation(vec![NetworkEvent::Complete {
+            encoded_body_size: None,
+            request_id: 8,
+        }]);
+        assert!(
+            sniff_document_operation(&mut wrong, None, false, || Ok(()))
+                .unwrap_err()
+                .contains("identity")
+        );
+        let mut cancelled = make_operation(vec![NetworkEvent::Complete {
+            encoded_body_size: None,
+            request_id: 7,
+        }]);
+        assert_eq!(
+            sniff_document_operation(&mut cancelled, None, false, || Err("cancelled".into()))
+                .unwrap_err(),
+            "cancelled"
+        );
+        assert!(matches!(
+            cancelled.try_event(),
+            Ok(NetworkEvent::Complete {
+                encoded_body_size: None,
+                request_id: 7
+            })
+        ));
+    }
+}
+
+/// Project a measured native response onto the new Document's original clock.
+/// An absent IPC anchor stays unavailable; it is never replaced by receipt time.
+pub(crate) fn install_frame_navigation_timing(
+    record: &oryn_js::navigation_timing::NavigationTiming,
+    url: &str,
+    headers: &[(String, String)],
+    metadata: Option<&oryn_js::platform::ResourceTimingMetadata>,
+    referrer_policy: &str,
+    complete: bool,
+) -> Result<(), String> {
+    let Some(metadata) = metadata.filter(|metadata| metadata.valid_native_snapshot()) else {
+        return record.set_name(url.into());
+    };
+    let Some(fetch) = timing_instant(metadata) else {
+        return record.set_name(url.into());
+    };
+    let received = fetch
+        .checked_add(std::time::Duration::from_micros(
+            metadata.response_start_micros,
+        ))
+        .unwrap_or(fetch);
+    let mut details = metadata.clone();
+    // Final transport belongs to the destination Document. Redirect disclosure is
+    // separately checked against each hop; predecessor resource TAO is not reused.
+    details.allow_details = true;
+    if let Some(start) = native_worker_start(metadata.transport.as_ref()) {
+        record.worker_start(start);
+    }
+    record.redirect_provenance(&metadata.hops)?;
+    record.response(
+        url.into(),
+        metadata.response_status,
+        headers,
+        fetch,
+        received,
+        Some(details),
+        referrer_policy == "no-referrer",
+    )?;
+    if complete {
+        if let Some(end) = metadata
+            .response_end_micros
+            .or_else(|| {
+                metadata
+                    .transport
+                    .as_ref()
+                    .and_then(|timing| timing.response_end)
+            })
+            .and_then(|end| fetch.checked_add(std::time::Duration::from_micros(end)))
+        {
+            record.finish(end, metadata.decoded_body_size.unwrap_or(0));
+        }
+    }
+    Ok(())
+}
+
+/// Measured request-chain intervals. One collector belongs to one fetch; cached
+/// response provenance never transfers an older collector's timestamps.
+pub(crate) struct NavigationPhaseClock {
+    start: std::time::Instant,
+    fetch: u64,
+    redirect_start: Option<u64>,
+    redirect_end: Option<u64>,
+}
+impl NavigationPhaseClock {
+    pub(crate) fn new(start: std::time::Instant) -> Self {
+        Self {
+            start,
+            fetch: 0,
+            redirect_start: None,
+            redirect_end: None,
+        }
+    }
+    fn elapsed(&self) -> u64 {
+        self.start.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
+    }
+    pub(crate) fn begin_hop(&mut self) {
+        self.fetch = self.elapsed();
+    }
+    pub(crate) fn redirected(&mut self) {
+        self.redirect_start.get_or_insert(self.fetch);
+        self.redirect_end = Some(self.elapsed());
+    }
+    pub(crate) fn snapshot(&self) -> oryn_js::platform::NavigationTimingPhases {
+        oryn_js::platform::NavigationTimingPhases {
+            fetch_start_micros: self.fetch,
+            redirect_start_micros: self.redirect_start,
+            redirect_end_micros: self.redirect_end,
+        }
+    }
+}
+
+#[cfg(test)]
+mod navigation_phase_tests {
+    use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn buffered_navigation_finishes_without_inventing_network_transport_phases() {
+        use oryn_js::navigation_timing::{Kind, NavigationTiming};
+        let record = NavigationTiming::new(
+            std::time::Instant::now() - std::time::Duration::from_secs(1),
+            Kind::Navigate,
+        );
+        let mut metadata = local_resource_timing_metadata(
+            "https://timing.test",
+            b"hello",
+            Some("text/html"),
+            50_000,
+        );
+        assert!(metadata.transport.is_none());
+        assert_eq!(metadata.response_end_micros, Some(50_000));
+        install_frame_navigation_timing(
+            &record,
+            "https://timing.test/final",
+            &[],
+            Some(&metadata),
+            "",
+            false,
+        )
+        .unwrap();
+        assert_eq!(record.snapshot().values["responseEnd"], 0.);
+        install_frame_navigation_timing(
+            &record,
+            "https://timing.test/final",
+            &[],
+            Some(&metadata),
+            "",
+            true,
+        )
+        .unwrap();
+        let snapshot = record.snapshot();
+        assert!(snapshot.values["responseEnd"] > 0.);
+        assert_eq!(snapshot.values["decodedBodySize"], 5.);
+        assert!(snapshot.protocol.is_empty());
+        metadata.response_end_micros = Some(metadata.response_start_micros - 1);
+        assert!(!metadata.valid_native_snapshot());
+    }
+    #[test]
+    fn buffered_completion_provenance_is_not_reused_by_service_response() {
+        let metadata = local_resource_timing_metadata("https://timing.test", b"old", None, 900);
+        let reused = NetworkResponse {
+            request_id: 1,
+            status: 200,
+            headers: Vec::new(),
+            body: b"new".to_vec(),
+            timing: service_timing_provenance(Some(&metadata)),
+        };
+        let current =
+            resource_timing_metadata("https://timing.test", false, Vec::new(), &reused, 20);
+        assert_eq!(current.response_end_micros, Some(20));
+        assert_eq!(current.response_start_micros, 20);
+        assert!(current.valid_native_snapshot());
+    }
+    #[test]
+    fn absent_or_future_monotonic_anchor_cannot_create_document_phases() {
+        let mut metadata =
+            local_resource_timing_metadata("https://timing.test", b"hello", Some("text/html"), 10);
+        metadata.producer_clock_micros = None;
+        assert!(timing_instant(&metadata).is_none());
+        metadata.producer_clock_micros = Some(u64::MAX);
+        assert!(timing_instant(&metadata).is_none());
+    }
+    #[test]
+    fn redirect_phase_schema_rejects_impossible_or_partial_intervals() {
+        use oryn_js::platform::NavigationTimingPhases as Phases;
+        assert!(
+            Phases {
+                fetch_start_micros: 8,
+                redirect_start_micros: Some(1),
+                redirect_end_micros: Some(6)
+            }
+            .valid(10)
+        );
+        assert!(
+            !Phases {
+                fetch_start_micros: 8,
+                redirect_start_micros: Some(1),
+                redirect_end_micros: None
+            }
+            .valid(10)
+        );
+        assert!(
+            !Phases {
+                fetch_start_micros: 8,
+                redirect_start_micros: Some(1),
+                redirect_end_micros: Some(9)
+            }
+            .valid(10)
+        );
+        assert!(
+            !Phases {
+                fetch_start_micros: 11,
+                redirect_start_micros: None,
+                redirect_end_micros: None
+            }
+            .valid(10)
+        );
+    }
+    #[test]
+    fn measured_chain_does_not_reuse_final_fetch_offset_as_transport_origin() {
+        use oryn_js::navigation_timing::{Kind, NavigationTiming};
+        let start = std::time::Instant::now() - std::time::Duration::from_millis(100);
+        let record = NavigationTiming::new(start, Kind::Navigate);
+        let mut metadata =
+            local_resource_timing_metadata("https://a.test", b"hello", Some("text/html"), 90_000);
+        metadata.producer_clock_micros = None;
+        metadata.navigation_phases = Some(oryn_js::platform::NavigationTimingPhases {
+            fetch_start_micros: 30_000,
+            redirect_start_micros: Some(10_000),
+            redirect_end_micros: Some(25_000),
+        });
+        metadata.hops = vec![
+            timing_hop(&Url::parse("https://a.test/redirect").unwrap(), &[]),
+            timing_hop(&Url::parse("https://a.test/final").unwrap(), &[]),
+        ];
+        metadata.response_start_micros = 50_000;
+        record.redirect_provenance(&metadata.hops).unwrap();
+        record
+            .response(
+                "https://a.test/final".into(),
+                200,
+                &[],
+                start,
+                start + std::time::Duration::from_millis(50),
+                Some(metadata),
+                false,
+            )
+            .unwrap();
+        let snapshot = record.snapshot();
+        assert_eq!(snapshot.values["fetchStart"], 30.);
+        assert_eq!(snapshot.values["responseStart"], 50.);
+        assert_eq!(snapshot.values["redirectStart"], 10.);
+        assert_eq!(snapshot.values["redirectEnd"], 25.);
+    }
+}
+
+/// One current service interception owns this clock, including a fetch fallback.
+/// It is never reconstructed from an authored or cached Response.
+pub(crate) struct ServiceWorkerTiming(std::cell::Cell<Option<u64>>, std::time::Instant);
+impl Default for ServiceWorkerTiming {
+    fn default() -> Self {
+        Self(std::cell::Cell::new(None), std::time::Instant::now())
+    }
+}
+impl ServiceWorkerTiming {
+    pub(crate) fn selected(&self) {
+        if self.0.get().is_none() {
+            self.0.set(timing_clock_micros());
+        }
+    }
+    fn apply(&self, timing: &mut Option<oryn_net::TransportTiming>) {
+        if let Some(clock) = self.0.get() {
+            let timing = timing.get_or_insert_with(Default::default);
+            timing.worker_start_clock_micros = Some(clock);
+            if !timing.measured_response {
+                timing.response_start =
+                    self.1.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                timing.measured_response = true;
+            }
+        }
+    }
+    pub(crate) fn response(&self, mut response: NetworkResponse) -> NetworkResponse {
+        self.apply(&mut response.timing);
+        response
+    }
+    pub(crate) fn operation(self, mut operation: NetworkOperation) -> NetworkOperation {
+        if self.0.get().is_none() {
+            return operation;
+        }
+        let request_id = operation.request_id;
+        let (sender, events) = tokio::sync::mpsc::channel(8);
+        let (demand, mut credits) = tokio::sync::mpsc::channel(1);
+        operation_runtime().spawn(async move{loop{tokio::select!{
+   _=sender.closed()=>return,
+   credit=credits.recv()=>{if credit.is_none(){return}operation.request_body_chunk();},
+   event=operation.next_event()=>{let Some(mut event)=event else{return};if let NetworkEvent::Headers{timing,..}=&mut event{self.apply(timing);}let terminal=matches!(event,NetworkEvent::Complete{..}|NetworkEvent::Failed{..});if sender.send(event).await.is_err()||terminal{return}},
+  }}});
+        NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
+            request_id,
+            events,
+            demand: Some(demand),
+        }
+    }
+}
+pub(crate) fn native_worker_start(
+    timing: Option<&oryn_net::TransportTiming>,
+) -> Option<std::time::Instant> {
+    let now = std::time::Instant::now();
+    let elapsed = timing_clock_micros()?.checked_sub(timing?.worker_start_clock_micros?)?;
+    now.checked_sub(std::time::Duration::from_micros(elapsed))
+}
+
+#[cfg(all(test, unix))]
+mod service_worker_timing_tests {
+    use super::*;
+    #[test]
+    fn selected_worker_stamp_survives_network_fallback_without_reusing_cached_response_clock() {
+        let timing = ServiceWorkerTiming::default();
+        let mut response = NetworkResponse {
+            request_id: 1,
+            status: 200,
+            headers: Vec::new(),
+            body: b"fallback".to_vec(),
+            timing: Some(oryn_net::TransportTiming {
+                delivery: oryn_common::transport_timing::ResponseDelivery::Network,
+                ..Default::default()
+            }),
+        };
+        assert!(
+            timing
+                .response(response.clone())
+                .timing
+                .unwrap()
+                .worker_start_clock_micros
+                .is_none()
+        );
+        timing.selected();
+        let clock = timing.0.get().unwrap();
+        timing.selected();
+        assert_eq!(timing.0.get(), Some(clock));
+        response = timing.response(response);
+        assert_eq!(
+            response.timing.as_ref().unwrap().worker_start_clock_micros,
+            Some(clock)
+        );
+        assert_eq!(
+            response.timing.as_ref().unwrap().delivery,
+            oryn_common::transport_timing::ResponseDelivery::Network
+        );
+        assert!(native_worker_start(response.timing.as_ref()).is_some());
+        response.timing.as_mut().unwrap().worker_start_clock_micros = Some(u64::MAX);
+        assert!(native_worker_start(response.timing.as_ref()).is_none());
+    }
+    #[test]
+    fn timed_fallback_operation_preserves_body_demand_and_terminal_completion() {
+        struct Fallback;
+        impl NetworkBroker for Fallback {
+            fn send(&self, _: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
+                unreachable!()
+            }
+            fn start_operation(
+                &self,
+                request: NetworkRequest,
+            ) -> Result<NetworkOperation, NetworkError> {
+                let timing = ServiceWorkerTiming::default();
+                timing.selected();
+                Ok(timing.operation(operation_from_response(NetworkResponse {
+                    request_id: request.request_id,
+                    status: 200,
+                    headers: Vec::new(),
+                    body: b"owned fallback".to_vec(),
+                    timing: None,
+                })))
+            }
+        }
+        let request = NetworkRequest {
+            request_id: 55,
+            method: "GET".into(),
+            url: "https://timing.test/".into(),
+            headers: Vec::new(),
+            body: Vec::new(),
+            credentials: false,
+            security: Default::default(),
+            resolved_addrs: Vec::new(),
+        };
+        let response =
+            collect_operation_bounded(&Fallback, request, Duration::from_secs(2), 1024).unwrap();
+        assert_eq!(response.body, b"owned fallback");
+        assert!(native_worker_start(response.timing.as_ref()).is_some());
+    }
+}
+
+#[cfg(test)]
+mod encoded_timing_tests {
+    use super::*;
+    #[test]
+    fn terminal_encoded_count_survives_broker_wire() {
+        for size in [None, Some(0), Some(137)] {
+            let event = NetworkEvent::Complete {
+                request_id: 17,
+                encoded_body_size: size,
+            };
+            let encoded = encode_network_event(event.clone());
+            let wire = serde_json::to_vec(&encoded).unwrap();
+            assert_eq!(
+                decode_network_event(serde_json::from_slice(&wire).unwrap()).unwrap(),
+                event
+            );
+        }
+    }
+    #[test]
+    fn raw_counter_precedes_decompression_and_metadata_uses_it() {
+        use std::io::Write;
+        let source = b"navigation body".repeat(4096);
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gzip.write_all(&source).unwrap();
+        let gzip = gzip.finish().unwrap();
+        let expected = gzip.len() as u64;
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+        );
+        let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let raw = AsyncBodyReader {
+            runtime,
+            stream: Box::pin(futures_util::stream::iter(vec![Ok(bytes::Bytes::from(
+                gzip,
+            ))])),
+            current: bytes::Bytes::new(),
+            offset: 0,
+            encoded_bytes: counter.clone(),
+        };
+        let mut body = decoded_body_reader(Box::new(raw), Some("gzip"), 128 * 1024).unwrap();
+        let mut decoded = Vec::new();
+        body.read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, source);
+        assert_eq!(counter.load(Ordering::Relaxed), expected);
+        let response = NetworkResponse {
+            request_id: 17,
+            status: 200,
+            headers: vec![
+                ("content-encoding".into(), "gzip".into()),
+                ("content-length".into(), "99999".into()),
+            ],
+            body: decoded,
+            timing: Some(oryn_net::TransportTiming {
+                encoded_body_size: Some(expected),
+                ..Default::default()
+            }),
+        };
+        let metadata =
+            resource_timing_metadata("https://timing.test", false, Vec::new(), &response, 10);
+        assert_eq!(metadata.encoded_body_size, Some(expected));
+        assert_eq!(metadata.decoded_body_size, Some(source.len() as u64));
+    }
+    #[test]
+    fn cache_reader_failure_cannot_be_retried_into_a_successful_cache_entry() {
+        struct Failed(bool);
+        impl Read for Failed {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                if !self.0 {
+                    self.0 = true;
+                    Err(std::io::Error::other("decoder checksum"))
+                } else {
+                    Ok(0)
+                }
+            }
+        }
+        let cache = Arc::new(Mutex::new(MemoryCache::new(2, 1024, 1024)));
+        let key = CacheKey {
+            partition: "test".into(),
+            method: "GET".into(),
+            url: "https://timing.test/failure".into(),
+            credential_partition: "omit".into(),
+        };
+        let entry = CacheEntry {
+            encoded_body_size: None,
+            status: 200,
+            headers: Vec::new(),
+            body: b"partial".to_vec(),
+            stored_at_ms: 0,
+            freshness_lifetime_ms: 1000,
+            vary: Vec::new(),
+        };
+        let mut reader = CachingReader {
+            encoded_bytes: Some(Arc::new(std::sync::atomic::AtomicU64::new(27))),
+            inner: Box::new(Failed(false)),
+            cache: cache.clone(),
+            key: Some(key.clone()),
+            entry: Some(entry),
+            max_entry_bytes: 1024,
+            expected_length: None,
+            complete: false,
+        };
+        assert!(reader.read(&mut [0; 8]).is_err());
+        assert_eq!(reader.read(&mut [0; 8]).unwrap(), 0);
+        assert!(
+            cache
+                .lock()
+                .unwrap()
+                .get_matching(&key, &[], None)
+                .is_none()
+        );
+    }
+    #[test]
+    fn cache_reader_requires_eof_before_publishing_size_or_representation() {
+        let cache = Arc::new(Mutex::new(MemoryCache::new(2, 1024, 1024)));
+        let key = CacheKey {
+            partition: "test".into(),
+            method: "GET".into(),
+            url: "https://timing.test/".into(),
+            credential_partition: "omit".into(),
+        };
+        let entry = CacheEntry {
+            encoded_body_size: None,
+            status: 200,
+            headers: Vec::new(),
+            body: Vec::new(),
+            stored_at_ms: 0,
+            freshness_lifetime_ms: 1000,
+            vary: Vec::new(),
+        };
+        let count = Arc::new(std::sync::atomic::AtomicU64::new(27));
+        let mut reader = CachingReader {
+            encoded_bytes: Some(count),
+            inner: Box::new(std::io::Cursor::new(b"body".to_vec())),
+            cache: cache.clone(),
+            key: Some(key.clone()),
+            entry: Some(entry),
+            max_entry_bytes: 1024,
+            expected_length: Some(4),
+            complete: false,
+        };
+        let mut buffer = [0; 4];
+        assert_eq!(reader.read(&mut buffer).unwrap(), 4);
+        assert!(
+            cache
+                .lock()
+                .unwrap()
+                .get_matching(&key, &[], None)
+                .is_none()
+        );
+        assert_eq!(reader.read(&mut []).unwrap(), 0);
+        assert!(
+            cache
+                .lock()
+                .unwrap()
+                .get_matching(&key, &[], None)
+                .is_none()
+        );
+        assert_eq!(reader.read(&mut buffer).unwrap(), 0);
+        assert_eq!(
+            cache
+                .lock()
+                .unwrap()
+                .get_matching(&key, &[], None)
+                .unwrap()
+                .encoded_body_size,
+            Some(27)
+        );
+    }
+}
+
+#[cfg(test)]
+mod retained_body_owner_tests {
+    use super::*;
+    #[test]
+    fn true_owner_shutdown_discards_an_integrity_buffered_prefix_before_eof() {
+        let (sender, events) = tokio::sync::mpsc::channel(2);
+        sender
+            .try_send(NetworkEvent::Chunk {
+                request_id: 99,
+                bytes: bytes::Bytes::from_static(b"prefix"),
+            })
+            .unwrap();
+        sender
+            .try_send(NetworkEvent::Complete {
+                request_id: 99,
+                encoded_body_size: Some(6),
+            })
+            .unwrap();
+        let mut operation = NetworkOperation {
+            body_demand_pending: Default::default(),
+            prefetched: Default::default(),
+            request_id: 99,
+            events,
+            demand: None,
+        };
+        let checks = std::cell::Cell::new(0);
+        let closed = || {
+            let count = checks.get();
+            checks.set(count + 1);
+            count != 0
+        };
+        assert!(matches!(
+            collect_started_body_with_check(
+                &mut operation,
+                std::time::Instant::now() + Duration::from_secs(1),
+                1024,
+                &std::sync::atomic::AtomicBool::new(false),
+                Some(&closed)
+            ),
+            Err(NetworkError::Cancelled)
+        ));
+        assert!(
+            matches!(operation.try_event(), Ok(NetworkEvent::Complete { .. })),
+            "shutdown stops before treating the buffered prefix as a completed response"
+        );
     }
 }

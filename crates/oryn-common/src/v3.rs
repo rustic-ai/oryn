@@ -109,6 +109,8 @@ pub struct NativeValidationState {
     pub type_mismatch: bool,
     pub custom_error: bool,
     #[serde(default)]
+    pub bad_input: bool,
+    #[serde(default)]
     pub range_underflow: bool,
     #[serde(default)]
     pub range_overflow: bool,
@@ -591,6 +593,7 @@ mod tests {
             observation
         );
         observation.nodes[0].validation = Some(NativeValidationState {
+            bad_input: false,
             pattern_mismatch: false,
             too_short: false,
             too_long: false,

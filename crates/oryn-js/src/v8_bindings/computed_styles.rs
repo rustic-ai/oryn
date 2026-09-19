@@ -43,13 +43,64 @@ fn node(
     resolve_receiver(scope, state, target, "Element")
 }
 
+fn pseudo(scope: &mut v8::PinScope, object: v8::Local<v8::Object>) -> Option<String> {
+    let name = v8::String::new(scope, "oryn.computed.pseudo")?;
+    let key = v8::Private::for_api(scope, Some(name));
+    object
+        .get_private(scope, key)
+        .filter(|value| value.is_string())
+        .map(|value| value.to_rust_string_lossy(scope))
+}
+pub(super) fn parse_pseudo(value: &str) -> Result<Option<String>, V8BindingError> {
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let value = value.trim().to_ascii_lowercase();
+    if value.starts_with("::part(") || value.starts_with("::slotted(") {
+        return Err(V8BindingError::Message(
+            "getComputedStyle cannot address part/slotted pseudo-elements".into(),
+        ));
+    }
+    let key = if let Some(key) = value.strip_prefix("::") {
+        key
+    } else if matches!(
+        value.as_str(),
+        ":before" | ":after" | ":first-letter" | ":first-line"
+    ) {
+        &value[1..]
+    } else {
+        return Ok(Some(String::new()));
+    };
+    let key = if key
+        .strip_prefix("picker(")
+        .and_then(|inside| inside.strip_suffix(')'))
+        .is_some_and(|inside| inside.trim() == "select")
+    {
+        "picker"
+    } else {
+        key
+    };
+    Ok(Some(key.to_string()))
+}
+
 fn styles(
     state: &V8BindingState,
     node: NodeId,
+    pseudo: Option<&str>,
 ) -> Result<BTreeMap<String, String>, V8BindingError> {
     refresh_layout(state)?;
     if !state.dom.borrow().is_connected(node)? {
         return Ok(BTreeMap::new());
+    }
+    if let Some(pseudo) = pseudo {
+        return Ok(state
+            .layout
+            .borrow()
+            .pseudo_styles
+            .get(&node_key(node))
+            .and_then(|styles| styles.get(pseudo))
+            .map(|style| (**style).clone())
+            .unwrap_or_default());
     }
     let mut styles = state
         .layout
@@ -88,6 +139,7 @@ pub(super) fn create<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
     node: NodeId,
+    pseudo: Option<String>,
 ) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
     if !matches!(
         state.dom.borrow().arena().get(node)?.kind,
@@ -98,7 +150,7 @@ pub(super) fn create<'s>(
             member: "argument is not an Element".into(),
         });
     }
-    let values = styles(state, node)?;
+    let values = styles(state, node, pseudo.as_deref())?;
     let template = state
         .instance_templates
         .borrow()
@@ -120,6 +172,13 @@ pub(super) fn create<'s>(
     // A traced wrapper retains the target element without a permanent Rust root.
     let target = wrap_node(scope, state, node)?;
     object.set_internal_field(3, target.into());
+    if let Some(pseudo) = &pseudo {
+        let name = v8::String::new(scope, "oryn.computed.pseudo")
+            .ok_or(V8BindingError::Allocation("computed pseudo key"))?;
+        let key = v8::Private::for_api(scope, Some(name));
+        let value = v8_string(scope, pseudo)?;
+        object.set_private(scope, key, value);
+    }
     for property in values.keys() {
         let mut idl = String::new();
         let mut uppercase = false;
@@ -170,7 +229,8 @@ pub(super) fn property_names(
     object: v8::Local<v8::Object>,
 ) -> Result<Vec<String>, V8BindingError> {
     let node = node(scope, state, object)?;
-    let styles = styles(state, node)?;
+    let pseudo = pseudo(scope, object);
+    let styles = styles(state, node, pseudo.as_deref())?;
     let mut names = styles
         .keys()
         .filter(|name| !name.starts_with("--"))
@@ -187,14 +247,17 @@ pub(super) fn attribute<'s>(
     member: &str,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
     let node = node(scope, state, object)?;
+    let pseudo = pseudo(scope, object);
     match member {
         "parentRule" => Ok(v8::null(scope).into()),
         "cssText" => v8_string(scope, ""),
-        "length" => {
-            Ok(v8::Integer::new_from_unsigned(scope, styles(state, node)?.len() as u32).into())
-        }
+        "length" => Ok(v8::Integer::new_from_unsigned(
+            scope,
+            styles(state, node, pseudo.as_deref())?.len() as u32,
+        )
+        .into()),
         _ => {
-            let values = styles(state, node)?;
+            let values = styles(state, node, pseudo.as_deref())?;
             let property = if member == "webkitTransition" {
                 "transition"
             } else {
@@ -212,6 +275,7 @@ pub(super) fn operation<'s>(
     member: &str,
 ) -> Result<Option<v8::Local<'s, v8::Value>>, V8BindingError> {
     let node = node(scope, state, args.this())?;
+    let pseudo = pseudo(scope, args.this());
     if member == "item" {
         let Some(index) = args.get(0).uint32_value(scope) else {
             return Ok(None);
@@ -232,7 +296,7 @@ pub(super) fn operation<'s>(
     match member {
         "getPropertyValue" => Ok(Some(v8_string(
             scope,
-            styles(state, node)?
+            styles(state, node, pseudo.as_deref())?
                 .get(&property)
                 .map_or("", String::as_str),
         )?)),

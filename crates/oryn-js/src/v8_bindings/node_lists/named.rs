@@ -95,11 +95,13 @@ pub(super) fn item<'s>(
     object: v8::Local<v8::Object>,
     value: v8::Local<v8::Value>,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    let id = identity_as(scope, state, object, "HTMLCollection")?;
+    identity_as(scope, state, object, "HTMLCollection")?;
     let Some(name) = value.to_string(scope) else {
         return Ok(v8::undefined(scope).into());
     };
     let name = rust_string_preserving_utf16(scope, name)?;
+    let (owner, id) = owner(scope, object)?;
+    let state = &owner;
     let index = names(state, id)?
         .into_iter()
         .find_map(|(candidate, index)| (candidate == name).then_some(index));

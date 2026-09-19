@@ -148,11 +148,11 @@ impl SupportsCondition {
                     input.slice_from(pos).to_owned()
                 )))
             },
-            "font-format" if static_prefs::pref!("layout.css.font-tech.enabled") => {
+            "font-format" if (cfg!(feature = "servo") || static_prefs::pref!("layout.css.font-tech.enabled")) => {
                 let kw = FontFaceSourceFormatKeyword::parse(input)?;
                 Ok(SupportsCondition::FontFormat(kw))
             },
-            "font-tech" if static_prefs::pref!("layout.css.font-tech.enabled") => {
+            "font-tech" if (cfg!(feature = "servo") || static_prefs::pref!("layout.css.font-tech.enabled")) => {
                 let flag = FontFaceSourceTechFlags::parse_one(input)?;
                 Ok(SupportsCondition::FontTech(flag))
             },
@@ -232,13 +232,13 @@ fn eval_font_tech(flag: &FontFaceSourceTechFlags) -> bool {
 }
 
 #[cfg(feature = "servo")]
-fn eval_font_format(_: &FontFaceSourceFormatKeyword) -> bool {
-    false
+fn eval_font_format(format: &FontFaceSourceFormatKeyword) -> bool {
+    matches!(format,FontFaceSourceFormatKeyword::Opentype|FontFaceSourceFormatKeyword::Truetype|FontFaceSourceFormatKeyword::Woff|FontFaceSourceFormatKeyword::Woff2)
 }
 
 #[cfg(feature = "servo")]
-fn eval_font_tech(_: &FontFaceSourceTechFlags) -> bool {
-    false
+fn eval_font_tech(flag: &FontFaceSourceTechFlags) -> bool {
+    (FontFaceSourceTechFlags::FEATURES_OPENTYPE|FontFaceSourceTechFlags::VARIATIONS).contains(*flag)
 }
 
 /// supports_condition | declaration

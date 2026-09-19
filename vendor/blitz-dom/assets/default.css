@@ -1134,3 +1134,20 @@ slot {
 /* HTML auto directionality is calculated from the live DOM, not CSS direction. */
 :where([dir="auto" i], bdi):dir(ltr) { direction: ltr; }
 :where([dir="auto" i], bdi):dir(rtl) { direction: rtl; }
+
+/* Fullscreen uses the viewport containing block and escapes source ancestry. */
+:fullscreen:not(:root) {
+    position: fixed !important;
+    inset: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: 100% !important;
+    height: 100% !important;
+    transform: none !important;
+    object-fit: contain;
+}
+:fullscreen::backdrop { background: black; }

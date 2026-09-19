@@ -16,6 +16,13 @@ impl TargetName {
             ..Self::default()
         };
         name.refresh();
+        if dom
+            .borrow()
+            .embedded_content_kind(frame)
+            .is_some_and(|kind| kind.selects_response_representation())
+        {
+            name.source = None;
+        }
         name
     }
     fn refresh(&mut self) {
@@ -58,6 +65,31 @@ pub(super) fn children(
         .collect())
 }
 
+/// Resolve only child navigable target names, never author properties or DOM
+/// element IDs. Shared by same-origin named access and cross-origin projection.
+pub(super) fn named_child(
+    state: &V8BindingState,
+    name: &str,
+) -> Result<Option<v8::Global<v8::Object>>, V8BindingError> {
+    if name.is_empty() {
+        return Ok(None);
+    }
+    for node in traversal_nodes(&state.dom.borrow(), state.document_root())?
+        .into_iter()
+        .skip(1)
+    {
+        let matches = state
+            .frame_target_names
+            .borrow()
+            .get(&node)
+            .is_some_and(|target| target.borrow_mut().get() == name);
+        if matches && let Some(window) = state.frame_window(node) {
+            return Ok(Some(window));
+        }
+    }
+    Ok(None)
+}
+
 fn resolve<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     holder: v8::Local<v8::Object>,
@@ -82,21 +114,11 @@ fn resolve<'s>(
     let Some(state) = context.get_slot::<V8BindingState>() else {
         return Ok(None);
     };
-    let name = name.to_rust_string_lossy(scope);
+    let name = rust_string_preserving_utf16(scope, name)?;
     let root = state.document_root();
     // A child navigable's target name takes precedence over element matches.
-    for node in traversal_nodes(&state.dom.borrow(), root)?
-        .into_iter()
-        .skip(1)
-    {
-        let matches = state
-            .frame_target_names
-            .borrow()
-            .get(&node)
-            .is_some_and(|target| !name.is_empty() && target.borrow_mut().get() == name);
-        if matches && let Some(window) = state.frame_window(node) {
-            return Ok(Some(v8::Local::new(scope, &window).into()));
-        }
+    if let Some(window) = named_child(&state, &name)? {
+        return Ok(Some(v8::Local::new(scope, &window).into()));
     }
     let nodes = node_lists::window_named_nodes(&state.dom.borrow(), root, &name)?;
     // Returned platform objects belong to the Window's realm even when its
@@ -294,6 +316,30 @@ pub(super) fn install(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_names_and_named_element_keys_preserve_domstring_units() {
+        super::super::tests::check_global_event_prototype_script(
+            r#"(()=>{
+            const check=(value,message)=>{if(!value)throw Error(message)};
+            const prefix=String.fromCodePoint(0xf0000)+'oryn-wtf16:';
+            for(const name of ['a\0b','a'+String.fromCharCode(0xd800),'a'+String.fromCharCode(0xdfff),prefix+'[55296]','a'+String.fromCodePoint(0x1f600)]){
+                window.name=name;check(window.name===name,'Window.name exact units');
+                const element=document.createElement('div');element.id=name;document.body.append(element);
+                check(window[name]===element,'named element exact units');element.remove();
+                const form=document.createElement('form'),button=document.createElement('button'),base=document.createElement('base'),anchor=document.createElement('a');
+                for(const [element,property,attribute] of [[form,'target','target'],[button,'formTarget','formtarget'],[base,'target','target'],[anchor,'target','target']]){
+                    element[property]=name;check(element[property]===name&&element.getAttribute(attribute)===name,'target reflection '+property);
+                    const other=document.implementation.createHTMLDocument('');let conversions=0;
+                    element[property]={toString(){conversions++;other.adoptNode(element);return name}};
+                    check(conversions===1&&element.ownerDocument===other&&element[property]===name,'target conversion adoption '+property);
+                }
+            }
+            window.name='before';let calls=0;window.name={toString(){calls++;return 'after'+String.fromCharCode(0xd800)}};
+            check(calls===1&&window.name==='after'+String.fromCharCode(0xd800),'name coercion once');return true;
+        })()"#,
+        );
+    }
 
     #[test]
     fn window_named_target_tracks_attribute_writes_after_child_renaming() {

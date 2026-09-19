@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         diagnostics.extend(artifact.diagnostics);
     }
     if let Some(path) = args.pdf {
-        let artifact = oryn_render::render_pdf(&snapshot, options)?;
+        let artifact = oryn_render::pdf(&page, options).await?;
         std::fs::write(&path, &artifact.bytes)?;
         diagnostics.extend(artifact.diagnostics);
     }

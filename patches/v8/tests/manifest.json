@@ -1,0 +1,33 @@
+{
+  "status": "source_generated_unbuilt_unqualified",
+  "cctest_build_base_sha256": "0d0d1e0bd53e7b815edc9524ff293670e1606871c9b11613d769013817c6612a",
+  "cctest_build_patched_sha256": "f98cd0f734af215504c93f33f4915519516ef4030372b2f82cf25b9d2db3ac9c",
+  "sources": {
+    "test-oryn-shared-memory-growth.cc": "39b178c1e7116c2d4955e409c10fedb37552f2815155da455c5a666c182feb8e",
+    "test-oryn-frame-context-reattachment.cc": "460667af1cfcedee31011aa3e93a77be3fbed1c6ef2b91ed60724252723fb306",
+    "test-oryn-html-constructor.cc": "37abb629722c57ecfb055da42bcdd1fe8d76568cd4823564453997dc519f4e00"
+  },
+  "required_execution_modes": [
+    "Liftoff",
+    "Turboshaft (--no-liftoff)",
+    "DrumBrake (--wasm-jitless), when enabled in the qualified build"
+  ],
+  "previous_cctest_build_sha256": "bbc1b1be32eafd0c5568808a3ae970af36a7a59dd13cd5f21fcbf67bc2b58c53",
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "required_patch_sha256": {
+    "html-constructor-deferred-prototype": "b5abc04f33b0bb2c0c49d81a1e58b4c6bd69acce3f7c6442b4d886a86d6ea602"
+  },
+  "previous_sources": [
+    "test-oryn-frame-context-reattachment.cc",
+    "test-oryn-shared-memory-growth.cc"
+  ],
+  "previous_source_sha256": {
+    "test-oryn-shared-memory-growth.cc": "1388f69df0e66d1abe12219cf1a8a918733439b58cd6c0e4b2cde961fa7c04c9",
+    "test-oryn-frame-context-reattachment.cc": "906711e98a9969b0a38107bfa0aacb1f111dc4dff611450b3ce3604f2f626ef3",
+    "test-oryn-html-constructor.cc": "e10f5c8eb25f243dcfd4334d4964a39289ae3d6c64fb99a2e924438438b8eb03"
+  },
+  "test_only_compatibility": {
+    "cctest-zero-size-span": "c356620e8daba1869cbb4c648b39b121fcb87990a834d6229bb427096977b5db",
+    "cctest-zero-size-api-span": "8c5dbca11fd649406eac0912e42b38eba3e7fee6ad14e5fa6df322a3dfc571b2"
+  }
+}

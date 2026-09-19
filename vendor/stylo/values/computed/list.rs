@@ -4,7 +4,21 @@
 
 //! `list` computed values.
 
-pub use crate::values::specified::list::ListStyleType;
+use crate::{counter_style::CounterStyle, derives::*};
+/// Native absolute tree identity is not CSS serialization. It is retained by
+/// ordinary inheritance and by computed-to-specified animation conversion.
+#[derive(Clone,Debug,Eq,MallocSizeOf,PartialEq,ToCss,ToResolvedValue,ToShmem,ToTyped)]
+#[repr(C)]
+#[typed(todo_derive_fields)]
+pub struct ListStyleType(pub CounterStyle, #[css(skip)] pub usize);
+impl ListStyleType {
+    /// The initial disc marker style in the default tree scope.
+    pub fn disc()->Self{Self(CounterStyle::disc(),0)}
+    /// A suppressed marker in the default tree scope.
+    pub fn none()->Self{Self(CounterStyle::None,0)}
+    /// Whether the underlying counter style produces a bullet marker.
+    pub fn is_bullet(&self)->bool{self.0.is_bullet()}
+}
 pub use crate::values::specified::list::Quotes;
 
 impl Quotes {

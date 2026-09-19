@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 artifact_dir="${ORYN_APP_COMPATIBILITY_ARTIFACT_DIR:-$repo_root/artifacts/app-compatibility/software}"
 poetry="$repo_root/artifacts/tools/poetry/bin/poetry"
@@ -27,14 +30,20 @@ run_logged() {
 }
 
 cd "$repo_root"
+python3 "$repo_root/scripts/generation_gate.py"
 run_logged rust-fmt cargo fmt --all -- --check
+python3 "$repo_root/scripts/generation_gate.py"
 run_logged rust-clippy-default cargo clippy --workspace --all-targets -- -D warnings
+python3 "$repo_root/scripts/generation_gate.py"
 run_logged rust-clippy-v8 cargo clippy -p oryn-native -p oryn --all-targets \
   --features oryn-native/v8-host,oryn-native/in-process-probe,oryn/native-v8,oryn/in-process-probe \
   -- -D warnings
+python3 "$repo_root/scripts/generation_gate.py"
 run_logged rust-workspace cargo test --workspace
+python3 "$repo_root/scripts/generation_gate.py"
 run_logged rust-v8 cargo test -p oryn-native --all-targets \
   --features v8-host,in-process-probe
+python3 "$repo_root/scripts/generation_gate.py"
 run_logged scanner-sync "$repo_root/scripts/check-scanner-sync.sh"
 
 if [[ ! -x "$poetry" ]]; then
@@ -46,14 +55,20 @@ if [[ -z "$poetry" ]]; then
 fi
 (
   cd "$repo_root/oryn-python"
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged python-ruff "$poetry" run ruff check .
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged python-format "$poetry" run ruff format --check .
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged python-tests "$poetry" run pytest -q
 )
 (
   cd "$repo_root/intentgym"
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged intentgym-black "$poetry" run black --check .
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged intentgym-isort "$poetry" run isort --check-only .
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged intentgym-tests "$poetry" run pytest -q
 )
 
@@ -66,20 +81,50 @@ fi
   if [[ -n "$scanner_chromium_bin" ]]; then
     export PUPPETEER_EXECUTABLE_PATH="$scanner_chromium_bin"
   fi
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged scanner-lint "$node_bin" node_modules/eslint/bin/eslint.js src/ tests/
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged scanner-format "$node_bin" node_modules/prettier/bin/prettier.cjs --check src/ tests/
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged scanner-tests "$node_bin" node_modules/jest/bin/jest.js --runInBand
 )
 
-run_logged extension-wasm "$repo_root/scripts/build-wasm.sh"
+python3 "$repo_root/scripts/generation_gate.py"
+extension_root="$repo_root/extension-w"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  # Compile and test the extension in a private copy. WASM generation must not
+  # replace files in the frozen source tree, even when those files are ignored.
+  python3 "$repo_root/scripts/security_prebuilt.py" check
+  extension_root="$(mktemp -d -t oryn-security-extension.XXXXXX)"
+  trap 'rm -rf "$extension_root"' EXIT
+  python3 - "$repo_root/extension-w" "$extension_root" <<'PY'
+from pathlib import Path
+import shutil
+import sys
+source, target = map(Path, sys.argv[1:])
+if not (source / 'node_modules').is_dir():
+    raise SystemExit('prebuilt security extension checks require installed node_modules')
+def ignore(directory, names):
+    return {'node_modules', 'wasm', 'coverage'}.intersection(names) if Path(directory) == source else set()
+shutil.copytree(source, target, ignore=ignore, dirs_exist_ok=True)
+(target / 'node_modules').symlink_to((source / 'node_modules').resolve(), target_is_directory=True)
+PY
+  ORYN_WASM_OUTPUT_DIR="$extension_root/wasm" run_logged extension-wasm "$repo_root/scripts/build-wasm.sh"
+else
+  run_logged extension-wasm "$repo_root/scripts/build-wasm.sh"
+fi
 (
-  cd "$repo_root/extension-w"
+  cd "$extension_root"
   if [[ -n "$extension_chromium_bin" ]]; then
     export PUPPETEER_EXECUTABLE_PATH="$extension_chromium_bin"
   fi
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged extension-lint "$node_bin" node_modules/eslint/bin/eslint.js '*.js' 'test/**/*.js'
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged extension-unit "$node_bin" node_modules/jest/bin/jest.js test/unit --runInBand
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged extension-integration "$node_bin" node_modules/jest/bin/jest.js test/integration --runInBand
+  python3 "$repo_root/scripts/generation_gate.py"
   run_logged extension-e2e "$node_bin" node_modules/jest/bin/jest.js test/e2e --runInBand
 )
 

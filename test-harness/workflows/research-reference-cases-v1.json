@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "family": "research_extraction",
+  "cases": [
+    {
+      "id": "generation_bound_stale_reference",
+      "scenario": "normal",
+      "steps": [
+        "goto \"{base}/article/alpha\"",
+        "observe",
+        "goto \"{base}/article/beta\"",
+        "click \"Saved canonical source\"",
+        "observe",
+        "click \"Canonical source\"",
+        "extract text --selector \"#facts\"",
+        "observe"
+      ],
+      "step_options": {
+        "1": {
+          "capture_reference": {
+            "slot": "source",
+            "name": "Canonical source"
+          }
+        },
+        "3": {
+          "use_reference": "source",
+          "expected_error": "semantic reference is stale or unknown"
+        }
+      },
+      "expected_action_count": 1,
+      "expected": [
+        "Beta generated 22 MWh in 2025."
+      ],
+      "sources": [
+        "article/alpha",
+        "article/beta"
+      ],
+      "visits": [
+        {
+          "path": "article/alpha",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "article/beta",
+          "query": {},
+          "status": 200
+        },
+        {
+          "path": "article/beta",
+          "query": {},
+          "status": 200
+        }
+      ],
+      "final": "article/beta"
+    }
+  ]
+}

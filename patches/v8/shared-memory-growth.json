@@ -1,0 +1,17 @@
+{
+  "status": "source_generated_unbuilt_unqualified",
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "rusty_v8_version": "150.4.0",
+  "patch_sha256": "63e630f2136d2690058ed0b647533572c957604bbca83f7aaa3359ad56432acd",
+  "base_files": {
+    "include/v8-array-buffer.h": "db3a060e19d552e536aa33f4c46812a517556ac4bc7ad13591f58d5822dc434a",
+    "src/objects/backing-store.h": "9a0844aace688b2e4ba5f9a22544fa8198ebc934d91eb5b6be53421f59bf2fbf",
+    "src/objects/backing-store.cc": "1cd8735250327f7fd71d1270cef98a4f43954f6e6a453519a7a35894780f7d32"
+  },
+  "patched_files": {
+    "include/v8-array-buffer.h": "31b45c43270ce7c5b29df2286c7cd16a820d270cbaf3b20003e66253c4ebf9d5",
+    "src/objects/backing-store.h": "5420016a5138d878af61df42c1ffaa8dfdb3b984e0edc450e451b2d707d0b869",
+    "src/objects/backing-store.cc": "8bb9b6d883b45570d34a9de8a62e8d8453fc1263cc4fb686db8af418347d6f04"
+  },
+  "scope": "GSAB shared length and absolute growth delegate only; Wasm, factory and futex integration remain open"
+}

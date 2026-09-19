@@ -1,0 +1,3261 @@
+{
+  "schema_version": 1,
+  "plan_sha256": "f9d6923e8e3caa84fe4b7947f9c3072df33034c0df5af4c8b28a2adb89f1682e",
+  "phase": "post_generation_build_and_regression_repair_20",
+  "requirements": {
+    "G-01": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/wpt_full_qualification.py",
+          "sha256": "5bb25b64944f4116ff5695bdd17401ea8b17b360f989b95d4ec69ed0dc846169"
+        },
+        {
+          "path": "scripts/build-core-completion-ledger.py",
+          "sha256": "87de1fb4b6b4211210a575c64f88f685870eeeee107271ddbea06e469d3c4634"
+        },
+        {
+          "path": "scripts/wpt_evidence.py",
+          "sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40"
+        },
+        {
+          "path": "crates/oryn/src/webdriver/server.rs",
+          "sha256": "352ba75c4290a9ff7ab36ac11a72da3ced23692a56311de08ed0c6dc311dba1f"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/tests/test_wpt_full_qualification.py",
+          "sha256": "46295e276392feb4815798d537685f67f314b32ef63fa4affd0818bec9a12034"
+        },
+        {
+          "path": "scripts/tests/test_core_completion_ledger.py",
+          "sha256": "194545f5c8f2f7dbf9ee78b08eaee22b0a7393ea74c94f9514c34717e0cb01b3"
+        }
+      ],
+      "caller_evidence": "Full immutable inventory IDs flow through raw/qualified reconciliation; old 4022 backlog never supplies denominator.",
+      "package_review": "docs/oryn2/G-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "G-02": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "tools/wptrunner-oryn/oryn_wptrunner/product.py",
+          "sha256": "22a00f35cfca920d9f02fef8915867fb09b94ee8d03c59eb1740d636b1d709ed"
+        },
+        {
+          "path": "crates/oryn-native/src/webdriver_script_v8.rs",
+          "sha256": "0fa091e6bf22523fa09c591f9cbc975818bffce17b4d01f7fa9533073fe1648a"
+        },
+        {
+          "path": "crates/oryn-native/src/webdriver_action_execution.rs",
+          "sha256": "63218a1d306fa6703dd8e1b09750bee4243b0fe5dba0e6fecdfcd56c7be37f8b"
+        },
+        {
+          "path": "scripts/wpt_operation_contract.py",
+          "sha256": "bb639743a57bde4b6fc5dbd222d5faa575720d3e2187072b7a8f170c0fa5848e"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_pointer/dispatch_receipt.rs",
+          "sha256": "690303c8ca527ca325667990c70bf9d593dccd0fce5b9586feddb2e1eb12c27c"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "tools/wptrunner-oryn/tests/test_product.py",
+          "sha256": "85fbb2a1046b85c7e1cb10e23b43ef24bd0a3fd4aba356acd13a0660766dcbfe"
+        },
+        {
+          "path": "scripts/tests/test_wpt_operation_contract.py",
+          "sha256": "f278fffc74c37f167834aec6c45e7b9ab0e2ecc6a0076bac89a92c2eb184811f"
+        },
+        {
+          "path": "crates/oryn-native/src/platform_automation_regressions.rs",
+          "sha256": "6b056bc156032703ffa160f45f204d07c3d633be758a9ab5b98bfd287efd4959"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_pointer/dispatch_receipt.rs",
+          "sha256": "690303c8ca527ca325667990c70bf9d593dccd0fce5b9586feddb2e1eb12c27c"
+        }
+      ],
+      "caller_evidence": "Upstream product/native action-script routes preserve selected Document identity; immutable occurrence multiplicities prevent omitted repeated/conditional callers.",
+      "package_review": "docs/oryn2/G-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "G-03": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/wpt_fixture_contract.py",
+          "sha256": "9be35c4466c4acd15a617006112513cc936edf8b4bfe76a8c4e3604d3d02905e"
+        },
+        {
+          "path": "scripts/wptserve-helper.py",
+          "sha256": "a4d4fcd7a439c89e37eae49775cd90c766449df61c93b2bdafd2c2797c28f7e3"
+        },
+        {
+          "path": "crates/oryn/src/webdriver/fixture.rs",
+          "sha256": "ae3b07bd32e3dc8f6a2e4149f5edab80766cbf78036f9e29aa0063f263f5cbb3"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/tests/test_wpt_fixture_contract.py",
+          "sha256": "a9b8ab8abf8cd51b1034a3656300f3047a391ca3158f959d4f095a49dd493a66"
+        },
+        {
+          "path": "scripts/tests/test_wptserve_topology.py",
+          "sha256": "1792da8ca4e814eadfb806ecce36696e51eb29c7459430c9b52de4b7ba501efd"
+        },
+        {
+          "path": "crates/oryn/src/webdriver/fixture.rs",
+          "sha256": "ae3b07bd32e3dc8f6a2e4149f5edab80766cbf78036f9e29aa0063f263f5cbb3"
+        }
+      ],
+      "caller_evidence": "Explicit fixture hosts/TLS/profile contract reaches native context before binding; real upstream wrappers remain authoritative.",
+      "package_review": "docs/oryn2/G-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "G-04": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/wpt_topology_probe.py",
+          "sha256": "59b9618a068971fc4c46f80571cf05999416fcd036aa0e2ce4cc01573b361cb0"
+        },
+        {
+          "path": "scripts/wpt_fixture_contract.py",
+          "sha256": "9be35c4466c4acd15a617006112513cc936edf8b4bfe76a8c4e3604d3d02905e"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/tests/test_wpt_topology_probe.py",
+          "sha256": "5ab393ca3a1af85053b0c92852760761c668537a62a61cba87c97d07531c6d49"
+        },
+        {
+          "path": "scripts/tests/test_wptserve_topology.py",
+          "sha256": "1792da8ca4e814eadfb806ecce36696e51eb29c7459430c9b52de4b7ba501efd"
+        }
+      ],
+      "caller_evidence": "Probe/custody sources require distinct actual address spaces; provisioned host/VM and all17 observations are execution evidence, not invented source artifacts.",
+      "package_review": "docs/oryn2/G-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "G-05": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "tools/wptrunner-oryn/oryn_wptrunner/product.py",
+          "sha256": "22a00f35cfca920d9f02fef8915867fb09b94ee8d03c59eb1740d636b1d709ed"
+        },
+        {
+          "path": "scripts/wpt_manual_procedures.py",
+          "sha256": "aad3ac54a8b7d1aa9809797c864b4767d2d5413403a58525183fb00a02f7d526"
+        },
+        {
+          "path": "scripts/wpt_assessment_packet.py",
+          "sha256": "fe7f02da9a88440684ffcf3a0c4e9fbc8e358ffc6a2e5b94a221cffd3c6c589f"
+        },
+        {
+          "path": "crates/oryn-render-core/src/print.rs",
+          "sha256": "d48720e6ebeeba73dec2726bf579a8f5f1602f583e39fba416ad1a30096bac45"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "tools/wptrunner-oryn/tests/test_product.py",
+          "sha256": "85fbb2a1046b85c7e1cb10e23b43ef24bd0a3fd4aba356acd13a0660766dcbfe"
+        },
+        {
+          "path": "scripts/tests/test_wpt_manual_procedures.py",
+          "sha256": "d83b731b9feff3c6178915b87f5f46abae68f7ffaab0601f07c7acb10c27094c"
+        },
+        {
+          "path": "scripts/tests/test_wpt_assessment_packet.py",
+          "sha256": "980698f2516ba20a152e782beafa6179a66db077119a4d56d3ca8c213c5b2dda"
+        },
+        {
+          "path": "crates/oryn-render-core/src/print.rs",
+          "sha256": "d48720e6ebeeba73dec2726bf579a8f5f1602f583e39fba416ad1a30096bac45"
+        }
+      ],
+      "caller_evidence": "Official executor types and actual native print/paint feed results; manual/AT assessment records cannot be replaced with a screenshot API flag.",
+      "package_review": "docs/oryn2/G-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "G-06": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/wpt_source_matrix.py",
+          "sha256": "817fefc83584a0912578ccd1cb1f75fd7aa1346bd8e8684a62ee6a404f58fdd6"
+        },
+        {
+          "path": "scripts/wpt_operation_contract.py",
+          "sha256": "bb639743a57bde4b6fc5dbd222d5faa575720d3e2187072b7a8f170c0fa5848e"
+        },
+        {
+          "path": "scripts/wpt_canary_qualification.py",
+          "sha256": "3c2b76c6098d32ae09061041fc095921ed238eca07b7c093260978861a897062"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/tests/test_wpt_source_matrix.py",
+          "sha256": "a9d80e14d0eac1f9a001f737135886452bde3e881863ae34f83800cefa22ffb4"
+        },
+        {
+          "path": "scripts/tests/test_wpt_operation_contract.py",
+          "sha256": "f278fffc74c37f167834aec6c45e7b9ab0e2ecc6a0076bac89a92c2eb184811f"
+        },
+        {
+          "path": "scripts/tests/test_wpt_canary_qualification.py",
+          "sha256": "404d5c5d46e679bfcf542b4bca392d9c93d0e0e36035ffffaea794bd725a881c"
+        }
+      ],
+      "caller_evidence": "Helpers, subtests, operation occurrences and failing controls stay source-bound; malformed or incomplete executor output cannot become qualified pass.",
+      "package_review": "docs/oryn2/G-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "G-07": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/wpt_native_controls.py",
+          "sha256": "fa084111059020fd1d39ad5ca70f56ed35d66b432aafbf2332bd5c504e5c8097"
+        },
+        {
+          "path": "scripts/wpt_execution_evidence.py",
+          "sha256": "69fb508c3dbd9283a13f7aba63958af8f548b0ee7fa00bc5da2e9153abf1213a"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/tests/test_wpt_native_controls.py",
+          "sha256": "df45ec9028db66c7c7c376951b34cdc44dd22bdbb2a07aaa5fc133acb26ff041"
+        },
+        {
+          "path": "scripts/tests/test_wpt_reference_lock.py",
+          "sha256": "83d34a5dc233bc975867b5a9ba8ed1b9ace9742eb32c13285117c25d4ec3638b"
+        },
+        {
+          "path": "scripts/tests/test_wpt_execution_evidence.py",
+          "sha256": "15c89cc951a0d9a5e08ab3f9200a254bc7e1771b135972ffc80b2f3bc214e89a"
+        }
+      ],
+      "caller_evidence": "Native/reference preflight and original report custody bind focus/trust/profile prerequisites; bypass or raw pass is not certificate qualification.",
+      "package_review": "docs/oryn2/G-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "G-08": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/run-upstream-wpt.py",
+          "sha256": "040f23268d598a72a4cc5cda56d6414562ec22d54f9fe50f2266e08251479dd7"
+        },
+        {
+          "path": "scripts/run-full-wpt-baseline.py",
+          "sha256": "043a0a47dbfc5bee3efa28b4d11350103ca0080eeb57c858778ca98387e06b3f"
+        },
+        {
+          "path": "scripts/wpt_evidence.py",
+          "sha256": "34727691171a9705b1be6643a0d9ad52413e74b2470c68d6ad865b1399d95d40"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/tests/test_upstream_wpt_runner.py",
+          "sha256": "0a6d33792a7ce28d10634be3b1d47212e30e9f0ac783dda76faa2639fbc3c2fc"
+        },
+        {
+          "path": "scripts/tests/test_wpt_evidence.py",
+          "sha256": "8ccef9aec5a5e5c8843ce4798aa7ea10d38183909e676037bdb4dd452a15b256"
+        }
+      ],
+      "caller_evidence": "Historical runner/evidence remain separately attributed from new official executor; parity and new baseline are deferred execution.",
+      "package_review": "docs/oryn2/G-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "R-01": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/host.rs",
+          "sha256": "ce58a4bd1d2590f2b5d432410b44d73fc8ac0b67cacd9c982a0c32d53d105359"
+        },
+        {
+          "path": "crates/oryn-native/src/initial_document_cleanup.rs",
+          "sha256": "b7b0ee792e57b8358876b5f86b7452ac5353d23c9cd1f86e2bab00e575e78c1d"
+        },
+        {
+          "path": "crates/oryn-dom/src/frame_policy.rs",
+          "sha256": "79b38aca6859d791664b243fa7192449899848515a653073d962dbbf1e1480a8"
+        },
+        {
+          "path": "vendor/v8-api/LICENSE",
+          "sha256": "6ab33af8774a0f396ee3aeeb761e3229057682d6f9fa7f572e390c2cb3a6e509"
+        },
+        {
+          "path": "vendor/v8-api/README.md",
+          "sha256": "4af2adf5aaf91826d597d4c545ec9f957815656fb5af68d2ee875a86504df2aa"
+        },
+        {
+          "path": "vendor/v8-api/manifest.json",
+          "sha256": "64446cc1a6a0d3dcdaf1751553f1ca19b51dcdb067cd2e487a24ab5b08c5f15b"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-function.h",
+          "sha256": "9989f4e0e94400326afe09da4d253a9646ed1c2cf80a98ef705dea4d0cd41783"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-array-buffer.h",
+          "sha256": "b6d1a000aa93e5783be36b300bcfc44bf459163d246b8be13a0742c4aea969f8"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-platform.h",
+          "sha256": "ddc3e92fba552696df032e52a4dd6fb11aba2e230bd21c5d489a849ae5edcdd5"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-persistent-handle.h",
+          "sha256": "f036655e5078bcb9730f11f8b52adf0ebf0f1e96634a00bd48cf1677a912b912"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-snapshot.h",
+          "sha256": "4228f27fc7794598efdc0d465268d70707212155b12a7c347d5fd8a0c137c779"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-version.h",
+          "sha256": "0cd3c8840484af7a01ad49ac8d0d4e8eee998acceb51c47307af66fdafc3c39b"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-handle-base.h",
+          "sha256": "a39ce35b295ac1225e6842ab5f3a422384a5c5dbe13b5c5f384a245252670b14"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-microtask.h",
+          "sha256": "4e210e8f6a4227c4d14cae96e1cc3be722d825f0d682f5196ecda3bb45aa6647"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-template.h",
+          "sha256": "4f5f13f1951227f009c4473755845cb7d685af41640d4cc6fd469a535dee69a6"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-value.h",
+          "sha256": "4bdb297358d309e003ea09279f2cf0e94024dbdafdd34a106513344b70d1685c"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-embedder-state-scope.h",
+          "sha256": "8ac9da5d0502946981ecadec567a9e6658bb97591da5e585a3247cc7ccf924c3"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-container.h",
+          "sha256": "30c8fce13776a8b02e0268f55ba604a0cc359f28b91bcda84c07e7d87343e1e6"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-callbacks.h",
+          "sha256": "b47bced541feaefdb48b3c3b7eb68e87c359a66560333f60e34fe2b502acbf25"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-value-serializer.h",
+          "sha256": "bc1d30d03ee47dd548b3ce30609a66fc47d252b3454603dffa28a3a9c1dd1cb6"
+        },
+        {
+          "path": "vendor/v8-api/include/v8.h",
+          "sha256": "e27a005daa45f342845ffb9b33409686c380b1d5a97f46f3ab4749517a213d25"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-traced-handle.h",
+          "sha256": "f46f46662b656f0073ac6ad6f5128df8439bcd373faa5077b3ad81c9b6cb93ee"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-message.h",
+          "sha256": "232afe4eeb3593c97780965ea34639782e2f63e4368db061ab0428ef07bbaedc"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-script.h",
+          "sha256": "cb347ac69d0deac63d940a9d17125f0c19dab0297513054faa5ca1bedbfe4ec0"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-primitive.h",
+          "sha256": "217bbf4d38a203a07dfd53524e1ed25b16010dd522ad5ee8edd17493599d1729"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-microtask-queue.h",
+          "sha256": "33760935800fd5a8901ba9f24a94035886c272070b7a49e0b372abb333d3cee1"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-memory-span.h",
+          "sha256": "1e1d220bd7624875a3b1b7bb945a3e082536a93354680c6f6017f7d0519e8e0b"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-function-callback.h",
+          "sha256": "f80b93cac70ee5587caa1840b0a1e1eb8cbbd9d7a57aec6adfbd3c504eedb689"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-embedder-heap.h",
+          "sha256": "94317e3b040d721f21867d5a5333fa5aa2850d0228df4c2301ac93070fa1aa61"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-maybe.h",
+          "sha256": "1b7bc542c626b7da0354ae36ec4d223290c429b93485b64c0f1ba0d9ccd24e15"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-context.h",
+          "sha256": "45a61d9daa847dd3a0774baea45e16595ad7b32b10c6b1eb79a9f411c4073c72"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-json.h",
+          "sha256": "be6f2e7b3edd001801cbc75cc87653005024c8030c13852c1694d71b20276b5b"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-debug.h",
+          "sha256": "aa166878de9eabb8bcc0ed66ed22df122bd2a4b0acf3784c7e84535773ea4bfe"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-initialization.h",
+          "sha256": "a01473283e44c91f3fa8cb4e39f385d45cf60429ae98bd36455863d6b415309a"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-exception.h",
+          "sha256": "79437751a7eae34557bcbb7f0f9a1f6f4f3498811d8d97243fa84908294ce208"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-promise.h",
+          "sha256": "6c17e96e8b9bc8469fee30feb0132dd66eafb7d146e9723703811c5b8a2798d7"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-wasm.h",
+          "sha256": "91eb6575c03d249bb5201474cf73c1e7924d560f08c5904e82e6ce309a59d521"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-source-location.h",
+          "sha256": "0bab350f3e007565d2812444982b56a35f3ac06a6755816be85c87a5cd26bf00"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-regexp.h",
+          "sha256": "8bdbcbb83463c77495973fe30294273d00a5c5cff90e8428415f5d2f034d0a8a"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-primitive-object.h",
+          "sha256": "04089a747edeae60296d674b1358e4ac524ebe30554e0bc4de403143dc2fa589"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-statistics.h",
+          "sha256": "1c3fffc15ca553e462b393131defff8314b86ea4d93b874e5793bbe0e95b2141"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-data.h",
+          "sha256": "76ebd7d3820d867df031e8a2c9c8301da4036d2e558b4eba3543db6ce87463fc"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-typed-array.h",
+          "sha256": "4af778470c542677ea099ca334a042c448ce3b9f4d3b96a7fa6d599492651c64"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-date.h",
+          "sha256": "bcb25002ce911e826fe66fc8f788d3c70b17d77713cce8a43851c3fcf1390130"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-sandbox.h",
+          "sha256": "e6e5f21d51ee6468c511a3f116fa9188fefa4ddcdf537c2b82bb345165e8c6e6"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-locker.h",
+          "sha256": "a3f67133e57b85f46482e312ec1400ba00cf831fe4fe4556872d270b000a72e9"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-object.h",
+          "sha256": "36056e04a27d8be681b825379b59462e1bdb56bf3bb1cbe47b9df282d31a7f33"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-external.h",
+          "sha256": "95311d55015ceee5291359af5109706048f3daabd4b50a5305131eb1df545569"
+        },
+        {
+          "path": "vendor/v8-api/include/v8config.h",
+          "sha256": "20a23262e61f3db2b893e69368f5f5d6b4b1c27ea7673026f3e4959a0c292273"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-local-handle.h",
+          "sha256": "8c4d900245fe55f6c78630032d2e4f90a2656418d7ae3ffc0025e1452cbb92a7"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-weak-callback-info.h",
+          "sha256": "ffe109dcb5b0364c7d0653470c845f01c10573e6a5ab369f4dc7a0ccedc689d8"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-unwinder.h",
+          "sha256": "eabdc3e4f5953e2d81a54fa2059f2a545a672bcd36d9d6d2e0a34848323e1d29"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-extension.h",
+          "sha256": "f4544e1de79a8bc29f09271f6de3d5d7be415c23bae8205f23a5858e7bd9c9f4"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-internal.h",
+          "sha256": "689e89df41384af2781780324e8e847da9964b9a71ad7b0847d83927d52c2c92"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-proxy.h",
+          "sha256": "0883885e2477071a1176151443b38754edde22b04a0a05d05fe3764ae44622b5"
+        },
+        {
+          "path": "vendor/v8-api/include/v8-isolate.h",
+          "sha256": "8eb6719a747123f97b4cf2f9071300dbd8290c91f82b8cfacc38cf148ba8d0cb"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/name-provider.h",
+          "sha256": "6eb0507058fa913e5f7d16e9057cf7cbc1749af9c1b83ad3a8d878628c2640d4"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/type-traits.h",
+          "sha256": "493513a2ef75e6e7c80ae3f425f7b88966b020e9a7068c464179b49cd730c48f"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/garbage-collected.h",
+          "sha256": "d8f031f6fc0b0fea3a32c5f9cfe2e423246898f5985316856c25d5c37b6f3b82"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/trace-trait.h",
+          "sha256": "ed7b74bcb3e5a706f511d27aae21d37c31605e42223339ae66596c910f547f9a"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/common.h",
+          "sha256": "3c64e8f6eb258720401ec5079869c2148213f72f6d4d4df6df89d546b07a2c1a"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/macros.h",
+          "sha256": "c9b0848f9493424ddea9c1ebf968c9ffefe0ebe0998c0acbf1d22488cb70007b"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/platform.h",
+          "sha256": "8ae503ba7bd7ea8e73c80fc8b92af71b6d8a272db349351f8e814300a33d581f"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/source-location.h",
+          "sha256": "aadb7df97fbe5320787b16ae01d0de46f95054846908406b3ec72914b48942fa"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/internal/api-constants.h",
+          "sha256": "89e1a1f72924384af58eec1d3a7937aaec17773490f47b135d54f2daaa8a8260"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/internal/conditional-stack-allocated.h",
+          "sha256": "bdf7c12a28ab8042f1144cc2012f7427e6c425361132f2daad7d9aa3b46bc746"
+        },
+        {
+          "path": "vendor/v8-api/include/cppgc/internal/compiler-specific.h",
+          "sha256": "b2d551452c8ac212b56712341d3c5c4238a56c2aed77e646e9a8580fcc2ce809"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_context_bridge.cc",
+          "sha256": "0937a9b8c3b8998422176cb895519dd7a95041fb1817c5c32e7cd0826084dbe6"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_shared_wait_bridge.cc",
+          "sha256": "18a9827e89c9963112f304080d8c556d699235d2e15941799017f45254d6dc63"
+        },
+        {
+          "path": "patches/v8/frame-context-reattachment.patch",
+          "sha256": "c323777828940c5b6b3b44034d60742ce2f97b45328e19bab6320096e8cedb27"
+        },
+        {
+          "path": "patches/v8/frame-context-reattachment.json",
+          "sha256": "1e74cad7cd7df0e75a6d19e10f933a53174af77c8d53b3e3798e18fbd6e2441c"
+        },
+        {
+          "path": "patches/v8/html-constructor-deferred-prototype.json",
+          "sha256": "d43bf93a7f1b89f18694de048c055268dd40b0c484523f835e23c539a6b18e4d"
+        },
+        {
+          "path": "crates/oryn-native/build.rs",
+          "sha256": "44bb9645b805a97bd5b9b33846530d2e5906cb3b534d34dea08044921890761e"
+        },
+        {
+          "path": "crates/oryn-native/assets/external-references-v1.json",
+          "sha256": "084224781f47b4b4b2b765a5d37aaf3b32411cda8e8a18cbd9d1f64e205b52f4"
+        },
+        {
+          "path": "scripts/install-v8-regression-sources.py",
+          "sha256": "b7719a53d01f880862e8c2bb679952c4e21238ae56478f9e3315b9c4f3b6f200"
+        },
+        {
+          "path": "crates/oryn-js/build.rs",
+          "sha256": "1a61afe46dfbc2df06709e4fe0ba2c76f4a291d18d9153dc89af71f27499a20e"
+        },
+        {
+          "path": "crates/oryn-js/v8_bridge_abi.rs",
+          "sha256": "81b6995c93ade447b62d31124a3ab8e3cbe6c9597efb99dc618dc23e03453a8b"
+        },
+        {
+          "path": "scripts/build-v8-runtime-profile.sh",
+          "sha256": "439260a0626ff2110c6a566ad3f7d835732de14ca6d36a3d4041c14a4a9a7ba7"
+        },
+        {
+          "path": "scripts/prepare-v8-bridge-abi.py",
+          "sha256": "d8b8544099148538cf06a3da1836299853d5c3f0439c5c964f2081712dfdeb3b"
+        },
+        {
+          "path": "scripts/validate-v8-runtime-profile.py",
+          "sha256": "78b97c181aae1d38cafa5a2394bdfb3a1c081d592db32b76b461945e1395fd90"
+        },
+        {
+          "path": "crates/oryn-native/src/runtime.rs",
+          "sha256": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2"
+        },
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        },
+        {
+          "path": "crates/oryn-native/src/page_actor_turn.rs",
+          "sha256": "ca848f4375e7ea4f08163a03aa0c4e78af73f24efcf6525eef207e820b0705dc"
+        },
+        {
+          "path": "crates/oryn-native/src/worker.rs",
+          "sha256": "d86b8da04af613d4bb5e553ff09d9c500cb2f85db1726a209253e03576825050"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/realm_endpoint_tests.rs",
+          "sha256": "a04e85469ab990ec8aa221734e8346b564789e72ec7ae243e2da881a81d334db"
+        },
+        {
+          "path": "crates/oryn-native/src/host.rs",
+          "sha256": "ce58a4bd1d2590f2b5d432410b44d73fc8ac0b67cacd9c982a0c32d53d105359"
+        },
+        {
+          "path": "scripts/test_native_v8_fingerprint.py",
+          "sha256": "efea79140759176897b9bc6bb3b2a8d87d5e92d4c3adab6ce901f02c6ff354e2"
+        },
+        {
+          "path": "patches/v8/tests/cctest-zero-size-api-span.json",
+          "sha256": "8c5dbca11fd649406eac0912e42b38eba3e7fee6ad14e5fa6df322a3dfc571b2"
+        },
+        {
+          "path": "patches/v8/tests/cctest-zero-size-api-span.patch",
+          "sha256": "c960e7f35ac7cfc31a0bc72f9792d05a697c6bcc760577699509aab246a19b87"
+        },
+        {
+          "path": "patches/v8/tests/cctest-zero-size-span.json",
+          "sha256": "c356620e8daba1869cbb4c648b39b121fcb87990a834d6229bb427096977b5db"
+        },
+        {
+          "path": "patches/v8/tests/cctest-zero-size-span.patch",
+          "sha256": "7073df8e6036e5f8bf29e673aeb759ba0b0f0f272efab00df8ef230e7bbe4a54"
+        },
+        {
+          "path": "patches/v8/tests/manifest.json",
+          "sha256": "f96266568b85991c6160a555cb757c4fadb404535f62a51c9579e3b474ccc6e9"
+        },
+        {
+          "path": "patches/v8/tests/test-oryn-frame-context-reattachment.cc",
+          "sha256": "460667af1cfcedee31011aa3e93a77be3fbed1c6ef2b91ed60724252723fb306"
+        },
+        {
+          "path": "patches/v8/tests/test-oryn-html-constructor.cc",
+          "sha256": "37abb629722c57ecfb055da42bcdd1fe8d76568cd4823564453997dc519f4e00"
+        },
+        {
+          "path": "patches/v8/tests/test-oryn-shared-memory-growth.cc",
+          "sha256": "39b178c1e7116c2d4955e409c10fedb37552f2815155da455c5a666c182feb8e"
+        },
+        {
+          "path": "scripts/test_install_v8_regression_sources.py",
+          "sha256": "a3943f620eff5785009cac29fc61ab7f689af9c5d7bf522a85435a6455066e27"
+        },
+        {
+          "path": "scripts/test_prepare_v8_bridge_abi.py",
+          "sha256": "91bf89692ec2fcacf900603e4e79e1ef8281ca422d798316595fa724ad0dfb9b"
+        },
+        {
+          "path": "scripts/test_validate_v8_runtime_profile.py",
+          "sha256": "5e05e66611ed3041fd1b589334fa3b684ff7cd3ff22cf536fbbd4401336a9c87"
+        },
+        {
+          "path": "crates/oryn-native/tests/window_target_names.rs",
+          "sha256": "8fcb926b5c218d4161f1b186e5199d341f6bc57a8d50db79cc15ca0cdbd2f849"
+        },
+        {
+          "path": "crates/oryn-native/src/runtime.rs",
+          "sha256": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2"
+        },
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        },
+        {
+          "path": "crates/oryn-native/src/page_actor_turn.rs",
+          "sha256": "ca848f4375e7ea4f08163a03aa0c4e78af73f24efcf6525eef207e820b0705dc"
+        },
+        {
+          "path": "crates/oryn-native/src/worker.rs",
+          "sha256": "d86b8da04af613d4bb5e553ff09d9c500cb2f85db1726a209253e03576825050"
+        }
+      ],
+      "caller_evidence": "Shared native realm creation handles parser/script initial frames with inherited authority and insertion-time identity; source map distinguishes initial from committed documents.",
+      "package_review": "docs/oryn2/PARALLEL-NAVIGATION-2026-09-18.md"
+    },
+    "R-02": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-js/src/v8_bindings/window_proxy.rs",
+          "sha256": "6ee41366e8b17eef82fc4a561ec41a9b6ed0714a8d97ca95d6c7de7f0d7e296d"
+        },
+        {
+          "path": "crates/oryn-native/src/window_open_v8.rs",
+          "sha256": "eb50f1169d9ad87d5504718a2ea9ebd1654e5e962942b35b4bdac122fd01d76f"
+        },
+        {
+          "path": "crates/oryn-native/src/remote_window_v8.rs",
+          "sha256": "f4b2eeec345155421de8d7e2c706591c39ff6bbbfb001661476ddbf305bbadad"
+        },
+        {
+          "path": "crates/oryn-js/src/accessibility.rs",
+          "sha256": "b8fa565bd0fb6466d1229eb30c23bc23d3c545c3bd69dcf6256ab2ac43ab141b"
+        },
+        {
+          "path": "crates/oryn-native/Cargo.toml",
+          "sha256": "1ecd519105439e0ec576ef39ffa503fc1541dd4c5cf533671c9b52f931970ae1"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_runtime_v8.rs",
+          "sha256": "b150caeecbe24c4442156d835ca362001619db654103b83b31b35b0e2d7f3e73"
+        },
+        {
+          "path": "crates/oryn-native/src/dynamic_import_v8.rs",
+          "sha256": "01827a345dff39c8fbb50816f92b1ec414519a47a74fd12f4580c3aa7393196b"
+        },
+        {
+          "path": "crates/oryn-native/src/external_template_transport.rs",
+          "sha256": "0d9d1ffc0788fa2f1b2da0273aef10bd682665c01f46908f310dbd3751294a40"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_paint_resources.rs",
+          "sha256": "d59af97b7347b7e541ee286635afa6a41e920a016c3bf7df8cd6ac8753a09786"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_response_stream.rs",
+          "sha256": "4385ee460e6644e7e1175627a42c849bb13c111aac3ea48414630ca0a45cbcea"
+        },
+        {
+          "path": "crates/oryn-native/src/general_preload.rs",
+          "sha256": "cf048e5eb8db45f1315fc354c002ebeefef5201e5e753ad43eb0a20a063113d7"
+        },
+        {
+          "path": "crates/oryn-native/src/lib.rs",
+          "sha256": "d1ff8b4ce892a9bb95cffd8addf19138aff31bf2af03b4ac3aa2fc9491caa3e9"
+        },
+        {
+          "path": "crates/oryn-native/src/module_preload.rs",
+          "sha256": "5080870b09b0c860e239b945c586f319942b78338b04e55816ac7021500e982f"
+        },
+        {
+          "path": "crates/oryn-native/src/ordinary_keepalive.rs",
+          "sha256": "cf15df2da79097e061f9d409246cc70479ba63298c2442a6c868075564a35bd3"
+        },
+        {
+          "path": "crates/oryn-native/src/remote_message_v8.rs",
+          "sha256": "f2108ff0c18424299fef39aeb05c1af5c33a76f1ead33436328509478d2ed5c4"
+        },
+        {
+          "path": "crates/oryn-native/src/remote_window_projection.rs",
+          "sha256": "6d8b2fec793e6ddaabfe77b3e52b231ded162716425586ea432b60ef58ee0eb7"
+        },
+        {
+          "path": "crates/oryn-native/src/script_close_custody.rs",
+          "sha256": "a9ea4827ff51fe3a3b399660e748c69042a1303116ed8b0ce4cf54db34cb7b67"
+        },
+        {
+          "path": "crates/oryn-native/src/worker_service.rs",
+          "sha256": "217a749d4b285cc0a5ce215b75f528018204cb370eb3cac374c168931277ac6c"
+        },
+        {
+          "path": "docs/oryn2/CORE-AND-OIL-GENERATION-CHECKLIST-2026-09-15.md",
+          "sha256": "b55262a72138efabf12681f6776638b58e7f8f3ab18a7cd518231f45b0778baf"
+        },
+        {
+          "path": "Cargo.lock",
+          "sha256": "cd15bcf03c5be815e2d2bfcd3bb96ee828e30ecb60ae45245350f66761e5cbfb"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/host.rs",
+          "sha256": "ce58a4bd1d2590f2b5d432410b44d73fc8ac0b67cacd9c982a0c32d53d105359"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_auxiliary_regressions.rs",
+          "sha256": "2d999bb43e4009647a44ca20638b92efcb4e7c52d298d79e36fcc25bf1b5a785"
+        },
+        {
+          "path": "crates/oryn-native/src/animation_integration_tests.rs",
+          "sha256": "da3f336e7ebaea87bdbae1d68e0a9b72d59098ac0a2d8159be8ca0ca094d81f9"
+        },
+        {
+          "path": "crates/oryn-native/src/media_capture.rs",
+          "sha256": "67adca6474fe01ee55f96377ade7720076e1443e9e3c8f1bb7da373c68551213"
+        },
+        {
+          "path": "crates/oryn-native/src/media_capture/url_asset.rs",
+          "sha256": "59e3255196c41b7346a4ef24a37c3ad768569a1ec5515e4d0968ac4e12bb68a2"
+        },
+        {
+          "path": "crates/oryn-native/src/navigation_actor.rs",
+          "sha256": "58e5529a90a8e52c8604a7155ed303fc017508f51d8ed73a7389ec24091df090"
+        },
+        {
+          "path": "crates/oryn-native/src/parser_continuation_tests.rs",
+          "sha256": "d2d9c7f302a534441905728c50006276517ec5e93775f70a6e789a40e1466516"
+        },
+        {
+          "path": "crates/oryn-native/src/preload_cache.rs",
+          "sha256": "045eb8a72ef560372f38691a225584169585187cb63d32ad5753b8e2b0d2bbdd"
+        },
+        {
+          "path": "crates/oryn-native/src/prepared_resource_preload.rs",
+          "sha256": "63ce18f2d8c1838b74fe6a8fc52df36d6d6ee6e20fdbae53b40d17fd50122cc2"
+        },
+        {
+          "path": "crates/oryn-native/src/prerender_blank_actor.rs",
+          "sha256": "eb2591ac44e3438413f718b1af15d6084770d0d30cb434855c51ffafdc626862"
+        },
+        {
+          "path": "crates/oryn-native/src/prerender_load.rs",
+          "sha256": "617ff090ea909eba3ce227852bb21357369bd619108a120424d2cb5735720a70"
+        },
+        {
+          "path": "crates/oryn-native/src/resource_job_scope.rs",
+          "sha256": "81226cef05500476b0c91cecb6e58849511cc1cb3ab60912fda106253a98ea1f"
+        },
+        {
+          "path": "crates/oryn-native/src/resource_timing_scope.rs",
+          "sha256": "bb8c93f44f26a00c22639fcb21b619280a71cad985ef1bfab9f1ba24c90a750a"
+        },
+        {
+          "path": "crates/oryn-native/src/service_stream_custody.rs",
+          "sha256": "f280d2fa01a161d5ded7b3d8b89620d1f2c3b5d9e714cb1cb6b2e23b4edb931d"
+        },
+        {
+          "path": "crates/oryn-native/tests/window_target_names.rs",
+          "sha256": "8fcb926b5c218d4161f1b186e5199d341f6bc57a8d50db79cc15ca0cdbd2f849"
+        }
+      ],
+      "caller_evidence": "Native WindowProxy routing and target/name actor ownership replace authored proxy/open factories; same-origin versus permitted remote operations retain native checks.",
+      "package_review": "docs/oryn2/PARALLEL-NAVIGATION-2026-09-18.md"
+    },
+    "R-03": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/host.rs",
+          "sha256": "ce58a4bd1d2590f2b5d432410b44d73fc8ac0b67cacd9c982a0c32d53d105359"
+        },
+        {
+          "path": "crates/oryn-native/src/navigation_runtime.rs",
+          "sha256": "bf9eb960c08f5b4a8e7866f536673a91a44b1b3968ea252762ab30b389b0434b"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_auxiliary_root_v8.rs",
+          "sha256": "22f0eeb97e41f48a22b575449fa553b2ca7c820b7ec2e0a5d02ed3703d6cd176"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/realm_endpoint_tests.rs",
+          "sha256": "a04e85469ab990ec8aa221734e8346b564789e72ec7ae243e2da881a81d334db"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_auxiliary_regressions.rs",
+          "sha256": "2d999bb43e4009647a44ca20638b92efcb4e7c52d298d79e36fcc25bf1b5a785"
+        }
+      ],
+      "caller_evidence": "Initial Document reuse and later proxy rebinding preserve retained identities; auxiliary replacement source remains in final owner reconciliation.",
+      "package_review": "docs/oryn2/PARALLEL-NAVIGATION-2026-09-18.md"
+    },
+    "R-04": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/navigation_runtime.rs",
+          "sha256": "bf9eb960c08f5b4a8e7866f536673a91a44b1b3968ea252762ab30b389b0434b"
+        },
+        {
+          "path": "crates/oryn-native/src/navigation_target_receipt.rs",
+          "sha256": "7f87c15953930fe4bdc096ad5bf5a3d0799e8ffffb693ff1a71175c1f272095d"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_navigation_history.rs",
+          "sha256": "8042c4dec4ce77dead1da41687f71179e1dc1c66b3f0eabc3837040f5866cb98"
+        },
+        {
+          "path": "crates/oryn-native/src/prerender_blank.rs",
+          "sha256": "42fe4e7ad60c1ff24567ec6a9ec09de866f18f452d3d8cf0dfafe684d4ff296e"
+        },
+        {
+          "path": "crates/oryn-native/src/prerender_blank_activation.rs",
+          "sha256": "460692810b12c524d9aa310fb60a81953a2bf677b8e5e6a8a8df40ee148cde8f"
+        },
+        {
+          "path": "crates/oryn-native/src/root_departure.rs",
+          "sha256": "dd363730833647b9142481e8d0b9726c8676a5167a9c5d58c9831423870a0ad3"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_departure.rs",
+          "sha256": "02be0efc05a98e54f11cbc58ccbe2b1e7c9298c2cfbb64652e84cafaab8cadb5"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/speculation_registry.rs",
+          "sha256": "d712e55d800329c801bd6efe7f7ebde1afc12d0bef063a5497ac17f1a86b4f3f"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings.rs",
+          "sha256": "21f9e281e6c549ffc5b06c4361253264dec1654d8f64ebf25b084a7869c9019b"
+        },
+        {
+          "path": "crates/oryn-native/src/page_actor_turn.rs",
+          "sha256": "ca848f4375e7ea4f08163a03aa0c4e78af73f24efcf6525eef207e820b0705dc"
+        },
+        {
+          "path": "crates/oryn-native/src/prerender_commit.rs",
+          "sha256": "b480efbb0151b3188f9429eac251ede1a2fd33e7fda4697a5a161f0c742f2dff"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/navigation_target_receipt.rs",
+          "sha256": "7f87c15953930fe4bdc096ad5bf5a3d0799e8ffffb693ff1a71175c1f272095d"
+        },
+        {
+          "path": "crates/oryn-native/src/runtime.rs",
+          "sha256": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_auxiliary_regressions.rs",
+          "sha256": "2d999bb43e4009647a44ca20638b92efcb4e7c52d298d79e36fcc25bf1b5a785"
+        },
+        {
+          "path": "crates/oryn-native/src/prerender_blank_activation.rs",
+          "sha256": "460692810b12c524d9aa310fb60a81953a2bf677b8e5e6a8a8df40ee148cde8f"
+        },
+        {
+          "path": "crates/oryn-native/src/root_departure.rs",
+          "sha256": "dd363730833647b9142481e8d0b9726c8676a5167a9c5d58c9831423870a0ad3"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_departure.rs",
+          "sha256": "02be0efc05a98e54f11cbc58ccbe2b1e7c9298c2cfbb64652e84cafaab8cadb5"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/speculation_registry.rs",
+          "sha256": "d712e55d800329c801bd6efe7f7ebde1afc12d0bef063a5497ac17f1a86b4f3f"
+        },
+        {
+          "path": "crates/oryn-native/src/page_actor_turn.rs",
+          "sha256": "ca848f4375e7ea4f08163a03aa0c4e78af73f24efcf6525eef207e820b0705dc"
+        },
+        {
+          "path": "crates/oryn-native/src/prerender_commit.rs",
+          "sha256": "b480efbb0151b3188f9429eac251ede1a2fd33e7fda4697a5a161f0c742f2dff"
+        }
+      ],
+      "caller_evidence": "Selected-target/actor receipts own navigation, blank/prerender claim and ACK; claimed candidates never fall back to duplicate ordinary navigation. Native HTMLScriptElement.supports now recognizes speculationrules, with feature-gated candidate registration and token/conversion regression source.",
+      "package_review": "docs/oryn2/PARALLEL-NAVIGATION-2026-09-18.md"
+    },
+    "R-05": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/script_close_runner.rs",
+          "sha256": "67119a316d6e045dc49a7be2b34d3ab8b7360056d845d221c529ff736f5d26f8"
+        },
+        {
+          "path": "crates/oryn-native/src/script_close_preparation_v8.rs",
+          "sha256": "5031a7244292e0daf1fdbba82201ac4c15e4a8705e3a0375a9410304aa6b359b"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_script_close_v8.rs",
+          "sha256": "ae569797f1de37075c4cf57a0ee4712b15210ba10b856e6e99bf6ec6c2a51112"
+        },
+        {
+          "path": "crates/oryn-js/src/navigation_api.rs",
+          "sha256": "3d1347060288d5a82e9b1b1ffc0584e69ae6252505141e7f8b6b18e0a6fe2899"
+        },
+        {
+          "path": "crates/oryn-native/src/script_close_request.rs",
+          "sha256": "a8a233ba00fa5b487deaf9c27cab37675e6baac28779f11df58be0340dd355d0"
+        },
+        {
+          "path": "crates/oryn-native/src/script_close_preparation.rs",
+          "sha256": "657f935925eababff820ac58fb31ba1a9633ec075133fc5fa9e2b824c65ee765"
+        },
+        {
+          "path": "crates/oryn-native/src/script_close_state.rs",
+          "sha256": "81f4d1e2f18e80c401fa122b9fef0cf23662b21f8c656bf5390873bf3976f256"
+        },
+        {
+          "path": "crates/oryn-native/src/script_close_history_projection.rs",
+          "sha256": "162be4be626ef6a5e37e1d00782ff050b271fadabd17c40d1bf8d54a0868d53b"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/script_close_runner.rs",
+          "sha256": "67119a316d6e045dc49a7be2b34d3ab8b7360056d845d221c529ff736f5d26f8"
+        },
+        {
+          "path": "crates/oryn-js/src/navigation_api.rs",
+          "sha256": "3d1347060288d5a82e9b1b1ffc0584e69ae6252505141e7f8b6b18e0a6fe2899"
+        },
+        {
+          "path": "crates/oryn-native/src/script_close_preparation_v8.rs",
+          "sha256": "5031a7244292e0daf1fdbba82201ac4c15e4a8705e3a0375a9410304aa6b359b"
+        },
+        {
+          "path": "crates/oryn-native/src/script_close_preparation.rs",
+          "sha256": "657f935925eababff820ac58fb31ba1a9633ec075133fc5fa9e2b824c65ee765"
+        },
+        {
+          "path": "crates/oryn-native/src/script_close_state.rs",
+          "sha256": "81f4d1e2f18e80c401fa122b9fef0cf23662b21f8c656bf5390873bf3976f256"
+        },
+        {
+          "path": "crates/oryn-native/src/script_close_history_projection.rs",
+          "sha256": "162be4be626ef6a5e37e1d00782ff050b271fadabd17c40d1bf8d54a0868d53b"
+        }
+      ],
+      "caller_evidence": "Target-owned close departure retains current Document, beforeunload/pagehide/visibility/unload progress and physical ACK rather than replaying source callbacks. Public admission authenticates incumbent Creator/group; retained history publication supplies synchronous eligibility. Admission identity remains replay metadata while queued departure selects the active Document. Native visibility ordering and selected-parent destructive-write guards have direct regression sources; execution is pending.",
+      "package_review": "docs/oryn2/PARALLEL-NAVIGATION-2026-09-18.md"
+    },
+    "R-06": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/frame_script_preparation.rs",
+          "sha256": "f44e3fa47f46561f15e3eb9239c1349e7048e5b0e8b2323780a556bcef0f2019"
+        },
+        {
+          "path": "crates/oryn-native/src/document_lifecycle_publication.rs",
+          "sha256": "fded8b2052e22f799e59d0af6785cf8ebb3fe9aa18fb9d0d4887eeeae0b03fe6"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/html_stream.rs",
+          "sha256": "c86cdc167cc72519b96d02ace99692d8a984cbaeb38917a76aad10923afa4e9e"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_frame_resource.rs",
+          "sha256": "950c16fd458d468c077943de52f899d6bfe3e4a3b6da203b33e153f08225d4db"
+        },
+        {
+          "path": "crates/oryn-native/src/navigation_timing_custody.rs",
+          "sha256": "cb94070f97adeab00f3e95941e8e9a9b0d97d5e47a6d9fde57f5a2922ac56ce2"
+        },
+        {
+          "path": "crates/oryn-js/src/navigation_timing.rs",
+          "sha256": "3f14487dc37322de77285e009742f1335ff6db781f45f7323153d38affd30388"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/document_lifecycle_publication.rs",
+          "sha256": "fded8b2052e22f799e59d0af6785cf8ebb3fe9aa18fb9d0d4887eeeae0b03fe6"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/html_stream.rs",
+          "sha256": "c86cdc167cc72519b96d02ace99692d8a984cbaeb38917a76aad10923afa4e9e"
+        },
+        {
+          "path": "crates/oryn-native/src/rust_executable.rs",
+          "sha256": "f9fb2250f57bb5efd23a11fa490c452a9da283f27dc808334a33ef3bb532d2e8"
+        },
+        {
+          "path": "crates/oryn-native/src/navigation_timing_custody.rs",
+          "sha256": "cb94070f97adeab00f3e95941e8e9a9b0d97d5e47a6d9fde57f5a2922ac56ce2"
+        },
+        {
+          "path": "crates/oryn-js/src/navigation_timing.rs",
+          "sha256": "3f14487dc37322de77285e009742f1335ff6db781f45f7323153d38affd30388"
+        }
+      ],
+      "caller_evidence": "Retained parser/resource/checkpoint queues and HTML Writable blocking completion advance independently of later OIL commands; portable extraction delivered, response accounting audit active.",
+      "package_review": "docs/oryn2/PARALLEL-NAVIGATION-2026-09-18.md"
+    },
+    "R-07": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/host.rs",
+          "sha256": "ce58a4bd1d2590f2b5d432410b44d73fc8ac0b67cacd9c982a0c32d53d105359"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/node_migration.rs",
+          "sha256": "709cf24d6acd0ce42a30389a1d43d78182cd076b04b8766b7cf642cf1f835bec"
+        },
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/realm_endpoint_tests.rs",
+          "sha256": "a04e85469ab990ec8aa221734e8346b564789e72ec7ae243e2da881a81d334db"
+        },
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        }
+      ],
+      "caller_evidence": "Relevant/current receiver identity and exact Creator epochs fence new admission; accepted receipts survive only their specified lifetime and author callbacks release registry borrows.",
+      "package_review": "docs/oryn2/PARALLEL-NAVIGATION-2026-09-18.md"
+    },
+    "P-01": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/worker_client.rs",
+          "sha256": "a9bc402b5eb99edec55b7efeb8b0ddb62fef315dcdab55757dfdce46fa81bbf3"
+        },
+        {
+          "path": "crates/oryn-native/src/worker_process.rs",
+          "sha256": "74da83095c464dd3688e7af4b6c7c6195223cdee8b8bfa6baa28cc0348796c69"
+        },
+        {
+          "path": "crates/oryn-native/src/worker_route.rs",
+          "sha256": "4c7fe33d642f324175b54739ed734a20ac2da5a430e33a79b78ab7cd5487a32c"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_io.rs",
+          "sha256": "022ebaf8856e9002ccb50312183970c1d4f933bfbd442c6a496245cbc2590a43"
+        },
+        {
+          "path": "crates/oryn-js/src/lib.rs",
+          "sha256": "ed8d68ba57a1733cf726b96ccc06fda3513ee91aafcecbd73490883c8f8de70a"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_initialization.rs",
+          "sha256": "171b6d32878d0e4dd2d1f996a5137096a01229d04c9ed0b3324227f55df4f9df"
+        },
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/worker_client.rs",
+          "sha256": "a9bc402b5eb99edec55b7efeb8b0ddb62fef315dcdab55757dfdce46fa81bbf3"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/v8_initialization_tests.rs",
+          "sha256": "590d041b074b54a5e84be2ae9824d233274f0f8bbd54692b2a00a4b934b1d506"
+        }
+      ],
+      "caller_evidence": "WorkerProcessSession and broker/router own stream dispatch; routed page handles share ownership rather than independent reads.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "P-02": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/browsing_groups.rs",
+          "sha256": "98a639af52a3f7e75e6d3d753bc27012a7c8091026f8a195b6c9a3a3a188d160"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_registry.rs",
+          "sha256": "ab968fa189372b7afa40602d8092cd8eeb6419821b789cba36e90062c7507db1"
+        },
+        {
+          "path": "crates/oryn-native/src/worker_client.rs",
+          "sha256": "a9bc402b5eb99edec55b7efeb8b0ddb62fef315dcdab55757dfdce46fa81bbf3"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/browsing_groups.rs",
+          "sha256": "98a639af52a3f7e75e6d3d753bc27012a7c8091026f8a195b6c9a3a3a188d160"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_registry.rs",
+          "sha256": "ab968fa189372b7afa40602d8092cd8eeb6419821b789cba36e90062c7507db1"
+        }
+      ],
+      "caller_evidence": "Native placement/grants and bounded routes separate public IDs from authority; stable route versus rotating Creator supports BFCache without stale admission.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "P-03": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        },
+        {
+          "path": "crates/oryn-native/src/runtime.rs",
+          "sha256": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2"
+        },
+        {
+          "path": "crates/oryn-native/src/platform_control.rs",
+          "sha256": "82735b3659cfe38ac1ba874efed368da5b920c0524a217bc0488af336227cdf6"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        },
+        {
+          "path": "crates/oryn-native/src/platform_automation_regressions.rs",
+          "sha256": "6b056bc156032703ffa160f45f204d07c3d633be758a9ab5b98bfd287efd4959"
+        }
+      ],
+      "caller_evidence": "Complete operation inventory maps read/effect/accepted-result/cancel lifetimes; storage, focus, clipboard, keepalive and prerender use exact native owner receipts.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "P-04": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/auxiliary_root_v8.rs",
+          "sha256": "6c97af275783046c97e9897062bd9a37ea0f5dd06d47095e7212bb66d911edc7"
+        },
+        {
+          "path": "crates/oryn-native/src/remote_window_v8.rs",
+          "sha256": "f4b2eeec345155421de8d7e2c706591c39ff6bbbfb001661476ddbf305bbadad"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_auxiliary_root_v8.rs",
+          "sha256": "22f0eeb97e41f48a22b575449fa553b2ca7c820b7ec2e0a5d02ed3703d6cd176"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/host.rs",
+          "sha256": "ce58a4bd1d2590f2b5d432410b44d73fc8ac0b67cacd9c982a0c32d53d105359"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_auxiliary_regressions.rs",
+          "sha256": "2d999bb43e4009647a44ca20638b92efcb4e7c52d298d79e36fcc25bf1b5a785"
+        }
+      ],
+      "caller_evidence": "Connected actors/native contexts preserve synchronous same-agent access and remote origin limits; finish active standalone related-root disposition.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "P-05": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/runtime.rs",
+          "sha256": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2"
+        },
+        {
+          "path": "crates/oryn-native/src/worker_client.rs",
+          "sha256": "a9bc402b5eb99edec55b7efeb8b0ddb62fef315dcdab55757dfdce46fa81bbf3"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_process.rs",
+          "sha256": "9628354c4437e8e16c5aa3c23560152c5814cc169f278644da118d4010df6165"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/runtime.rs",
+          "sha256": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2"
+        },
+        {
+          "path": "crates/oryn-native/src/worker_client.rs",
+          "sha256": "a9bc402b5eb99edec55b7efeb8b0ddb62fef315dcdab55757dfdce46fa81bbf3"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_process.rs",
+          "sha256": "9628354c4437e8e16c5aa3c23560152c5814cc169f278644da118d4010df6165"
+        }
+      ],
+      "caller_evidence": "Retirement fan-out continues independent cleanup after a sibling failure; failed custody stays retryable and reset waits for owned teardown.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "P-06": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/worker.rs",
+          "sha256": "d86b8da04af613d4bb5e553ff09d9c500cb2f85db1726a209253e03576825050"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_ipc.rs",
+          "sha256": "b1515a3016796d04d2833ca349dc1a2f0fe269addf7bec1f6587c6810005ff81"
+        },
+        {
+          "path": "scripts/native_protocol_versions.py",
+          "sha256": "4d26634dd68e945509ea3e0e060a4242516084a4c47be7b63bb4d93439768a56"
+        },
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        },
+        {
+          "path": "docs/oryn2/P06-PENDING-CONTRACT-BATCH-2026-09-18.md",
+          "sha256": "8b1ce6ee8443b0e7f1892c836973fd558ca8f72247c19b6c5e65e2e33567439d"
+        },
+        {
+          "path": "docs/oryn2/P03-W05-OPERATION-AUTHORITY-INVENTORY-2026-09-16.md",
+          "sha256": "2e4eb66762ff3d1835f59842ddcb2615b1b67ac8dd73d8c65605ffd7ee9e2bee"
+        },
+        {
+          "path": "docs/oryn2/wpt-procedures/p06-load-html-contract-source-snapshot-2026-09-18.json",
+          "sha256": "68a937e403b912fdf9dd05ce0b98e9a138ffbe98048a1cf2ab255a02b15efc17"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_native_protocol_versions.py",
+          "sha256": "207f9090f87381db457ca8263d6539445d0dea86bda484cf34c74e15024f7cf0"
+        },
+        {
+          "path": "crates/oryn-native/src/worker_client.rs",
+          "sha256": "a9bc402b5eb99edec55b7efeb8b0ddb62fef315dcdab55757dfdce46fa81bbf3"
+        },
+        {
+          "path": "crates/oryn-native/src/protocol_pending_contract_tests.rs",
+          "sha256": "95e67689eb1dba649f806cb3a4b4ec7c89c6efb59259cd8c7e43fe8bfe02180c"
+        }
+      ],
+      "caller_evidence": "Ready/bootstrap/version/signature/source identities reject mixed halves; final collective version/build/sign/manifest artifacts are deferred, not missing protocol algorithms. The collective source cutover is worker 17/context 50/agent 19. Pending-contract regression sources include embedded-type/unavailable results and retained blank completion fields. Historical binary evidence is unchanged; fresh matching build/sign/admission evidence remains required.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "L-01": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/parser_encoding_policy.rs",
+          "sha256": "47dab93566e1190a0a8f08e8130ac7becf9d170b9efd91a2b6676ed0cd507c3c"
+        },
+        {
+          "path": "crates/oryn-native/src/html_encoding_replay.rs",
+          "sha256": "488646bef6913fcc5cc64dcb4bd1abbd30c692cd648242978652e11185ddefc2"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_resource_preparation.rs",
+          "sha256": "a153e8f3993792174f25a749ad130ea17d621e23a7371d3574a6b31b8a563bff"
+        },
+        {
+          "path": "crates/oryn-native/src/runtime.rs",
+          "sha256": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2"
+        },
+        {
+          "path": "crates/oryn-native/src/embedded_resource_type.rs",
+          "sha256": "7347a7d99e3047bd5c6eeaa95883f06678dd7cea2ac24c55ccfbd1e85d7197e0"
+        },
+        {
+          "path": "crates/oryn-dom/src/embedded_content.rs",
+          "sha256": "cf396b350fc3ae4a77f2f0953d2868d8b0f8a220ee5c591cb5da6790e016ed18"
+        },
+        {
+          "path": "crates/oryn-net/src/fetch.rs",
+          "sha256": "5879366846233c18030717658f0f42fd965b5a309ff37470c837afd55d730551"
+        },
+        {
+          "path": "crates/oryn-native/src/module_graph_backend.rs",
+          "sha256": "48d3ea9978adcd620657c6ba6356d350cf51a1b8988fa0afb9f6d633b281431a"
+        },
+        {
+          "path": "crates/oryn-native/src/module_reporting.rs",
+          "sha256": "0bb5d6dcfa0ffaf68d68d37183fa43445230210f6c79ccc7bde879e06db2bc44"
+        },
+        {
+          "path": "crates/oryn-native/src/dynamic_import_v8.rs",
+          "sha256": "01827a345dff39c8fbb50816f92b1ec414519a47a74fd12f4580c3aa7393196b"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/encoding_stream_integration_tests.rs",
+          "sha256": "046dfc327c5d615099a3ea3ca10bb20ff6703f0ce134865d9a6a439045310390"
+        },
+        {
+          "path": "crates/oryn-native/src/runtime.rs",
+          "sha256": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2"
+        },
+        {
+          "path": "crates/oryn-native/src/embedded_resource_type.rs",
+          "sha256": "7347a7d99e3047bd5c6eeaa95883f06678dd7cea2ac24c55ccfbd1e85d7197e0"
+        },
+        {
+          "path": "crates/oryn-dom/src/embedded_content.rs",
+          "sha256": "cf396b350fc3ae4a77f2f0953d2868d8b0f8a220ee5c591cb5da6790e016ed18"
+        },
+        {
+          "path": "crates/oryn-net/src/fetch.rs",
+          "sha256": "5879366846233c18030717658f0f42fd965b5a309ff37470c837afd55d730551"
+        },
+        {
+          "path": "crates/oryn-native/src/module_graph_backend.rs",
+          "sha256": "48d3ea9978adcd620657c6ba6356d350cf51a1b8988fa0afb9f6d633b281431a"
+        },
+        {
+          "path": "crates/oryn-native/src/module_reporting.rs",
+          "sha256": "0bb5d6dcfa0ffaf68d68d37183fa43445230210f6c79ccc7bde879e06db2bc44"
+        },
+        {
+          "path": "crates/oryn-native/src/dynamic_import_v8.rs",
+          "sha256": "01827a345dff39c8fbb50816f92b1ec414519a47a74fd12f4580c3aa7393196b"
+        }
+      ],
+      "caller_evidence": "Owner encoding and MIME/source selection feed actual incremental consumers; embedded declared-type/mode/status source requires final loading disposition. Final embedded source audit delivered declared-type selection, exact source predicates, typed handler-unavailable outcomes, separate notification provenance and native cancellation acknowledgment regression sources.",
+      "package_review": "docs/oryn2/L-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "L-02": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/module_graph_load.rs",
+          "sha256": "f32489cd75a9d7c4c3c3e3c2aae570b44e7605fa13e313bbf8b934f8947a8193"
+        },
+        {
+          "path": "crates/oryn-native/src/module_graph_backend.rs",
+          "sha256": "48d3ea9978adcd620657c6ba6356d350cf51a1b8988fa0afb9f6d633b281431a"
+        },
+        {
+          "path": "crates/oryn-native/src/module_settlement.rs",
+          "sha256": "2bf98e6acedb6b9bf02bb002fbfb78e919748e0a9baa9cf2b733e69416c104b7"
+        },
+        {
+          "path": "crates/oryn-native/src/script_fetch.rs",
+          "sha256": "b6a766439b80f6d5c968b65afd67bdf6dfd1306aac74f59a4887fe74894817ce"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/script_fetch.rs",
+          "sha256": "b6a766439b80f6d5c968b65afd67bdf6dfd1306aac74f59a4887fe74894817ce"
+        },
+        {
+          "path": "crates/oryn-native/src/host.rs",
+          "sha256": "ce58a4bd1d2590f2b5d432410b44d73fc8ac0b67cacd9c982a0c32d53d105359"
+        }
+      ],
+      "caller_evidence": "Parser/dynamic/preload modules share captured resolution, raw SRI, typed identity and retained linking/TLA settlement; no duplicate evaluation after publication retry.",
+      "package_review": "docs/oryn2/L-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "L-03": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_io.rs",
+          "sha256": "022ebaf8856e9002ccb50312183970c1d4f933bfbd442c6a496245cbc2590a43"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_platform_http.rs",
+          "sha256": "8156b4b0dd26233ef59aaf3a6022201260d1eebb2186fd7f6bcf9b6c09370155"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_resource_preparation.rs",
+          "sha256": "a153e8f3993792174f25a749ad130ea17d621e23a7371d3574a6b31b8a563bff"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_frame_resource.rs",
+          "sha256": "950c16fd458d468c077943de52f899d6bfe3e4a3b6da203b33e153f08225d4db"
+        },
+        {
+          "path": "crates/oryn-native/src/network_identity.rs",
+          "sha256": "7d664490d6ce306084ae6e80f99fb9e3e8832f1baedcbc038240e65a69f32999"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_io.rs",
+          "sha256": "022ebaf8856e9002ccb50312183970c1d4f933bfbd442c6a496245cbc2590a43"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_platform_http.rs",
+          "sha256": "8156b4b0dd26233ef59aaf3a6022201260d1eebb2186fd7f6bcf9b6c09370155"
+        },
+        {
+          "path": "crates/oryn-native/src/standalone_frame_resource.rs",
+          "sha256": "950c16fd458d468c077943de52f899d6bfe3e4a3b6da203b33e153f08225d4db"
+        },
+        {
+          "path": "crates/oryn-native/src/network_identity.rs",
+          "sha256": "7d664490d6ce306084ae6e80f99fb9e3e8832f1baedcbc038240e65a69f32999"
+        }
+      ],
+      "caller_evidence": "Typed destination producers retain credentials/origin/referrer/body/cancel metadata; link-prefetch is independent of the removed legacy module classification.",
+      "package_review": "docs/oryn2/L-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "L-04": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        },
+        {
+          "path": "crates/oryn-native/src/network.rs",
+          "sha256": "68f8567b0712981cfc43c50e00fb4a49902e54c7f12e98fab39e6ddd43bee6ef"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_io.rs",
+          "sha256": "022ebaf8856e9002ccb50312183970c1d4f933bfbd442c6a496245cbc2590a43"
+        },
+        {
+          "path": "crates/oryn-native/src/keepalive.rs",
+          "sha256": "1191252cce9ec7689b663dff224589abadc43396144ff0536cc7f1f3c07c6430"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_resource_response.rs",
+          "sha256": "4422713c9bbb15eb28c8b31f0ef7b225d412c91ddd135469e7f3043934dc9f27"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_resource_preparation.rs",
+          "sha256": "a153e8f3993792174f25a749ad130ea17d621e23a7371d3574a6b31b8a563bff"
+        },
+        {
+          "path": "crates/oryn-native/src/navigation_timing_custody.rs",
+          "sha256": "cb94070f97adeab00f3e95941e8e9a9b0d97d5e47a6d9fde57f5a2922ac56ce2"
+        },
+        {
+          "path": "crates/oryn-js/src/navigation_timing.rs",
+          "sha256": "3f14487dc37322de77285e009742f1335ff6db781f45f7323153d38affd30388"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/network.rs",
+          "sha256": "68f8567b0712981cfc43c50e00fb4a49902e54c7f12e98fab39e6ddd43bee6ef"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_io.rs",
+          "sha256": "022ebaf8856e9002ccb50312183970c1d4f933bfbd442c6a496245cbc2590a43"
+        },
+        {
+          "path": "crates/oryn-native/src/keepalive.rs",
+          "sha256": "1191252cce9ec7689b663dff224589abadc43396144ff0536cc7f1f3c07c6430"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_resource_response.rs",
+          "sha256": "4422713c9bbb15eb28c8b31f0ef7b225d412c91ddd135469e7f3043934dc9f27"
+        },
+        {
+          "path": "crates/oryn-native/src/frame_resource_preparation.rs",
+          "sha256": "a153e8f3993792174f25a749ad130ea17d621e23a7371d3574a6b31b8a563bff"
+        },
+        {
+          "path": "crates/oryn-native/src/navigation_timing_custody.rs",
+          "sha256": "cb94070f97adeab00f3e95941e8e9a9b0d97d5e47a6d9fde57f5a2922ac56ce2"
+        },
+        {
+          "path": "crates/oryn-js/src/navigation_timing.rs",
+          "sha256": "3f14487dc37322de77285e009742f1335ff6db781f45f7323153d38affd30388"
+        }
+      ],
+      "caller_evidence": "Demand reads, retained cleanup ACKs, source/body reservations and shared ordinary/deferred keepalive ownership bind abort/retirement to actual transport completion. Portable response accounting now includes binary/no-commit/error payloads, capacities and nested timing exposure; the active completion/policy admission review remains unresolved.",
+      "package_review": "docs/oryn2/L-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "L-05": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/csp.rs",
+          "sha256": "c3296aac8d6c563c8149ef6f80306d2917895fa726c3b850834d204da8b6c1de"
+        },
+        {
+          "path": "crates/oryn-native/src/referrer.rs",
+          "sha256": "bf4b7fd2be7820862ef759d157e79d61d8ab858a503d01ec152d14a2016542fe"
+        },
+        {
+          "path": "crates/oryn-native/src/script_fetch.rs",
+          "sha256": "b6a766439b80f6d5c968b65afd67bdf6dfd1306aac74f59a4887fe74894817ce"
+        },
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/csp.rs",
+          "sha256": "c3296aac8d6c563c8149ef6f80306d2917895fa726c3b850834d204da8b6c1de"
+        },
+        {
+          "path": "crates/oryn-native/src/script_fetch.rs",
+          "sha256": "b6a766439b80f6d5c968b65afd67bdf6dfd1306aac74f59a4887fe74894817ce"
+        },
+        {
+          "path": "crates/oryn-native/src/context_service.rs",
+          "sha256": "a476503d14b5471b0eec3aeb28c00081c98d4c1ad3a9f5e72f22364c5fac1a16"
+        }
+      ],
+      "caller_evidence": "Policy rechecks every actual destination/redirect; Prefetch unions supported directives per policy and intersects policies; typed CSS uses Style policy, not script sandbox prohibition.",
+      "package_review": "docs/oryn2/L-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "W-01": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/agent_process.rs",
+          "sha256": "9628354c4437e8e16c5aa3c23560152c5814cc169f278644da118d4010df6165"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_thread.rs",
+          "sha256": "857f9fd9081f3b6f5ae67b24304353917b5bdf907840ea194d07a88693fc2a0a"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_registry.rs",
+          "sha256": "ab968fa189372b7afa40602d8092cd8eeb6419821b789cba36e90062c7507db1"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_service.rs",
+          "sha256": "c442338e4345b72e033c7e56a93d6f3b7b4fab3377f1cf07dbbe57c9230a211f"
+        },
+        {
+          "path": "crates/oryn-native/src/csp.rs",
+          "sha256": "c3296aac8d6c563c8149ef6f80306d2917895fa726c3b850834d204da8b6c1de"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/agent_process.rs",
+          "sha256": "9628354c4437e8e16c5aa3c23560152c5814cc169f278644da118d4010df6165"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_registry.rs",
+          "sha256": "ab968fa189372b7afa40602d8092cd8eeb6419821b789cba36e90062c7507db1"
+        },
+        {
+          "path": "crates/oryn-native/src/csp.rs",
+          "sha256": "c3296aac8d6c563c8149ef6f80306d2917895fa726c3b850834d204da8b6c1de"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_service.rs",
+          "sha256": "c442338e4345b72e033c7e56a93d6f3b7b4fab3377f1cf07dbbe57c9230a211f"
+        }
+      ],
+      "caller_evidence": "Independent native agent executor/termination is distinct from another V8 context in a blocked page isolate; busy-script runtime qualification remains required.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "W-02": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/service_registry.rs",
+          "sha256": "45d6eb1c42ec9671080986da93cc9b36f8d052c9e73b97ac294eb77edee36174"
+        },
+        {
+          "path": "crates/oryn-native/src/service_registry_stream.rs",
+          "sha256": "f516306acf7efb1ae588dac3090fccaf8ae06ce775bd8689bfc6c197c7445b3b"
+        },
+        {
+          "path": "crates/oryn-native/src/service_registry_persistence.rs",
+          "sha256": "1b68df13480684a361b55585b4d056c07045f8353eddf98e8284b89d9f9f3e78"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_registry.rs",
+          "sha256": "ab968fa189372b7afa40602d8092cd8eeb6419821b789cba36e90062c7507db1"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/service_registry.rs",
+          "sha256": "45d6eb1c42ec9671080986da93cc9b36f8d052c9e73b97ac294eb77edee36174"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_registry.rs",
+          "sha256": "ab968fa189372b7afa40602d8092cd8eeb6419821b789cba36e90062c7507db1"
+        }
+      ],
+      "caller_evidence": "Registration/controller/version/event/persistence authority survives proper client retirement; actual Unix BrowserContext routes include SW even in-process, raw unclaimed helpers do not establish another platform claim.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "W-03": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-js/src/v8_bindings/structured_clone.rs",
+          "sha256": "d3c4e952a0a5e1e24c9f99ef19bec5370eab5e2a3d3304d9d93f557903324c89"
+        },
+        {
+          "path": "crates/oryn-native/src/shared_message_backend.rs",
+          "sha256": "8e33a84db69c24d1c5c167b3cf2707063c839f25576b12e53b29d3c63c053328"
+        },
+        {
+          "path": "crates/oryn-native/src/cross_context_messages.rs",
+          "sha256": "ebf5fc687be25421b66983c04e7d5308368bbcc0fdf351f83b8d3c2f3e977a24"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-js/src/v8_bindings/structured_clone_transfer_tests.rs",
+          "sha256": "139ecf202257de53923724f987437a015602d979f67e66ebef8bed8d654be82d"
+        },
+        {
+          "path": "crates/oryn-native/src/cross_context_messages.rs",
+          "sha256": "ebf5fc687be25421b66983c04e7d5308368bbcc0fdf351f83b8d3c2f3e977a24"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_shared_wait_tests.rs",
+          "sha256": "8f4ef834584cbebe59ec9cfbd002fd066d4aeefefde75a4d488cf7215065397e"
+        }
+      ],
+      "caller_evidence": "Clone/transfer/native message identity, independent ACKs and retirement retain bounded ownership; shared-memory selected callers have native wait regression sources.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "W-04": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/cookies.rs",
+          "sha256": "34f9e781e54a2662103b3f7f709d8d7fb8ff00998ea3e2b721e881f9e7dcd685"
+        },
+        {
+          "path": "crates/oryn-native/src/storage.rs",
+          "sha256": "a59e06bf809922b4ca7edaf2a052a2c372fc0c0188a00efb9498071a3828e017"
+        },
+        {
+          "path": "crates/oryn-native/src/storage_service.rs",
+          "sha256": "dc33285f684cafa78a45e417a60f33cb104250f03fac3b7842c634625717bd67"
+        },
+        {
+          "path": "crates/oryn-js/src/indexed_db.rs",
+          "sha256": "775c2491e96cd3bfdbf9327fe59b9fe306d35d3485ab72afa83c831bfff3132a"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/cookies.rs",
+          "sha256": "34f9e781e54a2662103b3f7f709d8d7fb8ff00998ea3e2b721e881f9e7dcd685"
+        },
+        {
+          "path": "crates/oryn-native/src/storage_service.rs",
+          "sha256": "dc33285f684cafa78a45e417a60f33cb104250f03fac3b7842c634625717bd67"
+        },
+        {
+          "path": "crates/oryn-js/src/indexed_db.rs",
+          "sha256": "775c2491e96cd3bfdbf9327fe59b9fe306d35d3485ab72afa83c831bfff3132a"
+        }
+      ],
+      "caller_evidence": "Origin/partition/credentials and staged transaction/event ownership reach native persistent state; explicit whole-run cookie policy profiles remain separately qualified.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "W-05": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/runtime.rs",
+          "sha256": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_registry.rs",
+          "sha256": "ab968fa189372b7afa40602d8092cd8eeb6419821b789cba36e90062c7507db1"
+        },
+        {
+          "path": "crates/oryn-native/src/storage_idb_connections.rs",
+          "sha256": "4352caf50d62a73408556405c2a62f8ad6b6818908cce87e2d465a591b02ee3d"
+        },
+        {
+          "path": "crates/oryn-native/src/service_registry_stream.rs",
+          "sha256": "f516306acf7efb1ae588dac3090fccaf8ae06ce775bd8689bfc6c197c7445b3b"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/runtime.rs",
+          "sha256": "0a868179af99bf969e802fd6c68c0faf9d54d67ca70c59bba563ed57617e92f2"
+        },
+        {
+          "path": "crates/oryn-native/src/agent_registry.rs",
+          "sha256": "ab968fa189372b7afa40602d8092cd8eeb6419821b789cba36e90062c7507db1"
+        },
+        {
+          "path": "crates/oryn-native/src/service_registry.rs",
+          "sha256": "45d6eb1c42ec9671080986da93cc9b36f8d052c9e73b97ac294eb77edee36174"
+        }
+      ],
+      "caller_evidence": "Document effects require current Creator while accepted context-owned service/storage work retains its separate lifetime; frozen controller events do not query removed clients.",
+      "package_review": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "S-01": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-webidl/src/lib.rs",
+          "sha256": "33bfca91ad91bae940d4d752d7945f044783c8c89ccd9ce3cdbdb043ab3e3f9f"
+        },
+        {
+          "path": "crates/oryn-dom/src/insertion.rs",
+          "sha256": "a8df2a212ac9aa18632692908c6d951c5fb2249cb5c3d6bccad135371c86ec9b"
+        },
+        {
+          "path": "crates/oryn-dom/src/node_migration.rs",
+          "sha256": "c5a5998cb30cadb8bb22f594df57fbbf941b6da64cf84905282390dd2cb6c3ec"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/range_insertion.rs",
+          "sha256": "11c08019ae4b7272476687d7901c2d5be7c751eb9606cfef7ed5e882b94dab11"
+        },
+        {
+          "path": "crates/oryn-dom/src/lib.rs",
+          "sha256": "87168bddba070bce45b5d92729f5fe29198152b7824dc42273cd906c2e914175"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/node_mutator_bindings.rs",
+          "sha256": "6d30fdad331fd4fd93b38808e5f71984dbb8fbc81c24c667213eda2916ff5efd"
+        },
+        {
+          "path": "crates/oryn-dom/Cargo.toml",
+          "sha256": "2453e415a38f586cadedf5be3ddb5ff36a8d82b8d112fe110422d9c67571dbd0"
+        },
+        {
+          "path": "crates/oryn-dom/src/document_scope.rs",
+          "sha256": "2c47e9e809ea9242bf3c6263e440103d919df7427563e71161a538f9257e9b27"
+        },
+        {
+          "path": "crates/oryn-dom/src/image_intrinsics.rs",
+          "sha256": "01f971196caa26a0e320f32e2b29fdb59321d793c3db70437cf28ed21b838568"
+        },
+        {
+          "path": "vendor/usvg/src/text/layout.rs",
+          "sha256": "7b5f5088e193996351bda51c5e3e7e47d8cb72a0b28d570467859f5c6487ddaa"
+        },
+        {
+          "path": "vendor/html5ever/src/lib.rs",
+          "sha256": "2fad3f5123fe6d21160a74615dc76d7230f0a4cc547c469a49659083b57a703d"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings.rs",
+          "sha256": "21f9e281e6c549ffc5b06c4361253264dec1654d8f64ebf25b084a7869c9019b"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/sanitizer.rs",
+          "sha256": "f7e792d46707312218de1713174cd04aa4dfc1b3c96afd2a799740a1e73f3f5f"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/aria.rs",
+          "sha256": "577dd07fa2b9f297814b99a6d40c1f151c9cd0816d762a7a5f2a6494375383b0"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/audio_worklet.rs",
+          "sha256": "4dc2e995585cd1a873dc9161e9acd377837cee8b2596bb94e0aa98697b319d50"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/text_tracks.rs",
+          "sha256": "e7ec40fc6c481b6ae1b6fd321adf1ccac00c835e3bb02de7eb50c21198dae8ef"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/css_registration.rs",
+          "sha256": "35bac2d7bd9bb61a9f0982ad3868cbabbe77ccafc56bf86ea37bcaf368190b43"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/document_parser_gate.rs",
+          "sha256": "150d2d59f25638afbe265aac8c0da46155488f4c8c587bc0966af8ff95a0a47c"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/html_stream.rs",
+          "sha256": "c86cdc167cc72519b96d02ace99692d8a984cbaeb38917a76aad10923afa4e9e"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/custom_elements.rs",
+          "sha256": "41aa3108ea66a52e7fe4b5409076b0a195194702d2ebff766a58abc239e8faa7"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/sanitizer_insert.rs",
+          "sha256": "ed610718740a0ef8667231e4893c3393231a57abad4d19bcdb7e82628bf887c7"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/xpath.rs",
+          "sha256": "56def110de0ef9322f5ed076968df20f4e2e399fa6a03424b9d91c1a94e611a1"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/storage_events.rs",
+          "sha256": "8e82c9ca76a960ae661ca24af0d267150e9cbd8b29f550272696cfc7b9e0f23e"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/storage_properties.rs",
+          "sha256": "2076bee4f0a12a46ad6bf132e1d0642ed484aa3c38c71273690e45aefbd4be64"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/storage_access.rs",
+          "sha256": "72b33bb89bd120724276857d5de68ba79af8ca00b69f7d282b54320cdcc20405"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/idb_delivery.rs",
+          "sha256": "64bea14d56c160c074da174d33dfc36a1777bc729f847e47166b841b2fb60ae0"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/permissions_policy.rs",
+          "sha256": "20d9524f2f0fadc534ae1073a0001b80815fa972fda11c773529d3fc9c07bbce"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/permission_elements.rs",
+          "sha256": "fd2ccbd4d891331249648d2ed4a45aefffd17fb7df434d22bf00f31977160f60"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/web_crypto.rs",
+          "sha256": "b00df4aa590cce459916e71afac58dd91f947a6d2b236c93dee69909bea25b4c"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/cache_storage.rs",
+          "sha256": "558311990f8d59e150fb5357bdda8808ac240554d290b8258d619e465319b5a6"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/service_worker_events.rs",
+          "sha256": "7015e3360a37da95ea65caea524b0c28a16113a6c0f6835d0ea71fde744384e3"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/origin_agent_cluster.rs",
+          "sha256": "1c1c34ed87eef217860e35bfcd4517dfea316f852e6827a1be68b3b23f53e8f3"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/web_notifications.rs",
+          "sha256": "8d0ff6ea411521abdc3571d9f4b88a966d8ed7487a886c1fb3935560e9152a83"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/location_ancestors.rs",
+          "sha256": "2c580f15b5ff08364d5643e8db1dd37663e78f1a8c140d6c01bdd2f5b8d681b9"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/location_cross_origin.rs",
+          "sha256": "7b7f1ac51be56f3f17b2ca257fc7875f16de340b0d5b506d364f853d5d2b30b3"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/retained_activation.rs",
+          "sha256": "9baa0d8ddb4b4d85c0731e426577d945ccbe1443a44e726181db2a95e4c7195a"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/history_events.rs",
+          "sha256": "4c9ab5cf64c4df667a5f88a50896bdfa6513d78fa420add3b6e3d6e78952ea81"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/window_document.rs",
+          "sha256": "69702e4168dad69ed0268b48fce73d5c913cf87b5c762bfd47a2dac6054a81b4"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/global_events.rs",
+          "sha256": "237ec1ba8ff62af0cfe1aa85c49bd9a32469f752172cba961d4acb119e368e54"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_platform.rs",
+          "sha256": "46af48426697e8e0163f94bddc4eb19012d66c0dde277fccd239b422635f21da"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_platform/publication.rs",
+          "sha256": "b39f2bdf2d64ff8710cf016d9e9133626cb8482ca362ce60a3ae7ac5fd05f99a"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_accessibility_receipt.rs",
+          "sha256": "2f3a940e1aeb9042aa6ff7c42ecf7efdc5ca5539ad638b0cdb0d9bbecac4d5c9"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_errors.rs",
+          "sha256": "77831f421b5ab9532db1b707d4138ee51fa9f165e25c588db5a7b616d2ae91ac"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/command.rs",
+          "sha256": "7e54f14878001fcdb897f61b6640e8d8995e09c0048040c5b1846cf194f05c98"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/editing_inverse.rs",
+          "sha256": "b8fcc281c33d35e4317ffc3463b006c1a7146e6f663366bd7765b90aeba042bd"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/semantic_edit/job.rs",
+          "sha256": "d94094e1831de48c3bdd6a183f8e74513f82d16a47c8ccd19eca4c43c8470c15"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/clipboard_actions.rs",
+          "sha256": "671972ea6b93f9ec9a2a66c02726c286cde12a45165de677f9e949c29853b592"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/async_clipboard.rs",
+          "sha256": "70f03adcd9fdfb8502c0223d5bca6f0dc4cf7e249152bd95b4c957a65bdd9c57"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_drag_image.rs",
+          "sha256": "f090b9f4becec8a9489eb300163e30d5548e181bfa50f731e664395b16953046"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_drag/rich_move.rs",
+          "sha256": "f8bc50e885f3c79dc84d88beb1d054b247d9e1e731a654c25015d031e65e217a"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+          "sha256": "2b7479bbc7d3b5e1af153f7b4597877714a19364bbcb9341f5aae1f4fc753342"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/option_automation.rs",
+          "sha256": "cd726dcd6d525bb52cbb02f21d7fa78803c71fa7d5c680af64a089f874169442"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/node_identity.rs",
+          "sha256": "8ad399056b9982e290ba23e65791bf944a462d954efb6f37ea038bccb58c3f8b"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/node_migration.rs",
+          "sha256": "709cf24d6acd0ce42a30389a1d43d78182cd076b04b8766b7cf642cf1f835bec"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/node_event_listeners.rs",
+          "sha256": "bfc039600f265ca2cde7bd108e10b83a794a23b84ef9bf40beea391d78948072"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/interest.rs",
+          "sha256": "ca047f4db97b212c62103d6f738696d27e3044729598736b27e8c2f4e4a0ea18"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/form_activation.rs",
+          "sha256": "3854a68e23d53eb09c05e79132b64cd52f153a3807a3dc114a619eef997c0665"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/body_consumer.rs",
+          "sha256": "1025e6940646cb26626ee2513dabd169fc64f8f925da9b11f7739dd15c34eb6c"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/stream_transfer.rs",
+          "sha256": "134e735eff7d04fdeaff856e2b4fe5a8af3e38881821ee9cad5d50d1ec1af15d"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/stream_pipe.rs",
+          "sha256": "b5e00b76650fe699409b69bcf788b4d89283163bd1f7464613fdbd5be1fd55f3"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/byte_streams.rs",
+          "sha256": "8e7c1e8d5a3538b4875c6d8383d0fa887fb2ed53f6756dacc0d757a496f3c2a1"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/transform_streams.rs",
+          "sha256": "e1d94626967487f693f95b73c35552fa6a640e7c6bb13a87883177890939934c"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/blob_construction.rs",
+          "sha256": "778b5f4b3239e67bf2ca3c3a46a560bab388506f1602b306d63f71c8d02d05ef"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/message_delivery.rs",
+          "sha256": "7d8e46f0ead916aa22453d901308ccea0979d9c556794dfd545728b9b9d44ac0"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/message_ports.rs",
+          "sha256": "7b447ab9c490c39ade367f49f0f17b9b8f548e3dab2e89e9126aeb0b212475d6"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/window_messages.rs",
+          "sha256": "fdc766576c5b950a5c8461e837b72b9f3cc98d7eabe1981ac5ee06dac2b23fc7"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/workers.rs",
+          "sha256": "281c453fb975010cd3a03b47b9b235336eab3105031fde0a98f5d752d61ee6aa"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/websocket_lifecycle.rs",
+          "sha256": "6bede7a3736aa6623cd42fad817432c226e1ecc12c6736436d74409bf24edb83"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_media.rs",
+          "sha256": "9c8dc50c63a31111e97a1f6eb39c7e2f394555e1a9a7f12cd90d2b656c683f3e"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/encrypted_media.rs",
+          "sha256": "e1423ab30de5581bbc158bebf3cef5312030fb6a675f83c293cd279e44a7ad50"
+        },
+        {
+          "path": "crates/oryn-js/src/navigation_api.rs",
+          "sha256": "3d1347060288d5a82e9b1b1ffc0584e69ae6252505141e7f8b6b18e0a6fe2899"
+        },
+        {
+          "path": "crates/oryn-js/src/message_wire.rs",
+          "sha256": "c9994e1d5f250301c9d8948f6aa367639883909640751231baf1a946be9c07d8"
+        },
+        {
+          "path": "crates/oryn-js/Cargo.toml",
+          "sha256": "712073f8460c8ea004533203a9207689918fe27f98faa0e4a7a0928c28554660"
+        },
+        {
+          "path": "crates/oryn-native/src/rust_executable.rs",
+          "sha256": "f9fb2250f57bb5efd23a11fa490c452a9da283f27dc808334a33ef3bb532d2e8"
+        },
+        {
+          "path": "crates/oryn-native/src/media_capture/webm.rs",
+          "sha256": "b6b543d5aa0fe4884bdad8eb0a68c6f0930185b25746a6a63661f87183ab510d"
+        },
+        {
+          "path": "crates/oryn-js/src/generated/browser.rs",
+          "sha256": "12dc82daa2a01fcf719e1f53074212ff7dfa2a1ad5caabf839df59386e4ffd20"
+        },
+        {
+          "path": "crates/oryn-webidl/idl/browser.webidl",
+          "sha256": "926760c5d3606161ac3c4ee1459847c14b22ef5168b5d1004d4587006f28382f"
+        },
+        {
+          "path": "crates/oryn-webidl/src/typedefs.rs",
+          "sha256": "1c789174a7d338e941b03ac511855903301f163d255c047b29530f580b3b4f38"
+        },
+        {
+          "path": "crates/oryn-js/build.rs",
+          "sha256": "1a61afe46dfbc2df06709e4fe0ba2c76f4a291d18d9153dc89af71f27499a20e"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-webidl/src/lib.rs",
+          "sha256": "33bfca91ad91bae940d4d752d7945f044783c8c89ccd9ce3cdbdb043ab3e3f9f"
+        },
+        {
+          "path": "crates/oryn-dom/src/insertion.rs",
+          "sha256": "a8df2a212ac9aa18632692908c6d951c5fb2249cb5c3d6bccad135371c86ec9b"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/parsing_binding_tests.rs",
+          "sha256": "e1291efd43d4ae5016666b17e77f6acd7d1c2b030102af89ad9996e0b58564b7"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/node_lists/conversion_migration_tests.rs",
+          "sha256": "ffdd9d15dda83adc91d4a440c3c0c9e4482eff9c5c8ab5d15495b9af093b0e19"
+        },
+        {
+          "path": "crates/oryn-dom/src/lib.rs",
+          "sha256": "87168bddba070bce45b5d92729f5fe29198152b7824dc42273cd906c2e914175"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/node_mutator_bindings.rs",
+          "sha256": "6d30fdad331fd4fd93b38808e5f71984dbb8fbc81c24c667213eda2916ff5efd"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/sanitizer.rs",
+          "sha256": "f7e792d46707312218de1713174cd04aa4dfc1b3c96afd2a799740a1e73f3f5f"
+        },
+        {
+          "path": "crates/oryn-native/tests/set_html_unsafe_style_visibility.rs",
+          "sha256": "615ee2d7bad3e91941c259a0715edb46eb4684e320eaf08cc5ca0d5399c85f3e"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/cross_document_edit.rs",
+          "sha256": "8a2f514cedf8a74d8a1eaac61a03d70b6ab0529df0af0ed5b6d53b053f5f7802"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/csp_events.rs",
+          "sha256": "178bb6aef7074d1c2a002bffd4444f4919f71847e70b1aa293b7204d6a39ce8c"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/document_domain.rs",
+          "sha256": "2adc3b421bcf3df3f4ada76810543b047eb56a69169eef7c20eaf15478db9222"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/fetch_later.rs",
+          "sha256": "57412714912223794a7c0e8857d06d83fb31b5180b37c1293bee7d4013785dee"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/file_reader_sync.rs",
+          "sha256": "9d4858e9e927da702b12aca6fa9020a698836c433c8cf08c00741345a6ef681b"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/media_element.rs",
+          "sha256": "ca0739f5b2333a7b71a15b70ad5e5683a06edd85954a3ea47f66120bcefc5c10"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+          "sha256": "aebf02e335913e4fb723b4e8da02bf78cfae8b86f76819d5748e54db0d5fe9aa"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_pointer/dispatch_receipt.rs",
+          "sha256": "690303c8ca527ca325667990c70bf9d593dccd0fce5b9586feddb2e1eb12c27c"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/node_lists/migration.rs",
+          "sha256": "5a30ca8546647d77285e92a5cbb01d614c39c5266cd648244f4e053284b18234"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/range_geometry.rs",
+          "sha256": "97567259ca4fa5f929887307065a4f3e0ad8b09fff022f94508776b922b69612"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/selection_text.rs",
+          "sha256": "b4188f3885a939e1013236abefb5efb3e6223f8eba2bf0fbaf0c2690cc8b27db"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/window_named.rs",
+          "sha256": "0f0f36ab9072a120edd050fa059079ce1511244306026e6b06579f61a7e27173"
+        },
+        {
+          "path": "crates/oryn-webidl/src/typedefs.rs",
+          "sha256": "1c789174a7d338e941b03ac511855903301f163d255c047b29530f580b3b4f38"
+        }
+      ],
+      "caller_evidence": "Generated conversion/brand/exposure plus native staged insertion/adoption retain identity; complete frozen WebIDL/traversal/XPath/Range and variadic grouping attribution remains an active inventory. Final S01 attribution and six-method variadic matrix delivered; native committed-tail ownership and before() callback reference correction have generated regression sources. Execution remains pending.",
+      "package_review": "docs/oryn2/S-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "S-02": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-js/src/v8_bindings/custom_elements.rs",
+          "sha256": "41aa3108ea66a52e7fe4b5409076b0a195194702d2ebff766a58abc239e8faa7"
+        },
+        {
+          "path": "crates/oryn-dom/src/html.rs",
+          "sha256": "be79e8fa5f2a082f33f36e5befb253cf7f35e1e9a4065b3d5a09a85b7899afa9"
+        },
+        {
+          "path": "crates/oryn-layout/src/shadow_tree.rs",
+          "sha256": "8469291626ec6763cea00c6a2ff5257f1fa80a55fc603632257d6d36c63254a6"
+        },
+        {
+          "path": "crates/oryn-dom/src/lib.rs",
+          "sha256": "87168bddba070bce45b5d92729f5fe29198152b7824dc42273cd906c2e914175"
+        },
+        {
+          "path": "crates/oryn-dom/src/xml.rs",
+          "sha256": "8291075baf1f93f46c33df90a2a13ad158a58b3247bc556e6201b336b4336732"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-js/src/v8_bindings/custom_elements.rs",
+          "sha256": "41aa3108ea66a52e7fe4b5409076b0a195194702d2ebff766a58abc239e8faa7"
+        },
+        {
+          "path": "crates/oryn-layout/src/shadow_tree_tests.rs",
+          "sha256": "76f15808ca140a7a1eb2caa28484fd6a08750d29cf31e5064573549f65d9dfdc"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/sanitizer_registry_tests.rs",
+          "sha256": "457ea4a6d2ffe148804e892eb9e704201a1292baee9d6e13c8e79a62f298b506"
+        },
+        {
+          "path": "crates/oryn-dom/src/lib.rs",
+          "sha256": "87168bddba070bce45b5d92729f5fe29198152b7824dc42273cd906c2e914175"
+        },
+        {
+          "path": "crates/oryn-dom/src/xml.rs",
+          "sha256": "8291075baf1f93f46c33df90a2a13ad158a58b3247bc556e6201b336b4336732"
+        }
+      ],
+      "caller_evidence": "Parser construction/migrated handles, retained reactions and shadow/slot/native style ownership replace snapshot/callback recapture paths.",
+      "package_review": "docs/oryn2/S-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "S-03": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/form_navigation.rs",
+          "sha256": "32a0a46797466ef03052083bb56e7f7ce51ff6bebf20a23c1c9c3bf85e713c24"
+        },
+        {
+          "path": "crates/oryn-dom/src/form_controls.rs",
+          "sha256": "55d1b41440fda3b9a8d1a113e8a736c44628ae0cde534832c15ada8867ff8686"
+        },
+        {
+          "path": "crates/oryn-js/src/form_state.rs",
+          "sha256": "16eaef2602e191f01f613ad46b2679e1b6a92ff0bf4237cc2bc53d37d437c80f"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/face_upload_regressions.rs",
+          "sha256": "5a54179b64455cbb847353312eb201caa352dc39de69c9ce438856a6504a9135"
+        },
+        {
+          "path": "crates/oryn-native/src/production_input_regressions.rs",
+          "sha256": "7e69c861000d952ee6a7d003ae754ec4daba99622adb47908489286e584bb517"
+        },
+        {
+          "path": "crates/oryn-dom/src/form_controls.rs",
+          "sha256": "55d1b41440fda3b9a8d1a113e8a736c44628ae0cde534832c15ada8867ff8686"
+        }
+      ],
+      "caller_evidence": "Native entry list/control state and captured target/body/file grants preserve callback reentrancy, selected bytes, encoding, FACE and cancellation.",
+      "package_review": "docs/oryn2/S-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "S-04": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-js/src/v8_bindings/editing_continuation.rs",
+          "sha256": "07869e8ee9e5be42727c6d8af38e1564c7ccb237a2405b14b39783c8317f7b00"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_drag.rs",
+          "sha256": "ead055c14d40bd7928f87ca7bc9e4a6e63a7e366c9c94d231ebc1b4c2def4c27"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+          "sha256": "2b7479bbc7d3b5e1af153f7b4597877714a19364bbcb9341f5aae1f4fc753342"
+        },
+        {
+          "path": "crates/oryn-native/src/webdriver_action_execution.rs",
+          "sha256": "63218a1d306fa6703dd8e1b09750bee4243b0fe5dba0e6fecdfcd56c7be37f8b"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-js/src/v8_bindings/editing_continuation.rs",
+          "sha256": "07869e8ee9e5be42727c6d8af38e1564c7ccb237a2405b14b39783c8317f7b00"
+        },
+        {
+          "path": "crates/oryn-native/src/production_input_regressions.rs",
+          "sha256": "7e69c861000d952ee6a7d003ae754ec4daba99622adb47908489286e584bb517"
+        },
+        {
+          "path": "crates/oryn-native/src/platform_automation_regressions.rs",
+          "sha256": "6b056bc156032703ffa160f45f204d07c3d633be758a9ab5b98bfd287efd4959"
+        }
+      ],
+      "caller_evidence": "Retained native editing/inverse/drag/input receipts own author-boundary suffixes; growth is admitted before publication; historical drag failure-to-current regression mapping remains active.",
+      "package_review": "docs/oryn2/S-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "S-05": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/semantic.rs",
+          "sha256": "8cc2591d33bd6e791b1bf71ca2a38475498e3fe540ed17d422f46b3723dfbeed"
+        },
+        {
+          "path": "crates/oryn-native/src/host.rs",
+          "sha256": "ce58a4bd1d2590f2b5d432410b44d73fc8ac0b67cacd9c982a0c32d53d105359"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/semantic_edit.rs",
+          "sha256": "4e8d37c0f5394f2fa2e0d47483d4cd06369adccd645375f43baf3300874bdfc8"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/clipboard_markup.rs",
+          "sha256": "784833e2d1212a3a8c5ccf339541b16930a852ce07c1e6eb6b2be9089414080e"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/async_clipboard.rs",
+          "sha256": "70f03adcd9fdfb8502c0223d5bca6f0dc4cf7e249152bd95b4c957a65bdd9c57"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/semantic.rs",
+          "sha256": "8cc2591d33bd6e791b1bf71ca2a38475498e3fe540ed17d422f46b3723dfbeed"
+        },
+        {
+          "path": "crates/oryn-native/src/production_input_regressions.rs",
+          "sha256": "7e69c861000d952ee6a7d003ae754ec4daba99622adb47908489286e584bb517"
+        },
+        {
+          "path": "scripts/test_workflow_native_adapter.py",
+          "sha256": "da726c9bff0fa912ba8c410e060bdb337146e897437c86218ca35fe53909069b"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/clipboard_markup.rs",
+          "sha256": "784833e2d1212a3a8c5ccf339541b16930a852ce07c1e6eb6b2be9089414080e"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/async_clipboard.rs",
+          "sha256": "70f03adcd9fdfb8502c0223d5bca6f0dc4cf7e249152bd95b4c957a65bdd9c57"
+        }
+      ],
+      "caller_evidence": "OIL caller/recovery map uses native stable targets, partial outcome/revision receipts and scoped Dismiss; no application-state mutation shortcut or replay of committed prefixes.",
+      "package_review": "docs/oryn2/S-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md"
+    },
+    "V-01": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-layout/src/cssom.rs",
+          "sha256": "cccc4fea39269457afe2e55ad6e09e4ff370447ec7f3ad50dd73e9c73940417f"
+        },
+        {
+          "path": "crates/oryn-layout/src/shadow_tree.rs",
+          "sha256": "8469291626ec6763cea00c6a2ff5257f1fa80a55fc603632257d6d36c63254a6"
+        },
+        {
+          "path": "crates/oryn-dom/src/stylesheet_adoption.rs",
+          "sha256": "9340b9b612b640fc7bc762110efc95a8f88e1478aa9d1559d90e390ffcdc5727"
+        },
+        {
+          "path": "crates/oryn-native/src/drag_image_capture.rs",
+          "sha256": "d2d6f440ce021fcb175f33399d7753e71c38f0e5d4b43429d981bbaa83f259cd"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-layout/src/shadow_tree_tests.rs",
+          "sha256": "76f15808ca140a7a1eb2caa28484fd6a08750d29cf31e5064573549f65d9dfdc"
+        },
+        {
+          "path": "crates/oryn-dom/src/stylesheet_adoption.rs",
+          "sha256": "9340b9b612b640fc7bc762110efc95a8f88e1478aa9d1559d90e390ffcdc5727"
+        },
+        {
+          "path": "crates/oryn-native/src/drag_image_capture.rs",
+          "sha256": "d2d6f440ce021fcb175f33399d7753e71c38f0e5d4b43429d981bbaa83f259cd"
+        }
+      ],
+      "caller_evidence": "Stylo/CSSOM and native sheet/shadow ownership share invalidation and actual document namespaces/state; generated source is not visual-pass evidence.",
+      "package_review": "docs/oryn2/PARALLEL-RENDERING-2026-09-18.md"
+    },
+    "V-02": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-layout/src/lib.rs",
+          "sha256": "5afc77f0849f026793fe83662c1d4bb0d49b8eb323fce8557aeb66cf01b7a18f"
+        },
+        {
+          "path": "crates/oryn-layout/src/inline_formatting.rs",
+          "sha256": "51f2f8cbbe909a1ddc1e41f81ece89dbd4f048924ee14f0e5bd219fe19b95212"
+        },
+        {
+          "path": "crates/oryn-layout/src/tables.rs",
+          "sha256": "f4b0f04640d0b9a5b2567af48093f2d2912c42fcfab70a4f1cf1357946e1c930"
+        },
+        {
+          "path": "crates/oryn-layout/src/writing_mode.rs",
+          "sha256": "daa3a97e48ec9d81f2025c128acfacf30831698b0c45c3e95adf1486b2934e6c"
+        },
+        {
+          "path": "crates/oryn-layout/src/columns.rs",
+          "sha256": "5db1b00aba7504f86bf9f6e69f4bc7a6265dfba114db0ec777e608668b5e3e03"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-layout/src/tables.rs",
+          "sha256": "f4b0f04640d0b9a5b2567af48093f2d2912c42fcfab70a4f1cf1357946e1c930"
+        },
+        {
+          "path": "crates/oryn-layout/src/print.rs",
+          "sha256": "ca320f76d52f16108d760b62602573805ffa564b20be7ba36f169f456c4b34d7"
+        },
+        {
+          "path": "crates/oryn-layout/src/top_layer_clipping_tests.rs",
+          "sha256": "827b477535c9a0b655520841002ea58afdd6634ddf289114e00bf760da8b143e"
+        }
+      ],
+      "caller_evidence": "Pinned Core visual source map assigns layout/fragmentation algorithms to the existing native adapter; source paths alone do not certify all pixels.",
+      "package_review": "docs/oryn2/PARALLEL-RENDERING-2026-09-18.md"
+    },
+    "V-03": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-layout/src/svg_fonts.rs",
+          "sha256": "0e52a598c7dde35d0bf0cbcf3226bc17c0a30dfea2e1d1f1203b14fbb274b967"
+        },
+        {
+          "path": "crates/oryn-layout/src/print.rs",
+          "sha256": "ca320f76d52f16108d760b62602573805ffa564b20be7ba36f169f456c4b34d7"
+        },
+        {
+          "path": "crates/oryn-render-core/src/svg.rs",
+          "sha256": "0e1b86421893dd708abe491a06246dcc901c63f4230d6d6b64e3e2ca5cd75feb"
+        },
+        {
+          "path": "crates/oryn-render-core/src/print.rs",
+          "sha256": "d48720e6ebeeba73dec2726bf579a8f5f1602f583e39fba416ad1a30096bac45"
+        },
+        {
+          "path": "vendor/usvg/src/text/layout.rs",
+          "sha256": "7b5f5088e193996351bda51c5e3e7e47d8cb72a0b28d570467859f5c6487ddaa"
+        },
+        {
+          "path": "crates/oryn-dom/src/image_intrinsics.rs",
+          "sha256": "01f971196caa26a0e320f32e2b29fdb59321d793c3db70437cf28ed21b838568"
+        },
+        {
+          "path": "crates/oryn-dom/src/document_scope.rs",
+          "sha256": "2c47e9e809ea9242bf3c6263e440103d919df7427563e71161a538f9257e9b27"
+        },
+        {
+          "path": "vendor/parley/src/shape/mod.rs",
+          "sha256": "7a0f3aa8754a78216bd0b1525378a2bdda0fbaebb046e1878aa1714417e45b1f"
+        },
+        {
+          "path": "vendor/stylo_atoms/Cargo.toml",
+          "sha256": "459e321a22faad90aabfb779b8e1c3dd575ab96f77d0f453d8fb1b561af262f6"
+        },
+        {
+          "path": "vendor/stylo_atoms/ORYN-PATCH.md",
+          "sha256": "3a0cd5d4e6ea34bf6bd46508d65058c1c3bb147d72cc6bb51e8f58226a42f99e"
+        },
+        {
+          "path": "vendor/stylo_atoms/predefined_counter_styles.rs",
+          "sha256": "1661c8a27c0c215668e310ae2e7d2d74db96085e3efaa5c16209b17094a36fe6"
+        },
+        {
+          "path": "vendor/stylo_atoms/lib.rs",
+          "sha256": "f8f0b17edcb6d4e1fecdfbc09fd9b25a7f6a4516b46e873499260f644112be0b"
+        },
+        {
+          "path": "vendor/stylo_atoms/Cargo.lock",
+          "sha256": "58ef483702f9c83c56516184fa797e127904fb192172fa268040135c085e93ce"
+        },
+        {
+          "path": "vendor/stylo_atoms/build.rs",
+          "sha256": "eded5f667fb03f963500b0adaaf92b72fb06e3c5f90ab0285e822945f24f351f"
+        },
+        {
+          "path": "vendor/stylo_atoms/static_atoms.txt",
+          "sha256": "21e2897525e051112f8f583c719da9050470b06ab59725e9b332f93dfd2ddc98"
+        },
+        {
+          "path": "vendor/stylo_atoms/README.md",
+          "sha256": "59b1db611079186865d636abe5311c434d748955a97ea6f1ba1ec55ebaf9a84a"
+        },
+        {
+          "path": "vendor/stylo_atoms/Cargo.toml.orig",
+          "sha256": "f5b4b0e746e777fff70fc25096ffe4112bdd047f6463035edb1b751b9e32d5e1"
+        },
+        {
+          "path": "Cargo.toml",
+          "sha256": "de96dc6e4f8b22bb1a4c2ea9f86a8806035f1ce06cfa5736216dc8e2e0576e64"
+        },
+        {
+          "path": "vendor/stylo/properties/shorthands.rs",
+          "sha256": "10cc8d8195dc4c9cc1d2f22aa29a778eac3b0f57eb725becab69adcf873a3e31"
+        },
+        {
+          "path": "vendor/stylo/properties/longhands.toml",
+          "sha256": "be82409af0e7b5a295e93daf375c41a782a66855fe8ff7ab51dafcb9cd81584f"
+        },
+        {
+          "path": "vendor/stylo/servo/selector_parser.rs",
+          "sha256": "cae151071bf61f7aae0a72a94c490379c82b47f7a98e8f1c2e31f8170d9abf37"
+        },
+        {
+          "path": "vendor/stylo/stylist.rs",
+          "sha256": "43d9014d3359ba1071929b4e9b8efec7bf4cb02c33dd2307a4d7980746d81fe0"
+        },
+        {
+          "path": "vendor/stylo/values/computed/mod.rs",
+          "sha256": "9a8e2ff880837d0ceaaf8ae6fd06fd0b85d104b7bba1e87ada091da696e92add"
+        },
+        {
+          "path": "vendor/stylo/values/computed/list.rs",
+          "sha256": "5931093ab5bed5eaecc4c385234590e20bd7177146001a00cf326f68565857c0"
+        },
+        {
+          "path": "crates/oryn-layout/src/anchor_positioning.rs",
+          "sha256": "ee8c32231f2060d37c55d283aca3123d5c9821d3203b653b8ea5b9b40dcd6315"
+        },
+        {
+          "path": "crates/oryn-render-core/src/decorations.rs",
+          "sha256": "af99db7d2be7fdd8d145a63afad03cab948402a472eec849deab3b70e2573449"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/web_animations.rs",
+          "sha256": "3d7d2ef8385de7b61b8f80531f25d3158141a28bfd1e3379479e7398ffb5563e"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/stylesheet_sets.rs",
+          "sha256": "b2079f82bb0d0bba4876a23fba27fc1597526e51330d4fdda5b31dc4e1349954"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/media_queries.rs",
+          "sha256": "7c98ae520ae50c265aa6389a527dc2ded45867ee2bfdf1ba0eb8034ac6125b11"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/css_images.rs",
+          "sha256": "f35a296a4ea849b8f88d8700d024b4b4a658d418020b881001698a17bb8c3eb0"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/adopted_stylesheets.rs",
+          "sha256": "6ea4415b166e017d73370565621c0cac48729c1eacaf428e4f0174fdea28c833"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/stylesheet_adoption.rs",
+          "sha256": "4d23e7c8d79bab4e8a4f7eedd99de3f101d4707127b1fb0071fbd74c93ddab9b"
+        },
+        {
+          "path": "crates/oryn-js/src/v8_bindings/stylesheet_event_task.rs",
+          "sha256": "08712a9f80cc910f17b4847d1101f2a4049d675fc1b17d46dda0dc149b311621"
+        },
+        {
+          "path": "vendor/blitz-dom/src/animation_bridge.rs",
+          "sha256": "dd6e48c60e123726c6b1548318f30826db34451568cf566bf0f71210bfbe1368"
+        },
+        {
+          "path": "vendor/blitz-dom/src/stylo.rs",
+          "sha256": "cd0cea0170f1082bc69460e5af502d34c839ba673e05a57dacd6b10e5fbb4784"
+        },
+        {
+          "path": "crates/oryn-layout/src/ruby.rs",
+          "sha256": "baff80b37597248fa39e1f58242841dcc5f6273c3da302531366a5bcc90990a0"
+        },
+        {
+          "path": "crates/oryn-layout/src/inline_formatting.rs",
+          "sha256": "51f2f8cbbe909a1ddc1e41f81ece89dbd4f048924ee14f0e5bd219fe19b95212"
+        },
+        {
+          "path": "crates/oryn-layout/src/permission_controls.rs",
+          "sha256": "6d635f1b8bf10d52a7260a6f422d7587b78dc31feb26b0c35f317c3be9fe956c"
+        },
+        {
+          "path": "crates/oryn-render-core/src/svg_coverage.rs",
+          "sha256": "7f5acd279d3ba77b65ec2b9bdce94f19910b03bfa918635cd46dcf9ca321aa17"
+        },
+        {
+          "path": "crates/oryn-layout/src/generated_counter_styles.rs",
+          "sha256": "eb96af7b2d562b19028c22fc56c74b9d8660498e79c7169340cf6138bdfa7c35"
+        },
+        {
+          "path": "crates/oryn-layout/src/sticky.rs",
+          "sha256": "e70f2bc850083dc9e856c28d5e30c0ecf096e8b5f4e580c24e1ca9f3c1b58ae2"
+        },
+        {
+          "path": "crates/oryn-layout/src/svg_clip_external.rs",
+          "sha256": "43436056ea7d782163efcdab1aa847d1ba865cc8f36b6b128fef6c68264fa08b"
+        },
+        {
+          "path": "crates/oryn-layout/src/text_pseudos.rs",
+          "sha256": "34d315ad463b261be3a9124b3cb08d19ec9398eb3f69ded0ab77d8050e422155"
+        },
+        {
+          "path": "crates/oryn-render-core/src/filters.rs",
+          "sha256": "07df24935f8259da22070dfdd314fe4574a04a8c88dfd6fe718c588f95705433"
+        },
+        {
+          "path": "crates/oryn-render-core/src/svg_secure_foreign.rs",
+          "sha256": "7b868f754d14876ee4c03d3ed7bba628de9dbc86f35b51f48aa9b632c007a4dd"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-layout/src/svg_geometry.rs",
+          "sha256": "f79fe2bec2b214f89fa0d9e0e9f664d3583ded8362260fb47e521d94741c9a26"
+        },
+        {
+          "path": "crates/oryn-layout/src/print.rs",
+          "sha256": "ca320f76d52f16108d760b62602573805ffa564b20be7ba36f169f456c4b34d7"
+        },
+        {
+          "path": "crates/oryn-render-core/src/svg.rs",
+          "sha256": "0e1b86421893dd708abe491a06246dcc901c63f4230d6d6b64e3e2ca5cd75feb"
+        },
+        {
+          "path": "crates/oryn-render-core/src/print.rs",
+          "sha256": "d48720e6ebeeba73dec2726bf579a8f5f1602f583e39fba416ad1a30096bac45"
+        }
+      ],
+      "caller_evidence": "Actual font/used SVG environment, secure fetched resource document, paint and pagination producers are shared with native output; no screenshot-only inference.",
+      "package_review": "docs/oryn2/PARALLEL-RENDERING-2026-09-18.md"
+    },
+    "V-04": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-layout/src/dom_queries.rs",
+          "sha256": "4ef83378dc4cb92684fd6314d4019598cca75cce19d36cddd044fd2f8afd903f"
+        },
+        {
+          "path": "crates/oryn-layout/src/scroll_geometry.rs",
+          "sha256": "1114b595aa1bc84f4b3f217e02fc76c107e07a32db5da4f6f6f57b0083cbe613"
+        },
+        {
+          "path": "crates/oryn-native/src/semantic.rs",
+          "sha256": "8cc2591d33bd6e791b1bf71ca2a38475498e3fe540ed17d422f46b3723dfbeed"
+        },
+        {
+          "path": "crates/oryn-native/src/webdriver_script_v8.rs",
+          "sha256": "0fa091e6bf22523fa09c591f9cbc975818bffce17b4d01f7fa9533073fe1648a"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-layout/src/svg_geometry.rs",
+          "sha256": "f79fe2bec2b214f89fa0d9e0e9f664d3583ded8362260fb47e521d94741c9a26"
+        },
+        {
+          "path": "crates/oryn-native/src/semantic.rs",
+          "sha256": "8cc2591d33bd6e791b1bf71ca2a38475498e3fe540ed17d422f46b3723dfbeed"
+        },
+        {
+          "path": "crates/oryn-native/src/production_input_regressions.rs",
+          "sha256": "7e69c861000d952ee6a7d003ae754ec4daba99622adb47908489286e584bb517"
+        }
+      ],
+      "caller_evidence": "Geometry/hit/focus/OIL projection share fresh native layout and revision rather than stale independently cached observations.",
+      "package_review": "docs/oryn2/PARALLEL-RENDERING-2026-09-18.md"
+    },
+    "V-05": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "crates/oryn-native/src/semantic.rs",
+          "sha256": "8cc2591d33bd6e791b1bf71ca2a38475498e3fe540ed17d422f46b3723dfbeed"
+        },
+        {
+          "path": "crates/oryn-native/src/accessibility_runtime.rs",
+          "sha256": "2c793539e6c2f40b5a0a542ab8ad7cafb1d8226077ceb86e28067eb9c2acd82e"
+        },
+        {
+          "path": "crates/oryn-native/src/accessibility_platform/macos.rs",
+          "sha256": "36e841f8f2964814a3def9388562de82020eb79e0532eae8fdc9dd157c2a4bc0"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "crates/oryn-native/src/semantic.rs",
+          "sha256": "8cc2591d33bd6e791b1bf71ca2a38475498e3fe540ed17d422f46b3723dfbeed"
+        },
+        {
+          "path": "crates/oryn-native/src/platform_automation_regressions.rs",
+          "sha256": "6b056bc156032703ffa160f45f204d07c3d633be758a9ab5b98bfd287efd4959"
+        },
+        {
+          "path": "scripts/tests/native_accessibility_probe.swift",
+          "sha256": "ec7dfe5747941f2cd2b7a6d8425ad1256c7c38353e7b88f96eee211809a59b79"
+        }
+      ],
+      "caller_evidence": "Accepted ARIA ownership/name/tree projection is shared by automation and native accessibility; OS/AT observation remains independent execution assessment.",
+      "package_review": "docs/oryn2/PARALLEL-RENDERING-2026-09-18.md"
+    },
+    "F-01": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/workflow_native_adapter.py",
+          "sha256": "9265c2d64f53776b8e239eef86396ddf75fd481921af0c8a9d1122e7ee826bb2"
+        },
+        {
+          "path": "scripts/workflow_family_recipes.py",
+          "sha256": "04fd0eac1fc143eacbf15824308d93e6993b1255e75b8f3e12f768a2bdbc96c2"
+        },
+        {
+          "path": "scripts/workflow_raw_evidence.py",
+          "sha256": "216431400fe7671c31881b24ec6b5cbd77f77943d904a978a449755126c1c068"
+        },
+        {
+          "path": "benchmarks/app-compatibility/fixtures-v2.lock.json",
+          "sha256": "836b1a7620e590a6a2177960dce18f12081ca1155c20bc1d0e19932e1a6d7410"
+        },
+        {
+          "path": "benchmarks/app-compatibility/fixtures.lock.json",
+          "sha256": "c2b72d8d9c91de75f62cea39905ab349dabde2b010b324943017608c4bce607b"
+        },
+        {
+          "path": "scripts/framework_fixture_lock.py",
+          "sha256": "c979af7abcc773500332d72a0318c268c0e8dfc25f73cc7c0924aca9c828cae5"
+        },
+        {
+          "path": "scripts/validate-app-fixtures.sh",
+          "sha256": "057307b474feba7077c7d09094b36c4d41a2e474871a089205da215cf58c278d"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_workflow_native_adapter.py",
+          "sha256": "da726c9bff0fa912ba8c410e060bdb337146e897437c86218ca35fe53909069b"
+        },
+        {
+          "path": "scripts/tests/test_workflow_raw_evidence.py",
+          "sha256": "5579e67a1dbd3ef2ad45eae63fa2d38318408c1a50c5c23dabb39c1f89ffc1c1"
+        },
+        {
+          "path": "scripts/test_completion_framework_lock.py",
+          "sha256": "2a854046670b8d1854ac73677f307fce7158ef13e865508d14295fc729feecbc"
+        }
+      ],
+      "caller_evidence": "One orchestration layer reuses actual family receivers/oracles and reopened SQLite evidence; no new synthetic pass-only harness substitutes for genuine OIL.",
+      "package_review": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+    },
+    "F-02": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "test-harness/workflows/five-family-contract-v1.json",
+          "sha256": "3fb9e1173b54ae60828c73f86af6f80dd31956c1c4ccda296bf970af68a0a556"
+        },
+        {
+          "path": "scripts/workflow_family_recipes.py",
+          "sha256": "04fd0eac1fc143eacbf15824308d93e6993b1255e75b8f3e12f768a2bdbc96c2"
+        },
+        {
+          "path": "scripts/run-oil-framework-outcomes.py",
+          "sha256": "5c04f0105cb6c1f0230001babbbda807c4e3dfe6f5cae967cd74b7d90426ff48"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_workflow_contract.py",
+          "sha256": "22fb89e60e7d45266a2f8658807f8f1cffbb4b2160d9b20c4cbd98138dabe876"
+        },
+        {
+          "path": "scripts/test_oil_framework_outcomes.py",
+          "sha256": "434e3670f98931cda8643e69c61bafc4ff4ddb6bb655061c1ae7fbdd90caf1f9"
+        },
+        {
+          "path": "scripts/tests/test_workflow_frontend_evidence.py",
+          "sha256": "48bb11fb937b7aeccdca87bf7cb1a53c9e48739eb44f52ba387e668ba7952283"
+        }
+      ],
+      "caller_evidence": "Frozen29cells/frontend dimensions and eight names with three original samples remain intact; exact29fixture/recipe map supplies transitive frontend paths.",
+      "package_review": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+    },
+    "F-03": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/completion_provenance.py",
+          "sha256": "aba8f5340b4d64ec56684f185b6951d7e80f507150104cdfeafe63ad0558e974"
+        },
+        {
+          "path": "scripts/completion_execution.py",
+          "sha256": "f1efa31590cdc3bc66018d9b216dc9acda4d1d525519e0799c77ca2fb8d5b0b8"
+        },
+        {
+          "path": "scripts/completion_source_snapshot.py",
+          "sha256": "89fb41782d161be1ce03ed831001ab8f4643216276ca19dd8f91e612d6833594"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_completion_provenance.py",
+          "sha256": "31c91dfa17cb8aa6d0c5a4b8c051a358f52f51183319f2ff4cefea490eb25481"
+        },
+        {
+          "path": "scripts/test_completion_execution.py",
+          "sha256": "ccd7014db552e20b9633d381cd403c15e14b2a629d2634751363932656699161"
+        },
+        {
+          "path": "scripts/tests/test_completion_source_snapshot.py",
+          "sha256": "0fea2b32ef1c09249ed74f1eededcb26be900a6d5bd3226c7aa559613c3b2684"
+        }
+      ],
+      "caller_evidence": "Complete candidate and source/signature checks reject stale persisted-SaaS/native binary mixtures; actual rebuild/sign/run follows global generation.",
+      "package_review": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+    },
+    "F-04": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/workflow_evidence.py",
+          "sha256": "48b3c494b93ca052087a22e934566e84b614649e5bc4ac9e4921bb823dae98e2"
+        },
+        {
+          "path": "scripts/workflow_raw_evidence.py",
+          "sha256": "216431400fe7671c31881b24ec6b5cbd77f77943d904a978a449755126c1c068"
+        },
+        {
+          "path": "scripts/completion_qualification.py",
+          "sha256": "17f3c008bdcd860d305dcdfd6abdbff83f5440f2d1a8e4334989605b9c1659cf"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_workflow_evidence.py",
+          "sha256": "4cd7b60355affa9cad379569a60b80b8adb9c57ba67de778cf62f97e35fd0066"
+        },
+        {
+          "path": "scripts/tests/test_workflow_raw_evidence.py",
+          "sha256": "5579e67a1dbd3ef2ad45eae63fa2d38318408c1a50c5c23dabb39c1f89ffc1c1"
+        },
+        {
+          "path": "scripts/test_completion_qualification.py",
+          "sha256": "5550263c8786788dad956ced88941a5929a0a5ce629bdfb6c0d444db26f519c0"
+        }
+      ],
+      "caller_evidence": "Final join recomputes oracles from native actions, durable database bytes and exact authority/fault traces; originals and retries remain separately retained.",
+      "package_review": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+    },
+    "Q-01": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/completion_qualification.py",
+          "sha256": "17f3c008bdcd860d305dcdfd6abdbff83f5440f2d1a8e4334989605b9c1659cf"
+        },
+        {
+          "path": "scripts/completion_execution.py",
+          "sha256": "f1efa31590cdc3bc66018d9b216dc9acda4d1d525519e0799c77ca2fb8d5b0b8"
+        },
+        {
+          "path": "scripts/workflow_family_recipes.py",
+          "sha256": "04fd0eac1fc143eacbf15824308d93e6993b1255e75b8f3e12f768a2bdbc96c2"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_completion_qualification.py",
+          "sha256": "5550263c8786788dad956ced88941a5929a0a5ce629bdfb6c0d444db26f519c0"
+        },
+        {
+          "path": "scripts/test_completion_execution.py",
+          "sha256": "ccd7014db552e20b9633d381cd403c15e14b2a629d2634751363932656699161"
+        },
+        {
+          "path": "scripts/test_workflow_failures.py",
+          "sha256": "d1d685744462ae7e29c498fa00124585ec28624817bdfaa37a595869cbc8225b"
+        }
+      ],
+      "caller_evidence": "Original booking result+sixfile trace, reviewed mechanism and original clean failing/passing regression receipts bind archived before/after source; no source phase may invent cause or execution.",
+      "package_review": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+    },
+    "Q-02": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/workflow_raw_evidence.py",
+          "sha256": "216431400fe7671c31881b24ec6b5cbd77f77943d904a978a449755126c1c068"
+        },
+        {
+          "path": "scripts/workflow_native_adapter.py",
+          "sha256": "9265c2d64f53776b8e239eef86396ddf75fd481921af0c8a9d1122e7ee826bb2"
+        },
+        {
+          "path": "scripts/workflow_evidence.py",
+          "sha256": "48b3c494b93ca052087a22e934566e84b614649e5bc4ac9e4921bb823dae98e2"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_workflow_commit_gates.py",
+          "sha256": "e5cedbcd2739987f6228c91804940ea24a414ddcffc5a54cff171b233fcc5883"
+        },
+        {
+          "path": "scripts/test_workflow_failures.py",
+          "sha256": "d1d685744462ae7e29c498fa00124585ec28624817bdfaa37a595869cbc8225b"
+        },
+        {
+          "path": "scripts/tests/test_workflow_raw_evidence.py",
+          "sha256": "5579e67a1dbd3ef2ad45eae63fa2d38318408c1a50c5c23dabb39c1f89ffc1c1"
+        }
+      ],
+      "caller_evidence": "Fault/commit/retry ledgers and native cleanup establish exact delayed-response, worker-failure, duplicate-delivery and cancellation obligations; green retry never erases an original.",
+      "package_review": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+    },
+    "Q-03": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/workflow_qualification.py",
+          "sha256": "df65ae9a031f4513a59029cbc99a8f6e1c7169020ac8422ff55713eaa370b5c5"
+        },
+        {
+          "path": "scripts/workflow_resources.py",
+          "sha256": "28cbf3d12fa731fd4ebb87a27229e431fa2f1f22341bff0922f39c947c1d0d88"
+        },
+        {
+          "path": "scripts/qualify-workflow-q.py",
+          "sha256": "56b17618b02f3d1643e643ccdb012b1e03375b96f73ff8295b81d56e68f2e00b"
+        },
+        {
+          "path": "scripts/run-workflow-qualification-profiles.py",
+          "sha256": "3aaca51a4deb93f88bc7087ace9ba61aaabc2d4139ff56ab249864074eb06392"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_workflow_qualification.py",
+          "sha256": "cbde7eadc070f2237d469f6fa16e14e00a1d061ace57f968e8b48104c55c20b7"
+        },
+        {
+          "path": "scripts/test_workflow_resources.py",
+          "sha256": "5494a73ce334c773eac09b25fa70993a343b72bf525afd1b9f30855952490962"
+        },
+        {
+          "path": "scripts/tests/test_profile_custody.py",
+          "sha256": "328ec39bb3af8fac92550b77fbf31cc49c20557eec236de40864f7b8e746d2fa"
+        }
+      ],
+      "caller_evidence": "Fixed210profiles, actual OS/native accounting, executable/raw-worker candidate joins and fixed thresholds prevent summary-only performance acceptance.",
+      "package_review": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+    },
+    "Q-04": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/workflow_contract.py",
+          "sha256": "fac28c567dbb068024cd870f8e2af725c34581c39064474a9a8261bea312bbee"
+        },
+        {
+          "path": "scripts/workflow_input_lock.py",
+          "sha256": "65a8a93f07066bb12313d30faf24b3ec46a31a30a5b6f6dd268b6ae6b0303bd6"
+        },
+        {
+          "path": "scripts/workflow_evidence.py",
+          "sha256": "48b3c494b93ca052087a22e934566e84b614649e5bc4ac9e4921bb823dae98e2"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_workflow_contract.py",
+          "sha256": "22fb89e60e7d45266a2f8658807f8f1cffbb4b2160d9b20c4cbd98138dabe876"
+        },
+        {
+          "path": "scripts/tests/test_workflow_input_lock.py",
+          "sha256": "1a23763273063f6c6ecbbf7a1eb8137fedb4df7007c57f124461e7654bd59a23"
+        },
+        {
+          "path": "scripts/test_workflow_evidence.py",
+          "sha256": "4cd7b60355affa9cad379569a60b80b8adb9c57ba67de778cf62f97e35fd0066"
+        }
+      ],
+      "caller_evidence": "Immutable sampling plans688original observations across29cells; failed originals, missing IDs, duplicates and replacement retries reject.",
+      "package_review": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+    },
+    "Q-05": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/completion_provenance.py",
+          "sha256": "aba8f5340b4d64ec56684f185b6951d7e80f507150104cdfeafe63ad0558e974"
+        },
+        {
+          "path": "scripts/completion_source_snapshot.py",
+          "sha256": "89fb41782d161be1ce03ed831001ab8f4643216276ca19dd8f91e612d6833594"
+        },
+        {
+          "path": "scripts/completion_execution.py",
+          "sha256": "f1efa31590cdc3bc66018d9b216dc9acda4d1d525519e0799c77ca2fb8d5b0b8"
+        },
+        {
+          "path": "scripts/wpt_execution_evidence.py",
+          "sha256": "69fb508c3dbd9283a13f7aba63958af8f548b0ee7fa00bc5da2e9153abf1213a"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_completion_provenance.py",
+          "sha256": "31c91dfa17cb8aa6d0c5a4b8c051a358f52f51183319f2ff4cefea490eb25481"
+        },
+        {
+          "path": "scripts/tests/test_completion_source_snapshot.py",
+          "sha256": "0fea2b32ef1c09249ed74f1eededcb26be900a6d5bd3226c7aa559613c3b2684"
+        },
+        {
+          "path": "scripts/tests/test_wpt_execution_evidence.py",
+          "sha256": "15c89cc951a0d9a5e08ab3f9200a254bc7e1771b135972ffc80b2f3bc214e89a"
+        },
+        {
+          "path": "scripts/tests/test_generation_lease.py",
+          "sha256": "d550fd3efb4170eeed787df07c32c77e85902ad0a917c5b566f634a4eeaa1ff3"
+        }
+      ],
+      "caller_evidence": "Native/tool/fixture/profile/source artifacts are frozen and rechecked before/after use; immutable diagnosis output path avoids candidate hash cycle, completed evidence is pinned later.",
+      "package_review": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+    },
+    "Q-06": {
+      "implementation_generated": true,
+      "tests_generated": true,
+      "implementation_sources": [
+        {
+          "path": "scripts/completion_qualification.py",
+          "sha256": "17f3c008bdcd860d305dcdfd6abdbff83f5440f2d1a8e4334989605b9c1659cf"
+        },
+        {
+          "path": "scripts/generation_gate.py",
+          "sha256": "be5e7d075f2bc84f764f64c8335ec3bcfac97b0d08e3f806293ac33f28f0fa21"
+        },
+        {
+          "path": "scripts/wpt_full_qualification.py",
+          "sha256": "5bb25b64944f4116ff5695bdd17401ea8b17b360f989b95d4ec69ed0dc846169"
+        },
+        {
+          "path": "scripts/workflow_raw_evidence.py",
+          "sha256": "216431400fe7671c31881b24ec6b5cbd77f77943d904a978a449755126c1c068"
+        },
+        {
+          "path": "scripts/workflow_qualification.py",
+          "sha256": "df65ae9a031f4513a59029cbc99a8f6e1c7169020ac8422ff55713eaa370b5c5"
+        },
+        {
+          "path": "scripts/run-oil-forms-outcomes.py",
+          "sha256": "08ac99a57e2f741dbc77a1476fa5e1bb236b57046da5c2935ff775f3b3c23b02"
+        },
+        {
+          "path": "test-harness/workflows/saas_fixture.py",
+          "sha256": "3d2a0798b0ebd96241fdb2b3ffb847854b5c27c50fa589dd37f55e82c29a2e5c"
+        },
+        {
+          "path": "crates/oryn-native/src/media_capture/vpx_build.rs",
+          "sha256": "8dd6dfcf72d8a1f3d9695bd73de691196eac6ae6eb3e33aca2c8bd722fc100c7"
+        },
+        {
+          "path": "vendor/reqwest/src/connect.rs",
+          "sha256": "d571f1df3283cd8065038207e869fffd3d3b77f036c83f35e85b3192f1bdf8f1"
+        }
+      ],
+      "test_sources": [
+        {
+          "path": "scripts/test_completion_qualification.py",
+          "sha256": "5550263c8786788dad956ced88941a5929a0a5ce629bdfb6c0d444db26f519c0"
+        },
+        {
+          "path": "scripts/test_generation_barrier.py",
+          "sha256": "c68a492a1a7e279b174d04b8d3e1c79b1773d229f07a5f763200a8a13d8cac42"
+        },
+        {
+          "path": "scripts/tests/test_wpt_full_qualification.py",
+          "sha256": "46295e276392feb4815798d537685f67f314b32ef63fa4affd0818bec9a12034"
+        },
+        {
+          "path": "scripts/tests/test_workflow_raw_evidence.py",
+          "sha256": "5579e67a1dbd3ef2ad45eae63fa2d38318408c1a50c5c23dabb39c1f89ffc1c1"
+        },
+        {
+          "path": "scripts/test_completion_execution.py",
+          "sha256": "ccd7014db552e20b9633d381cd403c15e14b2a629d2634751363932656699161"
+        },
+        {
+          "path": "scripts/test_completion_provenance.py",
+          "sha256": "31c91dfa17cb8aa6d0c5a4b8c051a358f52f51183319f2ff4cefea490eb25481"
+        },
+        {
+          "path": "scripts/test_workflow_qualification.py",
+          "sha256": "cbde7eadc070f2237d469f6fa16e14e00a1d061ace57f968e8b48104c55c20b7"
+        },
+        {
+          "path": "scripts/tests/test_wpt_official_workflow.py",
+          "sha256": "49df9d20b5499f153b5b9a6abadc9b57c43d03f0121fe329681936800305b678"
+        },
+        {
+          "path": "scripts/test_oil_saas_outcomes.py",
+          "sha256": "78a8099a8fbd667d2d1444fd21138dde8bb84677fa7f88e2bf5e97c17c0032b3"
+        },
+        {
+          "path": "scripts/test_workflow_oauth_rejections.py",
+          "sha256": "b45170c1a9614ede961faed506622c2fd4dbb7183439015b1efdb44e02b4c19c"
+        },
+        {
+          "path": "tools/wptrunner-oryn/tests/test_provenance.py",
+          "sha256": "e0088fcfe74463609d42d90545ed0dba0f93679a05f3739201389d63e56d4b12"
+        }
+      ],
+      "caller_evidence": "Exact11finalcomponents, full Core IDs, family/framework/Q/security/media/topology and original input hashes gate qualification; all51source declaration remains a separate reviewed admission barrier.",
+      "package_review": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md"
+    }
+  },
+  "qualification_complete": false,
+  "review_notes": [
+    "All required implementation and regression sources, production callers and superseded routes reconciled through the referenced package maps.",
+    "All execution, original failure diagnosis and independent assessments remain pending. Three historical drag/profile conflicts remain explicit and unwaived; no Core ID or required outcome is removed.",
+    "Compiler/test repair may change source; a changed candidate requires reviewed fresh hash evidence before subsequent admitted qualification.",
+    "First compiler repairs and nine-file Python batch reviewed: canonical test paths preserve identity checks; scaled fsum harmonic mean preserves fixed target; Oracle startup preserves bounded failure diagnostics and cleanup. No passing build/test/qualification claim. Original failure logs retained.",
+    "Build05 compiled oryn-dom and usvg past initial errors; parley font-types Tag API corrected to into_bytes at both synthesis callers. Copy four-byte representation preserved; no axis/threshold semantics changed.",
+    "Reviewed pinned V8 15-header closure, preserving existing patched API hashes; stylo_atoms0.20.0 atom source extension; Python custody/fixture expectation repairs and SaaS pre-deadline stack capture. Readiness timeout unresolved, no qualification claim.",
+    "Build07 repairs: pinned V8 default external tags and narrow mutable shared-buffer handle; reqwest field documentation; Cargo CXX wrapper retained through libvpx linking with explicit coherent SDKROOT. Proven SaaS getfqdn readiness stall repaired only for numeric loopback server; test requires real ephemeral bind without DNS. No passing claim before rerun.",
+    "Build08 source repairs: balanced Rust delimiters; native fetch carries final TransportTiming and clears redirect DNS; Stylo retains scoped large values via generated boxing, exposes existing position_try parser/serializer to Servo, imports proper Parser/shadow traits. Fixed size assertions retained. Python328 passed repair04; not a native qualification result.",
+    "Build09: audio-worklet settlement branch closed before event pop preserving retry; text cue ruby match guard token corrected; position-try serializer handles Servo required reference and Gecko optional reference without changing normal omission.",
+    "Build10/workspace syntax repairs: CSS.escape closing brace, raw string delimiter levels preserving JSON/script bytes, WebSocket match comma, anchor guards and decimal float tokens; documented four existing Stylo APIs. No semantic changes or final qualification claim.",
+    "Build11 coordinated eight-lane repair: parser imports; pinned V8 API/handle lifetime conversions and owned callback data; full stateful navigation, stream, storage, media and DOM caller integration; layout adapter type fixes; six-file syntax sweep repairs. Root integrates runtime markup5ever/oryn-net dependencies and borrowed scroll chain. V8 MovePendingTo unchanged body moved to complete-type .cc, exact patch metadata/header manifest synchronized. No compiler checks or conformance result claimed until next execution.",
+    "Build12 compiler repair: explicitly scoped callback and object handles; preserve document body owner by borrowing; typed weak animation resolvers; current-scope re-rooting for callback/descriptor values; native Float16 Value upcast; layout computed-name/NodeId/ArcSlice adapter fixes and symbolic percentage preserving Taffy dimension conversion. All seven Rust lanes delivered; root integrated dispatch and shared binding lifetimes. No failure or qualification requirement waived. Build12 exited101; fresh candidate remains unqualified.",
+    "Build13 ended101 with one layout import diagnostic and no JS compiler errors reported. Fix text_pseudos production import to style::servo_arc reexport, matching pinned dependency; no added dependency or behavior change. Full native build remains unverified.",
+    "Build14 renderer repairs preserve document-local SVG node identity via u32 NodeId keys and borrow filter input. Native fingerprint now hashes all8 patches in canonical schema5 order with existing rerun tracking; cross-contract regression added. Archive succeeded independently; no native runtime or conformance passing claim.",
+    "Build15 remaining renderer error: explicitly type collected inline stylesheets as Vec<String> before serde conversion; text and cascade unchanged. Native fingerprint cross-contract regression passed under repair11.",
+    "Reviewed full build16 native repair batch across7lanes and primary: isolate-owned monotonic parser preparation tickets with send-only completion results, transferable host transport snapshot preserving realm allocator, pinned API/scope/import/serde/type repairs, existing policy accessor and preserved CSP side effects. External-reference manifest reconciled to12 current entries ABI2 with source regression. Test-only pinned engine fixtures and2 zero-capacity span compatibility patches passed28/28 engine invocations under independent repair14 engine inputs; production archive unchanged. Native candidate remains unqualified; all scope/denominators retained.",
+    "Build17 reduced253 native diagnostics to13. Reviewed5file repair: frame per-request channels now transmit context-free payloads while archived controls remain owned by isolate preparation registry; real thread custody/retirement regression generated. Preserve Window.open entry context across author conversions with rooted context. Correct2 executable borrow/move issues, explicit import handle types, RuntimeError import. No qualification requirements waived.",
+    "Reviewed pinned GN compiler/libc++ ABI provenance generator, bridge configuration and runtime/profile manifest binding; preserve exact GN optional -I search paths without requiring absent generated directories, require actual system-header roots. Framework revision3 only admits three reviewed generation headers; preserves exact archived revision2/populations. Parser publication retries now account network dequeue once, retain source/record across admission errors and participate in scheduler liveness; three regression sources added. No build/pass claim; complete qualification scope unchanged.",
+    "Native+JS test01 compilation failed97 JS,81 native,1integration diagnostics before assertions. Eight lanes repaired current testAPI/scopes/fixture fields/imports without removing tests; async encoding verifies resolved Promise via bounded polling, popup uses public real window.open route, media retry tests observe behavior. Root fixed test helper access, test realm allocation, zero-scroll fixtures and preserved service shutdown path via existing cancel_all_network_operations. Added PNG image and UUID native dev dependencies; reviewed minimal lock delta only2native dependency references and1new UUID package, versions otherwise retained. Full workspace offline metadata stopped at unrelated unavailable fontconfig-parser; test02 may fetch selected locked dev dependency. No test pass claim yet.",
+    "Test02 compiled but four targets failed: V8 allocator first-use trap, nonrecursive native stack exhaustion, and seven integration setup failures. Reviewed repair: serialize eager sandbox allocator preparation inside initialization barriers with fresh-process concurrent regression; defer direct root creation until page registration; stage isolated service routes until exact live page admission, covering lazy startup and rejecting all pre-admission requests/network and retired reactivation. Heap-own actor PageState and retained prerender candidate to avoid cumulative stack exhaustion while preserving drop/publication semantics. Preserve worker reporting endpoints and secure-context fixture publication; retain strong contexts where fixtures store only Copy PageId. No assertions removed, no denominators changed, no passing execution claim. Checklist updated to actual prior milestones.",
+    "Reviewed full test03 repair batch and independent DOM/static audits. Canonical full authored WebIDL regenerated314 merged interfaces after typedef/static grammar repair; exact build freshness guard and static callback metadata/coercion regressions. DOM synchronous bare-NodeId handoff, allocation frontier and unpublished-error reclamation preserve explicit collection with deterministic failure regressions. Parent LoadHtml token binds source/page/URL/headers/body, commits after park, rejects stale cached epochs/replay and cancels abandoned grants; worker18/context51, agent19 unchanged. Pointer nested continuations heap-owned; callback errors leave V8 as exceptions. CSP blank/srcdoc meta identity, clipboard formatting/XML base, simultaneous drag projection and common sandbox module enforcement repaired. Document fixtures now establish required native identity without guard weakening. Full original failures retained; no conformance or test pass claim.",
+    "Test04 canonical generated-registry freshness check passed; compilation stopped on two existing XML test calls to nonexistent DomRuntime::text_content. Use actual DomArena text_content accessor via arena(), preserving expected Unicode/text values. No assertions executed and no further source changes.",
+    "Test05 stopped on two JS compiler diagnostics: static PerformanceObserver getter now uses actual current-context V8BindingState slot rather than nonexistent helper; boxed pointer event retry predicate dereferences through closure. Behavior and assertions preserved; no other changes."
+  ],
+  "review_sources": [
+    {
+      "path": "docs/oryn2/FQ-ACCEPTANCE-GATE-AUDIT-2026-09-18.md",
+      "sha256": "cf3283645e5c95253afa4b91fb70181d054d95184acf9bd8c19f6552164a8f1e"
+    },
+    {
+      "path": "docs/oryn2/G-SOURCE-DISPOSITION-2026-09-18.md",
+      "sha256": "7283bff4dc37f62da7e61ed8392578d466aa2c2671c7f66eb3b1dff73f4822de"
+    },
+    {
+      "path": "docs/oryn2/L-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md",
+      "sha256": "1fa75056718f74d05536249a552705927ae8ba8e253a3b6c79c813aa43794cb6"
+    },
+    {
+      "path": "docs/oryn2/L01-EMBEDDED-CONTENT-SOURCE-AUDIT-2026-09-17.md",
+      "sha256": "cb3d39726079c96154019b5b9b9e3f5a0a0abf438b466a9ced0dd8c70e74dd54"
+    },
+    {
+      "path": "docs/oryn2/PARALLEL-FRAME-QUEUE-ACCOUNTING-2026-09-18.md",
+      "sha256": "82b88e832858e7e2fd031cd8c0ee2d6ab94ad23047056fdcae55650f5d887667"
+    },
+    {
+      "path": "docs/oryn2/PARALLEL-NAVIGATION-2026-09-18.md",
+      "sha256": "fe897a345b4ab3ffbb773122172f51c1d918ffb091ac8bb7ec20d4b5f249abf9"
+    },
+    {
+      "path": "docs/oryn2/PARALLEL-RENDERING-2026-09-18.md",
+      "sha256": "73202dd6433144a4296355e69eb89d905c863bceac678032d41e11586237d6eb"
+    },
+    {
+      "path": "docs/oryn2/PARALLEL-STANDALONE-AUXILIARY-2026-09-18.md",
+      "sha256": "bd88f9a747097fb5a26cb7f99983b395681a374b5478df6f414a4c9fa5884ab9"
+    },
+    {
+      "path": "docs/oryn2/PW-REMAINING-ROW-SOURCE-DISPOSITION-2026-09-18.md",
+      "sha256": "f1bd4a7106a8113755ecaad8b4a4f0be28f0f9c188b5f5926f7124a768a7225c"
+    },
+    {
+      "path": "docs/oryn2/S-OPEN-ROW-SOURCE-DISPOSITION-2026-09-18.md",
+      "sha256": "54b24d9a114a8f58e1852f46fc66771919ede481412e040377cbb8cfd0ca4d2a"
+    },
+    {
+      "path": "docs/oryn2/S01-VARIADIC-MUTATION-CALLER-MATRIX-2026-09-18.md",
+      "sha256": "dc92f6a126676c826baf2b3a7996f26d8e267b4a5bc59ec8c51023ac7cdbebf6"
+    },
+    {
+      "path": "docs/oryn2/S04-HISTORICAL-DRAG-SOURCE-ATTRIBUTION-2026-09-18.md",
+      "sha256": "a55421100ee33a2f95070d3efd002d01b3bb0f18d7d45407029a441a58615df8"
+    },
+    {
+      "path": "docs/oryn2/COMPILER-REPAIR-REVIEW-2026-09-18.md",
+      "sha256": "f3ebde7c020a505b9ff9c733e4b192212287ed0c5513a37cc1c7aba4f622d71b"
+    }
+  ],
+  "previous_declaration": {
+    "path": "docs/oryn2/GENERATION-COMPLETE-REPAIR-19-2026-09-18.json",
+    "sha256": "fd1356bbe52277ba4776fe211e17b1e6b89f8374f79ea5e1dccde2e8e888dd20"
+  }
+}

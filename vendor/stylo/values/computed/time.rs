@@ -16,6 +16,8 @@ use thin_vec::ThinVec;
 /// A computed `<time>` value.
 #[derive(
     Animate,
+    ComputeSquaredDistance,
+    ToAnimatedValue,
     Clone,
     Copy,
     Debug,
@@ -80,4 +82,11 @@ impl AddAssign for Time {
     fn add_assign(&mut self, rhs: Self) {
         self.seconds += rhs.seconds
     }
+}
+
+/// Computed interest delay. Animation conversion clamps extrapolated time.
+pub type InterestDelay=crate::values::generics::interest::InterestDelay<Time>;
+
+impl crate::values::generics::ClampToNonNegative for Time{
+    fn clamp_to_non_negative(self)->Self{Self::from_seconds(self.seconds.max(0.))}
 }

@@ -1,0 +1,229 @@
+--- a/include/v8-array-buffer.h
++++ b/include/v8-array-buffer.h
+@@ -18,6 +18,20 @@
+ namespace v8 {
+ 
+ class SharedArrayBuffer;
++class BackingStore;
++
++// Called only for shared allocations, after engine argument validation. The
++// callback must not execute JavaScript or leave an exception pending. It must
++// resolve authority from the current native context, zero new storage, and
++// install growth/wait delegates before returning. A null result fails the
++// allocation; V8 must not silently substitute process-local shared storage.
++class V8_EXPORT SharedMemoryAllocationDelegate {
++ public:
++  virtual ~SharedMemoryAllocationDelegate() = default;
++  virtual std::shared_ptr<BackingStore> AllocateSharedMemory(
++      Isolate* isolate, size_t initial_length, size_t maximum_length,
++      bool growable, bool wasm, bool memory64) = 0;
++};
+ 
+ #if defined(V8_COMPRESS_POINTERS) && \
+     !defined(V8_COMPRESS_POINTERS_IN_SHARED_CAGE)
+--- a/include/v8-isolate.h
++++ b/include/v8-isolate.h
+@@ -38,6 +38,7 @@
+ class StartupData;
+ class ScriptOrModule;
+ class SharedArrayBuffer;
++class SharedMemoryAllocationDelegate;
+ 
+ namespace internal {
+ class MicrotaskQueue;
+@@ -1099,6 +1100,11 @@
+   /** Returns the ArrayBuffer::Allocator used in this isolate. */
+   ArrayBuffer::Allocator* GetArrayBufferAllocator();
+ 
++  // Install/replace on the isolate thread. The delegate must not retain the
++  // isolate; backing-store owners retain their own independent native leases.
++  void SetSharedMemoryAllocationDelegate(
++      std::shared_ptr<SharedMemoryAllocationDelegate> delegate);
++
+   /** Returns true if this isolate has a current context. */
+   bool InContext();
+ 
+--- a/src/execution/isolate.h
++++ b/src/execution/isolate.h
+@@ -1980,6 +1980,15 @@
+   // calls/jumps to embedded builtins or empty region if there's no embedded
+   // blob or if pc-relative calls are not supported.
+   static base::AddressRegion GetShortBuiltinsCallRegion();
++
++  void set_shared_memory_allocation_delegate(
++      std::shared_ptr<v8::SharedMemoryAllocationDelegate> delegate) {
++    shared_memory_allocation_delegate_ = std::move(delegate);
++  }
++  std::shared_ptr<v8::SharedMemoryAllocationDelegate>
++  shared_memory_allocation_delegate() const {
++    return shared_memory_allocation_delegate_;
++  }
+ 
+   void set_array_buffer_allocator(v8::ArrayBuffer::Allocator* allocator) {
+     array_buffer_allocator_ = allocator;
+@@ -2879,6 +2888,8 @@
+   const uint8_t* embedded_blob_data_ = nullptr;
+   uint32_t embedded_blob_data_size_ = 0;
+ 
++  std::shared_ptr<v8::SharedMemoryAllocationDelegate>
++      shared_memory_allocation_delegate_;
+   v8::ArrayBuffer::Allocator* array_buffer_allocator_ = nullptr;
+   std::shared_ptr<v8::ArrayBuffer::Allocator> array_buffer_allocator_shared_;
+   size_t array_buffer_max_size_ = 0;
+--- a/src/api/api.cc
++++ b/src/api/api.cc
+@@ -11079,6 +11079,12 @@
+   return i_isolate->IsInUse();
+ }
+ 
++void Isolate::SetSharedMemoryAllocationDelegate(
++    std::shared_ptr<SharedMemoryAllocationDelegate> delegate) {
++  reinterpret_cast<i::Isolate*>(this)->set_shared_memory_allocation_delegate(
++      std::move(delegate));
++}
++
+ void Isolate::SetAllowAtomicsWait(bool allow) {
+   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(this);
+   i_isolate->set_allow_atomics_wait(allow);
+--- a/src/builtins/builtins-arraybuffer.cc
++++ b/src/builtins/builtins-arraybuffer.cc
+@@ -41,7 +41,7 @@
+ // Tries to allocate a BackingStore given the input configuration. Either
+ // returns the BackingStore or a message template that should be thrown as
+ // RangeError.
+-std::pair<std::unique_ptr<BackingStore>, std::optional<MessageTemplate>>
++std::pair<std::shared_ptr<BackingStore>, std::optional<MessageTemplate>>
+ TryAllocateBackingStore(Isolate* isolate, SharedFlag shared,
+                         ResizableFlag resizable, DirectHandle<Object> length,
+                         DirectHandle<Object> max_length,
+@@ -50,7 +50,21 @@
+ 
+   size_t byte_length;
+   size_t max_byte_length = 0;
+-  std::unique_ptr<BackingStore> backing_store;
++  std::shared_ptr<BackingStore> backing_store;
++  auto native = shared == SharedFlag::kYes
++                    ? isolate->shared_memory_allocation_delegate() : nullptr;
++  auto allocate_native = [&](size_t maximum) -> std::shared_ptr<BackingStore> {
++    auto owner = native->AllocateSharedMemory(
++        reinterpret_cast<v8::Isolate*>(isolate), byte_length, maximum,
++        resizable == ResizableFlag::kResizable, false, false);
++    if (!owner) return {};
++    auto* raw = reinterpret_cast<BackingStore*>(owner.get());
++    if (!raw->is_shared() || raw->is_wasm_memory() ||
++        raw->is_resizable_by_js() != (resizable == ResizableFlag::kResizable) ||
++        raw->byte_length() != byte_length || raw->max_byte_length() != maximum)
++      return {};
++    return std::shared_ptr<BackingStore>(owner, raw);
++  };
+ 
+   size_t max_allocatable =
+       isolate->array_buffer_allocator()->MaxAllocationSize();
+@@ -63,8 +77,12 @@
+ 
+   switch (resizable) {
+     case ResizableFlag::kNotResizable:
+-      backing_store =
+-          BackingStore::Allocate(isolate, byte_length, shared, initialized);
++      if (native) {
++        backing_store = allocate_native(byte_length);
++      } else {
++        backing_store = BackingStore::Allocate(
++            isolate, byte_length, shared, initialized);
++      }
+       break;
+     case ResizableFlag::kResizable:
+       if (!TryNumberToSize(*max_length, &max_byte_length) ||
+@@ -83,9 +101,13 @@
+       if (maybe_range_error.has_value()) {
+         return {nullptr, maybe_range_error.value()};
+       }
+-      backing_store = BackingStore::TryAllocateAndPartiallyCommitMemory(
+-          isolate, byte_length, max_byte_length, page_size, initial_pages,
+-          max_pages, WasmMemoryFlag::kNotWasm, shared);
++      if (native) {
++        backing_store = allocate_native(max_byte_length);
++      } else {
++        backing_store = BackingStore::TryAllocateAndPartiallyCommitMemory(
++            isolate, byte_length, max_byte_length, page_size, initial_pages,
++            max_pages, WasmMemoryFlag::kNotWasm, shared);
++      }
+       break;
+   }
+ 
+--- a/src/wasm/wasm-objects.cc
++++ b/src/wasm/wasm-objects.cc
+@@ -879,6 +879,28 @@
+       has_maximum ? std::min(engine_maximum, maximum) : engine_maximum;
+ #endif
+ 
++  if (shared == SharedFlag::kYes) {
++    auto native = isolate->shared_memory_allocation_delegate();
++    if (native) {
++      const bool memory64 = address_type == wasm::AddressType::kI64;
++      const size_t initial_bytes = size_t{static_cast<unsigned>(initial)} *
++                                   wasm::kWasmPageSize;
++      const size_t maximum_bytes = size_t{static_cast<unsigned>(heuristic_maximum)} *
++                                   wasm::kWasmPageSize;
++      auto owner = native->AllocateSharedMemory(
++          reinterpret_cast<v8::Isolate*>(isolate), initial_bytes, maximum_bytes,
++          true, true, memory64);
++      if (!owner) return {};
++      auto* raw = reinterpret_cast<BackingStore*>(owner.get());
++      if (!raw->is_shared() || !raw->is_wasm_memory() ||
++          raw->is_wasm_memory64() != memory64 || raw->is_resizable_by_js() ||
++          raw->byte_length() != initial_bytes ||
++          raw->max_byte_length() != maximum_bytes) return {};
++      return New(isolate, {}, std::shared_ptr<BackingStore>(owner, raw),
++                 maximum, address_type);
++    }
++  }
++
+   std::unique_ptr<BackingStore> backing_store =
+       BackingStore::AllocateWasmMemory(isolate, initial, heuristic_maximum,
+                                        address_type == wasm::AddressType::kI32
+@@ -1176,6 +1198,14 @@
+                                                memory_object->backing_store())
+           : handle(Cast<JSArrayBuffer>(memory_object->array_buffer()), isolate);
+ 
++  // Native shared growth can be published by another process, which cannot
++  // broadcast into this isolate. Fixed-length wrappers remain snapshots, but
++  // a subsequent memory.buffer read must materialize the current extent.
++  auto backing = memory_object->backing_store();
++  if (backing->is_shared() && !buffer->is_resizable_by_js() &&
++      buffer->GetByteLength() < backing->byte_length(std::memory_order_acquire)) {
++    buffer = RefreshBuffer(isolate, memory_object, std::move(backing));
++  }
+   DCHECK_EQ(memory_object->backing_store(), buffer->GetBackingStore());
+   DCHECK_EQ(memory_object->backing_store()->is_shared(), buffer->is_shared());
+   DCHECK_EQ(memory_object->backing_store()->is_resizable_by_js(),
+@@ -1191,8 +1221,8 @@
+   i::DirectHandle<i::JSArrayBuffer> buffer;
+   if (TryCast(direct_handle(memory_object->array_buffer(), isolate), &buffer) &&
+       buffer->is_resizable_by_js() == resizable) {
+-    // The existing AB meets the requirement.
+-    return buffer;
++    // Match resizability while also refreshing a remotely grown fixed SAB.
++    return GetArrayBuffer(isolate, memory_object);
+   }
+ 
+   Managed<BackingStore>::Ptr backing_store = memory_object->backing_store();
+--- a/src/objects/value-serializer.cc
++++ b/src/objects/value-serializer.cc
+@@ -2511,6 +2511,16 @@
+ 
+   DirectHandle<JSArrayBuffer> buffer = Cast<JSArrayBuffer>(buffer_object);
+   if (!buffer->is_shared()) return {};
++  // A native clone delegate can supply a backing independently of the wire
++  // bytes. Validate both halves before linking a Wasm object or interpreting
++  // the backing's Wasm-specific union as shared isolate registrations.
++  auto backing = buffer->GetBackingStore();
++  if (!backing || !backing->is_shared() || !backing->is_wasm_memory() ||
++      backing->is_wasm_memory64() != (address_type == wasm::AddressType::kI64) ||
++      maximum_pages < 0 ||
++      backing->byte_length() / wasm::kWasmPageSize >
++          static_cast<size_t>(maximum_pages) ||
++      backing->byte_length() % wasm::kWasmPageSize != 0) return {};
+ 
+   // Link the two.
+   WasmMemoryObject::SetNewBuffer(isolate_, result, buffer);

@@ -1,0 +1,12 @@
+{
+  "scope": "test-only compatibility; no production engine or GN changes",
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "patch_sha256": "c960e7f35ac7cfc31a0bc72f9792d05a697c6bcc760577699509aab246a19b87",
+  "base_files": {
+    "test/cctest/test-api.cc": "33f2315dc9cad4127fea39f5a4cb9838338dbb317f6d33f485829ec8d917dc8b"
+  },
+  "patched_files": {
+    "test/cctest/test-api.cc": "690c9cfef5fbdca7248a078eba8f5c932f3318ddae9f4b7e3fa2eaac897dd8c7"
+  },
+  "reason": "Explicit pointer plus size preserves zero-capacity storage and null empty contents assertions."
+}

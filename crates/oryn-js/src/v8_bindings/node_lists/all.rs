@@ -43,7 +43,7 @@ pub(in crate::v8_bindings) fn operation<'s>(
     value: v8::Local<v8::Value>,
     named_only: bool,
 ) -> Result<v8::Local<'s, v8::Value>, V8BindingError> {
-    let id = identity_as(scope, state, object, "HTMLAllCollection")?;
+    identity_as(scope, state, object, "HTMLAllCollection")?;
     // Optional DOMString arguments treat explicit undefined as absent. The
     // required namedItem argument instead converts it to the string undefined.
     if !named_only && value.is_undefined() {
@@ -52,7 +52,9 @@ pub(in crate::v8_bindings) fn operation<'s>(
     let Some(name) = value.to_string(scope) else {
         return Ok(v8::undefined(scope).into());
     };
-    let name = name.to_rust_string_lossy(scope);
+    let name = rust_string_preserving_utf16(scope, name)?;
+    let (owner, id) = owner(scope, object)?;
+    let state = &owner;
     let document = root(state, id)?;
     let context = object
         .get_creation_context(scope)

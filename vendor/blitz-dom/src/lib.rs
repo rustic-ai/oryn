@@ -56,7 +56,11 @@ mod resolve;
 mod scrolling;
 mod selection;
 /// Implementations that interact with servo's style engine
+mod animation_bridge;
+pub use animation_bridge::{NativeAnimationEffect,NativeAnimationKeyframe,NativeCssAnimation,NativeCssAnimationControl};
 mod stylo;
+pub use stylo::StyleContinuity;
+pub mod shadow_style;
 mod stylo_device;
 mod stylo_to_cursor_icon;
 mod stylo_to_kurbo;
@@ -122,6 +126,7 @@ pub fn build_single_font_ctx(font_data: &[u8]) -> FontContext {
 
     let mut ctx = FontContext {
         source_cache: SourceCache::new_shared(),
+                    face_overrides:Default::default(),
         collection: Collection::new(CollectionOptions {
             shared: false,
             system_fonts: false,

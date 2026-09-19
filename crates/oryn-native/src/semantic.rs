@@ -47,6 +47,7 @@ pub struct SemanticGraph {
     // Never include control values (especially password/secret values).
     target_hints: BTreeMap<NodeId, Vec<(String, &'static str)>>,
     referenced_by: BTreeMap<NodeId, BTreeSet<NodeId>>,
+    accessibility_state_revisions: BTreeMap<NodeId, u64>,
     accessibility: BTreeMap<NodeId, AccessibilityNode>,
     structures: BTreeMap<String, SemanticStructure>,
     frame_ids: BTreeMap<NodeId, u64>,
@@ -54,6 +55,9 @@ pub struct SemanticGraph {
     geometry_hidden: BTreeSet<NodeId>,
     semantic_revision: u64,
     native_control_cursor: Option<crate::dom::MutationCursor>,
+    generated_content: BTreeMap<NodeId, (String, String)>,
+    computed_visibility: BTreeMap<NodeId, (bool, bool)>,
+    computed_text_style: BTreeMap<NodeId, (String, String)>,
     pending_upserts: BTreeMap<SemanticRef, SemanticNodeView>,
     pending_removed: BTreeSet<SemanticRef>,
     pending_accessibility_upserts: BTreeMap<SemanticRef, AccessibilityNode>,
@@ -72,6 +76,7 @@ impl SemanticGraph {
             compact: BTreeSet::new(),
             target_hints: BTreeMap::new(),
             referenced_by: BTreeMap::new(),
+            accessibility_state_revisions: BTreeMap::new(),
             accessibility: BTreeMap::new(),
             structures: BTreeMap::new(),
             frame_ids: BTreeMap::new(),
@@ -79,6 +84,9 @@ impl SemanticGraph {
             geometry_hidden: BTreeSet::new(),
             semantic_revision: 0,
             native_control_cursor: None,
+            generated_content: BTreeMap::new(),
+            computed_visibility: BTreeMap::new(),
+            computed_text_style: BTreeMap::new(),
             pending_upserts: BTreeMap::new(),
             pending_removed: BTreeSet::new(),
             pending_accessibility_upserts: BTreeMap::new(),
@@ -90,6 +98,16 @@ impl SemanticGraph {
     }
 
     pub fn reset(&mut self, dom: &DomArena, document_generation: u64) {
+        if self.document_generation != document_generation {
+            self.generated_content.clear();
+            self.computed_visibility.clear();
+            self.computed_text_style.clear();
+        }
+        let projection = self.layout_projection(dom);
+        self.reset_projected(projection.as_ref().unwrap_or(dom), document_generation);
+    }
+
+    fn reset_projected(&mut self, dom: &DomArena, document_generation: u64) {
         self.native_control_cursor = None;
         for node in self.full.values() {
             self.pending_removed.insert(node.semantic_ref);
@@ -132,16 +150,197 @@ impl SemanticGraph {
     }
 
     pub fn apply_mutations(&mut self, dom: &DomArena, mutations: &[crate::dom::Mutation]) {
+        let projection = self.layout_projection(dom);
+        self.apply_projected_mutations(projection.as_ref().unwrap_or(dom), mutations);
+    }
+
+    fn layout_projection(&self, dom: &DomArena) -> Option<DomArena> {
+        if self.generated_content.is_empty()
+            && self.computed_visibility.is_empty()
+            && self.computed_text_style.is_empty()
+        {
+            return None;
+        }
+        let mut projection = dom.with_accessibility_generated_content(&self.generated_content);
+        projection.set_accessibility_computed_visibility(&self.computed_visibility);
+        projection.set_accessibility_computed_text_style(&self.computed_text_style);
+        Some(projection)
+    }
+
+    pub fn apply_computed_visibility(
+        &mut self,
+        dom: &DomArena,
+        styles: &oryn_layout::ComputedStyles,
+    ) {
+        let next = styles
+            .iter()
+            .filter_map(|(id, style)| {
+                let node = unpack_node_ref(*id);
+                dom.get(node).ok()?;
+                Some((
+                    node,
+                    (
+                        style.get("display").is_some_and(|value| value == "none")
+                            || style
+                                .get("-oryn-anchor-hidden")
+                                .is_some_and(|value| value == "true"),
+                        style
+                            .get("visibility")
+                            .is_some_and(|value| matches!(value.as_str(), "hidden" | "collapse")),
+                    ),
+                ))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let text_style = styles
+            .iter()
+            .filter_map(|(id, style)| {
+                let node = unpack_node_ref(*id);
+                dom.get(node).ok()?;
+                Some((
+                    node,
+                    (
+                        style
+                            .get("display")
+                            .cloned()
+                            .unwrap_or_else(|| "inline".into()),
+                        style
+                            .get("text-transform")
+                            .cloned()
+                            .unwrap_or_else(|| "none".into()),
+                    ),
+                ))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut changed = self
+            .computed_text_style
+            .keys()
+            .chain(text_style.keys())
+            .copied()
+            .filter(|id| self.computed_text_style.get(id) != text_style.get(id))
+            .collect::<BTreeSet<_>>();
+        changed.extend(
+            self.computed_visibility
+                .keys()
+                .chain(next.keys())
+                .copied()
+                .filter(|id| self.computed_visibility.get(id) != next.get(id)),
+        );
+        if changed.is_empty() {
+            return;
+        }
+        self.computed_visibility = next;
+        self.computed_text_style = text_style;
+        let mut affected = changed.clone();
+        for node in changed {
+            affected.extend(dom.descendants_inclusive(node).unwrap_or_default());
+        }
+        self.apply_mutations(
+            dom,
+            &affected
+                .into_iter()
+                .map(|node| crate::dom::Mutation::FormState { node })
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    /// Native layout owns pseudo strings. A changed pseudo invalidates ordinary
+    /// name-from-content ancestors and native ARIA/label dependents through the
+    /// same incremental graph as DOM text. Paint-only synthetic IDs never enter.
+    pub fn apply_generated_content(
+        &mut self,
+        dom: &DomArena,
+        content: &[oryn_common::v4::GeneratedContent],
+    ) {
+        let mut next: BTreeMap<NodeId, (String, String)> = BTreeMap::new();
+        let mut markers: BTreeMap<NodeId, String> = BTreeMap::new();
+        for item in content {
+            let owner = unpack_node_ref(item.owner);
+            if dom.get(owner).is_err() {
+                continue;
+            }
+            let value = item.alternative.as_ref().unwrap_or(&item.text);
+            let speech = if item.separates_text && !value.is_empty() {
+                format!(" {value} ")
+            } else {
+                value.clone()
+            };
+            let value = &speech;
+            match item.pseudo.as_str() {
+                "marker" => {
+                    markers.entry(owner).or_default().push_str(value);
+                }
+                "before" => next.entry(owner).or_default().0.push_str(value),
+                "after" => next.entry(owner).or_default().1.push_str(value),
+                _ => {}
+            }
+        }
+        // Markers precede ::before independently of publication record order.
+        // Empty alternate text suppresses the marker; a nonempty marker forms
+        // a separate text run even if authored alternate text omits a space.
+        for (owner, mut marker) in markers {
+            if marker.is_empty() {
+                continue;
+            }
+            if !marker
+                .chars()
+                .last()
+                .is_some_and(|ch| matches!(ch, ' ' | '\t' | '\n' | '\r' | '\u{c}'))
+            {
+                marker.push(' ');
+            }
+            let before = &mut next.entry(owner).or_default().0;
+            marker.push_str(before);
+            *before = marker;
+        }
+        let changed = self
+            .generated_content
+            .keys()
+            .chain(next.keys())
+            .copied()
+            .filter(|id| self.generated_content.get(id) != next.get(id))
+            .collect::<BTreeSet<_>>();
+        if changed.is_empty() {
+            return;
+        }
+        self.generated_content = next;
+        let mut affected = changed;
+        // A generated descendant can name a referenced ancestor (label/span).
+        // Include those ancestors before reference dependency expansion.
+        for node in affected.iter().copied().collect::<Vec<_>>() {
+            affected.extend(dom.ancestors(node).unwrap_or_default());
+        }
+        let mutations = affected
+            .into_iter()
+            .map(|node| crate::dom::Mutation::FormState { node })
+            .collect::<Vec<_>>();
+        self.apply_mutations(dom, &mutations);
+    }
+
+    fn apply_projected_mutations(&mut self, dom: &DomArena, mutations: &[crate::dom::Mutation]) {
         if !mutations.is_empty() {
             self.native_control_cursor = None;
         }
         use crate::dom::Mutation;
         let mut dirty = BTreeSet::new();
         let mut dependency_change = false;
+        // Modal accessibility scope affects siblings, not only descendants of
+        // the changed dialog. Include the prior scope when a modal is removed.
+        if !mutations.is_empty()
+            && (self
+                .accessibility
+                .values()
+                .any(|node| node.exclusion_reason.as_deref() == Some("aria_modal_scope"))
+                || dom.iter().any(|(_, node)| {
+                    node.accessibility_attribute("aria-modal")
+                        .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+                }))
+        {
+            dirty.extend(dom.iter().map(|(id, _)| id));
+        }
         for mutation in mutations {
             match mutation {
                 Mutation::HostedDocument { frame }
-                | Mutation::DocumentOwnership { node: frame } => {
+                | Mutation::DocumentOwnership { node: frame, .. } => {
                     // Association changes are not DOM child-list mutations.
                     // Reconcile old retained documents as well as the new tree.
                     dirty.insert(*frame);
@@ -151,6 +350,7 @@ impl SemanticGraph {
                 }
                 Mutation::Inserted { node, parent, .. } => {
                     dirty.insert(*node);
+                    dirty.extend(dom.descendants_inclusive(*node).unwrap_or_default());
                     dirty.extend(parent.iter().copied());
                     dependency_change = true;
                 }
@@ -173,16 +373,29 @@ impl SemanticGraph {
                     // the container leaves controls in a stale hidden state.
                     if matches!(
                         name.as_str(),
-                        "style" | "class" | "hidden" | "aria-hidden" | "inert" | "disabled"
+                        "style"
+                            | "class"
+                            | "hidden"
+                            | "aria-hidden"
+                            | "aria-readonly"
+                            | "role"
+                            | "inert"
+                            | "disabled"
                     ) {
                         dirty.extend(dom.descendants_inclusive(*node).unwrap_or_default());
                     }
                     dependency_change |= matches!(
                         name.as_str(),
                         "id" | "for"
+                            | "type"
+                            | "slot"
+                            | "name"
                             | "aria-label"
                             | "aria-labelledby"
                             | "aria-describedby"
+                            | "aria-errormessage"
+                            | "aria-actions"
+                            | "aria-owns"
                             | "role"
                             | "hidden"
                             | "aria-hidden"
@@ -198,9 +411,26 @@ impl SemanticGraph {
                     dirty.extend(dom.descendants_inclusive(*node).unwrap_or_default());
                     dependency_change = true;
                 }
-                Mutation::FormState { node }
-                | Mutation::ImageResource { node }
-                | Mutation::EventListener { node, .. } => {
+                Mutation::FormState { node } => {
+                    dirty.insert(*node);
+                    // Native FACE registration can change a label's owner.
+                    dependency_change = true;
+                    let revision = dom
+                        .get(*node)
+                        .map(|node| node.accessibility_reference_revision())
+                        .unwrap_or(0);
+                    if self
+                        .accessibility_state_revisions
+                        .get(node)
+                        .copied()
+                        .unwrap_or(0)
+                        != revision
+                    {
+                        dirty.extend(dom.descendants_inclusive(*node).unwrap_or_default());
+                        dependency_change = true;
+                    }
+                }
+                Mutation::ImageResource { node } | Mutation::EventListener { node, .. } => {
                     dirty.insert(*node);
                 }
                 Mutation::Focus { previous, current } => {
@@ -214,16 +444,39 @@ impl SemanticGraph {
                 }
             }
         }
-        let initial = dirty.iter().copied().collect::<Vec<_>>();
-        for node in initial {
-            if let Ok(ancestors) = dom.ancestors(node) {
-                dirty.extend(ancestors);
-            }
-            if let Some(dependents) = self.referenced_by.get(&node) {
-                dirty.extend(dependents);
+        let mut pending = dirty.iter().copied().collect::<Vec<_>>();
+        while let Some(node) = pending.pop() {
+            let related = dom
+                .ancestors(node)
+                .unwrap_or_default()
+                .into_iter()
+                .chain(self.referenced_by.get(&node).into_iter().flatten().copied());
+            for target in related {
+                if dirty.insert(target) {
+                    pending.push(target);
+                }
             }
         }
         if dependency_change {
+            // Declared IDREF edges can remain identical while document order or
+            // visibility changes which competing aria-owns edge is accepted.
+            // Refresh both former and new owners before propagating name users.
+            let current_owners = accepted_aria_owners(dom);
+            let previous_owners = self
+                .accessibility
+                .iter()
+                .filter_map(|(target, node)| {
+                    node.owned_by
+                        .map(|owner| (*target, unpack_node_ref(owner.node)))
+                })
+                .collect::<BTreeMap<_, _>>();
+            for target in previous_owners.keys().chain(current_owners.keys()) {
+                if previous_owners.get(target) != current_owners.get(target) {
+                    dirty.insert(*target);
+                    dirty.extend(previous_owners.get(target).copied());
+                    dirty.extend(current_owners.get(target).copied());
+                }
+            }
             let previous_dependencies = self.referenced_by.clone();
             self.rebuild_dependencies(dom);
             let targets = previous_dependencies
@@ -243,6 +496,21 @@ impl SemanticGraph {
                 }
                 if let Some(dependents) = current {
                     dirty.extend(dependents);
+                }
+            }
+            // A newly resolved reference may name an ancestor of its owner.
+            // Propagate through the rebuilt graph, not only the old edges.
+            let mut pending = dirty.iter().copied().collect::<Vec<_>>();
+            while let Some(node) = pending.pop() {
+                let related = dom
+                    .ancestors(node)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .chain(self.referenced_by.get(&node).into_iter().flatten().copied());
+                for target in related {
+                    if dirty.insert(target) {
+                        pending.push(target);
+                    }
                 }
             }
         }
@@ -337,33 +605,56 @@ impl SemanticGraph {
         let mut changed = false;
         for (&id, node) in &mut self.full {
             let record = dom.arena().get(id)?;
-            let control = matches!(&record.kind, NodeKind::Element { name }
+            let custom_control = dom.is_form_associated_custom_element(id);
+            let control = custom_control
+                || matches!(&record.kind, NodeKind::Element { name }
                 if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
                 && matches!(name.local.as_ref(), "input" | "textarea" | "select" | "button" | "fieldset" | "output" | "object"));
             let validation = if control {
                 let numeric = dom.control_numeric_validity(id)?;
+                let flag = |name: &str, builtin: bool| {
+                    if custom_control {
+                        dom.custom_element_validity_flag(id, name)
+                    } else {
+                        builtin
+                    }
+                };
                 Some(oryn_common::v3::NativeValidationState {
-                    too_short: dom.control_length_validity(id)?.0,
-                    too_long: dom.control_length_validity(id)?.1,
-                    pattern_mismatch: dom.control_pattern_mismatch(id)?,
-                    range_underflow: numeric.range_underflow,
-                    range_overflow: numeric.range_overflow,
-                    step_mismatch: numeric.step_mismatch,
+                    bad_input: flag("badInput", dom.control_bad_input(id)?),
+                    too_short: flag("tooShort", dom.control_length_validity(id)?.0),
+                    too_long: flag("tooLong", dom.control_length_validity(id)?.1),
+                    pattern_mismatch: flag("patternMismatch", dom.control_pattern_mismatch(id)?),
+                    range_underflow: flag("rangeUnderflow", numeric.range_underflow),
+                    range_overflow: flag("rangeOverflow", numeric.range_overflow),
+                    step_mismatch: flag("stepMismatch", numeric.step_mismatch),
                     will_validate: dom.control_will_validate(id)?,
                     valid: dom.control_validity(id)?,
-                    value_missing: dom.control_value_missing(id)?,
-                    type_mismatch: dom.control_type_mismatch(id)?,
-                    custom_error: !dom.custom_validity_message(id)?.is_empty(),
+                    value_missing: flag("valueMissing", dom.control_value_missing(id)?),
+                    type_mismatch: flag("typeMismatch", dom.control_type_mismatch(id)?),
+                    custom_error: flag("customError", !dom.custom_validity_message(id)?.is_empty()),
                 })
             } else {
                 None
             };
             let focused = dom.focused() == Some(id);
-            if node.validation == validation && node.states.contains(&NodeState::Focused) == focused
+            let disabled = if control || record.submit_behavior.is_some() {
+                dom.control_disabled(id)?
+                    || aria_true(&record.accessibility_attributes(), "aria-disabled")
+            } else {
+                node.states.contains(&NodeState::Disabled)
+            };
+            if node.validation == validation
+                && node.states.contains(&NodeState::Focused) == focused
+                && node.states.contains(&NodeState::Disabled) == disabled
             {
                 continue;
             }
             node.validation = validation;
+            if disabled {
+                node.states.insert(NodeState::Disabled);
+            } else {
+                node.states.remove(&NodeState::Disabled);
+            }
             if focused {
                 node.states.insert(NodeState::Focused);
             } else {
@@ -371,6 +662,174 @@ impl SemanticGraph {
             }
             self.pending_upserts.insert(node.semantic_ref, node.clone());
             changed = true;
+        }
+        for (&id, accessible) in &mut self.accessibility {
+            let record = dom.arena().get(id)?;
+            let kind = dom
+                .attribute_in_null_namespace(id, "type")?
+                .unwrap_or("text")
+                .to_ascii_lowercase();
+            let numeric = dom.is_element(id, "http://www.w3.org/1999/xhtml", "input")
+                && matches!(kind.as_str(), "number" | "range");
+            let bound = |name: &str| {
+                dom.attribute_in_null_namespace(id, name)
+                    .ok()
+                    .flatten()
+                    .and_then(oryn_dom::parse_html_floating_point)
+            };
+            let minimum = if numeric {
+                bound("min").or((kind == "range").then_some(0.))
+            } else {
+                None
+            };
+            let maximum = if numeric {
+                bound("max")
+                    .or((kind == "range").then_some(100.))
+                    .map(|max| {
+                        if kind == "range" {
+                            max.max(minimum.unwrap_or(0.))
+                        } else {
+                            max
+                        }
+                    })
+            } else {
+                None
+            };
+            let current = if numeric {
+                oryn_dom::parse_html_floating_point(&dom.control_value(id)?)
+            } else {
+                None
+            };
+            for (key, value) in [
+                ("native_value_min", minimum),
+                ("native_value_max", maximum),
+                ("native_value_now", current),
+            ] {
+                let value = value
+                    .and_then(serde_json::Number::from_f64)
+                    .map(serde_json::Value::Number);
+                if accessible.properties.get(key) != value.as_ref() {
+                    if let Some(value) = value {
+                        accessible.properties.insert(key.into(), value);
+                    } else {
+                        accessible.properties.remove(key);
+                    }
+                    self.pending_accessibility_upserts
+                        .insert(accessible.semantic_ref, accessible.clone());
+                    changed = true;
+                }
+            }
+
+            let invoker = record.accessibility_attribute("aria-expanded").is_none()
+                && ((dom.is_element(id, "http://www.w3.org/1999/xhtml", "button")
+                    || dom.is_element(id, "http://www.w3.org/1999/xhtml", "input"))
+                    && dom
+                        .attribute_in_null_namespace(id, "popovertarget")?
+                        .is_some()
+                    || dom.is_element(id, "http://www.w3.org/1999/xhtml", "select")
+                    || dom.has_native_input_picker(id));
+            if invoker {
+                let expanded = dom.top_layer().any(|entry| {
+                    (entry.kind == oryn_dom::TopLayerKind::Popover && entry.source == Some(id))
+                        || (matches!(
+                            entry.kind,
+                            oryn_dom::TopLayerKind::SelectPicker
+                                | oryn_dom::TopLayerKind::TemporalPicker
+                        ) && entry.node == id)
+                });
+                let value = serde_json::Value::Bool(expanded);
+                if accessible.properties.get("expanded") != Some(&value) {
+                    accessible.properties.insert("expanded".into(), value);
+                    self.pending_accessibility_upserts
+                        .insert(accessible.semantic_ref, accessible.clone());
+                    changed = true;
+                }
+                if let Some(node) = self.full.get_mut(&id) {
+                    let was = node.states.contains(&NodeState::Expanded);
+                    if was != expanded {
+                        if expanded {
+                            node.states.insert(NodeState::Expanded);
+                        } else {
+                            node.states.remove(&NodeState::Expanded);
+                        }
+                        self.pending_upserts.insert(node.semantic_ref, node.clone());
+                        changed = true;
+                    }
+                }
+            }
+            if dom.is_element(id, "http://www.w3.org/1999/xhtml", "select") {
+                let active = dom.select_picker_active(id)?;
+                let desired = if let Some(active) = active {
+                    vec![semantic_ref_for(
+                        active,
+                        accessible.semantic_ref.page_id,
+                        accessible.semantic_ref.document_generation,
+                    )]
+                } else {
+                    dom.arena()
+                        .accessibility_relation(id, "aria-activedescendant")
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|target| {
+                            semantic_ref_for(
+                                target,
+                                accessible.semantic_ref.page_id,
+                                accessible.semantic_ref.document_generation,
+                            )
+                        })
+                        .collect()
+                };
+                let previous = accessible
+                    .relationships
+                    .get(&AccessibilityRelation::ActiveDescendant)
+                    .cloned()
+                    .unwrap_or_default();
+                if previous != desired {
+                    if desired.is_empty() {
+                        accessible
+                            .relationships
+                            .remove(&AccessibilityRelation::ActiveDescendant);
+                    } else {
+                        accessible
+                            .relationships
+                            .insert(AccessibilityRelation::ActiveDescendant, desired);
+                    }
+                    self.pending_accessibility_upserts
+                        .insert(accessible.semantic_ref, accessible.clone());
+                    changed = true;
+                }
+            }
+            if record.submit_behavior.is_some()
+                || self
+                    .full
+                    .get(&id)
+                    .is_some_and(|node| node.validation.is_some())
+            {
+                let disabled = dom.control_disabled(id)?
+                    || aria_true(&record.accessibility_attributes(), "aria-disabled");
+                let value = serde_json::Value::Bool(disabled);
+                if accessible.properties.get("disabled") != Some(&value) {
+                    accessible.properties.insert("disabled".into(), value);
+                    self.pending_accessibility_upserts
+                        .insert(accessible.semantic_ref, accessible.clone());
+                    changed = true;
+                }
+            }
+            let inert = dom.is_inert(id)?;
+            let was_native = accessible.exclusion_reason.as_deref() == Some("native_inert");
+            if inert && !accessible.excluded {
+                accessible.excluded = true;
+                accessible.exclusion_reason = Some("native_inert".into());
+                self.pending_accessibility_upserts
+                    .insert(accessible.semantic_ref, accessible.clone());
+                changed = true;
+            } else if !inert && was_native {
+                accessible.excluded = false;
+                accessible.exclusion_reason = None;
+                self.pending_accessibility_upserts
+                    .insert(accessible.semantic_ref, accessible.clone());
+                changed = true;
+            }
         }
         if changed {
             self.semantic_revision = self.semantic_revision.saturating_add(1);
@@ -391,10 +850,14 @@ impl SemanticGraph {
         let mut changed = false;
         for node in self.full.values_mut() {
             let id = unpack_node_ref(node.semantic_ref.node);
-            let Some(value) = geometry.get(&node.semantic_ref.node) else {
-                continue;
-            };
-            if value.availability == GeometryAvailability::Hidden {
+            // A complete layout snapshot can omit a boxless node (for
+            // example display:none -> display:contents). Old geometry is not
+            // evidence of current exclusion; native computed/ARIA state below
+            // still owns exclusion when there is no current box.
+            if geometry
+                .get(&node.semantic_ref.node)
+                .is_some_and(|value| value.availability == GeometryAvailability::Hidden)
+            {
                 self.geometry_hidden.insert(id);
             } else {
                 self.geometry_hidden.remove(&id);
@@ -421,13 +884,18 @@ impl SemanticGraph {
             }
             self.pending_upserts.insert(node.semantic_ref, node.clone());
             if let Some(accessible) = self.accessibility.get_mut(&id) {
-                accessible.excluded = hidden;
-                accessible.exclusion_reason = hidden.then(|| {
-                    if self.geometry_hidden.contains(&id) {
-                        "computed_style_hidden".into()
-                    } else {
-                        "hidden_subtree".into()
-                    }
+                let structural = accessible.exclusion_reason.clone().filter(|reason| {
+                    !matches!(reason.as_str(), "computed_style_hidden" | "hidden_subtree")
+                });
+                accessible.excluded = hidden || structural.is_some();
+                accessible.exclusion_reason = structural.or_else(|| {
+                    hidden.then(|| {
+                        if self.geometry_hidden.contains(&id) {
+                            "computed_style_hidden".into()
+                        } else {
+                            "hidden_subtree".into()
+                        }
+                    })
                 });
                 self.pending_accessibility_upserts
                     .insert(accessible.semantic_ref, accessible.clone());
@@ -446,6 +914,17 @@ impl SemanticGraph {
         revision: Revision,
         geometry: Option<&BTreeMap<u64, oryn_common::v4::NodeGeometry>>,
     ) -> Result<oryn_common::v6::ResolutionResult, SemanticResolutionError> {
+        self.resolve_identity(target, Some(action), revision, geometry, &BTreeMap::new())
+    }
+
+    pub fn resolve_identity(
+        &self,
+        target: &oryn_common::agent::Target,
+        action: Option<SemanticAction>,
+        revision: Revision,
+        geometry: Option<&BTreeMap<u64, oryn_common::v4::NodeGeometry>>,
+        selectors: &BTreeMap<(bool, String), BTreeSet<SemanticRef>>,
+    ) -> Result<oryn_common::v6::ResolutionResult, SemanticResolutionError> {
         use oryn_common::agent::Target;
         if let Target::Reference { reference } = target {
             let id = unpack_node_ref(reference.node);
@@ -453,7 +932,9 @@ impl SemanticGraph {
                 .full
                 .get(&id)
                 .ok_or(SemanticResolutionError::NotFound)?;
-            if node.semantic_ref != *reference || !node.actions.contains(&action) {
+            if node.semantic_ref != *reference
+                || action.is_some_and(|action| !node.actions.contains(&action))
+            {
                 return Err(SemanticResolutionError::NotFound);
             }
             return Ok(oryn_common::v6::ResolutionResult {
@@ -462,7 +943,7 @@ impl SemanticGraph {
                 candidates: vec![oryn_common::v6::ResolutionCandidate {
                     semantic_ref: *reference,
                     score: 1_000,
-                    actionable: true,
+                    actionable: action.is_some_and(|action| node.actions.contains(&action)),
                     factors: vec!["exact_reference".into()],
                 }],
                 diagnostics: Vec::new(),
@@ -471,9 +952,9 @@ impl SemanticGraph {
         let mut candidates = self
             .full
             .values()
-            .filter(|node| node.actions.contains(&action))
+            .filter(|node| action.is_none_or(|action| node.actions.contains(&action)))
             .filter_map(|node| {
-                self.score_target(node, target, geometry)
+                self.score_target(node, target, geometry, selectors)
                     .transpose()
                     .map(|result| result.map(|(score, factors)| (node, score, factors)))
             })
@@ -499,7 +980,7 @@ impl SemanticGraph {
                 |(node, score, factors)| oryn_common::v6::ResolutionCandidate {
                     semantic_ref: node.semantic_ref,
                     score,
-                    actionable: true,
+                    actionable: action.is_some_and(|action| node.actions.contains(&action)),
                     factors,
                 },
             )
@@ -520,6 +1001,7 @@ impl SemanticGraph {
         node: &SemanticNodeView,
         target: &oryn_common::agent::Target,
         geometry: Option<&BTreeMap<u64, oryn_common::v4::NodeGeometry>>,
+        selectors: &BTreeMap<(bool, String), BTreeSet<SemanticRef>>,
     ) -> Result<Option<(i32, Vec<String>)>, SemanticResolutionError> {
         use oryn_common::agent::Target;
         let scored = match target {
@@ -555,18 +1037,29 @@ impl SemanticGraph {
                 .role
                 .eq_ignore_ascii_case(role)
                 .then(|| (700, vec!["exact_role".into()])),
-            Target::Css { selector } => (node.selector.as_deref() == Some(selector.as_str()))
-                .then(|| (850, vec!["exact_css_selector".into()])),
-            Target::XPath { expression } => {
-                return Err(SemanticResolutionError::UnsupportedSelector(format!(
-                    "XPath resolution is not part of the semantic graph: {expression}"
-                )));
-            }
+            Target::Css { selector } => selectors.get(&(false, selector.clone())).map_or_else(
+                || {
+                    (node.selector.as_deref() == Some(selector.as_str()))
+                        .then(|| (850, vec!["exact_css_selector".into()]))
+                },
+                |matches| {
+                    matches
+                        .contains(&node.semantic_ref)
+                        .then(|| (850, vec!["native_css_selector".into()]))
+                },
+            ),
+            Target::XPath { expression } => selectors
+                .get(&(true, expression.clone()))
+                .ok_or_else(|| SemanticResolutionError::UnsupportedSelector(expression.clone()))?
+                .contains(&node.semantic_ref)
+                .then(|| (850, vec!["native_xpath_selector".into()])),
             Target::Inside { target, container } => {
-                let Some((score, mut factors)) = self.score_target(node, target, geometry)? else {
+                let Some((score, mut factors)) =
+                    self.score_target(node, target, geometry, selectors)?
+                else {
                     return Ok(None);
                 };
-                let containers = self.matching_refs(container, geometry)?;
+                let containers = self.matching_refs(container, geometry, selectors)?;
                 let inside = containers
                     .iter()
                     .any(|container| self.is_descendant(node.semantic_ref, *container));
@@ -576,10 +1069,12 @@ impl SemanticGraph {
                 })
             }
             Target::Contains { target, content } => {
-                let Some((score, mut factors)) = self.score_target(node, target, geometry)? else {
+                let Some((score, mut factors)) =
+                    self.score_target(node, target, geometry, selectors)?
+                else {
                     return Ok(None);
                 };
-                let content = self.matching_refs(content, geometry)?;
+                let content = self.matching_refs(content, geometry, selectors)?;
                 content
                     .iter()
                     .any(|content| self.is_descendant(*content, node.semantic_ref))
@@ -596,10 +1091,12 @@ impl SemanticGraph {
                 target: subject,
                 anchor,
             } => {
-                let Some((score, mut factors)) = self.score_target(node, subject, geometry)? else {
+                let Some((score, mut factors)) =
+                    self.score_target(node, subject, geometry, selectors)?
+                else {
                     return Ok(None);
                 };
-                let anchors = self.matching_refs(anchor, geometry)?;
+                let anchors = self.matching_refs(anchor, geometry, selectors)?;
                 let is_before = matches!(target, Target::Before { .. });
                 anchors
                     .iter()
@@ -617,7 +1114,9 @@ impl SemanticGraph {
                     })
             }
             Target::Near { target, anchor } => {
-                let Some((score, mut factors)) = self.score_target(node, target, geometry)? else {
+                let Some((score, mut factors)) =
+                    self.score_target(node, target, geometry, selectors)?
+                else {
                     return Ok(None);
                 };
                 let geometry = geometry.ok_or(SemanticResolutionError::GeometryUnavailable)?;
@@ -626,7 +1125,7 @@ impl SemanticGraph {
                     .and_then(|value| value.box_model.as_ref())
                     .ok_or(SemanticResolutionError::GeometryUnavailable)?
                     .border_box;
-                let anchors = self.matching_refs(anchor, Some(geometry))?;
+                let anchors = self.matching_refs(anchor, Some(geometry), selectors)?;
                 let distance = anchors
                     .iter()
                     .filter_map(|anchor| {
@@ -652,11 +1151,12 @@ impl SemanticGraph {
         &self,
         target: &oryn_common::agent::Target,
         geometry: Option<&BTreeMap<u64, oryn_common::v4::NodeGeometry>>,
+        selectors: &BTreeMap<(bool, String), BTreeSet<SemanticRef>>,
     ) -> Result<Vec<SemanticRef>, SemanticResolutionError> {
         self.full
             .values()
             .filter_map(|node| {
-                self.score_target(node, target, geometry)
+                self.score_target(node, target, geometry, selectors)
                     .transpose()
                     .map(|result| result.map(|_| node.semantic_ref))
             })
@@ -1119,7 +1619,7 @@ impl SemanticGraph {
         let NodeKind::Element { name } = &node.kind else {
             return;
         };
-        let role = computed_role(name.local.as_ref(), &node.attributes);
+        let role = computed_role_for_node(dom, id);
         let named = accessible_semantics(
             dom,
             id,
@@ -1144,7 +1644,7 @@ impl SemanticGraph {
                 self.document_generation,
                 &mut diagnostics,
             ),
-            properties: accessibility_properties(name.local.as_ref(), node),
+            properties: accessibility_properties(dom, id, name.local.as_ref(), node),
             owned_by: None,
             content_trust: ContentTrust::PageAuthored,
             provenance: named.provenance,
@@ -1175,6 +1675,7 @@ impl SemanticGraph {
             }
             node.relationships.retain(|_, targets| !targets.is_empty());
         }
+        let accepted_owners = accepted_aria_owners(dom);
         let mut owner_by_target = BTreeMap::new();
         let ownership = self
             .accessibility
@@ -1191,11 +1692,14 @@ impl SemanticGraph {
             let mut accepted = Vec::new();
             for target in targets {
                 let target_id = unpack_node_ref(target.node);
-                let cycle = target == owner
+                let cycle = ownership_cycle(&owner_by_target, owner, target)
                     || dom
                         .ancestors(owner_id)
                         .is_ok_and(|ancestors| ancestors.contains(&target_id));
-                if cycle || owner_by_target.contains_key(&target) {
+                if cycle
+                    || owner_by_target.contains_key(&target)
+                    || accepted_owners.get(&target_id) != Some(&owner_id)
+                {
                     self.diagnostics.push(format!(
                         "ignored invalid aria-owns edge {} -> {}",
                         owner.node, target.node
@@ -1281,41 +1785,38 @@ impl SemanticGraph {
 
     fn rebuild_dependencies(&mut self, dom: &DomArena) {
         self.referenced_by.clear();
-        let ids = dom
+        self.accessibility_state_revisions = dom
             .iter()
             .filter_map(|(id, node)| {
-                node.attributes
-                    .get_null("id")
-                    .map(|value| (value.clone(), id))
+                let revision = node.accessibility_reference_revision();
+                (revision != 0).then_some((id, revision))
             })
-            .collect::<BTreeMap<_, _>>();
-        for (source, node) in dom.iter() {
-            for attribute in ["aria-labelledby", "aria-describedby"] {
-                if let Some(value) = node.attributes.get_null(attribute) {
-                    for token in value.split_ascii_whitespace() {
-                        if let Some(target) = ids.get(token) {
-                            self.referenced_by
-                                .entry(*target)
-                                .or_default()
-                                .insert(source);
-                        }
+            .collect();
+        for (source, source_node) in dom.iter() {
+            if matches!(&source_node.kind,NodeKind::Element{name}if name.local.as_ref()=="th") {
+                if let Some(parent) = source_node.parent {
+                    self.referenced_by.entry(parent).or_default().insert(source);
+                }
+            }
+            if matches!(&source_node.kind,NodeKind::Element{name}if name.local.as_ref()=="img") {
+                if let Some(parent)=source_node.parent.filter(|parent|dom.get(*parent).is_ok_and(|node|matches!(&node.kind,NodeKind::Element{name}if name.local.as_ref()=="figure"))) {self.referenced_by.entry(parent).or_default().insert(source);}
+            }
+            for attribute in [
+                "aria-labelledby",
+                "aria-describedby",
+                "aria-owns",
+                "aria-errormessage",
+                "aria-actions",
+            ] {
+                if let Some(targets) = dom.accessibility_relation(source, attribute) {
+                    for target in targets {
+                        self.referenced_by.entry(target).or_default().insert(source);
                     }
                 }
             }
-            if matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
-                && let Some(target) = node
-                    .attributes
-                    .get_null("for")
-                    .and_then(|value| ids.get(value))
-            {
-                self.referenced_by
-                    .entry(*target)
-                    .or_default()
-                    .insert(source);
-                self.referenced_by
-                    .entry(source)
-                    .or_default()
-                    .insert(*target);
+            if let Some(target) = dom.label_control(source).ok().flatten() {
+                self.referenced_by.entry(target).or_default().insert(source);
+                self.referenced_by.entry(source).or_default().insert(target);
             }
         }
     }
@@ -1334,6 +1835,29 @@ pub fn project_element(
     page_id: PageId,
     document_generation: u64,
     alias: u32,
+) -> Option<SemanticNodeView> {
+    project_element_with_visibility(dom, id, page_id, document_generation, alias, false)
+}
+
+/// Force is an explicit driver geometry override; reuse the native action
+/// classification rather than accepting arbitrary connected nodes.
+pub(crate) fn forced_click_supported(
+    dom: &DomArena,
+    id: NodeId,
+    page_id: PageId,
+    generation: u64,
+) -> bool {
+    project_element_with_visibility(dom, id, page_id, generation, 0, true)
+        .is_some_and(|node| node.actions.contains(&SemanticAction::Click))
+}
+
+fn project_element_with_visibility(
+    dom: &DomArena,
+    id: NodeId,
+    page_id: PageId,
+    document_generation: u64,
+    alias: u32,
+    bypass_visibility: bool,
 ) -> Option<SemanticNodeView> {
     let node = dom.get(id).ok()?;
     let NodeKind::Element { name } = &node.kind else {
@@ -1406,7 +1930,7 @@ pub fn project_element(
                 })
             })
         });
-    let role = computed_role(local_name, &node.attributes);
+    let role = computed_role_for_node(dom, id);
     let mut accessible =
         accessible_semantics(dom, id, local_name, &role, page_id, document_generation);
     if accessible.name.is_empty() && matches!(role.as_str(), "status" | "alert" | "log") {
@@ -1420,6 +1944,26 @@ pub fn project_element(
         }
     }
     let accessible_name = accessible.name;
+    let input_kind = node
+        .attributes
+        .get_null("type")
+        .map(|kind| kind.to_ascii_lowercase())
+        .unwrap_or_else(|| "text".into());
+    let native_readonly = local_name == "textarea"
+        || (local_name == "input"
+            && !matches!(
+                input_kind.as_str(),
+                "hidden"
+                    | "range"
+                    | "color"
+                    | "checkbox"
+                    | "radio"
+                    | "file"
+                    | "button"
+                    | "submit"
+                    | "reset"
+                    | "image"
+            ));
     let mut actions = BTreeSet::new();
     let mut states = BTreeSet::new();
     if is_hidden(dom, id) {
@@ -1430,17 +1974,17 @@ pub fn project_element(
     for (present, state) in [
         (
             node.attributes.contains_null("disabled")
-                || aria_true(&node.attributes, "aria-disabled"),
+                || aria_true(&node.accessibility_attributes(), "aria-disabled"),
             NodeState::Disabled,
         ),
         (
             node.attributes.contains_null("required")
-                || aria_true(&node.attributes, "aria-required"),
+                || aria_true(&node.accessibility_attributes(), "aria-required"),
             NodeState::Required,
         ),
         (
-            node.attributes.contains_null("readonly")
-                || aria_true(&node.attributes, "aria-readonly"),
+            (native_readonly && node.attributes.contains_null("readonly"))
+                || accessibility_readonly(dom, id),
             NodeState::Readonly,
         ),
         (
@@ -1448,16 +1992,16 @@ pub fn project_element(
             NodeState::Focused,
         ),
         (
-            node.checked() || aria_true(&node.attributes, "aria-checked"),
+            node.checked() || aria_true(&node.accessibility_attributes(), "aria-checked"),
             NodeState::Checked,
         ),
         (
             node.attributes.contains_null("selected")
-                || aria_true(&node.attributes, "aria-selected"),
+                || aria_true(&node.accessibility_attributes(), "aria-selected"),
             NodeState::Selected,
         ),
         (
-            aria_true(&node.attributes, "aria-expanded")
+            aria_true(&node.accessibility_attributes(), "aria-expanded")
                 || (local_name == "details" && node.attributes.contains_null("open")),
             NodeState::Expanded,
         ),
@@ -1466,7 +2010,24 @@ pub fn project_element(
             states.insert(state);
         }
     }
-    if !states.contains(&NodeState::Disabled) && !states.contains(&NodeState::Hidden) {
+    if !states.contains(&NodeState::Disabled)
+        && (bypass_visibility || !states.contains(&NodeState::Hidden))
+    {
+        if node
+            .attributes
+            .get_null("tabindex")
+            .is_some_and(|value| value.trim().parse::<i32>().is_ok())
+            || node
+                .attributes
+                .get_null("contenteditable")
+                .is_some_and(|value| {
+                    value.is_empty()
+                        || value.eq_ignore_ascii_case("true")
+                        || value.eq_ignore_ascii_case("plaintext-only")
+                })
+        {
+            actions.insert(SemanticAction::Focus);
+        }
         if matches!(local_name, "button" | "a") {
             actions.extend([
                 SemanticAction::Click,
@@ -1485,13 +2046,13 @@ pub fn project_element(
             ]);
         }
         if local_name == "input" {
-            match node.attributes.get_null("type").map(String::as_str) {
+            match Some(input_kind.as_str()) {
                 Some("checkbox" | "radio") => actions.extend([
                     SemanticAction::Click,
                     SemanticAction::Check,
                     SemanticAction::Uncheck,
                 ]),
-                Some("button" | "submit" | "reset") => {
+                Some("button" | "submit" | "reset" | "image" | "file") => {
                     actions.insert(SemanticAction::Click);
                 }
                 _ if !states.contains(&NodeState::Readonly) => {
@@ -1558,14 +2119,17 @@ pub fn project_element(
                 }
                 actions.extend([SemanticAction::Click, SemanticAction::Focus]);
             }
-            "combobox" | "listbox" => {
+            "combobox" | "listbox" | "radiogroup" => {
                 actions.extend([
                     SemanticAction::Click,
                     SemanticAction::Select,
                     SemanticAction::Focus,
                 ]);
             }
-            "slider" | "spinbutton" => {
+            "slider" | "spinbutton" | "gridcell" | "columnheader" | "rowheader" => {
+                if !states.contains(&NodeState::Readonly) {
+                    actions.insert(SemanticAction::Type);
+                }
                 actions.extend([SemanticAction::Click, SemanticAction::Focus]);
             }
             _ => {}
@@ -1688,27 +2252,26 @@ fn accessible_semantics(
     };
     let mut evidence = Vec::new();
     let mut provenance = Provenance::BrowserDeterministic;
-    let name = if let Some(labelled_by) = node.attributes.get_null("aria-labelledby") {
+    let name = if let Some(targets) = dom
+        .accessibility_relation(id, "aria-labelledby")
+        .filter(|targets| !targets.is_empty())
+    {
         let (value, references) =
-            referenced_text(dom, id, labelled_by, page_id, document_generation);
-        if !value.is_empty() {
-            evidence.push(AccessibilityEvidence {
-                kind: AccessibilityEvidenceKind::ReferencedContent,
-                source: "aria-labelledby".into(),
-                references,
-            });
-            value
-        } else {
-            String::new()
-        }
+            referenced_nodes_text(dom, &targets, page_id, document_generation);
+        evidence.push(AccessibilityEvidence {
+            kind: AccessibilityEvidenceKind::ReferencedContent,
+            source: "aria-labelledby".into(),
+            references,
+        });
+        // A valid reference wins even when its text alternative is empty.
+        Some(value)
     } else {
-        String::new()
+        None
     };
-    let name = if !name.is_empty() {
+    let name = if let Some(name) = name {
         name
     } else if let Some(label) = node
-        .attributes
-        .get_null("aria-label")
+        .accessibility_attribute("aria-label")
         .map(|value| normalize_text(value))
         .filter(|value| !value.is_empty())
     {
@@ -1718,11 +2281,14 @@ fn accessible_semantics(
             references: Vec::new(),
         });
         label
-    } else if let Some((label, reference)) = host_label(dom, id) {
+    } else if let Some((label, references)) = host_label(dom, id) {
         evidence.push(AccessibilityEvidence {
             kind: AccessibilityEvidenceKind::HostLanguage,
             source: "label".into(),
-            references: vec![semantic_ref_for(reference, page_id, document_generation)],
+            references: references
+                .into_iter()
+                .map(|reference| semantic_ref_for(reference, page_id, document_generation))
+                .collect(),
         });
         label
     } else if let Some((value, source)) = host_language_name(dom, id, local_name, role) {
@@ -1761,9 +2327,12 @@ fn accessible_semantics(
         String::new()
     };
 
-    let description = if let Some(described_by) = node.attributes.get_null("aria-describedby") {
+    let description = if let Some(targets) = dom
+        .accessibility_relation(id, "aria-describedby")
+        .filter(|targets| !targets.is_empty())
+    {
         let (value, references) =
-            referenced_text(dom, id, described_by, page_id, document_generation);
+            referenced_nodes_text(dom, &targets, page_id, document_generation);
         if value.is_empty() {
             None
         } else {
@@ -1775,8 +2344,7 @@ fn accessible_semantics(
             Some(value)
         }
     } else if let Some(value) = node
-        .attributes
-        .get_null("aria-description")
+        .accessibility_attribute("aria-description")
         .map(|value| normalize_text(value))
         .filter(|value| !value.is_empty())
     {
@@ -1786,17 +2354,32 @@ fn accessible_semantics(
             references: Vec::new(),
         });
         Some(value)
+    } else if let Some(value) = svg_child_alternative(dom, id, "desc") {
+        evidence.push(AccessibilityEvidence {
+            kind: AccessibilityEvidenceKind::HostLanguage,
+            source: "svg-desc".into(),
+            references: Vec::new(),
+        });
+        Some(value)
     } else {
-        node.attributes
+        // Tooltip text is a description only when it did not supply the name.
+        // Equal strings from independent naming sources still qualify.
+        let title_used_for_name = evidence.iter().any(|item| {
+            item.kind == AccessibilityEvidenceKind::HostLanguage && item.source == "title"
+        });
+        let title = node
+            .attributes
             .get_null("title")
             .map(|value| normalize_text(value))
-            .filter(|value| !value.is_empty() && value != &name)
-            .or_else(|| {
-                node.attributes
-                    .get_null("placeholder")
-                    .map(|value| normalize_text(value))
-                    .filter(|value| !value.is_empty() && value != &name)
-            })
+            .filter(|value| !value.is_empty() && !title_used_for_name);
+        if title.is_some() {
+            evidence.push(AccessibilityEvidence {
+                kind: AccessibilityEvidenceKind::HostLanguage,
+                source: "title-description".into(),
+                references: Vec::new(),
+            });
+        }
+        title
     };
 
     AccessibleSemantics {
@@ -1813,56 +2396,57 @@ pub(crate) fn accessibility_for_node(dom: &DomArena, id: NodeId) -> Option<(Stri
     let NodeKind::Element { name } = &node.kind else {
         return None;
     };
-    let role = computed_role(name.local.as_ref(), &node.attributes);
+    let role = computed_role_for_node(dom, id);
     let accessible = accessible_semantics(dom, id, name.local.as_ref(), &role, PageId(1), 1);
     Some((role, accessible.name))
 }
 
-fn host_label(dom: &DomArena, id: NodeId) -> Option<(String, NodeId)> {
-    let node = dom.get(id).ok()?;
-    if let Some(control_id) = node.attributes.get_null("id") {
-        let labels = dom
-            .iter()
-            .filter(|(candidate, label)| {
-                matches!(&label.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
-                    && label.attributes.get_null("for") == Some(control_id)
-                    && tree_scope(dom, *candidate) == tree_scope(dom, id)
-            })
-            .filter_map(|(candidate, _)| {
-                let text = normalize_text(&accessible_text_content_excluding(
-                    dom,
-                    candidate,
-                    true,
-                    Some(id),
-                ));
-                (!text.is_empty()).then_some((candidate, text))
-            })
-            .collect::<Vec<_>>();
-        if let Some((first, _)) = labels.first() {
-            return Some((
-                labels
-                    .iter()
-                    .map(|(_, text)| text.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                *first,
-            ));
-        }
+fn host_label(dom: &DomArena, id: NodeId) -> Option<(String, Vec<NodeId>)> {
+    if !dom.is_labelable(id) {
+        return None;
     }
-    dom.ancestors(id).ok()?.into_iter().find_map(|ancestor| {
-        let ancestor_node = dom.get(ancestor).ok()?;
-        matches!(&ancestor_node.kind, NodeKind::Element { name } if name.local.as_ref() == "label")
-            .then(|| {
-                normalize_text(&accessible_text_content_excluding(
-                    dom,
-                    ancestor,
-                    true,
-                    Some(id),
-                ))
-            })
+    let root = tree_scope(dom, id)?;
+    let labels = dom
+        .descendants_inclusive(root)
+        .ok()?
+        .into_iter()
+        .filter(|candidate| {
+            tree_scope(dom, *candidate) == Some(root)
+                && dom.label_control(*candidate).ok().flatten() == Some(id)
+        })
+        .map(|candidate| {
+            let text = normalize_text(&accessible_text_content_excluding(
+                dom,
+                candidate,
+                true,
+                Some(id),
+            ));
+            (candidate, text)
+        })
+        .collect::<Vec<_>>();
+    labels.first()?;
+    Some((
+        labels
+            .iter()
+            .map(|(_, text)| text.as_str())
             .filter(|text| !text.is_empty())
-            .map(|text| (text, ancestor))
-    })
+            .collect::<Vec<_>>()
+            .join(" "),
+        labels.iter().map(|(node, _)| *node).collect(),
+    ))
+}
+
+/// SVG title/desc alternatives are direct children in the SVG namespace;
+/// descendant titles and HTML lookalikes cannot name the enclosing graphic.
+fn svg_child_alternative(dom: &DomArena, id: NodeId, local: &str) -> Option<String> {
+    let node = dom.get(id).ok()?;
+    if !matches!(&node.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/2000/svg")
+    {
+        return None;
+    }
+    let child=node.children.iter().find(|child|dom.get(**child).is_ok_and(|node|matches!(&node.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/2000/svg"&&name.local.as_ref()==local)))?;
+    let text = normalize_text(&dom.text_content(*child).ok()?);
+    (!text.is_empty()).then_some(text)
 }
 
 fn host_language_name(
@@ -1872,19 +2456,11 @@ fn host_language_name(
     role: &str,
 ) -> Option<(String, String)> {
     let node = dom.get(id).ok()?;
-    if matches!(role, "dialog" | "alertdialog")
-        && let Some(heading) = node.children.iter().find(|child| {
-            dom.get(**child).is_ok_and(|child| {
-                matches!(&child.kind, NodeKind::Element { name } if matches!(name.local.as_ref(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6"))
-            })
-        })
-    {
-        let value = normalize_text(&accessible_text_content(dom, *heading, true));
-        if !value.is_empty() {
-            return Some((value, "heading".into()));
-        }
+    if let Some(title) = svg_child_alternative(dom, id, "title") {
+        return Some((title, "svg-title".into()));
     }
-    let attribute = match local_name {
+    let html = matches!(&node.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml");
+    let attribute = match if html { local_name } else { "" } {
         "img" | "area" => Some(("alt", "alt")),
         "input"
             if node
@@ -1907,13 +2483,20 @@ fn host_language_name(
         _ => None,
     };
     if let Some((attribute, source)) = attribute
-        && let Some(value) = node.attributes.get_null(attribute)
+        && let Some(value) = (if attribute == "value" {
+            node.value
+                .as_ref()
+                .or_else(|| node.attributes.get_null(attribute))
+        } else {
+            node.attributes.get_null(attribute)
+        })
     {
         // An explicitly empty host-language alternative is authoritative and
         // must suppress lower-priority title/placeholder fallbacks.
         return Some((normalize_text(value), source.into()));
     }
-    if local_name == "input"
+    if html
+        && local_name == "input"
         && node
             .attributes
             .get_null("type")
@@ -1933,16 +2516,32 @@ fn host_language_name(
             "input-default-value".into(),
         ));
     }
-    let named_child = match local_name {
+    if html
+        && local_name == "img"
+        && node
+            .attributes
+            .get_null("title")
+            .is_none_or(|title| normalize_text(title).is_empty())
+    {
+        if let Some(parent)=node.parent.and_then(|parent|dom.get(parent).ok()).filter(|parent|matches!(&parent.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="figure")) {
+            let mut caption=None;let mut eligible=true;
+            for child in &parent.children {if *child==id{continue;}let Ok(child_node)=dom.get(*child)else{eligible=false;break;};match &child_node.kind{
+                NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="figcaption"=>{if caption.replace(*child).is_some(){eligible=false;}},
+                NodeKind::Text{data}|NodeKind::CDataSection{data} if data.chars().all(|ch|matches!(ch,' '|'\t'|'\r'|'\n'|'\u{c}'))=>{},
+                NodeKind::Comment{..}=>{},_=>eligible=false,
+            }}
+            if eligible {if let Some(caption)=caption {return Some((normalize_text(&accessible_text_content(dom,caption,false)),"figcaption-image".into()));}}
+        }
+    }
+    let named_child = match if html { local_name } else { "" } {
         "fieldset" => Some(("legend", "legend")),
         "table" => Some(("caption", "caption")),
-        "figure" => Some(("figcaption", "figcaption")),
         _ => None,
     };
     if let Some((child_name, source)) = named_child
         && let Some(child) = node.children.iter().find(|child| {
             dom.get(**child).is_ok_and(|node| {
-                matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == child_name)
+                matches!(&node.kind, NodeKind::Element { name } if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref() == child_name)
             })
         })
     {
@@ -1951,17 +2550,27 @@ fn host_language_name(
             return Some((text, source.into()));
         }
     }
-    if role == "article"
-        && let Some(heading) = descendants(dom, id).into_iter().find(|candidate| {
-            dom.get(*candidate).is_ok_and(|candidate| {
-                matches!(&candidate.kind, NodeKind::Element { name }
-                    if matches!(name.local.as_ref(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6"))
-            })
-        })
-    {
-        let text = normalize_text(&accessible_text_content(dom, heading, true));
-        if !text.is_empty() {
-            return Some((text, "heading".into()));
+    // Name-from-heading selects the first exposed heading in depth-first
+    // flat-tree order. Dialogs and articles share this algorithm; looking only
+    // at immediate children would skip headings inside native layout wrappers.
+    if matches!(role, "article" | "dialog" | "alertdialog") {
+        let mut pending = accessible_children(dom, id);
+        pending.reverse();
+        let mut seen = BTreeSet::new();
+        while let Some(candidate) = pending.pop() {
+            if !seen.insert(candidate) || subtree_excluded_at(dom, candidate) {
+                continue;
+            }
+            if !accessibility_hidden_at(dom, candidate)
+                && computed_role_for_node(dom, candidate) == "heading"
+            {
+                let text = normalize_text(&accessible_text_content(dom, candidate, false));
+                if !text.is_empty() {
+                    return Some((text, "heading".into()));
+                }
+                break;
+            }
+            pending.extend(accessible_children(dom, candidate).into_iter().rev());
         }
     }
     if name_from_content(local_name, role)
@@ -1995,7 +2604,17 @@ fn accessible_children(dom: &DomArena, id: NodeId) -> Vec<NodeId> {
     }) {
         return root.children.clone();
     }
-    if matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "slot")
+    if matches!(&node.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="slot")
+    {
+        if let Some(assigned) = &node.native_resolved_slot_nodes {
+            return if assigned.is_empty() {
+                node.children.clone()
+            } else {
+                assigned.clone()
+            };
+        }
+    }
+    if matches!(&node.kind, NodeKind::Element { name } if name.ns.as_ref()=="http://www.w3.org/1999/xhtml" && name.local.as_ref() == "slot")
         && let Some(root_id) = tree_scope(dom, id)
         && let Ok(root) = dom.get(root_id)
         && matches!(root.kind, NodeKind::ShadowRoot { .. })
@@ -2010,7 +2629,7 @@ fn accessible_children(dom: &DomArena, id: NodeId) -> Vec<NodeId> {
         let first_slot = descendants(dom, root_id).into_iter().find(|candidate| {
             tree_scope(dom, *candidate) == Some(root_id)
                 && dom.get(*candidate).is_ok_and(|candidate| {
-                    matches!(&candidate.kind, NodeKind::Element { name } if name.local.as_ref() == "slot")
+                    matches!(&candidate.kind, NodeKind::Element { name } if name.ns.as_ref()=="http://www.w3.org/1999/xhtml" && name.local.as_ref() == "slot")
                         && candidate.attributes.get_null("name").map(String::as_str).unwrap_or("") == slot_name
                 })
         });
@@ -2039,14 +2658,80 @@ fn accessible_children(dom: &DomArena, id: NodeId) -> Vec<NodeId> {
     node.children.clone()
 }
 
+/// Walk the accessible option ownership tree, preserving all selected values.
+/// Nested widgets and selected options terminate descent; cycle protection also
+/// bounds malformed ownership graphs without duplicating an owned option.
+fn embedded_selected_options(dom: &DomArena, root: NodeId) -> Vec<NodeId> {
+    let root_is_combobox = computed_role_for_node(dom, root) == "combobox";
+    let owners = accepted_aria_owners(dom);
+    let mut pending = vec![root];
+    let mut seen = BTreeSet::new();
+    let mut selected = Vec::new();
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let Ok(node) = dom.get(id) else {
+            continue;
+        };
+        if id != root
+            && let NodeKind::Element { name } = &node.kind
+        {
+            let role = computed_role_for_node(dom, id);
+            if role == "option" {
+                if node
+                    .accessibility_attribute("aria-selected")
+                    .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+                {
+                    selected.push(id);
+                }
+                continue;
+            }
+            if role == "combobox" || (role == "listbox" && !root_is_combobox) {
+                continue;
+            }
+        }
+        let children = owned_accessible_children(dom, id, &owners);
+        pending.extend(children.into_iter().rev());
+    }
+    selected
+}
+
 fn accessible_text_content_excluding(
     dom: &DomArena,
     id: NodeId,
     include_hidden_root: bool,
     excluded: Option<NodeId>,
 ) -> String {
+    let include_hidden_subtree = include_hidden_root && referenced_root_hidden(dom, id);
+    accessible_text_content_walk(
+        dom,
+        id,
+        include_hidden_root,
+        excluded,
+        include_hidden_subtree,
+        &mut NameTraversal::default(),
+    )
+}
+
+#[derive(Default)]
+struct NameTraversal {
+    seen: BTreeSet<NodeId>,
+    reference_depth: usize,
+}
+
+fn accessible_text_content_walk(
+    dom: &DomArena,
+    id: NodeId,
+    include_hidden_root: bool,
+    excluded: Option<NodeId>,
+    include_hidden_subtree: bool,
+    traversal: &mut NameTraversal,
+) -> String {
     if Some(id) == excluded {
-        return String::new();
+        // A labelled control contributes no value to its own label, while its
+        // replaced-element text boundary still separates adjacent pseudo runs.
+        return if dom.get(id).is_ok_and(|node|matches!(&node.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&matches!(name.local.as_ref(),"input"|"select"|"textarea"))){" ".into()}else{String::new()};
     }
     let Ok(node) = dom.get(id) else {
         return String::new();
@@ -2062,24 +2747,27 @@ fn accessible_text_content_excluding(
     {
         return String::new();
     }
-    if !include_hidden_root && accessibility_hidden(node) {
+    if !include_hidden_root && !include_hidden_subtree && accessibility_hidden_at(dom, id) {
         // `visibility` is inherited but can be overridden by a descendant.
         // Other accessibility exclusions suppress the complete subtree.
-        if visibility_hidden_only(node) {
+        if visibility_hidden_at(dom, id) {
             return accessible_children(dom, id)
                 .iter()
-                .map(|child| visible_text_below_hidden_visibility(dom, *child, excluded))
+                .map(|child| visible_text_below_hidden_visibility(dom, *child, excluded, traversal))
                 .filter(|value| !value.is_empty())
                 .collect::<Vec<_>>()
                 .join(" ");
         }
         return String::new();
     }
+    if !traversal.seen.insert(id) {
+        return String::new();
+    }
     // Recursive name-from-content traversal uses a descendant's explicit
     // label before its children, including descendants inside shadow trees.
     // Referenced roots already use this rule in referenced_text; applying it
     // here also covers labels reached through their containing element.
-    let is_shadow_slot = matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "slot")
+    let is_shadow_slot = matches!(&node.kind, NodeKind::Element { name } if name.ns.as_ref()=="http://www.w3.org/1999/xhtml" && name.local.as_ref() == "slot")
         && tree_scope(dom, id).is_some_and(|root| {
             dom.get(root)
                 .is_ok_and(|root| matches!(root.kind, NodeKind::ShadowRoot { .. }))
@@ -2087,20 +2775,58 @@ fn accessible_text_content_excluding(
     // Embedded text/range/select controls contribute their current value to
     // the containing label, rather than the label of that embedded control.
     let is_embedded_value = matches!(&node.kind, NodeKind::Element { name }
-        if matches!(computed_role(name.local.as_ref(), &node.attributes).as_str(),
-            "textbox" | "searchbox" | "combobox" | "listbox" | "slider" | "spinbutton"));
+        if matches!(computed_role_for_node(dom, id).as_str(),
+            "textbox" | "searchbox" | "combobox" | "listbox" | "menu" | "slider" | "spinbutton"));
+    if !is_shadow_slot && !is_embedded_value && traversal.reference_depth == 0 {
+        if let Some(targets) = dom
+            .accessibility_relation(id, "aria-labelledby")
+            .filter(|targets| !targets.is_empty())
+        {
+            traversal.reference_depth += 1;
+            let mut parts = Vec::new();
+            let mut self_reference = false;
+            for target in targets {
+                if target == id && !self_reference {
+                    traversal.seen.remove(&id);
+                    self_reference = true;
+                }
+                let text = accessible_text_content_walk(
+                    dom,
+                    target,
+                    true,
+                    excluded,
+                    referenced_root_hidden(dom, target),
+                    traversal,
+                );
+                if !text.is_empty() {
+                    parts.push(text);
+                }
+            }
+            traversal.reference_depth -= 1;
+            return normalize_text(&parts.join(" "));
+        }
+    }
     if !is_shadow_slot
         && !is_embedded_value
         && let Some(label) = node
-            .attributes
-            .get_null("aria-label")
+            .accessibility_attribute("aria-label")
             .map(|label| normalize_text(label))
             .filter(|label| !label.is_empty())
     {
         return label;
     }
+    if let Some(title) = svg_child_alternative(dom, id, "title") {
+        return title;
+    }
     match &node.kind {
-        NodeKind::Text { data } => data.clone(),
+        NodeKind::Text { data } => accessible_case_text(dom, id, data),
+        NodeKind::Element { .. } if computed_role_for_node(dom, id) == "menu" => String::new(),
+        NodeKind::Element { name }
+            if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+                && name.local.as_ref() == "br" =>
+        {
+            " ".into()
+        }
         NodeKind::Element { name } if name.local.as_ref() == "img" => {
             node.attributes.get_null("alt").cloned().unwrap_or_default()
         }
@@ -2113,24 +2839,32 @@ fn accessible_text_content_excluding(
                     )
                 }) =>
         {
-            node.attributes.get_null("value").cloned().unwrap_or_else(|| {
-                if node
-                    .attributes
-                    .get_null("type")
-                    .is_some_and(|kind| kind.eq_ignore_ascii_case("reset"))
-                {
-                    "Reset".into()
-                } else {
-                    "Submit".into()
-                }
-            })
+            node.value
+                .clone()
+                .or_else(|| node.attributes.get_null("value").cloned())
+                .unwrap_or_else(|| {
+                    if node
+                        .attributes
+                        .get_null("type")
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case("reset"))
+                    {
+                        "Reset".into()
+                    } else if node
+                        .attributes
+                        .get_null("type")
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case("submit"))
+                    {
+                        "Submit".into()
+                    } else {
+                        String::new()
+                    }
+                })
         }
         NodeKind::Element { name } if name.local.as_ref() == "input" => {
-            let role = computed_role(name.local.as_ref(), &node.attributes);
+            let role = computed_role_for_node(dom, id);
             if matches!(role.as_str(), "slider" | "spinbutton") {
-                node.attributes
-                    .get_null("aria-valuetext")
-                    .or_else(|| node.attributes.get_null("aria-valuenow"))
+                node.accessibility_attribute("aria-valuetext")
+                    .or_else(|| node.accessibility_attribute("aria-valuenow"))
                     .cloned()
                     .or_else(|| node.value.clone())
                     .or_else(|| node.attributes.get_null("value").cloned())
@@ -2142,113 +2876,169 @@ fn accessible_text_content_excluding(
                     .unwrap_or_default()
             }
         }
-        NodeKind::Element { name } if name.local.as_ref() == "select" => node
-            .children
-            .iter()
-            .filter_map(|child| dom.get(*child).ok().map(|node| (*child, node)))
-            .find(|(_, option)| {
-                option.attributes.contains_null("selected")
-                    || option
-                        .attributes
-                        .get_null("aria-selected")
-                        .is_some_and(|value| value.eq_ignore_ascii_case("true"))
-            })
-            .or_else(|| {
-                node.children
-                    .iter()
-                    .filter_map(|child| dom.get(*child).ok().map(|node| (*child, node)))
-                    .find(|(_, option)| {
-                        matches!(&option.kind, NodeKind::Element { name } if name.local.as_ref() == "option")
-                    })
-            })
-            .map(|(option, _)| {
-                accessible_text_content_excluding(dom, option, false, excluded)
-            })
-            .unwrap_or_default(),
-        NodeKind::Element { name }
-            if matches!(
-                computed_role(name.local.as_ref(), &node.attributes).as_str(),
-                "listbox" | "combobox"
-            ) =>
-        {
-            descendants(dom, id)
-                .into_iter()
-                .filter_map(|candidate| dom.get(candidate).ok().map(|node| (candidate, node)))
-                .find(|(_, option)| {
-                    matches!(&option.kind, NodeKind::Element { name }
-                        if computed_role(name.local.as_ref(), &option.attributes) == "option")
-                        && option
-                            .attributes
-                            .get_null("aria-selected")
-                            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+        NodeKind::Element { name } if name.local.as_ref() == "textarea" => {
+            if node.dirty_value {
+                node.value.clone().unwrap_or_default()
+            } else {
+                dom.text_content(id).unwrap_or_default()
+            }
+        }
+        NodeKind::Element { name } if name.local.as_ref() == "select" => {
+            let options = dom.select_options(id).unwrap_or_default();
+            let mut selected = options
+                .iter()
+                .copied()
+                .filter(|option| dom.get(*option).is_ok_and(|option| option.selected()))
+                .collect::<Vec<_>>();
+            // Parsed-only snapshots can precede native selectedness initialization.
+            // Never invent a first selection once native state has been supplied.
+            if selected.is_empty()
+                && !node.attributes.contains_null("multiple")
+                && node
+                    .attributes
+                    .get_null("size")
+                    .and_then(|size| size.parse::<u32>().ok())
+                    .unwrap_or(0)
+                    <= 1
+                && options.iter().all(|option| {
+                    dom.get(*option)
+                        .is_ok_and(|option| option.selectedness.is_none())
                 })
-                .map(|(option, _)| {
-                    accessible_text_content_excluding(dom, option, false, excluded)
-                })
-                .unwrap_or_else(|| {
-                    node.children
-                        .iter()
-                        .map(|child| {
-                            accessible_text_content_excluding(dom, *child, false, excluded)
+            {
+                if let Some(first) = options.iter().find(|option| {
+                    dom.get(**option).is_ok_and(|option| !option.attributes.contains_null("disabled"))
+                        && !dom.ancestors(**option).unwrap_or_default().into_iter().take_while(|ancestor| *ancestor != id).any(|ancestor| {
+                            dom.get(ancestor).is_ok_and(|node| matches!(&node.kind, NodeKind::Element { name } if name.local.as_ref() == "optgroup") && node.attributes.contains_null("disabled"))
                         })
-                        .filter(|value| !value.is_empty())
-                        .collect::<String>()
+                }) { selected.push(*first); }
+            }
+            selected
+                .into_iter()
+                .map(|option| {
+                    dom.get(option)
+                        .ok()
+                        .and_then(|node| {
+                            node.accessibility_attribute("aria-label")
+                                .map(|label| normalize_text(label))
+                                .filter(|label| !label.is_empty())
+                                .or_else(|| {
+                                    node.attributes
+                                        .get_null("label")
+                                        .map(|label| normalize_text(label))
+                                        .filter(|label| !label.is_empty())
+                                })
+                        })
+                        .unwrap_or_else(|| {
+                            accessible_text_content_walk(
+                                dom,
+                                option,
+                                false,
+                                excluded,
+                                include_hidden_subtree,
+                                traversal,
+                            )
+                        })
                 })
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
         }
         NodeKind::Element { name }
             if matches!(
-                computed_role(name.local.as_ref(), &node.attributes).as_str(),
+                computed_role_for_node(dom, id).as_str(),
+                "listbox" | "combobox"
+            ) =>
+        {
+            let selected = embedded_selected_options(dom, id);
+            if !selected.is_empty() {
+                selected
+                    .into_iter()
+                    .map(|option| {
+                        accessible_text_content_walk(
+                            dom,
+                            option,
+                            false,
+                            excluded,
+                            include_hidden_subtree,
+                            traversal,
+                        )
+                    })
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else if computed_role_for_node(dom, id) == "combobox" {
+                accessible_children(dom, id)
+                    .into_iter()
+                    .map(|child| {
+                        accessible_text_content_walk(
+                            dom,
+                            child,
+                            false,
+                            excluded,
+                            include_hidden_subtree,
+                            traversal,
+                        )
+                    })
+                    .filter(|value| !value.is_empty())
+                    .collect::<String>()
+            } else {
+                String::new()
+            }
+        }
+        NodeKind::Element { name }
+            if matches!(
+                computed_role_for_node(dom, id).as_str(),
                 "slider" | "spinbutton"
             ) =>
         {
-            node.attributes
-                .get_null("aria-valuetext")
-                .or_else(|| node.attributes.get_null("aria-valuenow"))
+            node.accessibility_attribute("aria-valuetext")
+                .or_else(|| node.accessibility_attribute("aria-valuenow"))
                 .cloned()
                 .unwrap_or_default()
         }
         _ => {
-            let action_targets = node
-                .attributes
-                .get_null("aria-actions")
-                .map(|value| {
-                    value
-                        .split_whitespace()
-                        .filter_map(|idref| find_element_by_id_scoped(dom, id, idref))
-                        .collect::<BTreeSet<_>>()
-                })
-                .unwrap_or_default();
+            let action_targets = dom
+                .accessibility_relation(id, "aria-actions")
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<BTreeSet<_>>();
             let mut value = accessible_children(dom, id)
                 .iter()
                 .filter(|child| {
                     aria_owner(dom, **child).is_none() && !action_targets.contains(child)
                 })
                 .map(|child| {
-                    accessible_text_content_excluding(
+                    let value = accessible_text_content_walk(
                         dom,
                         *child,
-                        include_hidden_root && accessibility_hidden(node),
+                        false,
                         excluded,
-                    )
+                        include_hidden_subtree,
+                        traversal,
+                    );
+                    if !value.is_empty() && accessible_text_run_separator(dom, *child) {
+                        format!(" {value} ")
+                    } else {
+                        value
+                    }
                 })
                 .filter(|value| !value.is_empty())
                 .collect::<String>();
-            if let Some(owned) = node.attributes.get_null("aria-owns") {
-                for idref in owned.split_whitespace() {
-                    let Some(owned_id) = find_element_by_id_scoped(dom, id, idref) else {
-                        continue;
-                    };
+            if let Some(owned) = dom.accessibility_relation(id, "aria-owns") {
+                for owned_id in owned {
                     if owned_id == id {
                         continue;
                     }
                     if aria_owner(dom, owned_id) != Some(id) {
                         continue;
                     }
-                    let owned_text = accessible_text_content_excluding(
+                    let owned_text = accessible_text_content_walk(
                         dom,
                         owned_id,
                         true,
                         excluded,
+                        include_hidden_subtree || accessibility_hidden_at(dom, owned_id),
+                        traversal,
                     );
                     if !owned_text.is_empty() {
                         if !value.is_empty() {
@@ -2258,15 +3048,169 @@ fn accessible_text_content_excluding(
                     }
                 }
             }
+            if excluded.is_some()
+                && normalize_text(&value).is_empty()
+                && matches!(&node.kind,NodeKind::Element{name}if name.local.as_ref()=="label")
+            {
+                if let Some(title) = node
+                    .attributes
+                    .get_null("title")
+                    .map(|value| normalize_text(value))
+                    .filter(|value| !value.is_empty())
+                {
+                    value = format!(" {title} ");
+                }
+            }
+            if let Some((before, after)) = dom.accessibility_generated_content(id) {
+                // Generated strings retain author whitespace; normalization is
+                // performed by the name algorithm, not by a fake DOM text node.
+                value = format!("{before}{value}{after}");
+            }
             value
         }
     }
+}
+
+fn accessible_case_text(dom: &DomArena, id: NodeId, data: &str) -> String {
+    let lineage = dom.ancestors(id).unwrap_or_default();
+    let transform = lineage
+        .iter()
+        .find_map(|parent| {
+            dom.accessibility_computed_text_style(*parent)
+                .map(|(_, transform)| transform.to_owned())
+                .or_else(|| {
+                    dom.get(*parent).ok().and_then(|node| {
+                        inline_style_value(node, "text-transform").map(str::to_owned)
+                    })
+                })
+        })
+        .unwrap_or_else(|| "none".into());
+    if !transform
+        .split_ascii_whitespace()
+        .any(|token| matches!(token, "uppercase" | "lowercase" | "capitalize"))
+    {
+        return data.into();
+    }
+    let language = lineage
+        .iter()
+        .find_map(|parent| {
+            dom.get(*parent)
+                .ok()
+                .and_then(|node| node.attributes.get_null("lang").cloned())
+        })
+        .unwrap_or_default();
+    let root = lineage
+        .iter()
+        .copied()
+        .find(|parent| accessible_text_run_separator(dom, *parent))
+        .or_else(|| lineage.last().copied())
+        .unwrap_or(id);
+    let mut pending = vec![(root, false)];
+    let mut seen = BTreeSet::new();
+    let mut context = String::new();
+    let mut offset = 0;
+    let mut range = None;
+    while let Some((node_id, after)) = pending.pop() {
+        if after {
+            context.push(' ');
+            offset += 1;
+            continue;
+        }
+        if !seen.insert(node_id) {
+            continue;
+        }
+        let Ok(node) = dom.get(node_id) else {
+            continue;
+        };
+        if matches!(&node.kind,NodeKind::Element{name}if matches!(name.local.as_ref(),"script"|"style"|"template"))
+        {
+            continue;
+        }
+        if let NodeKind::Text { data } = &node.kind {
+            let end = offset + data.chars().count();
+            if node_id == id {
+                range = Some((offset, end));
+            }
+            context.push_str(data);
+            offset = end;
+        } else {
+            if node_id != root && accessible_text_run_separator(dom, node_id) {
+                context.push(' ');
+                offset += 1;
+                pending.push((node_id, true));
+            }
+            pending.extend(
+                accessible_children(dom, node_id)
+                    .into_iter()
+                    .rev()
+                    .map(|child| (child, false)),
+            );
+        }
+    }
+    let Some((start, end)) = range else {
+        return oryn_layout::accessibility_case_fragment(
+            data,
+            0,
+            data.chars().count(),
+            &transform,
+            &language,
+        );
+    };
+    oryn_layout::accessibility_case_fragment(&context, start, end, &transform, &language)
+}
+
+fn accessible_text_run_separator(dom: &DomArena, id: NodeId) -> bool {
+    let Ok(node) = dom.get(id) else {
+        return false;
+    };
+    let NodeKind::Element { name } = &node.kind else {
+        return false;
+    };
+    if name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+        && matches!(name.local.as_ref(), "br" | "input" | "select" | "textarea")
+    {
+        return true;
+    }
+    if let Some((display, _)) = dom.accessibility_computed_text_style(id) {
+        return !matches!(display, "inline" | "contents" | "none");
+    }
+    if let Some(display) = inline_style_value(node, "display") {
+        return !matches!(display.trim(), "inline" | "contents" | "none");
+    }
+    name.ns.as_ref() == "http://www.w3.org/1999/xhtml"
+        && matches!(
+            name.local.as_ref(),
+            "div"
+                | "p"
+                | "section"
+                | "article"
+                | "aside"
+                | "header"
+                | "footer"
+                | "main"
+                | "nav"
+                | "li"
+                | "ul"
+                | "ol"
+                | "blockquote"
+                | "h1"
+                | "h2"
+                | "h3"
+                | "h4"
+                | "h5"
+                | "h6"
+                | "table"
+                | "tr"
+                | "td"
+                | "th"
+        )
 }
 
 fn visible_text_below_hidden_visibility(
     dom: &DomArena,
     id: NodeId,
     excluded: Option<NodeId>,
+    traversal: &mut NameTraversal,
 ) -> String {
     if Some(id) == excluded {
         return String::new();
@@ -2274,15 +3218,28 @@ fn visible_text_below_hidden_visibility(
     let Ok(node) = dom.get(id) else {
         return String::new();
     };
-    if subtree_excluded_without_visibility(node) {
+    if subtree_excluded_at(dom, id) {
         return String::new();
     }
-    if inline_style_value(node, "visibility").is_some_and(|value| value == "visible") {
-        return accessible_text_content_excluding(dom, id, true, excluded);
+    if dom
+        .accessibility_computed_visibility(id)
+        .is_some_and(|(_, hidden)| !hidden)
+        || (dom.accessibility_computed_visibility(id).is_none()
+            && inline_style_value(node, "visibility")
+                .is_some_and(|value| value.eq_ignore_ascii_case("visible")))
+    {
+        return accessible_text_content_walk(
+            dom,
+            id,
+            true,
+            excluded,
+            referenced_root_hidden(dom, id),
+            traversal,
+        );
     }
     node.children
         .iter()
-        .map(|child| visible_text_below_hidden_visibility(dom, *child, excluded))
+        .map(|child| visible_text_below_hidden_visibility(dom, *child, excluded, traversal))
         .filter(|value| !value.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
@@ -2303,11 +3260,70 @@ fn inline_style_value<'a>(node: &'a crate::dom::Node, property: &str) -> Option<
 fn subtree_excluded_without_visibility(node: &crate::dom::Node) -> bool {
     node.attributes.contains_null("hidden")
         || node
-            .attributes
-            .get_null("aria-hidden")
+            .accessibility_attribute("aria-hidden")
             .is_some_and(|value| value.eq_ignore_ascii_case("true"))
         || inline_style_value(node, "display")
             .is_some_and(|value| value.eq_ignore_ascii_case("none"))
+}
+
+fn subtree_excluded_at(dom: &DomArena, id: NodeId) -> bool {
+    let Ok(node) = dom.get(id) else {
+        return false;
+    };
+    match dom.accessibility_computed_visibility(id) {
+        Some((display_none, _)) => {
+            display_none
+                || node
+                    .accessibility_attribute("aria-hidden")
+                    .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+        }
+        None => subtree_excluded_without_visibility(node),
+    }
+}
+fn accessibility_hidden_at(dom: &DomArena, id: NodeId) -> bool {
+    match dom.accessibility_computed_visibility(id) {
+        Some((_, visibility_hidden)) => subtree_excluded_at(dom, id) || visibility_hidden,
+        None => dom.get(id).is_ok_and(accessibility_hidden),
+    }
+}
+fn visibility_hidden_at(dom: &DomArena, id: NodeId) -> bool {
+    match dom.accessibility_computed_visibility(id) {
+        Some((_, hidden)) => hidden && !subtree_excluded_at(dom, id),
+        None => dom.get(id).is_ok_and(visibility_hidden_only),
+    }
+}
+
+/// A directly referenced node inherits subtree exclusion from ancestors.
+/// Visibility differs: a nearer explicit visible value overrides inheritance,
+/// while it cannot override display:none, hidden, or aria-hidden ancestry.
+fn referenced_root_hidden(dom: &DomArena, id: NodeId) -> bool {
+    let mut lineage = vec![id];
+    lineage.extend(dom.ancestors(id).unwrap_or_default());
+    let mut visibility = None;
+    for id in lineage {
+        let Ok(node) = dom.get(id) else {
+            continue;
+        };
+        if subtree_excluded_at(dom, id) {
+            return true;
+        }
+        if visibility.is_none() {
+            if let Some((_, hidden)) = dom.accessibility_computed_visibility(id) {
+                visibility = Some(hidden);
+                continue;
+            }
+            if let Some(value) = inline_style_value(node, "visibility") {
+                if value.eq_ignore_ascii_case("visible") {
+                    visibility = Some(false);
+                } else if value.eq_ignore_ascii_case("hidden")
+                    || value.eq_ignore_ascii_case("collapse")
+                {
+                    visibility = Some(true);
+                }
+            }
+        }
+    }
+    visibility.unwrap_or(false)
 }
 
 fn visibility_hidden_only(node: &crate::dom::Node) -> bool {
@@ -2317,19 +3333,128 @@ fn visibility_hidden_only(node: &crate::dom::Node) -> bool {
         })
 }
 
-fn aria_owner(dom: &DomArena, target: NodeId) -> Option<NodeId> {
-    if !aria_owned_target_is_exposable(dom, target) {
-        return None;
+// Follow accepted accessibility-parent edges as well as DOM ancestry. A
+// cross-reference cycle can involve siblings and is invisible to DOM ancestry.
+fn ownership_cycle(
+    owners: &BTreeMap<SemanticRef, SemanticRef>,
+    owner: SemanticRef,
+    target: SemanticRef,
+) -> bool {
+    let mut cursor = Some(owner);
+    let mut visited = BTreeSet::new();
+    while let Some(node) = cursor {
+        if node == target || !visited.insert(node) {
+            return true;
+        }
+        cursor = owners.get(&node).copied();
     }
-    let target_id = dom.get(target).ok()?.attributes.get_null("id")?;
-    dom.iter()
-        .find(|(_, node)| {
-            node.attributes
-                .get_null("aria-owns")
-                .is_some_and(|owned| owned.split_whitespace().any(|id| id == target_id))
-        })
-        .map(|(id, _)| id)
-        .filter(|owner| !is_hidden(dom, *owner))
+    false
+}
+
+fn accepted_aria_owners(dom: &DomArena) -> BTreeMap<NodeId, NodeId> {
+    // DOM order, not arena allocation order, decides competing explicit owners.
+    // Use one acceptance algorithm for naming and published accessibility edges.
+    let mut order = Vec::new();
+    let mut seen = BTreeSet::new();
+    for (root, node) in dom.iter() {
+        if !matches!(node.kind, NodeKind::Document) {
+            continue;
+        }
+        let mut pending = vec![root];
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            order.push(id);
+            if let Ok(node) = dom.get(id) {
+                pending.extend(node.children.iter().rev().copied());
+            }
+        }
+    }
+    let mut accepted = BTreeMap::new();
+    for owner in order {
+        if is_hidden(dom, owner) {
+            continue;
+        }
+        let Some(targets) = dom.accessibility_relation(owner, "aria-owns") else {
+            continue;
+        };
+        for target in targets {
+            if accepted.contains_key(&target)
+                || !seen.contains(&target)
+                || !aria_owned_target_is_exposable(dom, target)
+                || dom
+                    .ancestors(owner)
+                    .is_ok_and(|ancestors| ancestors.contains(&target))
+            {
+                continue;
+            }
+            let mut cursor = Some(owner);
+            let mut walked = BTreeSet::new();
+            let mut cycle = false;
+            while let Some(id) = cursor {
+                if id == target || !walked.insert(id) {
+                    cycle = true;
+                    break;
+                }
+                cursor = accepted
+                    .get(&id)
+                    .copied()
+                    .or_else(|| dom.get(id).ok().and_then(|node| node.parent));
+            }
+            if !cycle {
+                accepted.insert(target, owner);
+            }
+        }
+    }
+    accepted
+}
+
+fn owned_accessible_children(
+    dom: &DomArena,
+    id: NodeId,
+    owners: &BTreeMap<NodeId, NodeId>,
+) -> Vec<NodeId> {
+    let mut children = accessible_children(dom, id)
+        .into_iter()
+        .filter(|child| !owners.contains_key(child))
+        .collect::<Vec<_>>();
+    if let Some(owned) = dom.accessibility_relation(id, "aria-owns") {
+        let mut seen = children.iter().copied().collect::<BTreeSet<_>>();
+        children.extend(
+            owned
+                .into_iter()
+                .filter(|child| owners.get(child) == Some(&id) && seen.insert(*child)),
+        );
+    }
+    children
+}
+fn accessibility_ancestors(
+    dom: &DomArena,
+    id: NodeId,
+    owners: &BTreeMap<NodeId, NodeId>,
+) -> Vec<NodeId> {
+    let mut result = Vec::new();
+    let mut seen = BTreeSet::from([id]);
+    let mut cursor = owners
+        .get(&id)
+        .copied()
+        .or_else(|| dom.get(id).ok().and_then(|node| node.parent));
+    while let Some(id) = cursor {
+        if !seen.insert(id) {
+            break;
+        }
+        result.push(id);
+        cursor = owners
+            .get(&id)
+            .copied()
+            .or_else(|| dom.get(id).ok().and_then(|node| node.parent));
+    }
+    result
+}
+
+fn aria_owner(dom: &DomArena, target: NodeId) -> Option<NodeId> {
+    accepted_aria_owners(dom).get(&target).copied()
 }
 
 /// ARIA ownership reparents a target in the accessibility tree, so an
@@ -2338,10 +3463,10 @@ fn aria_owner(dom: &DomArena, target: NodeId) -> Option<NodeId> {
 /// the original ancestry, and `aria-hidden` on the target itself remains
 /// authoritative.
 fn aria_owned_target_is_exposable(dom: &DomArena, target: NodeId) -> bool {
-    let Ok(target_node) = dom.get(target) else {
+    let Ok(_target_node) = dom.get(target) else {
         return false;
     };
-    if accessibility_hidden(target_node) {
+    if accessibility_hidden_at(dom, target) {
         return false;
     }
     dom.ancestors(target)
@@ -2349,6 +3474,9 @@ fn aria_owned_target_is_exposable(dom: &DomArena, target: NodeId) -> bool {
         .into_iter()
         .all(|id| {
             dom.get(id).is_ok_and(|node| {
+                if let Some((display_none, _)) = dom.accessibility_computed_visibility(id) {
+                    return !display_none;
+                }
                 if node.attributes.contains_null("hidden") {
                     return false;
                 }
@@ -2370,8 +3498,7 @@ fn aria_owned_target_is_exposable(dom: &DomArena, target: NodeId) -> bool {
 fn accessibility_hidden(node: &crate::dom::Node) -> bool {
     if node.attributes.contains_null("hidden")
         || node
-            .attributes
-            .get_null("aria-hidden")
+            .accessibility_attribute("aria-hidden")
             .is_some_and(|value| value.eq_ignore_ascii_case("true"))
     {
         return true;
@@ -2443,13 +3570,17 @@ fn normalize_text(value: &str) -> String {
 }
 
 fn find_element_by_id_scoped(dom: &DomArena, source: NodeId, value: &str) -> Option<NodeId> {
-    let scope = tree_scope(dom, source);
-    dom.iter()
-        .find(|(id, node)| {
-            node.attributes.get_null("id").is_some_and(|id| id == value)
-                && tree_scope(dom, *id) == scope
+    let scope = tree_scope(dom, source)?;
+    dom.descendants_inclusive(scope)
+        .ok()?
+        .into_iter()
+        .find(|id| {
+            tree_scope(dom, *id) == Some(scope)
+                && dom.get(*id).is_ok_and(|node| {
+                    matches!(node.kind, NodeKind::Element { .. })
+                        && node.attributes.get_null("id").is_some_and(|id| id == value)
+                })
         })
-        .map(|(id, _)| id)
 }
 
 fn tree_scope(dom: &DomArena, id: NodeId) -> Option<NodeId> {
@@ -2474,22 +3605,54 @@ fn referenced_text(
     page_id: PageId,
     document_generation: u64,
 ) -> (String, Vec<SemanticRef>) {
+    let targets = idrefs
+        .split_whitespace()
+        .filter_map(|idref| find_element_by_id_scoped(dom, source, idref))
+        .collect::<Vec<_>>();
+    referenced_nodes_text(dom, &targets, page_id, document_generation)
+}
+fn referenced_nodes_text(
+    dom: &DomArena,
+    targets: &[NodeId],
+    page_id: PageId,
+    document_generation: u64,
+) -> (String, Vec<SemanticRef>) {
     let mut values = Vec::new();
     let mut references = Vec::new();
-    for idref in idrefs.split_whitespace() {
-        let Some(id) = find_element_by_id_scoped(dom, source, idref) else {
-            continue;
-        };
-        let text = dom
+    for &id in targets {
+        let mut text = dom
             .get(id)
             .ok()
-            .and_then(|node| node.attributes.get_null("aria-label"))
+            .and_then(|node| node.accessibility_attribute("aria-label"))
             .map(|label| normalize_text(label))
+            .filter(|label| !label.is_empty())
             .or_else(|| host_label(dom, id).map(|(label, _)| label))
-            .unwrap_or_else(|| normalize_text(&accessible_text_content(dom, id, true)));
+            .unwrap_or_else(|| {
+                normalize_text(&accessible_text_content_walk(
+                    dom,
+                    id,
+                    true,
+                    None,
+                    referenced_root_hidden(dom, id),
+                    &mut NameTraversal {
+                        seen: BTreeSet::new(),
+                        reference_depth: 1,
+                    },
+                ))
+            });
+        if text.is_empty() {
+            text = dom
+                .get(id)
+                .ok()
+                .and_then(|node| node.attributes.get_null("title"))
+                .map(|title| normalize_text(title))
+                .unwrap_or_default();
+        }
+        if dom.get(id).is_ok() {
+            references.push(semantic_ref_for(id, page_id, document_generation));
+        }
         if !text.is_empty() {
             values.push(text);
-            references.push(semantic_ref_for(id, page_id, document_generation));
         }
     }
     (values.join(" "), references)
@@ -2529,7 +3692,7 @@ pub fn project_semantic_observation(
         let NodeKind::Element { name } = &node.kind else {
             continue;
         };
-        let role = computed_role(name.local.as_ref(), &node.attributes);
+        let role = computed_role_for_node(dom, id);
         let named = accessible_semantics(
             dom,
             id,
@@ -2555,7 +3718,7 @@ pub fn project_semantic_observation(
             name: named.name,
             description: named.description,
             relationships,
-            properties: accessibility_properties(name.local.as_ref(), node),
+            properties: accessibility_properties(dom, id, name.local.as_ref(), node),
             owned_by: None,
             content_trust: ContentTrust::PageAuthored,
             provenance: named.provenance,
@@ -2563,6 +3726,7 @@ pub fn project_semantic_observation(
         });
     }
 
+    let accepted_owners = accepted_aria_owners(dom);
     let mut owner_by_target = BTreeMap::<SemanticRef, SemanticRef>::new();
     let index_by_ref = accessibility
         .iter()
@@ -2597,7 +3761,7 @@ pub fn project_semantic_observation(
         let mut valid = Vec::new();
         for target in owned {
             let target_id = unpack_node_ref(target.node);
-            let creates_cycle = target == owner
+            let creates_cycle = ownership_cycle(&owner_by_target, owner, target)
                 || dom
                     .ancestors(owner_id)
                     .is_ok_and(|ancestors| ancestors.contains(&target_id));
@@ -2605,6 +3769,13 @@ pub fn project_semantic_observation(
                 diagnostics.push(format!(
                     "ignored aria-owns cycle from semantic node {} to {}",
                     owner.node, target.node
+                ));
+                continue;
+            }
+            if accepted_owners.get(&target_id) != Some(&owner_id) {
+                diagnostics.push(format!(
+                    "ignored unavailable or competing aria-owns target {} from {}",
+                    target.node, owner.node
                 ));
                 continue;
             }
@@ -2659,6 +3830,32 @@ fn tree_exclusion_reason(dom: &DomArena, id: NodeId, role: &str) -> Option<Strin
     }) {
         return Some("inert_subtree".into());
     }
+    if let Some(document) = dom.node_document(id).ok().flatten() {
+        let modal = dom
+            .descendants_inclusive(document)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|candidate| {
+                dom.get(*candidate).is_ok_and(|node| {
+                    node.accessibility_attribute("aria-modal")
+                        .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+                }) && !is_hidden(dom, *candidate)
+                    && matches!(
+                        computed_role_for_node(dom, *candidate).as_str(),
+                        "dialog" | "alertdialog"
+                    )
+            })
+            .last();
+        if let Some(modal) = modal {
+            let owners = accepted_aria_owners(dom);
+            if !accessibility_ancestors(dom, id, &owners).contains(&modal)
+                && id != modal
+                && !accessibility_ancestors(dom, modal, &owners).contains(&id)
+            {
+                return Some("aria_modal_scope".into());
+            }
+        }
+    }
     is_hidden(dom, id).then_some("hidden_subtree".into())
 }
 
@@ -2684,17 +3881,22 @@ fn accessibility_relationships(
         ("aria-errormessage", AccessibilityRelation::ErrorMessage),
         ("aria-flowto", AccessibilityRelation::FlowTo),
     ] {
-        let Some(idrefs) = node.attributes.get_null(attribute) else {
-            continue;
-        };
-        let mut targets = Vec::new();
-        for idref in idrefs.split_whitespace() {
-            if let Some(id) = find_element_by_id_scoped(dom, source, idref) {
-                targets.push(semantic_ref_for(id, page_id, document_generation));
-            } else {
-                diagnostics.push(format!("{attribute} references missing id {idref:?}"));
+        if node.explicit_accessibility_references(attribute).is_none() {
+            if let Some(idrefs) = node.attributes.get_null(attribute) {
+                for idref in idrefs.split_whitespace() {
+                    if find_element_by_id_scoped(dom, source, idref).is_none() {
+                        diagnostics.push(format!("{attribute} references missing id {idref:?}"));
+                    }
+                }
             }
         }
+        let Some(nodes) = dom.accessibility_relation(source, attribute) else {
+            continue;
+        };
+        let targets = nodes
+            .into_iter()
+            .map(|id| semantic_ref_for(id, page_id, document_generation))
+            .collect::<Vec<_>>();
         if !targets.is_empty() {
             relationships.insert(relation, targets);
         }
@@ -2703,10 +3905,13 @@ fn accessibility_relationships(
 }
 
 fn accessibility_properties(
+    dom: &DomArena,
+    id: NodeId,
     local_name: &str,
     node: &crate::dom::Node,
 ) -> BTreeMap<String, serde_json::Value> {
-    let attributes = &node.attributes;
+    let effective_attributes = node.accessibility_attributes();
+    let attributes = &effective_attributes;
     let mut properties = BTreeMap::new();
     for attribute in [
         "aria-expanded",
@@ -2725,6 +3930,8 @@ fn accessibility_properties(
         "aria-level",
         "aria-posinset",
         "aria-setsize",
+        "aria-rowcount",
+        "aria-colcount",
         "aria-rowindex",
         "aria-colindex",
         "aria-rowspan",
@@ -2732,6 +3939,9 @@ fn accessibility_properties(
         "aria-live",
         "aria-atomic",
         "aria-relevant",
+        "aria-roledescription",
+        "aria-valuetext",
+        "aria-haspopup",
     ] {
         if let Some(value) = attributes.get_null(attribute) {
             properties.insert(
@@ -2739,6 +3949,113 @@ fn accessibility_properties(
                 semantic_property_value(value),
             );
         }
+    }
+    for attribute in ["aria-valuetext", "aria-roledescription"] {
+        if let Some(value) = attributes.get_null(attribute) {
+            properties.insert(
+                attribute.trim_start_matches("aria-").into(),
+                serde_json::Value::String(value.clone()),
+            );
+        }
+    }
+    for attribute in ["aria-valuemin", "aria-valuemax", "aria-valuenow"] {
+        if let Some(value) = attributes
+            .get_null(attribute)
+            .and_then(|value| oryn_dom::parse_html_floating_point(value))
+            .and_then(serde_json::Number::from_f64)
+        {
+            properties.insert(
+                attribute.trim_start_matches("aria-").into(),
+                serde_json::Value::Number(value),
+            );
+        }
+    }
+    if let Some(value) = attributes
+        .get_null("placeholder")
+        .or_else(|| attributes.get_null("aria-placeholder"))
+    {
+        properties.insert("placeholder".into(), serde_json::json!(value));
+    }
+    if attributes
+        .get_null("aria-invalid")
+        .is_some_and(|value| !value.is_empty() && !value.eq_ignore_ascii_case("false"))
+    {
+        if let Some(targets) = dom.accessibility_relation(id, "aria-errormessage") {
+            let targets = targets
+                .into_iter()
+                .filter(|target| !is_hidden(dom, *target))
+                .collect::<Vec<_>>();
+            let (message, _) = referenced_nodes_text(dom, &targets, PageId(1), 1);
+            if !message.is_empty() {
+                properties.insert("validation_error".into(), serde_json::json!(message));
+            }
+        }
+    }
+    let role = computed_role_for_node(dom, id);
+    if matches!(
+        role.as_str(),
+        "slider" | "scrollbar" | "separator" | "spinbutton"
+    ) {
+        let spin = role == "spinbutton";
+        let minimum = properties
+            .get("valuemin")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(if spin { -9007199254740992. } else { 0. });
+        let maximum = properties
+            .get("valuemax")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(if spin { 9007199254740992. } else { 100. });
+        let current = properties
+            .get("valuenow")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or_else(|| {
+                if spin {
+                    0.
+                } else if maximum < minimum {
+                    minimum
+                } else {
+                    minimum / 2. + maximum / 2.
+                }
+            });
+        for (key, value) in [
+            ("valuemin", minimum),
+            ("valuemax", maximum),
+            ("valuenow", current),
+        ] {
+            properties.insert(key.into(), serde_json::json!(value));
+        }
+    }
+    if accessibility_readonly(dom, id) {
+        properties.insert("readonly".into(), serde_json::json!(true));
+    }
+    if matches!(
+        role.as_str(),
+        "checkbox" | "menuitemcheckbox" | "radio" | "menuitemradio" | "switch"
+    ) {
+        let value = attributes
+            .get_null("aria-checked")
+            .map(|value| value.to_ascii_lowercase());
+        let checked = match value.as_deref() {
+            Some("true") => serde_json::Value::Bool(true),
+            Some("mixed") if matches!(role.as_str(), "checkbox" | "menuitemcheckbox") => {
+                serde_json::json!("mixed")
+            }
+            _ => serde_json::Value::Bool(false),
+        };
+        properties.insert("checked".into(), checked);
+    }
+    if role == "button" {
+        let pressed = match attributes
+            .get_null("aria-pressed")
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("true") => serde_json::Value::Bool(true),
+            Some("false") => serde_json::Value::Bool(false),
+            Some("mixed") => serde_json::json!("mixed"),
+            _ => serde_json::json!("undefined"),
+        };
+        properties.insert("pressed".into(), pressed);
     }
     if local_name == "input"
         && attributes.get_null("type").is_some_and(|kind| {
@@ -2761,19 +4078,148 @@ fn accessibility_properties(
     for attribute in [
         "disabled", "required", "readonly", "checked", "selected", "open",
     ] {
-        if attributes.contains_null(attribute) {
+        let kind = attributes
+            .get_null("type")
+            .map(|kind| kind.to_ascii_lowercase())
+            .unwrap_or_else(|| "text".into());
+        let applicable = match attribute {
+            "readonly" => {
+                local_name == "textarea"
+                    || (local_name == "input"
+                        && !matches!(
+                            kind.as_str(),
+                            "hidden"
+                                | "range"
+                                | "color"
+                                | "checkbox"
+                                | "radio"
+                                | "file"
+                                | "button"
+                                | "submit"
+                                | "reset"
+                                | "image"
+                        ))
+            }
+            "required" => {
+                matches!(local_name, "textarea" | "select")
+                    || (local_name == "input"
+                        && !matches!(
+                            kind.as_str(),
+                            "hidden" | "range" | "color" | "button" | "submit" | "reset" | "image"
+                        ))
+            }
+            "checked" => local_name == "input" && matches!(kind.as_str(), "checkbox" | "radio"),
+            "selected" => local_name == "option",
+            "open" => matches!(local_name, "details" | "dialog"),
+            "disabled" => matches!(
+                local_name,
+                "input" | "button" | "select" | "textarea" | "fieldset" | "optgroup" | "option"
+            ),
+            _ => false,
+        };
+        if applicable && attributes.contains_null(attribute) {
             properties
                 .entry(attribute.into())
                 .or_insert(serde_json::Value::Bool(true));
         }
     }
-    if matches!(local_name, "h1" | "h2" | "h3" | "h4" | "h5" | "h6")
-        && !properties.contains_key("level")
-    {
+    if local_name == "table" {
+        properties.insert("native_table".into(), serde_json::Value::Bool(true));
+        let span = |node: &crate::dom::Node| {
+            node.attributes
+                .get_null("span")
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|span| *span > 0)
+                .unwrap_or(1)
+                .min(1000)
+        };
+        let mut groups = Vec::new();
+        let mut start = 0u64;
+        for child in &node.children {
+            let Ok(group) = dom.get(*child) else {
+                continue;
+            };
+            if !matches!(&group.kind,NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="colgroup")
+            {
+                continue;
+            }
+            let columns=group.children.iter().filter_map(|child|dom.get(*child).ok()).filter(|column|matches!(&column.kind,NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="col")).collect::<Vec<_>>();
+            let width = if columns.is_empty() {
+                span(group)
+            } else {
+                columns.into_iter().map(span).sum()
+            };
+            groups.push(serde_json::json!([start, width]));
+            start = start.saturating_add(width);
+        }
+        if !groups.is_empty() {
+            properties.insert(
+                "native_column_groups".into(),
+                serde_json::Value::Array(groups),
+            );
+        }
+    }
+    if matches!(local_name, "td" | "th") {
         properties.insert(
-            "level".into(),
-            serde_json::json!(local_name[1..].parse::<u8>().unwrap_or(0)),
+            "native_header".into(),
+            serde_json::Value::Bool(local_name == "th"),
         );
+        let empty = node.children.iter().all(|child| {
+            dom.get(*child).is_ok_and(|child| match &child.kind {
+                NodeKind::Element { .. } => false,
+                NodeKind::Text { data } | NodeKind::CDataSection { data } => data
+                    .chars()
+                    .all(|ch| matches!(ch, '\t' | '\n' | '\u{c}' | '\r' | ' ')),
+                _ => true,
+            })
+        });
+        properties.insert("native_empty_cell".into(), serde_json::Value::Bool(empty));
+        if let Some(headers) = attributes.get_null("headers") {
+            let targets=headers.split_ascii_whitespace().filter_map(|token|find_element_by_id_scoped(dom,id,token))
+                .filter(|target|*target!=id&&dom.get(*target).is_ok_and(|node|matches!(&node.kind,NodeKind::Element{name} if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&matches!(name.local.as_ref(),"td"|"th"))))
+                .map(|target|(u64::from(target.generation)<<32)|u64::from(target.slot)).collect::<Vec<_>>();
+            properties.insert("native_headers".into(), serde_json::json!(targets));
+        }
+        if local_name == "th" {
+            if let Some(scope) = attributes
+                .get_null("scope")
+                .map(|scope| scope.to_ascii_lowercase())
+                .filter(|scope| matches!(scope.as_str(), "row" | "col" | "rowgroup" | "colgroup"))
+            {
+                properties.insert("native_scope".into(), serde_json::json!(scope));
+            }
+        }
+        for (name, maximum, allow_zero) in
+            [("rowspan", 65534u64, true), ("colspan", 1000u64, false)]
+        {
+            let parsed = attributes
+                .get_null(name)
+                .and_then(|value| value.trim().parse::<u64>().ok())
+                .unwrap_or(1);
+            let value = if parsed == 0 && !allow_zero {
+                1
+            } else {
+                parsed.min(maximum)
+            };
+            properties.insert(format!("native_{name}"), serde_json::json!(value));
+            properties.insert(
+                format!("native_{name}_explicit"),
+                serde_json::json!(attributes.contains_null(name)),
+            );
+        }
+    }
+    if role == "heading"
+        && properties
+            .get("level")
+            .and_then(serde_json::Value::as_i64)
+            .is_none_or(|level| level < 1)
+    {
+        let level = if matches!(local_name, "h1" | "h2" | "h3" | "h4" | "h5" | "h6") {
+            local_name[1..].parse::<u8>().unwrap_or(2)
+        } else {
+            2
+        };
+        properties.insert("level".into(), serde_json::json!(level));
     }
     properties
 }
@@ -3004,6 +4450,237 @@ fn implicit_live_politeness(role: &str) -> &'static str {
     }
 }
 
+pub(crate) fn accessibility_readonly(dom: &DomArena, id: NodeId) -> bool {
+    let Ok(node) = dom.get(id) else {
+        return true;
+    };
+    if let Some(value) = node.accessibility_attribute("aria-readonly") {
+        return value.eq_ignore_ascii_case("true");
+    }
+    if matches!(
+        computed_role_for_node(dom, id).as_str(),
+        "gridcell" | "columnheader" | "rowheader"
+    ) {
+        for parent in accessibility_ancestors(dom, id, &accepted_aria_owners(dom)) {
+            if matches!(
+                computed_role_for_node(dom, parent).as_str(),
+                "grid" | "treegrid"
+            ) {
+                return dom.get(parent).is_ok_and(|parent| {
+                    parent
+                        .accessibility_attribute("aria-readonly")
+                        .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+                });
+            }
+        }
+    }
+    false
+}
+pub(crate) fn native_selection_options(dom: &DomArena, root: NodeId) -> Vec<NodeId> {
+    let owners = accepted_aria_owners(dom);
+    let mut pending = owned_accessible_children(dom, root, &owners);
+    pending.reverse();
+    let mut seen = BTreeSet::new();
+    let mut result = Vec::new();
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let role = computed_role_for_node(dom, id);
+        if matches!(
+            role.as_str(),
+            "option" | "radio" | "menuitemradio" | "treeitem"
+        ) {
+            result.push(id);
+            continue;
+        }
+        if matches!(
+            role.as_str(),
+            "listbox" | "combobox" | "radiogroup" | "tree"
+        ) {
+            continue;
+        }
+        let children = owned_accessible_children(dom, id, &owners);
+        pending.extend(children.into_iter().rev());
+    }
+    result
+}
+
+pub(crate) fn native_checked_state(
+    dom: &crate::dom::DomRuntime,
+    id: NodeId,
+) -> Result<Option<bool>, String> {
+    let node = dom.arena().get(id).map_err(|error| error.to_string())?;
+    let role = computed_role_for_node(dom.arena(), id);
+    if !matches!(
+        role.as_str(),
+        "checkbox" | "radio" | "switch" | "menuitemcheckbox" | "menuitemradio"
+    ) {
+        return Err("check action requires a checkable native accessibility role".into());
+    }
+    if dom
+        .control_disabled(id)
+        .map_err(|error| error.to_string())?
+        || node
+            .accessibility_attribute("aria-disabled")
+            .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+        || accessibility_readonly(dom.arena(), id)
+    {
+        return Err("checkable accessibility target is disabled or read-only".into());
+    }
+    if dom.is_element(id, "http://www.w3.org/1999/xhtml", "input")
+        && node
+            .attributes
+            .get_null("type")
+            .is_some_and(|kind| matches!(kind.to_ascii_lowercase().as_str(), "checkbox" | "radio"))
+    {
+        return if node.indeterminate && role != "radio" {
+            Ok(None)
+        } else {
+            dom.checked(id).map(Some).map_err(|error| error.to_string())
+        };
+    }
+    Ok(
+        match node
+            .accessibility_attribute("aria-checked")
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("true") => Some(true),
+            Some("mixed") if matches!(role.as_str(), "checkbox" | "menuitemcheckbox") => None,
+            _ => Some(false),
+        },
+    )
+}
+
+thread_local! {static ROLE_NAME_STACK:std::cell::RefCell<BTreeSet<(usize,NodeId)>>=const{std::cell::RefCell::new(BTreeSet::new())};}
+pub(crate) fn computed_role_for_node(dom: &DomArena, id: NodeId) -> String {
+    let role = unpromoted_role_for_node(dom, id);
+    if matches!(role.as_str(), "generic" | "none")
+        && dom.get(id).is_ok_and(|node| {
+            ["autofocus", "draggable", "popover"]
+                .iter()
+                .any(|attribute| node.attributes.contains_null(attribute))
+        })
+    {
+        "group".into()
+    } else {
+        role
+    }
+}
+fn unpromoted_role_for_node(dom: &DomArena, id: NodeId) -> String {
+    let Ok(node) = dom.get(id) else {
+        return "generic".into();
+    };
+    let NodeKind::Element { name } = &node.kind else {
+        return "generic".into();
+    };
+    let local = name.local.as_ref();
+    let attributes = node.accessibility_attributes();
+    let base = computed_role(local, &attributes);
+    let explicit = attributes.get_null("role").and_then(|value| {
+        value
+            .split_ascii_whitespace()
+            .map(str::to_ascii_lowercase)
+            .find(|role| supported_aria_role(role))
+    });
+    let named = || {
+        let key = (dom as *const DomArena as usize, id);
+        if !ROLE_NAME_STACK.with(|stack| stack.borrow_mut().insert(key)) {
+            return false;
+        }
+        struct Guard((usize, NodeId));
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                ROLE_NAME_STACK.with(|stack| {
+                    stack.borrow_mut().remove(&self.0);
+                });
+            }
+        }
+        let _guard = Guard(key);
+        !accessible_semantics(dom, id, local, &base, PageId(1), 1)
+            .name
+            .is_empty()
+    };
+    if explicit
+        .as_deref()
+        .is_some_and(|role| !matches!(role, "none" | "presentation" | "form" | "region"))
+    {
+        return base;
+    }
+    let base = if matches!(explicit.as_deref(), Some("form" | "region")) {
+        if named() {
+            return explicit.unwrap();
+        }
+        if let Some(fallback) = attributes.get_null("role").and_then(|roles| {
+            roles
+                .split_ascii_whitespace()
+                .map(str::to_ascii_lowercase)
+                .find(|role| {
+                    supported_aria_role(role) && !matches!(role.as_str(), "form" | "region")
+                })
+        }) {
+            return explicit_role_value(local, &attributes, fallback);
+        }
+        implicit_role(local, &attributes)
+    } else {
+        base.clone()
+    };
+    if matches!(explicit.as_deref(), Some("none" | "presentation")) && base == "none" {
+        return base;
+    }
+    if name.ns.as_ref() != "http://www.w3.org/1999/xhtml" {
+        return base;
+    }
+    // Native required-owned descendants inherit their container's effective
+    // presentation. Global ARIA properties on the descendant do not cancel
+    // inherited presentation; an explicit role or focusability does.
+    if attributes
+        .get_null("tabindex")
+        .is_none_or(|value| value.trim().parse::<i32>().is_err())
+    {
+        if let Some(parent) = node.parent {
+            let required_parent = dom.get(parent).is_ok_and(|parent| match &parent.kind {
+                NodeKind::Element { name }
+                    if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" =>
+                {
+                    match local {
+                        "thead" | "tbody" | "tfoot" | "caption" => name.local.as_ref() == "table",
+                        "tr" => {
+                            matches!(name.local.as_ref(), "table" | "thead" | "tbody" | "tfoot")
+                        }
+                        "td" | "th" => name.local.as_ref() == "tr",
+                        _ => false,
+                    }
+                }
+                _ => false,
+            });
+            if required_parent && computed_role_for_node(dom, parent) == "none" {
+                return "none".into();
+            }
+        }
+    }
+    let sectioning=dom.ancestors(id).unwrap_or_default().into_iter().any(|ancestor|dom.get(ancestor).is_ok_and(|node|matches!(&node.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&matches!(name.local.as_ref(),"article"|"aside"|"nav"|"section"))));
+    match local {
+        "th" if attributes.get_null("scope").is_none_or(|scope|!matches!(scope.to_ascii_lowercase().as_str(),"row"|"rowgroup"|"col"|"colgroup"))=>{
+            if node.parent.and_then(|parent|dom.get(parent).ok()).is_some_and(|row|row.children.iter().any(|child|dom.get(*child).is_ok_and(|child|matches!(&child.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="td")))){"rowheader".into()}else{"columnheader".into()}
+        },
+        "li"=>{
+            let mut cursor=aria_owner(dom,id).or(node.parent);let mut seen=BTreeSet::new();
+            while let Some(parent)=cursor {if !seen.insert(parent){break;}let role=computed_role_for_node(dom,parent);if role=="list"{return "listitem".into();}if !matches!(role.as_str(),"generic"|"none"){break;}cursor=dom.get(parent).ok().and_then(|parent|parent.parent);}
+            "generic".into()
+        },
+        "aside" if sectioning&&!named()=>"generic".into(),
+        "header"|"footer" if sectioning||dom.ancestors(id).unwrap_or_default().into_iter().any(|ancestor|dom.get(ancestor).is_ok_and(|node|matches!(&node.kind,NodeKind::Element{name}if name.ns.as_ref()=="http://www.w3.org/1999/xhtml"&&name.local.as_ref()=="main")))=>if local=="header"{"sectionheader".into()}else{"sectionfooter".into()},
+        "section"=>if named(){"region".into()}else{"generic".into()},
+        "form"=>if named(){"form".into()}else{"generic".into()},
+        "img" if attributes.get_null("alt").is_some_and(|alt|normalize_text(alt).is_empty())=>if (attributes.contains_null("aria-label")||dom.accessibility_relation(id,"aria-labelledby").is_some_and(|targets|!targets.is_empty()))&&named(){"image".into()}else{"none".into()},
+        "img" if !["src","srcset"].iter().any(|attribute|attributes.get_null(attribute).is_some_and(|value|!value.is_empty()))&&!named()=>"none".into(),
+        "input" if attributes.get_null("type").is_some_and(|kind|kind.eq_ignore_ascii_case("checkbox"))&&attributes.contains_null("switch")=>"switch".into(),
+        _=>base,
+    }
+}
+
 fn computed_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> String {
     if let Some(role) = attributes.get_null("role").and_then(|roles| {
         roles
@@ -3016,31 +4693,49 @@ fn computed_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> Stri
                         || attributes.contains_null("aria-labelledby"))
             })
     }) {
-        let presentation_conflict = matches!(role.as_str(), "none" | "presentation")
-            && (matches!(local_name, "button" | "input" | "select" | "textarea")
-                || (local_name == "a" && attributes.contains_null("href"))
-                || attributes.contains_null("tabindex")
-                || attributes.records().any(|entry| {
-                    entry.namespace.is_none() && is_global_aria_attribute(&entry.local_name)
-                }));
-        if !presentation_conflict {
-            return match role.as_str() {
-                "img" | "image" => "image".into(),
-                "directory" => "list".into(),
-                "presentation" => "none".into(),
-                _ => role,
-            };
-        }
+        return explicit_role_value(local_name, attributes, role);
     }
+    implicit_role(local_name, attributes)
+}
+
+fn explicit_role_value(
+    local_name: &str,
+    attributes: &oryn_dom::AttributeList,
+    role: String,
+) -> String {
+    let presentation_conflict = matches!(role.as_str(), "none" | "presentation")
+        && (matches!(local_name, "button" | "input" | "select" | "textarea")
+            || (local_name == "a" && attributes.contains_null("href"))
+            || attributes.contains_null("tabindex")
+            || attributes.records().any(|entry| {
+                entry.namespace.is_none() && is_global_aria_attribute(&entry.local_name)
+            }));
+    if presentation_conflict {
+        return implicit_role(local_name, attributes);
+    }
+    match role.as_str() {
+        "img" | "image" => "image".into(),
+        "directory" => "list".into(),
+        "presentation" => "none".into(),
+        _ => role,
+    }
+}
+
+fn implicit_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> String {
     match local_name {
-        "a" if attributes.contains_null("href") => "link",
-        "input" => match attributes.get_null("type").map(String::as_str) {
+        "a" | "area" if attributes.contains_null("href") => "link",
+        "input" => match attributes
+            .get_null("type")
+            .map(|kind| kind.to_ascii_lowercase())
+            .as_deref()
+        {
             Some("checkbox") => "checkbox",
             Some("radio") => "radio",
             Some("range") => "slider",
             Some("number") => "spinbutton",
             Some("search") => "searchbox",
-            Some("button" | "submit" | "reset") => "button",
+            Some("button" | "submit" | "reset" | "file" | "image") => "button",
+            Some("color") => "colorwell",
             _ => "textbox",
         },
         "textarea" => "textbox",
@@ -3070,11 +4765,15 @@ fn computed_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> Stri
             "form"
         }
         "form" => "generic",
-        "ul" | "ol" | "menu" => "list",
+        "ul" | "ol" | "menu" | "dir" => "list",
         "li" => "listitem",
         "table" => "table",
         "tr" => "row",
-        "th" => match attributes.get_null("scope").map(String::as_str) {
+        "th" => match attributes
+            .get_null("scope")
+            .map(|scope| scope.to_ascii_lowercase())
+            .as_deref()
+        {
             Some("row") | Some("rowgroup") => "rowheader",
             _ => "columnheader",
         },
@@ -3089,7 +4788,7 @@ fn computed_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> Stri
         "blockquote" => "blockquote",
         "caption" => "caption",
         "code" => "code",
-        "del" => "deletion",
+        "del" | "s" => "deletion",
         "em" => "emphasis",
         "ins" => "insertion",
         "p" => "paragraph",
@@ -3097,6 +4796,13 @@ fn computed_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> Stri
         "sub" => "subscript",
         "sup" => "superscript",
         "time" => "time",
+        "address" | "fieldset" | "hgroup" | "optgroup" => "group",
+        "cite" => "html-cite",
+        "dd" => "definition",
+        "dt" | "dfn" => "term",
+        "hr" => "separator",
+        "thead" | "tbody" | "tfoot" => "rowgroup",
+        "button" | "article" | "figure" | "mark" | "meter" => local_name,
         "div" | "span" => "generic",
         "section"
             if attributes.contains_null("aria-label")
@@ -3104,7 +4810,7 @@ fn computed_role(local_name: &str, attributes: &oryn_dom::AttributeList) -> Stri
         {
             "region"
         }
-        other => other,
+        _ => "generic",
     }
     .into()
 }
@@ -3273,6 +4979,9 @@ fn is_compact_semantic(node: &SemanticNodeView) -> bool {
 pub(crate) fn is_hidden(dom: &DomArena, id: NodeId) -> bool {
     let mut lineage = vec![id];
     lineage.extend(dom.ancestors(id).unwrap_or_default());
+    if let Some((_, visibility_hidden)) = dom.accessibility_computed_visibility(id) {
+        return visibility_hidden || lineage.iter().any(|id| subtree_excluded_at(dom, *id));
+    }
     let rules = dom
         .iter()
         .filter_map(|(style_id, node)| match &node.kind {
@@ -3299,8 +5008,7 @@ pub(crate) fn is_hidden(dom: &DomArena, id: NodeId) -> bool {
         dom.get(*candidate).is_ok_and(|node| {
             if node.attributes.contains_null("hidden")
                 || node
-                    .attributes
-                    .get_null("aria-hidden")
+                    .accessibility_attribute("aria-hidden")
                     .is_some_and(|value| value.eq_ignore_ascii_case("true"))
             {
                 return true;
@@ -3457,7 +5165,568 @@ pub fn empty_observation(
 
 #[cfg(test)]
 mod tests {
+    // Use native publication so previously parsed slot snapshots are refreshed.
+    // Direct arena kind/parent edits bypass that production mutation contract.
+    fn attach_test_shadow(
+        dom: &mut crate::dom::DomRuntime,
+        host: NodeId,
+        container: NodeId,
+    ) -> NodeId {
+        let root = dom.create(NodeKind::ShadowRoot {
+            mode: crate::dom::ShadowMode::Open,
+            clonable: false,
+        });
+        dom.append_child(host, root).unwrap();
+        let children = dom.arena().get(container).unwrap().children.clone();
+        for child in children {
+            dom.append_child(root, child).unwrap();
+        }
+        root
+    }
+    #[test]
+    fn unnamed_landmark_role_tokens_continue_to_supported_fallback() {
+        let mut dom=crate::html::parse("<nav id=n role='ReGiOn group'></nav><div id=b role='form button' aria-labelledby=missing></div>").into_runtime().unwrap();
+        let n = dom.find_by_id("n").unwrap();
+        let b = dom.find_by_id("b").unwrap();
+        assert_eq!(computed_role_for_node(dom.arena(), n), "group");
+        assert_eq!(computed_role_for_node(dom.arena(), b), "button");
+        dom.set_attribute(n, "aria-label", "Named").unwrap();
+        assert_eq!(computed_role_for_node(dom.arena(), n), "region");
+    }
+
+    #[test]
+    fn manual_heading_defaults_and_aria_placeholders_reach_shared_properties() {
+        let dom=crate::html::parse("<div id=heading role=heading></div><h4 id=native>Heading</h4><div id=textbox role=textbox aria-placeholder='DD/MM/YYYY'></div>").into_runtime().unwrap();
+        for (id, tag, level) in [("heading", "div", 2), ("native", "h4", 4)] {
+            let node = dom.find_by_id(id).unwrap();
+            assert_eq!(
+                accessibility_properties(dom.arena(), node, tag, dom.arena().get(node).unwrap())["level"],
+                serde_json::json!(level)
+            );
+        }
+        let node = dom.find_by_id("textbox").unwrap();
+        assert_eq!(
+            accessibility_properties(dom.arena(), node, "div", dom.arena().get(node).unwrap())["placeholder"],
+            serde_json::json!("DD/MM/YYYY")
+        );
+    }
+
+    #[test]
+    fn aria_modal_accessibility_scope_reconciles_siblings_without_hiding_native_actions() {
+        let mut dom=crate::html::parse("<h1 id=outside>Outside</h1><div id=modal role=dialog aria-modal=true><h2 id=inside>Inside</h2></div>").into_runtime().unwrap();
+        let outside = dom.find_by_id("outside").unwrap();
+        let inside = dom.find_by_id("inside").unwrap();
+        let modal = dom.find_by_id("modal").unwrap();
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        assert_eq!(
+            graph.accessibility[&outside].exclusion_reason.as_deref(),
+            Some("aria_modal_scope")
+        );
+        assert!(!graph.accessibility[&inside].excluded);
+        assert!(!graph.full[&outside].states.contains(&NodeState::Hidden));
+        let cursor = dom.mutation_cursor();
+        dom.set_attribute(modal, "aria-modal", "false").unwrap();
+        let changes = dom.mutations_since(cursor);
+        graph.apply_mutations(dom.arena(), &changes.mutations);
+        assert!(!graph.accessibility[&outside].excluded);
+    }
+
+    #[test]
+    fn own_label_omits_control_value_but_preserves_pseudo_boundaries_and_label_tooltip() {
+        for (kind, title, expected) in [
+            ("text", "title=bar", "foo bar baz"),
+            ("password", "title=bar", "foo bar baz"),
+            ("checkbox", "", "foo baz"),
+            ("radio", "", "foo baz"),
+            ("image", "", "foo baz"),
+        ] {
+            let dom=crate::html::parse(&format!("<label id=label for=target {title}><input id=target type={kind} title=ignored></label>")).into_runtime().unwrap();
+            let label = dom.find_by_id("label").unwrap();
+            let target = dom.find_by_id("target").unwrap();
+            let owner = (u64::from(label.generation) << 32) | u64::from(label.slot);
+            let mut graph = SemanticGraph::new(PageId(1), 1);
+            graph.reset(dom.arena(), 1);
+            graph.apply_generated_content(
+                dom.arena(),
+                &[
+                    oryn_common::v4::GeneratedContent {
+                        separates_text: false,
+                        owner,
+                        pseudo: "before".into(),
+                        text: "foo".into(),
+                        alternative: None,
+                    },
+                    oryn_common::v4::GeneratedContent {
+                        separates_text: false,
+                        owner,
+                        pseudo: "after".into(),
+                        text: "baz".into(),
+                        alternative: None,
+                    },
+                ],
+            );
+            assert_eq!(graph.full[&target].name, expected, "{kind}");
+        }
+    }
+
+    #[test]
+    fn manual_label_embedded_value_boundaries_and_referenced_tooltip_fallback() {
+        let dom=crate::html::parse("<input id=target type=checkbox><label for=target>foo<input value=bar>baz</label><img id=image alt='' title=t aria-labelledby='image other'><span id=other>peanuts</span><img id=plain alt='' title=t>").into_runtime().unwrap();
+        for (id, expected) in [
+            ("target", "foo bar baz"),
+            ("image", "t peanuts"),
+            ("plain", ""),
+        ] {
+            assert_eq!(
+                accessibility_for_node(dom.arena(), dom.find_by_id(id).unwrap())
+                    .unwrap()
+                    .1,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn manual_embedded_menu_and_owned_combobox_values_share_all_host_control_labels() {
+        for kind in ["checkbox", "file", "password", "radio", "text"] {
+            let source = format!(
+                "<input id=target type={kind}><label for=target>Flash <span role=menu><span role=menuitem aria-selected=true>Wrong</span></span>the screen <span role=combobox aria-owns=popup><span role=textbox></span></span> times.</label><ul id=popup role=listbox><li role=option>1</li><li role=option aria-selected=true>2</li></ul>"
+            );
+            let dom = crate::html::parse(&source).into_runtime().unwrap();
+            assert_eq!(
+                accessibility_for_node(dom.arena(), dom.find_by_id("target").unwrap())
+                    .unwrap()
+                    .1,
+                "Flash the screen 2 times.",
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn line_breaks_separate_accessible_text_without_inventing_inline_spacing() {
+        let dom = crate::html::parse(
+            "<button id=breaks>one<br>two</button><button id=inline>one<span>two</span></button>",
+        )
+        .into_runtime()
+        .unwrap();
+        for (id, expected) in [("breaks", "one two"), ("inline", "onetwo")] {
+            assert_eq!(
+                accessibility_for_node(dom.arena(), dom.find_by_id(id).unwrap())
+                    .unwrap()
+                    .1,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn descendant_labelledby_shares_visited_nodes_only_within_one_name_traversal() {
+        let dom=crate::html::parse("<h3 id=heading><a href='#' aria-labelledby=image>ignored</a> <a id=second href='#'>link2 <img id=image alt=image> link3</a></h3><h3 id=nested>heading <a href='#' aria-labelledby=inside>ignored<img id=inside alt=image>ignored</a> heading</h3><h3 id=selfhost><span id=self aria-label=Self aria-labelledby='self suffix'>ignored</span></h3><span id=suffix>suffix</span>").into_runtime().unwrap();
+        for (id, expected) in [
+            ("heading", "image link2 link3"),
+            ("second", "link2 image link3"),
+            ("nested", "heading image heading"),
+            ("selfhost", "Self suffix"),
+        ] {
+            assert_eq!(
+                accessibility_for_node(dom.arena(), dom.find_by_id(id).unwrap())
+                    .unwrap()
+                    .1,
+                expected,
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_text_style_projection_updates_spacing_and_preserves_inline_case_context() {
+        let dom=crate::html::parse("<button id=b><span id=one>one</span><span id=two>two</span></button><h2 id=cap style='text-transform:capitalize'>hel<span>lo</span> world</h2><h2 id=kana style='text-transform:full-size-kana'>びょういん</h2>").into_runtime().unwrap();
+        let b = dom.find_by_id("b").unwrap();
+        let one = dom.find_by_id("one").unwrap();
+        let two = dom.find_by_id("two").unwrap();
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        assert_eq!(graph.full[&b].name, "onetwo");
+        let pack = |id: NodeId| (u64::from(id.generation) << 32) | u64::from(id.slot);
+        for (display, expected) in [
+            ("block", "one two"),
+            ("inline-block", "one two"),
+            ("inline", "onetwo"),
+        ] {
+            let styles = oryn_layout::ComputedStyles::from([one, two].map(|id| {
+                (
+                    pack(id),
+                    std::sync::Arc::new(BTreeMap::from([
+                        ("display".into(), display.into()),
+                        ("text-transform".into(), "none".into()),
+                    ])),
+                )
+            }));
+            graph.apply_computed_visibility(dom.arena(), &styles);
+            assert_eq!(graph.full[&b].name, expected);
+        }
+        assert_eq!(
+            accessibility_for_node(dom.arena(), dom.find_by_id("cap").unwrap())
+                .unwrap()
+                .1,
+            "Hello World"
+        );
+        assert_eq!(
+            accessibility_for_node(dom.arena(), dom.find_by_id("kana").unwrap())
+                .unwrap()
+                .1,
+            "びょういん"
+        );
+    }
+
+    #[test]
+    fn aria_range_defaults_share_platform_and_webdriver_numeric_projection() {
+        for (role, minimum, maximum, current) in [
+            ("slider", 0., 100., 50.),
+            ("scrollbar", 0., 100., 50.),
+            ("separator", 0., 100., 50.),
+            ("spinbutton", -9007199254740992., 9007199254740992., 0.),
+        ] {
+            let mut dom = crate::html::parse(&format!("<div id=r role={role} tabindex=0></div>"))
+                .into_runtime()
+                .unwrap();
+            let id = dom.find_by_id("r").unwrap();
+            let properties =
+                accessibility_properties(dom.arena(), id, "div", dom.arena().get(id).unwrap());
+            assert_eq!(properties["valuemin"].as_f64(), Some(minimum));
+            assert_eq!(properties["valuemax"].as_f64(), Some(maximum));
+            assert_eq!(properties["valuenow"].as_f64(), Some(current));
+            dom.set_attribute(id, "aria-valuemin", "0").unwrap();
+            dom.set_attribute(id, "aria-valuemax", "40").unwrap();
+            let properties =
+                accessibility_properties(dom.arena(), id, "div", dom.arena().get(id).unwrap());
+            assert_eq!(
+                properties["valuenow"].as_f64(),
+                Some(if role == "spinbutton" { 0. } else { 20. })
+            );
+        }
+    }
+
+    #[test]
+    fn generated_marker_alternatives_name_references_in_native_order_and_invalidate() {
+        let dom = crate::html::parse(
+            "<ul><li id=item>Body</li></ul><button id=reference aria-labelledby=item></button>",
+        )
+        .into_runtime()
+        .unwrap();
+        let item = dom.find_by_id("item").unwrap();
+        let reference = dom.find_by_id("reference").unwrap();
+        let owner = (u64::from(item.generation) << 32) | u64::from(item.slot);
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        for (alternative, expected) in [
+            (None, "• Prefix Body After"),
+            (Some("Bullet"), "Bullet Prefix Body After"),
+            (Some(""), "Prefix Body After"),
+        ] {
+            let content = vec![
+                oryn_common::v4::GeneratedContent {
+                    separates_text: false,
+                    owner,
+                    pseudo: "before".into(),
+                    text: "Prefix ".into(),
+                    alternative: None,
+                },
+                oryn_common::v4::GeneratedContent {
+                    separates_text: false,
+                    owner,
+                    pseudo: "after".into(),
+                    text: " After".into(),
+                    alternative: None,
+                },
+                oryn_common::v4::GeneratedContent {
+                    separates_text: false,
+                    owner,
+                    pseudo: "marker".into(),
+                    text: "• ".into(),
+                    alternative: alternative.map(str::to_owned),
+                },
+            ];
+            graph.apply_generated_content(dom.arena(), &content);
+            assert_eq!(graph.full[&reference].name, expected);
+        }
+        graph.apply_generated_content(dom.arena(), &[]);
+        assert_eq!(graph.full[&reference].name, "Body");
+    }
+
+    #[test]
+    fn html_aam_container_naming_precedence_matrix() {
+        // The 16 element families and eight precedence combinations are the
+        // declared matrix in pinned html-aam/names.html, including details
+        // whose summary is not an implicit name for the group itself.
+        for tag in [
+            "address",
+            "aside",
+            "blockquote",
+            "details",
+            "figure",
+            "footer",
+            "form",
+            "hgroup",
+            "hr",
+            "ol",
+            "main",
+            "menu",
+            "nav",
+            "search",
+            "section",
+            "ul",
+        ] {
+            for (attributes, expected) in [
+                ("", ""),
+                ("aria-label='label'", "label"),
+                ("aria-labelledby='reference'", "labelledby"),
+                ("title='title'", "title"),
+                (
+                    "aria-labelledby='reference' aria-label='label' title='title'",
+                    "labelledby",
+                ),
+                (
+                    "aria-labelledby='reference' aria-label='label'",
+                    "labelledby",
+                ),
+                ("aria-labelledby='reference' title='title'", "labelledby"),
+                ("aria-label='label' title='title'", "label"),
+            ] {
+                let content = if tag == "details" {
+                    "<summary>x</summary>"
+                } else {
+                    "x"
+                };
+                let source = format!(
+                    "<div id=reference>labelledby</div><{tag} id=target {attributes}>{content}</{tag}>"
+                );
+                let dom = crate::html::parse(&source).into_runtime().unwrap();
+                let target = dom.find_by_id("target").unwrap();
+                assert_eq!(
+                    accessibility_for_node(dom.arena(), target).unwrap().1,
+                    expected,
+                    "{tag} {attributes}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_table_presentation_propagates_required_children_and_reverses_after_mutation() {
+        let mut dom=crate::html::parse("<table id=t role=none><tbody id=body><tr id=row><td id=cell aria-describedby=description>Cell</td><td id=explicit role=button>Action</td><td id=focus tabindex=0>Focusable</td></tr></tbody></table><span id=description>Help</span>").into_runtime().unwrap();
+        let table = dom.find_by_id("t").unwrap();
+        for id in ["body", "row", "cell"] {
+            assert_eq!(
+                computed_role_for_node(dom.arena(), dom.find_by_id(id).unwrap()),
+                "none"
+            );
+        }
+        assert_eq!(
+            computed_role_for_node(dom.arena(), dom.find_by_id("explicit").unwrap()),
+            "button"
+        );
+        assert_eq!(
+            computed_role_for_node(dom.arena(), dom.find_by_id("focus").unwrap()),
+            "cell"
+        );
+        dom.set_attribute(table, "role", "table").unwrap();
+        for (id, role) in [("body", "rowgroup"), ("row", "row"), ("cell", "cell")] {
+            assert_eq!(
+                computed_role_for_node(dom.arena(), dom.find_by_id(id).unwrap()),
+                role
+            );
+        }
+    }
+
+    #[test]
+    fn heading_names_share_depth_first_exposed_tree_for_articles_and_dialogs() {
+        let dom=crate::html::parse("<article id=a><div><h3>First nested</h3></div><h2>Second</h2></article><div id=d role=dialog><div hidden><h2>Hidden</h2></div><div><span role=heading>Dialog heading</span></div><h2>Later</h2></div><div id=g role=group><h2>No group name</h2></div>").into_runtime().unwrap();
+        for (id, expected) in [("a", "First nested"), ("d", "Dialog heading"), ("g", "")] {
+            let node = dom.find_by_id(id).unwrap();
+            assert_eq!(
+                accessibility_for_node(dom.arena(), node).unwrap().1,
+                expected
+            );
+        }
+    }
+
     use super::*;
+
+    #[test]
+    fn missing_geometry_drops_only_previous_geometry_exclusion() {
+        let dom=crate::html::parse("<button id=boxless>Boxless</button><button id=aria aria-hidden=true>ARIA</button><button id=css>CSS</button>").into_runtime().unwrap();
+        let boxless = dom.find_by_id("boxless").unwrap();
+        let aria = dom.find_by_id("aria").unwrap();
+        let css = dom.find_by_id("css").unwrap();
+        let pack = |id: NodeId| (u64::from(id.generation) << 32) | u64::from(id.slot);
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        graph.apply_geometry_visibility(
+            &[boxless, aria, css]
+                .into_iter()
+                .map(|id| {
+                    (
+                        pack(id),
+                        oryn_common::v4::NodeGeometry {
+                            availability: oryn_common::v4::GeometryAvailability::Hidden,
+                            box_model: None,
+                            client_rects: Vec::new(),
+                            in_viewport: false,
+                            interactable: false,
+                            diagnostic: None,
+                        },
+                    )
+                })
+                .collect(),
+        );
+        assert!(graph.full[&boxless].states.contains(&NodeState::Hidden));
+        let styles = oryn_layout::ComputedStyles::from([(
+            pack(css),
+            std::sync::Arc::new(BTreeMap::from([
+                ("display".into(), "none".into()),
+                ("visibility".into(), "visible".into()),
+            ])),
+        )]);
+        graph.apply_computed_visibility(dom.arena(), &styles);
+        graph.apply_geometry_visibility(&BTreeMap::new());
+        assert!(!graph.full[&boxless].states.contains(&NodeState::Hidden));
+        assert!(graph.full[&aria].states.contains(&NodeState::Hidden));
+        assert!(graph.full[&css].states.contains(&NodeState::Hidden));
+        assert!(graph.geometry_hidden.is_empty());
+        assert!(!graph.accessibility[&boxless].excluded);
+        assert!(graph.accessibility[&aria].excluded);
+        assert!(graph.accessibility[&css].excluded);
+    }
+
+    #[test]
+    fn computed_visibility_drives_names_and_exclusion_without_author_attribute_changes() {
+        let dom=crate::html::parse("<button id=b><span id=s>Secret </span>Public</button><button id=r aria-labelledby=s></button><div id=p><button id=c>Child</button></div><button id=h hidden>Overridden</button>").into_runtime().unwrap();
+        let id = |name: &str| {
+            dom.arena()
+                .iter()
+                .find(|(_, node)| node.attributes.get_null("id").is_some_and(|id| id == name))
+                .unwrap()
+                .0
+        };
+        let (b, s, r, p, c, h) = (id("b"), id("s"), id("r"), id("p"), id("c"), id("h"));
+        let pack = |id: NodeId| (u64::from(id.generation) << 32) | u64::from(id.slot);
+        let style = |display: &str, visibility: &str| {
+            std::sync::Arc::new(BTreeMap::from([
+                ("display".into(), display.into()),
+                ("visibility".into(), visibility.into()),
+            ]))
+        };
+        let mut styles = oryn_layout::ComputedStyles::from([
+            (pack(b), style("block", "visible")),
+            (pack(s), style("none", "visible")),
+            (pack(r), style("block", "visible")),
+            (pack(p), style("block", "hidden")),
+            (pack(c), style("block", "visible")),
+            (pack(h), style("block", "visible")),
+        ]);
+        let cursor = dom.mutation_cursor();
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        graph.apply_computed_visibility(dom.arena(), &styles);
+        assert_eq!(graph.full[&b].name, "Public");
+        assert_eq!(graph.full[&r].name, "Secret");
+        assert!(graph.full[&s].states.contains(&NodeState::Hidden));
+        assert!(!graph.full[&c].states.contains(&NodeState::Hidden));
+        assert!(!graph.full[&h].states.contains(&NodeState::Hidden));
+        styles.insert(pack(s), style("inline", "visible"));
+        styles.insert(pack(p), style("none", "visible"));
+        graph.apply_computed_visibility(dom.arena(), &styles);
+        assert_eq!(graph.full[&b].name, "Secret Public");
+        assert!(graph.full[&c].states.contains(&NodeState::Hidden));
+        let mut full = SemanticGraph::new(PageId(1), 1);
+        full.computed_visibility = graph.computed_visibility.clone();
+        full.reset(dom.arena(), 1);
+        assert_eq!(
+            graph.nodes(ProjectionProfile::Full),
+            full.nodes(ProjectionProfile::Full)
+        );
+        assert!(dom.mutations_since(cursor).mutations.is_empty());
+        assert!(
+            dom.arena()
+                .get(h)
+                .unwrap()
+                .attributes
+                .contains_null("hidden")
+        );
+        graph.reset(dom.arena(), 2);
+        assert!(graph.computed_visibility.is_empty());
+    }
+
+    #[test]
+    fn generated_names_follow_native_owner_labels_and_removal_without_dom_mutation() {
+        let parsed = crate::html::parse(
+            "<label id=label for=field><span id=source>Amount</span></label><input id=field><button id=ref aria-labelledby=label></button><button id=explicit aria-label=Authored>Text</button>",
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let id = |name: &str| {
+            dom.arena()
+                .iter()
+                .find(|(_, node)| node.attributes.get_null("id").is_some_and(|id| id == name))
+                .unwrap()
+                .0
+        };
+        let source = id("source");
+        let field = id("field");
+        let reference = id("ref");
+        let explicit = id("explicit");
+        let pack = |id: NodeId| (u64::from(id.generation) << 32) | u64::from(id.slot);
+        let before = oryn_common::v4::GeneratedContent {
+            separates_text: false,
+            owner: pack(source),
+            pseudo: "before".into(),
+            text: "$ ".into(),
+            alternative: None,
+        };
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        let cursor = dom.mutation_cursor();
+        graph.apply_generated_content(
+            dom.arena(),
+            &[
+                before.clone(),
+                oryn_common::v4::GeneratedContent {
+                    separates_text: false,
+                    owner: pack(explicit),
+                    pseudo: "before".into(),
+                    text: "Ignored".into(),
+                    alternative: None,
+                },
+            ],
+        );
+        assert_eq!(graph.full[&field].name, "$ Amount");
+        assert_eq!(graph.full[&reference].name, "$ Amount");
+        assert_eq!(graph.full[&explicit].name, "Authored");
+        assert!(dom.mutations_since(cursor).mutations.is_empty());
+        assert!(
+            dom.arena()
+                .accessibility_generated_content(source)
+                .is_none()
+        );
+        dom.set_text_content(source, "Price").unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert_eq!(graph.full[&field].name, "$ Price");
+        graph.apply_generated_content(dom.arena(), &[]);
+        assert_eq!(graph.full[&field].name, "Price");
+        assert_eq!(graph.full[&reference].name, "Price");
+        graph.apply_generated_content(
+            dom.arena(),
+            &[oryn_common::v4::GeneratedContent {
+                alternative: Some("Money ".into()),
+                ..before
+            }],
+        );
+        assert_eq!(graph.full[&field].name, "Money Price");
+        graph.reset(dom.arena(), 2);
+        assert_eq!(graph.full[&field].name, "Price");
+    }
 
     #[test]
     fn targeting_hints_preserve_names_ambiguity_privacy_and_mutation_identity() {
@@ -3567,6 +5836,63 @@ mod tests {
         );
         assert!(project_element(dom.arena(), button, PageId(1), 1, 1).is_none());
         dom.release_native(button).unwrap();
+    }
+
+    #[test]
+    fn incremental_accessible_reference_and_tooltip_precedence_matches_full_projection() {
+        let parsed = crate::html::parse(
+            "<span id=reference></span><input id=field aria-label=Same title=Same aria-description=Details>",
+        );
+        let mut dom = parsed.into_runtime().expect("live DOM");
+        let field = dom
+            .query_selector(dom.document(), "#field")
+            .unwrap()
+            .unwrap();
+        let reference = dom
+            .query_selector(dom.document(), "#reference")
+            .unwrap()
+            .unwrap();
+        let page = PageId(19);
+        let mut graph = SemanticGraph::new(page, 1);
+        graph.reset(dom.arena(), 1);
+        for step in 0..7 {
+            let cursor = dom.mutation_cursor();
+            match step {
+                0 => dom
+                    .set_attribute(field, "aria-labelledby", "reference")
+                    .unwrap(),
+                1 => dom
+                    .set_attribute(field, "aria-describedby", "reference")
+                    .unwrap(),
+                2 => dom.set_text_content(reference, "Referenced").unwrap(),
+                3 => dom
+                    .set_attribute(reference, "id", "retired-reference")
+                    .unwrap(),
+                4 => dom.remove_attribute(field, "aria-description").unwrap(),
+                5 => dom.remove_attribute(field, "aria-label").unwrap(),
+                _ => dom.set_attribute(field, "aria-label", "Same").unwrap(),
+            };
+            let batch = dom.mutations_since(cursor);
+            assert!(!batch.truncated);
+            graph.apply_mutations(dom.arena(), &batch.mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), page, 1)
+            );
+            let accessible = accessible_semantics(dom.arena(), field, "input", "textbox", page, 1);
+            let expected = match step {
+                0 => ("", Some("Details")),
+                1 => ("", None),
+                2 => ("Referenced", Some("Referenced")),
+                3 => ("Same", Some("Details")),
+                4 | 6 => ("Same", Some("Same")),
+                _ => ("Same", None),
+            };
+            assert_eq!(
+                (accessible.name.as_str(), accessible.description.as_deref()),
+                expected
+            );
+        }
     }
 
     #[test]
@@ -3969,7 +6295,7 @@ mod tests {
 
     #[test]
     fn accessible_names_follow_shadow_slot_assignment_and_fallback() {
-        let mut document = crate::html::parse(
+        let document = crate::html::parse(
             r#"<button id=host><span id=assigned slot=x>assigned</span><i>default</i></button>
             <div id=shadow>before <slot name=x aria-label=ignored>fallback</slot> / <slot></slot> / <slot name=x>second fallback</slot> after</div>"#,
         );
@@ -3984,17 +6310,12 @@ mod tests {
         let host = by_id("host");
         let shadow = by_id("shadow");
         let assigned = by_id("assigned");
-        document.dom.get_mut(shadow).unwrap().kind = NodeKind::ShadowRoot {
-            mode: crate::dom::ShadowMode::Open,
-            clonable: false,
-        };
-        document.dom.append_child(host, shadow).unwrap();
+        let mut runtime = document.into_runtime().unwrap();
+        attach_test_shadow(&mut runtime, host, shadow);
         assert_eq!(
-            accessibility_for_node(&document.dom, host).unwrap().1,
+            accessibility_for_node(runtime.arena(), host).unwrap().1,
             "before assigned / default / second fallback after"
         );
-        let mut runtime =
-            crate::dom::DomRuntime::from_parsed(document.dom, document.document).unwrap();
         runtime
             .set_attribute(assigned, "slot", "unassigned")
             .unwrap();
@@ -4005,12 +6326,595 @@ mod tests {
     }
 
     #[test]
-    fn accessible_names_exclude_source_text_inside_shadow_roots() {
-        let mut document = crate::html::parse(
-            r#"<button id=host>light</button><div id=shadow><style aria-label=css-leak>.secret { color:red }</style><script>source_leak()</script><template>template leak</template><span>Save</span><slot></slot></div>"#,
+    fn grid_readonly_inheritance_reconciles_writable_actions_after_parent_changes() {
+        let mut dom=crate::html::parse("<div id=grid role=grid aria-readonly=true><div role=row><span id=cell role=gridcell>Value</span><span id=override role=rowheader aria-readonly=false>Heading</span></div></div>").into_runtime().unwrap();
+        let grid = dom.find_by_id("grid").unwrap();
+        let cell = dom.find_by_id("cell").unwrap();
+        let explicit = dom.find_by_id("override").unwrap();
+        let mut graph = SemanticGraph::new(PageId(21), 1);
+        graph.reset(dom.arena(), 1);
+        assert!(graph.full[&cell].states.contains(&NodeState::Readonly));
+        assert!(!graph.full[&cell].actions.contains(&SemanticAction::Type));
+        assert!(
+            graph.full[&explicit]
+                .actions
+                .contains(&SemanticAction::Type)
+        );
+        let cursor = dom.mutation_cursor();
+        dom.set_attribute(grid, "aria-readonly", "false").unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert!(!graph.full[&cell].states.contains(&NodeState::Readonly));
+        assert!(graph.full[&cell].actions.contains(&SemanticAction::Type));
+        assert_eq!(
+            graph.nodes(ProjectionProfile::Compact),
+            project_document(dom.arena(), PageId(21), 1)
+        );
+    }
+
+    #[test]
+    fn reflected_action_targets_override_idrefs_in_host_name_and_incremental_dependencies() {
+        let mut dom=crate::html::parse("<button id=host aria-actions=a>Save <span id=a>First</span><span id=b>Second</span></button>").into_runtime().unwrap();
+        let host = dom.find_by_id("host").unwrap();
+        let a = dom.find_by_id("a").unwrap();
+        let b = dom.find_by_id("b").unwrap();
+        let mut graph = SemanticGraph::new(PageId(20), 1);
+        graph.reset(dom.arena(), 1);
+        assert_eq!(
+            accessibility_for_node(dom.arena(), host).unwrap().1,
+            "Save Second"
+        );
+        let cursor = dom.mutation_cursor();
+        dom.set_accessibility_references(host, "aria-actions", false, Some(vec![b]))
+            .unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert_eq!(
+            accessibility_for_node(dom.arena(), host).unwrap().1,
+            "Save First"
+        );
+        assert_eq!(
+            graph.nodes(ProjectionProfile::Compact),
+            project_document(dom.arena(), PageId(20), 1)
+        );
+        dom.set_accessibility_references(host, "aria-actions", false, Some(vec![a, b]))
+            .unwrap();
+        assert_eq!(accessibility_for_node(dom.arena(), host).unwrap().1, "Save");
+    }
+
+    #[test]
+    fn native_aria_platform_properties_and_error_dependencies_follow_mutation() {
+        let mut dom=crate::html::parse("<div id=control role=slider aria-valuemin=-1.5 aria-valuemax=4.5 aria-valuenow=2.5 aria-valuetext=Medium aria-roledescription=Level aria-invalid=true aria-errormessage=error></div><span id=error>Fix value</span>").into_runtime().unwrap();
+        let control = dom.find_by_id("control").unwrap();
+        let error = dom.find_by_id("error").unwrap();
+        let mut graph = SemanticGraph::new(PageId(19), 1);
+        graph.reset(dom.arena(), 1);
+        assert_eq!(
+            graph.accessibility[&control].properties["valuemin"],
+            serde_json::json!(-1.5)
+        );
+        assert_eq!(
+            graph.accessibility[&control].properties["validation_error"],
+            serde_json::json!("Fix value")
+        );
+        let cursor = dom.mutation_cursor();
+        dom.set_text_content(error, "Updated error").unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert_eq!(
+            graph.accessibility[&control].properties["validation_error"],
+            serde_json::json!("Updated error")
+        );
+        let cursor = dom.mutation_cursor();
+        dom.set_attribute(control, "aria-invalid", "false").unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert!(
+            !graph.accessibility[&control]
+                .properties
+                .contains_key("validation_error")
+        );
+    }
+
+    #[test]
+    fn automatic_header_roles_and_minimum_roles_recompute_from_native_context() {
+        let mut dom=crate::html::parse("<table><tr id=row><th id=header>Heading</th></tr></table><div id=minimum role=none draggable></div><nav id=form role=form></nav><img id=empty>").into_runtime().unwrap();
+        let header = dom.find_by_id("header").unwrap();
+        let row = dom.find_by_id("row").unwrap();
+        assert_eq!(computed_role_for_node(dom.arena(), header), "columnheader");
+        assert_eq!(
+            computed_role_for_node(dom.arena(), dom.find_by_id("minimum").unwrap()),
+            "group"
+        );
+        assert_eq!(
+            computed_role_for_node(dom.arena(), dom.find_by_id("form").unwrap()),
+            "navigation"
+        );
+        assert_eq!(
+            computed_role_for_node(dom.arena(), dom.find_by_id("empty").unwrap()),
+            "none"
+        );
+        let mut graph = SemanticGraph::new(PageId(18), 1);
+        graph.reset(dom.arena(), 1);
+        let cursor = dom.mutation_cursor();
+        let cell = dom.create_element("td");
+        dom.append_child(row, cell).unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert_eq!(computed_role_for_node(dom.arena(), header), "rowheader");
+        assert_eq!(
+            graph.nodes(ProjectionProfile::Compact),
+            project_document(dom.arena(), PageId(18), 1)
+        );
+    }
+
+    #[test]
+    fn html_role_mapping_covers_generic_and_grouping_elements_without_tag_name_fallback() {
+        for (tag, role) in [
+            ("address", "group"),
+            ("fieldset", "group"),
+            ("hgroup", "group"),
+            ("optgroup", "group"),
+            ("dd", "definition"),
+            ("dt", "term"),
+            ("dfn", "term"),
+            ("hr", "separator"),
+            ("s", "deletion"),
+            ("tbody", "rowgroup"),
+            ("b", "generic"),
+            ("bdi", "generic"),
+            ("q", "generic"),
+            ("pre", "generic"),
+            ("unknown-element", "generic"),
+        ] {
+            assert_eq!(
+                computed_role(tag, &oryn_dom::AttributeList::default()),
+                role
+            );
+        }
+        let dom=crate::html::parse("<ul role=none><li id=orphan>Not a list item</li></ul><div role=list aria-owns=owned></div><li id=owned>Owned</li><ul><div><li id=nested>Nested</li></div></ul>").into_runtime().unwrap();
+        for (id, role) in [
+            ("orphan", "generic"),
+            ("owned", "listitem"),
+            ("nested", "listitem"),
+        ] {
+            assert_eq!(
+                computed_role_for_node(dom.arena(), dom.find_by_id(id).unwrap()),
+                role
+            );
+        }
+    }
+
+    #[test]
+    fn contextual_roles_use_actual_names_and_ancestry_after_reparenting() {
+        let parsed = crate::html::parse(
+            "<article id=article><div id=container><aside id=aside></aside><header id=header></header></div></article><section id=section aria-labelledby=missing></section><span id=label>Region</span><img id=image alt aria-label=Image><input id=input type=checkbox switch>",
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let find = |dom: &crate::dom::DomRuntime, id: &str| dom.find_by_id(id).unwrap();
+        let aside = find(&dom, "aside");
+        let header = find(&dom, "header");
+        let section = find(&dom, "section");
+        let container = find(&dom, "container");
+        let image = find(&dom, "image");
+        let input = find(&dom, "input");
+        assert_eq!(computed_role_for_node(dom.arena(), aside), "generic");
+        assert_eq!(computed_role_for_node(dom.arena(), header), "sectionheader");
+        assert_eq!(computed_role_for_node(dom.arena(), section), "generic");
+        assert_eq!(computed_role_for_node(dom.arena(), image), "image");
+        assert_eq!(computed_role_for_node(dom.arena(), input), "switch");
+        let mut graph = SemanticGraph::new(PageId(17), 1);
+        graph.reset(dom.arena(), 1);
+        for step in 0..4 {
+            let cursor = dom.mutation_cursor();
+            match step {
+                0 => dom
+                    .set_attribute(section, "aria-labelledby", "label")
+                    .unwrap(),
+                1 => dom.set_attribute(aside, "title", "Named aside").unwrap(),
+                2 => {
+                    let document = dom.document();
+                    dom.append_child(document, container).unwrap();
+                }
+                _ => dom.remove_attribute(input, "switch").unwrap(),
+            }
+            graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), PageId(17), 1)
+            );
+        }
+        assert_eq!(computed_role_for_node(dom.arena(), section), "region");
+        assert_eq!(computed_role_for_node(dom.arena(), aside), "complementary");
+        assert_eq!(computed_role_for_node(dom.arena(), header), "banner");
+        assert_eq!(computed_role_for_node(dom.arena(), input), "checkbox");
+    }
+
+    #[test]
+    fn figure_caption_names_only_eligible_unnamed_image_and_recomputes_on_sibling_changes() {
+        let parsed = crate::html::parse(
+            "<figure id=figure><img id=image><figcaption id=caption>Caption</figcaption></figure>",
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let figure = dom.find_by_id("figure").unwrap();
+        let image = dom.find_by_id("image").unwrap();
+        let caption = dom.find_by_id("caption").unwrap();
+        assert_eq!(accessibility_for_node(dom.arena(), figure).unwrap().1, "");
+        assert_eq!(
+            accessibility_for_node(dom.arena(), image).unwrap().1,
+            "Caption"
+        );
+        let mut graph = SemanticGraph::new(PageId(16), 1);
+        graph.reset(dom.arena(), 1);
+        for (step, expected) in ["Updated", "Title", "Updated", ""].into_iter().enumerate() {
+            let cursor = dom.mutation_cursor();
+            match step {
+                0 => dom.set_text_content(caption, "Updated").unwrap(),
+                1 => dom.set_attribute(image, "title", "Title").unwrap(),
+                2 => dom.remove_attribute(image, "title").unwrap(),
+                _ => {
+                    let text = dom.create_text("Other flow content");
+                    dom.append_child(figure, text).unwrap();
+                }
+            }
+            graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), PageId(16), 1)
+            );
+            assert_eq!(
+                accessibility_for_node(dom.arena(), image).unwrap().1,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn aria_checked_and_pressed_defaults_follow_role_and_live_mutations() {
+        let parsed = crate::html::parse(
+            "<div id=control role=checkbox></div><button id=button></button><input id=native type=checkbox checked aria-checked=false>",
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let control = dom.find_by_id("control").unwrap();
+        let button = dom.find_by_id("button").unwrap();
+        let native = dom.find_by_id("native").unwrap();
+        let properties = |dom: &crate::dom::DomRuntime, id| {
+            let node = dom.arena().get(id).unwrap();
+            let NodeKind::Element { name } = &node.kind else {
+                panic!()
+            };
+            accessibility_properties(dom.arena(), id, name.local.as_ref(), node)
+        };
+        assert_eq!(
+            properties(&dom, control)["checked"],
+            serde_json::json!(false)
+        );
+        assert_eq!(
+            properties(&dom, button)["pressed"],
+            serde_json::json!("undefined")
+        );
+        assert_eq!(properties(&dom, native)["checked"], serde_json::json!(true));
+        let mut graph = SemanticGraph::new(PageId(15), 1);
+        graph.reset(dom.arena(), 1);
+        for (role, value, expected) in [
+            ("checkbox", "mixed", serde_json::json!("mixed")),
+            ("radio", "mixed", serde_json::json!(false)),
+            ("switch", "true", serde_json::json!(true)),
+            ("checkbox", "garbage", serde_json::json!(false)),
+        ] {
+            let cursor = dom.mutation_cursor();
+            dom.set_attribute(control, "role", role).unwrap();
+            dom.set_attribute(control, "aria-checked", value).unwrap();
+            graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), PageId(15), 1)
+            );
+            assert_eq!(properties(&dom, control)["checked"], expected);
+        }
+    }
+
+    #[test]
+    fn hidden_owner_does_not_reserve_a_visible_owners_target() {
+        let parsed = crate::html::parse(
+            "<span id=hidden hidden aria-owns=target></span><button id=owner aria-owns=target></button><div aria-hidden=true><span id=target>Visible owned name</span></div>",
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let find = |dom: &crate::dom::DomRuntime, id: &str| {
+            dom.query_selector(dom.document(), &format!("#{id}"))
+                .unwrap()
+                .unwrap()
+        };
+        let owner = find(&dom, "owner");
+        let target = find(&dom, "target");
+        let hidden = find(&dom, "hidden");
+        assert_eq!(aria_owner(dom.arena(), target), Some(owner));
+        assert_eq!(
+            accessibility_for_node(dom.arena(), owner).unwrap().1,
+            "Visible owned name"
+        );
+        let mut graph = SemanticGraph::new(PageId(24), 1);
+        graph.reset(dom.arena(), 1);
+        assert_eq!(
+            graph.accessibility[&target].owned_by,
+            Some(semantic_ref_for(owner, PageId(24), 1))
+        );
+        assert!(
+            !graph.accessibility[&hidden]
+                .relationships
+                .get(&AccessibilityRelation::Owns)
+                .is_some_and(|targets| targets.contains(&semantic_ref_for(target, PageId(24), 1)))
+        );
+        dom.set_attribute(hidden, "aria-owns", "").unwrap();
+        assert_eq!(aria_owner(dom.arena(), target), Some(owner));
+    }
+
+    #[test]
+    fn aria_ownership_names_and_published_edges_share_document_order_after_reparenting() {
+        let mut dom=crate::html::parse("<main id=root><button id=first aria-owns=target></button><button id=second aria-owns=target></button><span id=target>Owned</span></main>").into_runtime().unwrap();
+        let root = dom.find_by_id("root").unwrap();
+        let first = dom.find_by_id("first").unwrap();
+        let second = dom.find_by_id("second").unwrap();
+        let target = dom.find_by_id("target").unwrap();
+        let mut graph = SemanticGraph::new(PageId(25), 1);
+        graph.reset(dom.arena(), 1);
+        for step in 0..3 {
+            let expected = if step == 0 {
+                first
+            } else if step == 1 {
+                second
+            } else {
+                first
+            };
+            assert_eq!(aria_owner(dom.arena(), target), Some(expected));
+            assert_eq!(
+                graph.accessibility[&target].owned_by,
+                Some(semantic_ref_for(expected, PageId(25), 1))
+            );
+            assert_eq!(
+                accessibility_for_node(dom.arena(), expected).unwrap().1,
+                "Owned"
+            );
+            let cursor = dom.mutation_cursor();
+            match step {
+                0 => dom.append_child(root, first).unwrap(),
+                1 => dom.set_attribute(second, "hidden", "").unwrap(),
+                _ => continue,
+            };
+            graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), PageId(25), 1)
+            );
+        }
+        let accepted = accepted_aria_owners(dom.arena());
+        assert_eq!(accepted.len(), 1);
+        assert_eq!(accepted[&target], first);
+    }
+
+    #[test]
+    fn aria_ownership_rejects_cycles_with_interleaved_dom_and_explicit_edges() {
+        let mut dom=crate::html::parse("<div id=a role=group aria-owns=b></div><div id=b role=group><div id=c role=group aria-owns=a></div></div>").into_runtime().unwrap();
+        let a = dom.find_by_id("a").unwrap();
+        let b = dom.find_by_id("b").unwrap();
+        let c = dom.find_by_id("c").unwrap();
+        let mut graph = SemanticGraph::new(PageId(26), 1);
+        graph.reset(dom.arena(), 1);
+        assert_eq!(aria_owner(dom.arena(), b), Some(a));
+        assert_eq!(aria_owner(dom.arena(), a), None);
+        assert_eq!(graph.accessibility[&a].owned_by, None);
+        let cursor = dom.mutation_cursor();
+        dom.set_attribute(a, "aria-owns", "").unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert_eq!(aria_owner(dom.arena(), a), Some(c));
+        assert_eq!(
+            graph.accessibility[&a].owned_by,
+            Some(semantic_ref_for(c, PageId(26), 1))
+        );
+        assert_eq!(
+            graph.nodes(ProjectionProfile::Compact),
+            project_document(dom.arena(), PageId(26), 1)
+        );
+    }
+
+    #[test]
+    fn competing_ownership_changes_refresh_old_new_names_and_external_references() {
+        let mut dom = crate::html::parse("<main id=root><button id=first aria-owns=target></button><button id=second aria-owns=target></button><span id=target>Owned</span><button id=reference aria-labelledby=second></button><button id=unrelated>Stable</button></main>").into_runtime().unwrap();
+        let root = dom.find_by_id("root").unwrap();
+        let first = dom.find_by_id("first").unwrap();
+        let second = dom.find_by_id("second").unwrap();
+        let reference = dom.find_by_id("reference").unwrap();
+        let unrelated = dom.find_by_id("unrelated").unwrap();
+        let mut graph = SemanticGraph::new(PageId(31), 1);
+        graph.reset(dom.arena(), 1);
+        graph.take_changes();
+        for hidden in [false, true, false] {
+            let cursor = dom.mutation_cursor();
+            if hidden {
+                dom.set_attribute(second, "hidden", "").unwrap();
+            } else if dom
+                .arena()
+                .get(second)
+                .unwrap()
+                .attributes
+                .contains_null("hidden")
+            {
+                dom.remove_attribute(second, "hidden").unwrap();
+            } else {
+                dom.append_child(root, first).unwrap();
+            }
+            graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), PageId(31), 1)
+            );
+            assert_eq!(
+                graph.full[&reference].name,
+                if hidden { "" } else { "Owned" }
+            );
+            assert_eq!(graph.full[&first].name, if hidden { "Owned" } else { "" });
+            assert!(
+                !graph
+                    .take_changes()
+                    .upserted
+                    .iter()
+                    .any(|node| node.semantic_ref == semantic_ref_for(unrelated, PageId(31), 1))
+            );
+        }
+    }
+
+    #[test]
+    fn svg_direct_title_description_and_aria_precedence_share_name_callers() {
+        let mut dom=crate::html::parse("<svg id=graphic><title id=title>Graphic name</title><desc>Graphic details</desc><g><title>Nested title</title></g></svg><button id=button aria-labelledby=graphic></button>").into_runtime().unwrap();
+        let graphic = dom.find_by_id("graphic").unwrap();
+        let title = dom.find_by_id("title").unwrap();
+        let button = dom.find_by_id("button").unwrap();
+        let mut graph = SemanticGraph::new(PageId(28), 1);
+        graph.reset(dom.arena(), 1);
+        for (step, expected) in [(0, "Graphic name"), (1, "Changed name"), (2, "ARIA name")] {
+            assert_eq!(
+                accessibility_for_node(dom.arena(), graphic).unwrap().1,
+                expected
+            );
+            assert_eq!(
+                accessibility_for_node(dom.arena(), button).unwrap().1,
+                expected
+            );
+            let semantics =
+                accessible_semantics(dom.arena(), graphic, "svg", "generic", PageId(28), 1);
+            assert_eq!(semantics.description.as_deref(), Some("Graphic details"));
+            let cursor = dom.mutation_cursor();
+            match step {
+                0 => dom.set_text_content(title, "Changed name").unwrap(),
+                1 => dom
+                    .set_attribute(graphic, "aria-label", "ARIA name")
+                    .unwrap(),
+                _ => continue,
+            };
+            graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), PageId(28), 1)
+            );
+        }
+        dom.set_attribute(graphic, "aria-description", "ARIA details")
+            .unwrap();
+        assert_eq!(
+            accessible_semantics(dom.arena(), graphic, "svg", "generic", PageId(28), 1)
+                .description
+                .as_deref(),
+            Some("ARIA details")
+        );
+    }
+
+    #[test]
+    fn ownership_is_shared_by_selection_readonly_and_modal_callers() {
+        let mut dom=crate::html::parse("<div id=first role=listbox aria-owns=option></div><div id=second role=listbox aria-owns=option></div><div id=option role=option aria-selected=true>Choice</div><div id=grid role=grid aria-readonly=true aria-owns=cell></div><div id=cell role=gridcell>Value</div><div id=modal role=dialog aria-modal=true aria-owns=owned></div><button id=owned>Owned button</button>").into_runtime().unwrap();
+        let first = dom.find_by_id("first").unwrap();
+        let second = dom.find_by_id("second").unwrap();
+        let option = dom.find_by_id("option").unwrap();
+        let grid = dom.find_by_id("grid").unwrap();
+        let cell = dom.find_by_id("cell").unwrap();
+        let modal = dom.find_by_id("modal").unwrap();
+        let owned = dom.find_by_id("owned").unwrap();
+        assert_eq!(native_selection_options(dom.arena(), first), vec![option]);
+        assert!(native_selection_options(dom.arena(), second).is_empty());
+        assert_eq!(embedded_selected_options(dom.arena(), first), vec![option]);
+        assert!(embedded_selected_options(dom.arena(), second).is_empty());
+        assert!(accessibility_readonly(dom.arena(), cell));
+        assert_eq!(tree_exclusion_reason(dom.arena(), owned, "button"), None);
+        let mut graph = SemanticGraph::new(PageId(29), 1);
+        graph.reset(dom.arena(), 1);
+        let cursor = dom.mutation_cursor();
+        dom.set_attribute(first, "aria-owns", "").unwrap();
+        dom.set_attribute(grid, "aria-owns", "").unwrap();
+        dom.set_attribute(modal, "aria-owns", "").unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert_eq!(native_selection_options(dom.arena(), second), vec![option]);
+        assert!(!accessibility_readonly(dom.arena(), cell));
+        assert_eq!(
+            tree_exclusion_reason(dom.arena(), owned, "button").as_deref(),
+            Some("aria_modal_scope")
+        );
+        assert_eq!(
+            graph.nodes(ProjectionProfile::Compact),
+            project_document(dom.arena(), PageId(29), 1)
+        );
+    }
+
+    #[test]
+    fn only_html_slots_distribute_light_content_or_ignore_aria_labels() {
+        let parsed = crate::html::parse(
+            "<button id=host><span slot=x>Assigned</span></button><div id=shadow><svg><slot id=foreign name=x aria-label='Foreign label'>Foreign fallback</slot></svg><slot name=x>HTML fallback</slot></div>",
+        );
+        let find = |id: &str| {
+            parsed
+                .dom
+                .iter()
+                .find(|(_, node)| {
+                    node.attributes
+                        .get_null("id")
+                        .is_some_and(|value| value == id)
+                })
+                .map(|(id, _)| id)
+                .unwrap()
+        };
+        let host = find("host");
+        let shadow = find("shadow");
+        let foreign = find("foreign");
+        let mut runtime = parsed.into_runtime().unwrap();
+        attach_test_shadow(&mut runtime, host, shadow);
+        assert_eq!(
+            accessible_text_content(runtime.arena(), foreign, false),
+            "Foreign label"
+        );
+        let children = accessible_children(runtime.arena(), foreign);
+        assert!(children.iter().all(|id| {
+            runtime
+                .arena()
+                .get(*id)
+                .is_ok_and(|node| !node.attributes.contains_null("slot"))
+        }));
+        assert!(
+            accessibility_for_node(runtime.arena(), host)
+                .unwrap()
+                .1
+                .contains("Assigned")
+        );
+    }
+
+    #[test]
+    fn aria_ownership_rejects_sibling_reference_cycles_after_mutation() {
+        let parsed = crate::html::parse(
+            "<div id=a role=group aria-owns=b></div><div id=b role=group aria-owns=c></div><div id=c role=group></div>",
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let c = dom.query_selector(dom.document(), "#c").unwrap().unwrap();
+        let mut graph = SemanticGraph::new(PageId(14), 1);
+        graph.reset(dom.arena(), 1);
+        let cursor = dom.mutation_cursor();
+        dom.set_attribute(c, "aria-owns", "a").unwrap();
+        graph.apply_mutations(dom.arena(), &dom.mutations_since(cursor).mutations);
+        assert_eq!(
+            graph.nodes(ProjectionProfile::Compact),
+            project_document(dom.arena(), PageId(14), 1)
+        );
+        let mut owners = BTreeMap::new();
+        for node in graph.accessibility.values() {
+            if let Some(owner) = node.owned_by {
+                owners.insert(node.semantic_ref, owner);
+            }
+        }
+        assert_eq!(owners.len(), 2);
+        for (target, owner) in &owners {
+            let mut without = owners.clone();
+            without.remove(target);
+            assert!(!ownership_cycle(&without, *owner, *target));
+        }
+    }
+
+    #[test]
+    fn manual_slot_names_and_reference_dependents_match_full_projection() {
+        let mut parsed = crate::html::parse(
+            "<button id=host><span id=a>Alpha</span><span id=b>Beta</span></button><div id=shadow><slot id=slot>Fallback</slot></div><button id=ref aria-labelledby=host></button>",
         );
         let find = |value: &str| {
-            document
+            parsed
                 .dom
                 .iter()
                 .find(|(_, node)| node.attributes.get_null("id").is_some_and(|id| id == value))
@@ -4019,23 +6923,491 @@ mod tests {
         };
         let host = find("host");
         let shadow = find("shadow");
-        document.dom.get_mut(shadow).unwrap().kind = NodeKind::ShadowRoot {
+        let slot = find("slot");
+        let a = find("a");
+        let b = find("b");
+        let referenced = find("ref");
+        parsed.dom.get_mut(shadow).unwrap().kind = NodeKind::ShadowRoot {
             mode: crate::dom::ShadowMode::Open,
             clonable: false,
         };
-        document.dom.append_child(host, shadow).unwrap();
+        parsed.dom.append_child(host, shadow).unwrap();
+        let mut dom = crate::dom::DomRuntime::from_parsed(parsed.dom, parsed.document).unwrap();
+        let mut graph = SemanticGraph::new(PageId(13), 1);
+        graph.reset(dom.arena(), 1);
+        for (step, expected) in ["Fallback", "BetaAlpha", "Alpha", "Fallback"]
+            .into_iter()
+            .enumerate()
+        {
+            let cursor = dom.mutation_cursor();
+            match step {
+                0 => dom.set_manual_slot_assignment(shadow).unwrap(),
+                1 => dom.assign_slot_nodes(slot, &[b, a, b]).unwrap(),
+                2 => dom.assign_slot_nodes(slot, &[a]).unwrap(),
+                _ => dom.assign_slot_nodes(slot, &[]).unwrap(),
+            }
+            let batch = dom.mutations_since(cursor);
+            assert!(!batch.truncated);
+            graph.apply_mutations(dom.arena(), &batch.mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), PageId(13), 1)
+            );
+            assert_eq!(
+                accessibility_for_node(dom.arena(), host).unwrap().1,
+                expected
+            );
+            assert_eq!(
+                accessibility_for_node(dom.arena(), referenced).unwrap().1,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn accessible_names_exclude_source_text_inside_shadow_roots() {
+        let document = crate::html::parse(
+            r#"<button id=host>light</button><div id=shadow><style aria-label=css-leak>.secret { color:red }</style><script>source_leak()</script><template>template leak</template><span>Save</span><slot></slot></div>"#,
+        );
+        let mut runtime = document.into_runtime().unwrap();
+        let find = |value: &str| {
+            runtime
+                .arena()
+                .iter()
+                .find(|(_, node)| node.attributes.get_null("id").is_some_and(|id| id == value))
+                .map(|(id, _)| id)
+                .unwrap()
+        };
+        let host = find("host");
+        let shadow = find("shadow");
+        let shadow = attach_test_shadow(&mut runtime, host, shadow);
         assert_eq!(
-            accessibility_for_node(&document.dom, host).unwrap().1,
+            accessibility_for_node(runtime.arena(), host).unwrap().1,
             "Savelight"
         );
         // This is projection filtering, not destructive DOM sanitization.
         assert!(
-            document
-                .dom
+            runtime
+                .arena()
                 .text_content(shadow)
                 .unwrap()
                 .contains("source_leak()")
         );
+    }
+
+    #[test]
+    fn embedded_textarea_and_owned_listbox_values_update_accessible_names() {
+        let parsed = crate::html::parse(
+            "<label>Text <input id=text-target type=checkbox><textarea id=edit aria-label=Editor>Default</textarea></label><label>Pick <input id=pick-target type=checkbox><span id=list role=listbox aria-label=Choices aria-owns='external'><span id=local role=option aria-selected=true>Local</span><span role=listbox><span role=option aria-selected=true>Nested</span></span></span></label><span id=external role=option aria-selected=true>External</span>",
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let node = |dom: &oryn_dom::DomRuntime, id: &str| {
+            dom.query_selector(dom.document(), &format!("#{id}"))
+                .unwrap()
+                .unwrap()
+        };
+        let edit = node(&dom, "edit");
+        let text = node(&dom, "text-target");
+        let pick = node(&dom, "pick-target");
+        let local = node(&dom, "local");
+        let external = node(&dom, "external");
+        assert_eq!(
+            accessibility_for_node(dom.arena(), text).unwrap().1,
+            "Text Default"
+        );
+        assert_eq!(
+            accessibility_for_node(dom.arena(), pick).unwrap().1,
+            "Pick Local External"
+        );
+        let mut graph = SemanticGraph::new(PageId(12), 1);
+        graph.reset(dom.arena(), 1);
+        for step in 0..4 {
+            let cursor = dom.mutation_cursor();
+            match step {
+                0 => dom.set_value(edit, "Live\r\nvalue", false).unwrap(),
+                1 => dom.set_text_content(edit, "Changed default").unwrap(),
+                2 => dom.set_attribute(local, "aria-selected", "false").unwrap(),
+                _ => dom
+                    .set_attribute(external, "aria-selected", "false")
+                    .unwrap(),
+            }
+            let batch = dom.mutations_since(cursor);
+            assert!(!batch.truncated);
+            graph.apply_mutations(dom.arena(), &batch.mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), PageId(12), 1)
+            );
+            assert_eq!(
+                accessibility_for_node(dom.arena(), text).unwrap().1,
+                "Text Live value"
+            );
+            assert_eq!(
+                accessibility_for_node(dom.arena(), pick).unwrap().1,
+                match step {
+                    0 | 1 => "Pick Local External",
+                    2 => "Pick External",
+                    _ => "Pick",
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn scoped_reference_lookup_follows_tree_order_after_reparenting() {
+        let parsed = crate::html::parse(
+            "<div id=container><span id=duplicate>First</span><span id=duplicate>Second</span><button id=source aria-labelledby=duplicate></button></div>",
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let container = dom
+            .query_selector(dom.document(), "#container")
+            .unwrap()
+            .unwrap();
+        let source = dom
+            .query_selector(dom.document(), "#source")
+            .unwrap()
+            .unwrap();
+        let first = find_element_by_id_scoped(dom.arena(), source, "duplicate").unwrap();
+        assert_eq!(
+            accessibility_for_node(dom.arena(), source).unwrap().1,
+            "First"
+        );
+        dom.append_child(container, first).unwrap();
+        let second = find_element_by_id_scoped(dom.arena(), source, "duplicate").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            accessibility_for_node(dom.arena(), source).unwrap().1,
+            "Second"
+        );
+        assert_eq!(
+            dom.arena()
+                .accessibility_relation(source, "aria-labelledby"),
+            Some(vec![second])
+        );
+    }
+
+    #[test]
+    fn embedded_select_names_follow_native_grouped_and_multiple_selection() {
+        let parsed = crate::html::parse(
+            "<label>Choose <input id=target type=checkbox><select id=choice><optgroup label=Group><option id=a value=a selected>Alpha</option><option id=b value=b label=Beta>Old text</option></optgroup><option id=c value=c>Gamma</option></select></label>",
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let target = dom
+            .query_selector(dom.document(), "#target")
+            .unwrap()
+            .unwrap();
+        let select = dom
+            .query_selector(dom.document(), "#choice")
+            .unwrap()
+            .unwrap();
+        let a = dom.query_selector(dom.document(), "#a").unwrap().unwrap();
+        let c = dom.query_selector(dom.document(), "#c").unwrap().unwrap();
+        let name =
+            |dom: &oryn_dom::DomRuntime| accessibility_for_node(dom.arena(), target).unwrap().1;
+        assert_eq!(name(&dom), "Choose Alpha");
+        let mut graph = SemanticGraph::new(PageId(10), 1);
+        graph.reset(dom.arena(), 1);
+        for step in 0..3 {
+            let cursor = dom.mutation_cursor();
+            match step {
+                0 => dom.set_select_value(select, "b").unwrap(),
+                1 => dom.set_select_selected_index(select, -1).unwrap(),
+                _ => {
+                    dom.set_attribute(select, "multiple", "").unwrap();
+                    dom.set_option_selected(a, true).unwrap();
+                    dom.set_option_selected(c, true).unwrap();
+                }
+            }
+            let batch = dom.mutations_since(cursor);
+            assert!(!batch.truncated);
+            graph.apply_mutations(dom.arena(), &batch.mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), PageId(10), 1)
+            );
+            assert_eq!(
+                name(&dom),
+                match step {
+                    0 => "Choose Beta",
+                    1 => "Choose",
+                    _ => "Choose Alpha Gamma",
+                }
+            );
+        }
+        // Authored defaults still differ from native selectedness.
+        assert!(
+            dom.arena()
+                .get(a)
+                .unwrap()
+                .attributes
+                .contains_null("selected")
+        );
+        assert!(
+            !dom.arena()
+                .get(c)
+                .unwrap()
+                .attributes
+                .contains_null("selected")
+        );
+    }
+
+    #[test]
+    fn incremental_label_ownership_tracks_native_upgrade_and_input_type_changes() {
+        let parsed =
+            crate::html::parse("<label>Owner<x-field id=custom></x-field><input id=field></label>");
+        let mut dom = parsed.into_runtime().unwrap();
+        let custom = dom
+            .query_selector(dom.document(), "#custom")
+            .unwrap()
+            .unwrap();
+        let field = dom
+            .query_selector(dom.document(), "#field")
+            .unwrap()
+            .unwrap();
+        let mut graph = SemanticGraph::new(PageId(9), 1);
+        graph.reset(dom.arena(), 1);
+        for step in 0..4 {
+            let cursor = dom.mutation_cursor();
+            match step {
+                0 => dom.register_form_associated_custom_element(custom).unwrap(),
+                1 => dom.unregister_form_associated_custom_element(custom),
+                2 => dom.set_attribute(field, "type", "hidden").unwrap(),
+                _ => dom.set_attribute(field, "type", "text").unwrap(),
+            }
+            let batch = dom.mutations_since(cursor);
+            assert!(!batch.truncated);
+            graph.apply_mutations(dom.arena(), &batch.mutations);
+            assert_eq!(
+                graph.nodes(ProjectionProfile::Compact),
+                project_document(dom.arena(), PageId(9), 1)
+            );
+            let owner = if step == 0 {
+                Some(custom)
+            } else if step == 2 {
+                None
+            } else {
+                Some(field)
+            };
+            for node in [custom, field] {
+                assert_eq!(
+                    host_label(dom.arena(), node).map(|(name, _)| name),
+                    (owner == Some(node)).then(|| "Owner".to_string())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_label_ownership_is_shared_with_semantics_and_snapshot_projection() {
+        let parsed = crate::html::parse(
+            r#"<label for=field>Explicit</label><label id=implicit>Implicit<input id=field><input id=second></label>
+            <label for=other>Wrong<input id=nested></label><input id=other>
+            <div id=duplicate></div><input id=duplicate><label for=duplicate>Must not attach</label>
+            <label for=empty></label><input id=empty title=Fallback>
+            <label id=custom-label>Custom<x-field id=custom></x-field><input id=later></label>"#,
+        );
+        let mut dom = parsed.into_runtime().unwrap();
+        let by_id = |dom: &oryn_dom::DomRuntime, id: &str| {
+            dom.query_selector(dom.document(), &format!("#{id}"))
+                .unwrap()
+                .unwrap()
+        };
+        let field = by_id(&dom, "field");
+        assert_eq!(
+            host_label(dom.arena(), field).unwrap().0,
+            "Explicit Implicit"
+        );
+        let label_sources = host_label(dom.arena(), field).unwrap().1;
+        assert_eq!(label_sources.len(), 2);
+        let accessible = accessible_semantics(dom.arena(), field, "input", "textbox", PageId(1), 1);
+        let evidence = accessible
+            .evidence
+            .iter()
+            .find(|item| item.source == "label")
+            .unwrap();
+        assert_eq!(
+            evidence.references,
+            label_sources
+                .into_iter()
+                .map(|id| semantic_ref_for(id, PageId(1), 1))
+                .collect::<Vec<_>>()
+        );
+        assert!(host_label(dom.arena(), by_id(&dom, "second")).is_none());
+        assert!(host_label(dom.arena(), by_id(&dom, "nested")).is_none());
+        for (id, record) in dom.arena().iter() {
+            if record
+                .attributes
+                .get_null("id")
+                .is_some_and(|value| value == "duplicate")
+            {
+                assert!(host_label(dom.arena(), id).is_none());
+            }
+        }
+        assert_eq!(
+            accessibility_for_node(dom.arena(), by_id(&dom, "empty"))
+                .unwrap()
+                .1,
+            ""
+        );
+        let custom = by_id(&dom, "custom");
+        let later = by_id(&dom, "later");
+        let label = by_id(&dom, "custom-label");
+        assert_eq!(dom.label_control(label).unwrap(), Some(later));
+        dom.register_form_associated_custom_element(custom).unwrap();
+        assert_eq!(dom.label_control(label).unwrap(), Some(custom));
+        let snapshot = dom.arena().clone();
+        assert_eq!(snapshot.label_control(label).unwrap(), Some(custom));
+        assert_eq!(host_label(&snapshot, custom).unwrap().0, "Custom");
+        assert!(host_label(&snapshot, later).is_none());
+        dom.unregister_form_associated_custom_element(custom);
+        assert_eq!(dom.label_control(label).unwrap(), Some(later));
+        assert_eq!(snapshot.label_control(label).unwrap(), Some(custom));
+    }
+
+    #[test]
+    fn accessible_description_uses_tooltip_source_instead_of_string_inequality() {
+        let document = crate::html::parse(
+            r#"<input id=aria aria-label=Same title=Same>
+            <label for=labelled>Same</label><input id=labelled title=Same>
+            <input id=tooltip title=Same placeholder="typing hint">
+            <input id=placeholder aria-label=Name placeholder="typing hint">
+            <input id=explicit aria-label=Name title=Tooltip aria-description=Explicit>
+            <span id=detail>Referenced</span>
+            <input id=referenced aria-label=Name title=Tooltip aria-description=Explicit aria-describedby=detail>"#,
+        );
+        let semantics = |id: &str| {
+            let node = document
+                .dom
+                .iter()
+                .find(|(_, node)| {
+                    node.attributes
+                        .get_null("id")
+                        .is_some_and(|value| value == id)
+                })
+                .map(|(id, _)| id)
+                .expect("fixture element");
+            accessible_semantics(&document.dom, node, "input", "textbox", PageId(1), 1)
+        };
+        for id in ["aria", "labelled"] {
+            let accessible = semantics(id);
+            assert_eq!(accessible.name, "Same");
+            assert_eq!(accessible.description.as_deref(), Some("Same"));
+            assert!(
+                accessible
+                    .evidence
+                    .iter()
+                    .any(|item| item.source == "title-description")
+            );
+        }
+        let tooltip = semantics("tooltip");
+        assert_eq!(tooltip.name, "Same");
+        assert_eq!(tooltip.description, None);
+        assert_eq!(semantics("placeholder").description, None);
+        assert_eq!(
+            semantics("explicit").description.as_deref(),
+            Some("Explicit")
+        );
+        assert_eq!(
+            semantics("referenced").description.as_deref(),
+            Some("Referenced")
+        );
+    }
+
+    #[test]
+    fn accessible_reference_precedence_distinguishes_empty_text_from_missing_targets() {
+        let document = crate::html::parse(
+            r#"<span id=empty></span>
+            <button id=valid aria-labelledby="absent empty" aria-label="fallback"
+                aria-describedby=empty aria-description="description fallback">content</button>
+            <button id=missing aria-labelledby=absent aria-label="fallback"
+                aria-describedby=absent aria-description="description fallback">content</button>
+            <button id=blank aria-labelledby=" " aria-label="fallback"
+                aria-describedby=" " aria-description="description fallback">content</button>
+            <span id=whitespace aria-label=" ">referenced content</span>
+            <button id=whitespace-reference aria-labelledby=whitespace></button>"#,
+        );
+        let semantics = |id: &str| {
+            let node = document
+                .dom
+                .iter()
+                .find(|(_, node)| {
+                    node.attributes
+                        .get_null("id")
+                        .is_some_and(|value| value == id)
+                })
+                .map(|(id, _)| id)
+                .expect("fixture element");
+            accessible_semantics(&document.dom, node, "button", "button", PageId(1), 1)
+        };
+        let valid = semantics("valid");
+        assert_eq!(valid.name, "");
+        assert_eq!(valid.description, None);
+        let empty = document
+            .dom
+            .iter()
+            .find(|(_, node)| {
+                node.attributes
+                    .get_null("id")
+                    .is_some_and(|value| value == "empty")
+            })
+            .unwrap()
+            .0;
+        assert!(
+            valid
+                .evidence
+                .iter()
+                .any(|item| item.source == "aria-labelledby"
+                    && item.references == vec![semantic_ref_for(empty, PageId(1), 1)])
+        );
+        assert_eq!(semantics("whitespace-reference").name, "referenced content");
+        for id in ["missing", "blank"] {
+            let fallback = semantics(id);
+            assert_eq!(fallback.name, "fallback");
+            assert_eq!(
+                fallback.description.as_deref(),
+                Some("description fallback")
+            );
+        }
+    }
+
+    #[test]
+    fn directly_referenced_hidden_subtree_keeps_hidden_descendants_through_visible_wrappers() {
+        let document = crate::html::parse(
+            r#"
+            <span id=hidden-root hidden><span><span aria-hidden=true>deep</span></span><span> tail</span></span>
+            <span id=visible-root><span><span aria-hidden=true>deep</span></span><span> tail</span></span>
+            <button id=hidden-name aria-labelledby=hidden-root></button>
+            <button id=visible-name aria-labelledby=visible-root></button>
+            <button id=ordinary><span hidden><span>deep</span></span>tail</button>
+            <div hidden><span id=inherited-root><span><span hidden>inherited</span></span></span></div>
+            <button id=inherited-name aria-labelledby=inherited-root></button>
+            <div style="visibility:hidden"><span id=override-root style="visibility:visible"><span hidden>skip</span>shown</span></div>
+            <button id=override-name aria-labelledby=override-root></button>
+        "#,
+        );
+        for (id, expected) in [
+            ("hidden-name", "deep tail"),
+            ("visible-name", "tail"),
+            ("ordinary", "tail"),
+            ("inherited-name", "inherited"),
+            ("override-name", "shown"),
+        ] {
+            let node = document
+                .dom
+                .iter()
+                .find(|(_, node)| {
+                    node.attributes
+                        .get_null("id")
+                        .is_some_and(|value| value == id)
+                })
+                .unwrap()
+                .0;
+            assert_eq!(
+                accessible_semantics(&document.dom, node, "button", "button", PageId(1), 1).name,
+                expected,
+                "{id}"
+            );
+        }
     }
 
     #[test]
@@ -4200,6 +7572,322 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|item| item.contains("aria-owns cycle"))
+        );
+    }
+}
+
+#[cfg(test)]
+mod internals_accessibility_tests {
+    use super::*;
+    #[test]
+    fn default_role_name_and_native_relations_obey_author_precedence() {
+        let mut dom=crate::html::parse("<x-ui id=x></x-ui><span id=label>Native label</span><span id=other>Author label</span>").into_runtime().unwrap();
+        let document = dom.document();
+        let x = dom.get_element_by_id(document, "x").unwrap().unwrap();
+        let label = dom.get_element_by_id(document, "label").unwrap().unwrap();
+        dom.set_default_accessibility_attribute(x, "role", Some("button".into()))
+            .unwrap();
+        dom.set_default_accessibility_attribute(x, "aria-label", Some("Fallback".into()))
+            .unwrap();
+        assert_eq!(
+            accessibility_for_node(dom.arena(), x),
+            Some(("button".into(), "Fallback".into()))
+        );
+        assert!(
+            dom.attribute_in_null_namespace(x, "aria-label")
+                .unwrap()
+                .is_none()
+        );
+        dom.set_accessibility_references(x, "aria-labelledby", true, Some(vec![label]))
+            .unwrap();
+        assert_eq!(
+            accessibility_for_node(dom.arena(), x).unwrap().1,
+            "Native label"
+        );
+        dom.set_attribute(x, "aria-labelledby", "other").unwrap();
+        dom.set_attribute(x, "role", "link").unwrap();
+        assert_eq!(
+            accessibility_for_node(dom.arena(), x),
+            Some(("link".into(), "Author label".into()))
+        );
+        dom.remove_attribute(x, "aria-labelledby").unwrap();
+        assert_eq!(
+            accessibility_for_node(dom.arena(), x).unwrap().1,
+            "Native label"
+        );
+        let mut graph = SemanticGraph::new(PageId(15), 1);
+        graph.reset(dom.arena(), 1);
+        let _ = graph.take_v6_changes();
+        let cursor = dom.mutation_cursor();
+        dom.set_text_content(label, "Changed label").unwrap();
+        let batch = dom.mutations_since(cursor);
+        graph.apply_mutations(dom.arena(), &batch.mutations);
+        let changes = graph.take_v6_changes();
+        assert!(
+            changes
+                .upserted_accessibility
+                .iter()
+                .any(
+                    |node| node.semantic_ref == semantic_ref_for(x, PageId(15), 1)
+                        && node.name == "Changed label"
+                )
+        );
+    }
+    #[test]
+    fn native_ownership_cycles_do_not_recurse_and_relations_need_no_ids() {
+        let mut dom = crate::html::parse("<div><x-a>A</x-a><x-b>B</x-b></div>")
+            .into_runtime()
+            .unwrap();
+        let a = dom.query_selector(dom.document(), "x-a").unwrap().unwrap();
+        let b = dom.query_selector(dom.document(), "x-b").unwrap().unwrap();
+        dom.set_default_accessibility_attribute(a, "role", Some("button".into()))
+            .unwrap();
+        dom.set_default_accessibility_attribute(b, "role", Some("button".into()))
+            .unwrap();
+        dom.set_accessibility_references(a, "aria-owns", true, Some(vec![b]))
+            .unwrap();
+        dom.set_accessibility_references(b, "aria-owns", true, Some(vec![a]))
+            .unwrap();
+        assert!(aria_owner(dom.arena(), a).is_none());
+        assert_eq!(aria_owner(dom.arena(), b), Some(a));
+        let mut graph = SemanticGraph::new(PageId(27), 1);
+        graph.reset(dom.arena(), 1);
+        assert_eq!(
+            graph.accessibility[&b].owned_by,
+            Some(semantic_ref_for(a, PageId(27), 1))
+        );
+        assert_eq!(
+            graph.nodes(ProjectionProfile::Compact),
+            project_document(dom.arena(), PageId(27), 1)
+        );
+        dom.set_accessibility_references(a, "aria-labelledby", true, Some(vec![b]))
+            .unwrap();
+        assert_eq!(accessibility_for_node(dom.arena(), a).unwrap().1, "B");
+    }
+    #[cfg(feature = "v8-host")]
+    #[test]
+    fn native_picker_highlight_updates_active_descendant_without_changing_selection() {
+        let mut dom=crate::html::parse("<select id=s aria-activedescendant=a><option id=a selected>A</option><option id=b>B</option></select>").into_runtime().unwrap();
+        let select = dom.query_selector(dom.document(), "#s").unwrap().unwrap();
+        let a = dom.query_selector(dom.document(), "#a").unwrap().unwrap();
+        let b = dom.query_selector(dom.document(), "#b").unwrap().unwrap();
+        let mut graph = SemanticGraph::new(PageId(21), 1);
+        graph.reset(dom.arena(), 1);
+        dom.add_to_top_layer(select, oryn_dom::TopLayerKind::SelectPicker)
+            .unwrap();
+        dom.set_select_picker_active(select, Some(b)).unwrap();
+        graph.apply_native_control_state(&dom).unwrap();
+        assert_eq!(
+            graph.accessibility[&select].relationships[&AccessibilityRelation::ActiveDescendant],
+            vec![semantic_ref_for(b, PageId(21), 1)]
+        );
+        assert!(
+            dom.arena()
+                .get(a)
+                .unwrap()
+                .attributes
+                .contains_null("selected")
+        );
+        assert!(
+            !dom.arena()
+                .get(b)
+                .unwrap()
+                .attributes
+                .contains_null("selected")
+        );
+        dom.remove_from_top_layer(select);
+        graph.apply_native_control_state(&dom).unwrap();
+        assert_eq!(
+            graph.accessibility[&select].relationships[&AccessibilityRelation::ActiveDescendant],
+            vec![semantic_ref_for(a, PageId(21), 1)]
+        );
+    }
+}
+
+#[cfg(all(test, feature = "v8-host"))]
+mod native_custom_control_projection_regressions {
+    use super::*;
+    #[test]
+    fn submit_behavior_projects_role_and_disability_without_authored_attributes() {
+        let mut dom = crate::html::parse("<x-submit id=x>Save</x-submit>")
+            .into_runtime()
+            .unwrap();
+        let x = dom.find_by_id("x").unwrap();
+        let mut behavior = oryn_dom::SubmitButtonBehavior::default();
+        dom.set_submit_behavior(x, behavior.clone()).unwrap();
+        let mut graph = SemanticGraph::new(PageId(42), 1);
+        graph.reset(dom.arena(), 1);
+        graph.apply_native_control_state(&dom).unwrap();
+        assert_eq!(graph.full[&x].role, "button");
+        assert!(graph.full[&x].validation.is_none());
+        assert!(
+            dom.attribute_in_null_namespace(x, "role")
+                .unwrap()
+                .is_none()
+        );
+        behavior.disabled = true;
+        dom.set_submit_behavior(x, behavior).unwrap();
+        graph.apply_native_control_state(&dom).unwrap();
+        assert!(graph.full[&x].states.contains(&NodeState::Disabled));
+        assert_eq!(
+            graph.accessibility[&x].properties["disabled"],
+            serde_json::json!(true)
+        );
+        let cursor = dom.mutation_cursor();
+        dom.set_default_accessibility_attribute(x, "role", Some("link".into()))
+            .unwrap();
+        let changes = dom.mutations_since(cursor);
+        graph.apply_mutations(dom.arena(), &changes.mutations);
+        assert_eq!(graph.full[&x].role, "link");
+        let cursor = dom.mutation_cursor();
+        dom.set_attribute(x, "role", "menuitem").unwrap();
+        let changes = dom.mutations_since(cursor);
+        graph.apply_mutations(dom.arena(), &changes.mutations);
+        assert_eq!(graph.full[&x].role, "menuitem");
+    }
+
+    #[test]
+    fn custom_validity_flags_and_fieldset_disability_reach_oil_and_accessibility() {
+        let mut dom = crate::html::parse(
+            "<fieldset id=f><x-field id=x role=textbox></x-field><input id=i></fieldset>",
+        )
+        .into_runtime()
+        .unwrap();
+        let fieldset = dom.find_by_id("f").unwrap();
+        let custom = dom.find_by_id("x").unwrap();
+        let input = dom.find_by_id("i").unwrap();
+        dom.register_form_associated_custom_element(custom).unwrap();
+        dom.set_custom_element_validity(
+            custom,
+            ["valueMissing".into(), "rangeOverflow".into()]
+                .into_iter()
+                .collect(),
+            "Required".into(),
+        )
+        .unwrap();
+        let mut graph = SemanticGraph::new(PageId(42), 1);
+        graph.reset(dom.arena(), 1);
+        graph.apply_native_control_state(&dom).unwrap();
+        let validation = graph.full[&custom].validation.as_ref().unwrap();
+        assert!(validation.will_validate && validation.value_missing && validation.range_overflow);
+        assert!(!validation.valid && !validation.custom_error);
+        let cursor = dom.mutation_cursor();
+        dom.set_attribute(fieldset, "disabled", "").unwrap();
+        let mutations = dom.mutations_since(cursor);
+        graph.apply_mutations(dom.arena(), &mutations.mutations);
+        graph.apply_native_control_state(&dom).unwrap();
+        for control in [custom, input] {
+            assert!(graph.full[&control].states.contains(&NodeState::Disabled));
+            assert!(
+                !graph.full[&control]
+                    .validation
+                    .as_ref()
+                    .unwrap()
+                    .will_validate
+            );
+            assert_eq!(
+                graph.accessibility[&control].properties.get("disabled"),
+                Some(&serde_json::Value::Bool(true))
+            );
+        }
+        let cursor = dom.mutation_cursor();
+        dom.remove_attribute(fieldset, "disabled").unwrap();
+        dom.set_custom_element_validity(custom, BTreeSet::new(), String::new())
+            .unwrap();
+        let mutations = dom.mutations_since(cursor);
+        graph.apply_mutations(dom.arena(), &mutations.mutations);
+        graph.apply_native_control_state(&dom).unwrap();
+        assert!(graph.full[&custom].validation.as_ref().unwrap().valid);
+        assert!(!graph.full[&custom].states.contains(&NodeState::Disabled));
+    }
+}
+
+#[cfg(all(test, feature = "v8-host"))]
+mod native_temporal_projection_regressions {
+    use super::*;
+    #[test]
+    fn partial_temporal_edit_updates_oil_bad_input_and_validity() {
+        let mut dom = crate::html::parse("<input id=d type=date required>")
+            .into_runtime()
+            .unwrap();
+        let node = dom.find_by_id("d").unwrap();
+        let mut graph = SemanticGraph::new(PageId(77), 1);
+        graph.reset(dom.arena(), 1);
+        graph.apply_native_control_state(&dom).unwrap();
+        assert!(!graph.full[&node].validation.as_ref().unwrap().bad_input);
+        let cursor = dom.mutation_cursor();
+        dom.edit_temporal_control(node, oryn_dom::TemporalAction::Digit(2))
+            .unwrap();
+        let changes = dom.mutations_since(cursor);
+        graph.apply_mutations(dom.arena(), &changes.mutations);
+        graph.apply_native_control_state(&dom).unwrap();
+        let state = graph.full[&node].validation.as_ref().unwrap();
+        assert!(state.bad_input && state.value_missing && !state.valid);
+        let cursor = dom.mutation_cursor();
+        dom.set_user_control_value(node, "2024-02-29", false)
+            .unwrap();
+        let changes = dom.mutations_since(cursor);
+        graph.apply_mutations(dom.arena(), &changes.mutations);
+        graph.apply_native_control_state(&dom).unwrap();
+        let state = graph.full[&node].validation.as_ref().unwrap();
+        assert!(!state.bad_input && !state.value_missing && state.valid);
+    }
+}
+
+#[cfg(test)]
+mod native_control_action_inventory_tests {
+    use super::*;
+    #[test]
+    fn native_type_case_and_readonly_applicability_match_advertised_operations() {
+        let dom=crate::html::parse("<input id=r type=RANGE readonly><input id=c type=COLOR readonly><input id=f type=FILE><input id=b type=CHECKBOX>").into_runtime().unwrap();
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        let r = dom.find_by_id("r").unwrap();
+        let c = dom.find_by_id("c").unwrap();
+        let f = dom.find_by_id("f").unwrap();
+        let b = dom.find_by_id("b").unwrap();
+        assert_eq!(graph.full[&r].role, "slider");
+        assert_eq!(graph.full[&c].role, "colorwell");
+        assert!(!graph.full[&r].states.contains(&NodeState::Readonly));
+        assert!(graph.full[&c].actions.contains(&SemanticAction::Type));
+        assert!(!graph.full[&f].actions.contains(&SemanticAction::Type));
+        assert!(!graph.full[&b].actions.contains(&SemanticAction::Type));
+        assert!(graph.full[&b].actions.contains(&SemanticAction::Check));
+    }
+}
+
+#[cfg(all(test, feature = "v8-host"))]
+mod native_numeric_ax_inventory_tests {
+    use super::*;
+    #[test]
+    fn native_ax_numeric_properties_update_and_match_full_recomputation() {
+        let mut dom = crate::html::parse("<input id=r type=range min=2 max=8 step=2 value=4>")
+            .into_runtime()
+            .unwrap();
+        let r = dom.find_by_id("r").unwrap();
+        let mut graph = SemanticGraph::new(PageId(1), 1);
+        graph.reset(dom.arena(), 1);
+        graph.apply_native_control_state(&dom).unwrap();
+        assert_eq!(
+            graph.accessibility[&r].properties["native_value_min"],
+            serde_json::json!(2.)
+        );
+        assert_eq!(
+            graph.accessibility[&r].properties["native_value_now"],
+            serde_json::json!(4.)
+        );
+        dom.set_value(r, "7", false).unwrap();
+        graph.apply_native_control_state(&dom).unwrap();
+        let mut rebuilt = SemanticGraph::new(PageId(1), 1);
+        rebuilt.reset(dom.arena(), 1);
+        rebuilt.apply_native_control_state(&dom).unwrap();
+        assert_eq!(
+            graph.accessibility[&r].properties,
+            rebuilt.accessibility[&r].properties
+        );
+        assert_eq!(
+            graph.accessibility[&r].properties["native_value_now"],
+            serde_json::json!(8.)
         );
     }
 }

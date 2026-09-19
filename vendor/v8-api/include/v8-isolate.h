@@ -38,6 +38,7 @@ class MicrotaskQueue;
 class StartupData;
 class ScriptOrModule;
 class SharedArrayBuffer;
+class SharedMemoryAllocationDelegate;
 
 namespace internal {
 class MicrotaskQueue;
@@ -1098,6 +1099,11 @@ class V8_EXPORT Isolate {
 
   /** Returns the ArrayBuffer::Allocator used in this isolate. */
   ArrayBuffer::Allocator* GetArrayBufferAllocator();
+
+  // Install/replace on the isolate thread. The delegate must not retain the
+  // isolate; backing-store owners retain their own independent native leases.
+  void SetSharedMemoryAllocationDelegate(
+      std::shared_ptr<SharedMemoryAllocationDelegate> delegate);
 
   /** Returns true if this isolate has a current context. */
   bool InContext();

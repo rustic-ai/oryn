@@ -265,6 +265,7 @@ impl Parse for Content {
         }
         let alt_start = alt_start.unwrap_or(items.len());
         Ok(generics::Content::Items(generics::GenericContentItems {
+            native_scope:None,
             items,
             alt_start,
         }))

@@ -262,10 +262,8 @@ impl Observation {
         let row = &mut state.records[self.sequence];
         row.status = Some(status);
         // MIME only: never authorization, cookies, redirect tokens or other headers.
-        row.mime = headers
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
-            .map(|(_, value)| value.chars().take(256).collect());
+        row.mime = oryn_common::mime_type::MimeType::from_headers(headers)
+            .map(|mime| mime.serialize().chars().take(256).collect());
     }
     pub fn chunk(&mut self, bytes: &[u8]) {
         self.hash.update(bytes);
@@ -384,6 +382,7 @@ mod tests {
     impl NetworkBroker for Fixture {
         fn send(&self, request: NetworkRequest) -> Result<NetworkResponse, NetworkError> {
             Ok(NetworkResponse {
+                timing: None,
                 request_id: request.request_id,
                 status: 200,
                 headers: vec![
@@ -393,6 +392,30 @@ mod tests {
                 body: b"private-body".to_vec(),
             })
         }
+    }
+
+    #[test]
+    fn audit_records_extracted_mime_without_unrelated_headers() {
+        let audit = ResourceAudit::default();
+        audit.enable(1);
+        let mut observation = audit.begin(&request(), Some(7)).unwrap();
+        observation.headers(
+            200,
+            &[
+                ("content-type".into(), "application/octet-stream".into()),
+                (
+                    "Content-Type".into(),
+                    "text/css;charset=windows-1252".into(),
+                ),
+                ("CONTENT-TYPE".into(), "text/css, */*, invalid".into()),
+                ("set-cookie".into(), "private-cookie".into()),
+            ],
+        );
+        observation.finish("complete");
+        assert_eq!(
+            audit.snapshot().records[0].mime.as_deref(),
+            Some("text/css;charset=windows-1252")
+        );
     }
 
     #[test]

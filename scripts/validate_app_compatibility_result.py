@@ -8,7 +8,10 @@ import hashlib
 import json
 import subprocess
 from pathlib import Path
+from native_protocol_versions import versions as native_protocol_versions
 from typing import Any
+
+from evidence_protocols import validate_protocols, validate_protocol_pair
 
 from jsonschema import Draft202012Validator, FormatChecker
 
@@ -110,6 +113,9 @@ def validate_raw_evidence(
     result: dict[str, Any],
     artifact_root: Path,
     artifacts: dict[str, dict[str, Any]],
+    *,
+    repo_root: Path = Path(__file__).resolve().parents[1],
+    allow_historical: bool = False,
 ) -> None:
     """Recompute application compatibility claims from the content-addressed raw artifact tree."""
 
@@ -153,14 +159,15 @@ def validate_raw_evidence(
         "production source-tree hash mismatch",
     )
 
+    validate_protocol_pair(runtime, result["fingerprint"]["worker"], repo_root, historical=allow_historical)
     required_runtime = {
-        "contract_version": 4,
+        "contract_version": result["fingerprint"]["worker"]["contract_version"] if allow_historical else 4,
         "native_v8": True,
         "build_profile": "release",
         "execution_mode": "sandboxed_worker",
         "sandboxed": True,
         "sandbox_state": "app_sandbox",
-        "worker_protocol_version": 10,
+        "worker_protocol_version": result["fingerprint"]["worker"]["protocol_version"] if allow_historical else native_protocol_versions(repo_root)["worker"],
     }
     for key, expected in required_runtime.items():
         require(runtime.get(key) == expected, f"raw runtime {key} is not {expected!r}")
@@ -552,6 +559,9 @@ def validate_result(
     require_raw: bool,
     allow_historical: bool,
 ) -> None:
+    validate_protocols(result.get("fingerprint", {}).get("worker"), repo_root, fingerprint=True, historical=allow_historical)
+    if not allow_historical:
+        require(result["fingerprint"]["worker"].get("contract_version") == 4, "current runtime contract must be v4")
     schema_path = (
         repo_root / "benchmarks/schema/app-compatibility-result-v1.schema.json"
     )
@@ -612,7 +622,8 @@ def validate_result(
         "--require-raw requires --artifact-root",
     )
     if artifact_root is not None:
-        validate_raw_evidence(result, artifact_root, artifacts)
+        validate_raw_evidence(result, artifact_root, artifacts, repo_root=repo_root,
+                              allow_historical=allow_historical)
     ledger = result["case_ledger"]
     ledger_ids = [case["id"] for case in ledger]
     require(

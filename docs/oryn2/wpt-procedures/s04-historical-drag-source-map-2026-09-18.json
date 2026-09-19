@@ -1,0 +1,3549 @@
+{
+  "scope": "source attribution only; no build/test/WPT execution",
+  "pin": "wpt-719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "historical_source": "artifacts/wpt-full-baseline/full-current-2026-09-15/cohort.json",
+  "historical_rows": 180,
+  "distinct_paths": 72,
+  "family_counts": {
+    "canvas": 5,
+    "datastore": 5,
+    "dom": 3,
+    "drop": 110,
+    "events": 2,
+    "historical.html": 1,
+    "images": 16,
+    "interactiveelements": 24,
+    "js-file-fallback-text-only.html": 1,
+    "js-file-image-drag.html": 1,
+    "layoutshift": 1,
+    "platform": 5,
+    "remove": 1,
+    "synthetic": 1,
+    "target-origin": 1,
+    "the-draggable-attribute": 2,
+    "the-dropzone-attribute": 1
+  },
+  "files": [
+    {
+      "path": "html/editing/dnd/canvas/001.html",
+      "sha256": "5c1a10046631f5910e2b094af349f4d2e94e39f6b155a50fca8f42ba428f79a9",
+      "historical_ids": [
+        "html/editing/dnd/canvas/001.html|window|"
+      ],
+      "family": "canvas",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(img.src, canvas.toDataURL('image/png'));",
+        "dragDropTest(canvas, div, onDropCallBack, 'Dragging the canvas to the bottom div should turn it green');"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/canvas/002.html",
+      "sha256": "5dbd6cd4e745bb6bb317a9056ba3acb9082e38244cef084e30021ad0a0a8cb04",
+      "historical_ids": [
+        "html/editing/dnd/canvas/002.html|window|"
+      ],
+      "family": "canvas",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(style.getPropertyValue(\"background-color\"), currentColor);",
+        "dragDropTest(div, canvas, onDropCallBack, 'Dragging the canvas to the bottom div should turn it green');"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/canvas/003.html",
+      "sha256": "76ab1ee9ab9562094acd32d10c60372c00eb4909a93e6645741a998300838fb2",
+      "historical_ids": [
+        "html/editing/dnd/canvas/003.html|window|"
+      ],
+      "family": "canvas",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(style.getPropertyValue(\"background-color\"), currentColor);",
+        "dragDropTest(iframe, canvas, onDropCallBack, 'Dragging the canvas to the bottom iframe should turn it green');"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/canvas/005.html",
+      "sha256": "8d9b006836478ae17e1698ab444e360b3a0d2dc0abae1d291c4669c1983b1fa7",
+      "historical_ids": [
+        "html/editing/dnd/canvas/005.html|window|"
+      ],
+      "family": "canvas",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(style.getPropertyValue(\"background-color\"), currentColor);",
+        "dragDropTest(div, canvas, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/canvas/007.html",
+      "sha256": "04bd2adffb23a23a26a791fa747e9d04f8feaa48d79f325cbb61ed9dafd383c1",
+      "historical_ids": [
+        "html/editing/dnd/canvas/007.html|window|"
+      ],
+      "family": "canvas",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(style.getPropertyValue(\"background-color\"), currentColor);",
+        "dragDropTest(div, canvas, onDropCallBack, 'Dragging the iframe to the bottom iframe should turn it green',"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/datastore/datatransfer-constructor-001.html",
+      "sha256": "be351470c2a1d53738b2a806e7eebc578d2fe76ebf439ff739a40c7ae745861d",
+      "historical_ids": [
+        "html/editing/dnd/datastore/datatransfer-constructor-001.html|window|"
+      ],
+      "family": "datastore",
+      "production": [
+        "crates/oryn-js/src/data_transfer.rs",
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs"
+      ],
+      "regressions": [
+        "author_transfer_constructor_has_none_effect_without_changing_native_seed",
+        "native_transfer_live_items_files_and_string_semantics",
+        "removed_item_does_not_rebind_to_reused_index"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(dt.dropEffect, \"none\");",
+        "assert_equals(dt.effectAllowed, \"none\");",
+        "assert_equals(dt.items.length, 0);",
+        "assert_equals(dt.types.length, 0);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/datastore/datatransfer-getdata-url.html",
+      "sha256": "e50aaa604b9623b47aab45e8da1638d91453d119bea0d2e7821d52ff0cceba6e",
+      "historical_ids": [
+        "html/editing/dnd/datastore/datatransfer-getdata-url.html|window|"
+      ],
+      "family": "datastore",
+      "production": [
+        "crates/oryn-js/src/data_transfer.rs",
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs"
+      ],
+      "regressions": [
+        "author_transfer_constructor_has_none_effect_without_changing_native_seed",
+        "native_transfer_live_items_files_and_string_semantics",
+        "removed_item_does_not_rebind_to_reused_index"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(uriListDataTransfer(\"https://a.example/1\").getData(\"url\"),",
+        "assert_equals(uriListDataTransfer(\"https://a.example/1\\nhttps://b.example/2\").getData(\"url\"),",
+        "assert_equals(uriListDataTransfer(\"https://a.example/1\\r\\nhttps://b.example/2\").getData(\"url\"),",
+        "assert_equals(uriListDataTransfer(\"https://a.example/1\\n\").getData(\"url\"),",
+        "assert_equals(uriListDataTransfer(\"https://a.example/1\\r\\n\").getData(\"url\"),",
+        "assert_equals(uriListDataTransfer(\"# comment\\nhttps://a.example/1\").getData(\"url\"),",
+        "assert_equals(uriListDataTransfer(\"# one\\n# two\\nhttps://a.example/1\\n# three\").getData(\"url\"),",
+        "assert_equals(uriListDataTransfer(\"https://a.example/1\\n\\nhttps://b.example/2\").getData(\"url\"),",
+        "assert_equals(uriListDataTransfer(\"\").getData(\"url\"), \"\");",
+        "assert_equals(uriListDataTransfer(\"# only a comment\").getData(\"url\"), \"\");",
+        "assert_equals(uriListDataTransfer(\"\\r\\n\\r\\n\").getData(\"url\"), \"\");",
+        "assert_equals(new DataTransfer().getData(\"url\"), \"\",",
+        "assert_equals(uriListDataTransfer(uriList).getData(format), \"https://a.example/1\",",
+        "assert_equals(uriListDataTransfer(uriList).getData(\"text/uri-list\"), uriList,",
+        "assert_equals(uriListDataTransfer(uriList).getData(\"text/uri-list;charset=utf-8\"), uriList,",
+        "assert_equals(uriListDataTransfer(\"\\n\\nhttps://a.example/1\").getData(\"url\"),",
+        "assert_equals(uriListDataTransfer(\"\\r\\n\\r\\nhttps://a.example/1\").getData(\"url\"),"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/datastore/datatransfer-types.html",
+      "sha256": "d84e41c9f0bcfd9bbfd522b958811ea1883209476d9b1920b8aadaba7674726a",
+      "historical_ids": [
+        "html/editing/dnd/datastore/datatransfer-types.html|window|"
+      ],
+      "family": "datastore",
+      "production": [
+        "crates/oryn-js/src/data_transfer.rs",
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs"
+      ],
+      "regressions": [
+        "author_transfer_constructor_has_none_effect_without_changing_native_seed",
+        "native_transfer_live_items_files_and_string_semantics",
+        "removed_item_does_not_rebind_to_reused_index"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(Object.isFrozen(dt.types), \"types must be a FrozenArray<>\");",
+        "assert_true(Array.isArray(dt.types), \"A FrozenArray<> must be an Array\");",
+        "assert_equals(dt.types.length, 0, \"types must be originally empty\");",
+        "assert_equals(dt.types, dt.types,",
+        "assert_not_equals(dt2.types, dt.types,",
+        "assert_equals(old_types, dt.types);",
+        "assert_not_equals(old_types, dt.types);",
+        "assert_equals(old_types, dt.types);",
+        "assert_equals(old_types, dt.types);",
+        "assert_equals(dt.items.length, 0);",
+        "assert_not_equals(old_types, dt.types);",
+        "assert_equals(dt.items.length, 1);",
+        "assert_not_equals(old_types, dt.types);",
+        "assert_throws_dom(\"NotSupportedError\", () => {",
+        "assert_equals(dt.items.length, 1);",
+        "assert_equals(old_types, dt.types);",
+        "assert_equals(old_types, dt.types);",
+        "assert_equals(dt.types.length, 1);",
+        "assert_not_equals(old_types, dt.types);",
+        "assert_equals(dt.types.length, 2);",
+        "assert_not_equals(old_types, dt.types);",
+        "assert_equals(dt.types.length, 1);",
+        "assert_not_equals(old_types, dt.types);",
+        "assert_equals(dt.types.length, 1);",
+        "assert_equals(old_types, dt.types);",
+        "assert_equals(old_types, dt.types);",
+        "assert_equals(dt.types, types);",
+        "assert_array_equals(dt.types, []);",
+        "assert_array_equals(dt.types, [\"Files\"]);",
+        "assert_array_equals(dt.types, [\"text/plain\", \"Files\"]);",
+        "assert_array_equals(dt.types, [\"text/plain\"]);",
+        "assert_array_equals(dt.types, [\"text/plain\", \"Files\"]);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/datastore/datatransferitemlist-indexed-getter.html",
+      "sha256": "0f0ae1775ca0367d87314f2c6dd79b23a16b85cca7c31c0db7f87bdbab66eca4",
+      "historical_ids": [
+        "html/editing/dnd/datastore/datatransferitemlist-indexed-getter.html|window|"
+      ],
+      "family": "datastore",
+      "production": [
+        "crates/oryn-js/src/data_transfer.rs",
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs"
+      ],
+      "regressions": [
+        "author_transfer_constructor_has_none_effect_without_changing_native_seed",
+        "native_transfer_live_items_files_and_string_semantics",
+        "removed_item_does_not_rebind_to_reused_index"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(\"item\" in DataTransferItemList.prototype, \"item\");",
+        "assert_array_equals(Object.getOwnPropertyNames(DataTransferItemList.prototype).sort(),",
+        "assert_equals(items.length, 2);",
+        "assert_true(items[0] instanceof DataTransferItem, \"items[0]\");",
+        "assert_true(items[1] instanceof DataTransferItem, \"items[1]\");",
+        "assert_equals(items[0].type, \"text/plain\");",
+        "assert_equals(items[1].type, \"text/html\");",
+        "assert_equals(items[2], undefined, \"index === length\");",
+        "assert_equals(items[100], undefined, \"index > length\");",
+        "assert_equals(items[4294967294], undefined, \"index === 2 ** 32 - 2\");",
+        "assert_equals(items[4294967295], undefined, \"2 ** 32 - 1 is not an array index\");",
+        "assert_equals(items[-1], undefined, \"negative index\");",
+        "assert_equals(items.length, 2);",
+        "assert_equals(items.length, 1, \"after remove()\");",
+        "assert_equals(items[0].type, \"text/html\");",
+        "assert_equals(items[1], undefined);",
+        "assert_equals(items.length, 0, \"after clear()\");",
+        "assert_equals(items[0], undefined);",
+        "assert_equals(descriptor.value, items[0], \"value\");",
+        "assert_false(descriptor.writable, \"writable: there is no indexed property setter\");",
+        "assert_true(descriptor.enumerable, \"enumerable\");",
+        "assert_true(descriptor.configurable, \"configurable\");",
+        "assert_equals(Object.getOwnPropertyDescriptor(items, 2), undefined, \"unsupported index\");",
+        "assert_array_equals(Object.keys(items), [\"0\", \"1\"]);",
+        "assert_array_equals(Array.from(items, item => item.type), [\"text/plain\", \"text/html\"]);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/datastore/datatransferitemlist-remove.html",
+      "sha256": "c4e1d89f126959ed96f0e58a688aebdbe76821ec2f9c14fe475fbe96e1200e6d",
+      "historical_ids": [
+        "html/editing/dnd/datastore/datatransferitemlist-remove.html|window|"
+      ],
+      "family": "datastore",
+      "production": [
+        "crates/oryn-js/src/data_transfer.rs",
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs"
+      ],
+      "regressions": [
+        "author_transfer_constructor_has_none_effect_without_changing_native_seed",
+        "native_transfer_live_items_files_and_string_semantics",
+        "removed_item_does_not_rebind_to_reused_index"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(item.kind, \"\");",
+        "assert_equals(item.type, \"\");",
+        "assert_equals(item.getAsFile(), null);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/dom/draggable.html",
+      "sha256": "aeae3d010b324691abb60f1328e62a7149ef8609178728b813adeb04b849be87",
+      "historical_ids": [
+        "html/editing/dnd/dom/draggable.html|window|"
+      ],
+      "family": "dom",
+      "production": [
+        "crates/oryn-webidl/idl/browser.webidl",
+        "crates/oryn-js/src/v8_bindings.rs::get_attribute_value",
+        "crates/oryn-js/src/v8_bindings.rs::set_attribute_value"
+      ],
+      "regressions": [
+        "draggable_reflection_defaults_ascii_tokens_and_boolean_conversion",
+        "element_drag_resolution_preserves_native_defaults_and_explicit_false",
+        "synthetic_events_are_untrusted_and_callbacks_are_queued"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_idl_attribute(document.querySelector('#defaults a'), 'draggable');",
+        "assert_idl_attribute(document.querySelector('#defaults div'), 'draggable');",
+        "assert_idl_attribute(document.querySelector('#defaults img'), 'draggable');",
+        "assert_true(document.querySelector('#defaults a').draggable);",
+        "assert_false(document.querySelector('#defaults div').draggable);",
+        "assert_true(document.querySelector('#defaults img').draggable);",
+        "assert_true(document.querySelector('#draggable a').draggable);",
+        "assert_true(document.querySelector('#draggable div').draggable);",
+        "assert_true(document.querySelector('#draggable img').draggable);",
+        "assert_false(document.querySelector('#draggable_false a').draggable);",
+        "assert_false(document.querySelector('#draggable_false div').draggable);",
+        "assert_false(document.querySelector('#draggable_false img').draggable);",
+        "assert_true(document.querySelector('#draggable_auto a').draggable);",
+        "assert_false(document.querySelector('#draggable_auto div').draggable);",
+        "assert_true(document.querySelector('#draggable_auto img').draggable);",
+        "assert_true(document.querySelector('#draggable_foo a').draggable);",
+        "assert_false(document.querySelector('#draggable_foo div').draggable);",
+        "assert_true(document.querySelector('#draggable_foo img').draggable);",
+        "assert_true(document.querySelector('#changable_true a').draggable);",
+        "assert_true(document.querySelector('#changable_true div').draggable);",
+        "assert_true(document.querySelector('#changable_true img').draggable);",
+        "assert_false(document.querySelector('#changable_false a').draggable);",
+        "assert_false(document.querySelector('#changable_false div').draggable);",
+        "assert_false(document.querySelector('#changable_false img').draggable);",
+        "assert_true(document.querySelector('#changable_foo a').draggable);",
+        "assert_true(document.querySelector('#changable_foo div').draggable);",
+        "assert_true(document.querySelector('#changable_foo img').draggable);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/dom/events.html",
+      "sha256": "aad0816a4d5c83d8b4f5f297c1706cc4696f433ada40186f41d59d89db8bd381",
+      "historical_ids": [
+        "html/editing/dnd/dom/events.html|window|"
+      ],
+      "family": "dom",
+      "production": [
+        "crates/oryn-webidl/idl/browser.webidl",
+        "crates/oryn-js/src/v8_bindings.rs::get_attribute_value",
+        "crates/oryn-js/src/v8_bindings.rs::set_attribute_value"
+      ],
+      "regressions": [
+        "draggable_reflection_defaults_ascii_tokens_and_boolean_conversion",
+        "element_drag_resolution_preserves_native_defaults_and_explicit_false",
+        "synthetic_events_are_untrusted_and_callbacks_are_queued"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(element.ondragstart, null);",
+        "assert_equals(element.ondrag, null);",
+        "assert_equals(element.ondragenter, null);",
+        "assert_equals(element.ondragleave, null);",
+        "assert_equals(element.ondragover, null);",
+        "assert_equals(element.ondrop, null);",
+        "assert_equals(element.ondragend, null);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/dom/specials.html",
+      "sha256": "8a250edea462c751a17d1fdac98a995d105079c3ac94a1f8243e200d9a40a2ef",
+      "historical_ids": [
+        "html/editing/dnd/dom/specials.html|window|"
+      ],
+      "family": "dom",
+      "production": [
+        "crates/oryn-webidl/idl/browser.webidl",
+        "crates/oryn-js/src/v8_bindings.rs::get_attribute_value",
+        "crates/oryn-js/src/v8_bindings.rs::set_attribute_value"
+      ],
+      "regressions": [
+        "draggable_reflection_defaults_ascii_tokens_and_boolean_conversion",
+        "element_drag_resolution_preserves_native_defaults_and_explicit_false",
+        "synthetic_events_are_untrusted_and_callbacks_are_queued"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(allEvents[j] in allObjects[i][1]);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/drop/029.html",
+      "sha256": "97e0c74ec1bbeaca6f6f521f4e596c37707780b904bdf1bc5b8479e31e9bc28b",
+      "historical_ids": [
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=all",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=copy",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=copyLink",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=copyMove",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=dummy",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=link",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=linkMove",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=move",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=none",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=undefined",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=uninitialized",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=all",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=copy",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=copyLink",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=copyMove",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=dummy",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=link",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=linkMove",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=move",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=none",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=undefined",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=uninitialized",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=all",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=copy",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=copyLink",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=copyMove",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=dummy",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=link",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=linkMove",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=move",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=none",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=undefined",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=uninitialized",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=all",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=copy",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=copyLink",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=copyMove",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=dummy",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=link",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=linkMove",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=move",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=none",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=undefined",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=uninitialized",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=all",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=copy",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=copyLink",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=copyMove",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=dummy",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=link",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=linkMove",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=move",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=none",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=undefined",
+        "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=uninitialized"
+      ],
+      "family": "drop",
+      "production": [
+        "crates/oryn-js/src/data_transfer.rs::DragNegotiation",
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport"
+      ],
+      "regressions": [
+        "pinned_drop_and_dragend_matrix_covers_all_110_variants",
+        "accepted_native_drag_orders_events_and_detaches_saved_payloads"
+      ],
+      "helpers": [
+        "/html/editing/dnd/drop/support/dropEffect-test-helper.js",
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/drop/030.html",
+      "sha256": "d4b88d69aa02c19b792f41cc32f6b51db29ef987c8c93b65229c26e24847ae6f",
+      "historical_ids": [
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=all",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=copy",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=copyLink",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=copyMove",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=dummy",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=link",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=linkMove",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=move",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=none",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=undefined",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=uninitialized",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=all",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=copy",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=copyLink",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=copyMove",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=dummy",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=link",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=linkMove",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=move",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=none",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=undefined",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=uninitialized",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=all",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=copy",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=copyLink",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=copyMove",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=dummy",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=link",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=linkMove",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=move",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=none",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=undefined",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=uninitialized",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=all",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=copy",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=copyLink",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=copyMove",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=dummy",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=link",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=linkMove",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=move",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=none",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=undefined",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=uninitialized",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=all",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=copy",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=copyLink",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=copyMove",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=dummy",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=link",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=linkMove",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=move",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=none",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=undefined",
+        "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=uninitialized"
+      ],
+      "family": "drop",
+      "production": [
+        "crates/oryn-js/src/data_transfer.rs::DragNegotiation",
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport"
+      ],
+      "regressions": [
+        "pinned_drop_and_dragend_matrix_covers_all_110_variants",
+        "accepted_native_drag_orders_events_and_detaches_saved_payloads"
+      ],
+      "helpers": [
+        "/html/editing/dnd/drop/support/dropEffect-test-helper.js",
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/events/dragenter-dragleave-related-target.html",
+      "sha256": "e92152964cb14c1d3e3897ef0b1eb6e48f9a10d9c82b05f6cc59ec94755333b1",
+      "historical_ids": [
+        "html/editing/dnd/events/dragenter-dragleave-related-target.html|window|"
+      ],
+      "family": "events",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs"
+      ],
+      "regressions": [
+        "interrupted_enter_and_over_do_not_repeat_source_drag",
+        "dragleave_uses_current_coordinates_in_previous_transformed_frame",
+        "pointer_actions_deliver_native_drag_payload_without_a_followup_click"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_not_equals(enterA, undefined, 'dragenter fired on zone A');",
+        "assert_equals(enterA.relatedTarget, null,",
+        "assert_not_equals(leaveA, undefined, 'dragleave fired on zone A');",
+        "assert_equals(leaveA.relatedTarget, zoneB,",
+        "assert_not_equals(enterB, undefined, 'dragenter fired on zone B');",
+        "assert_equals(enterB.relatedTarget, zoneA,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/events/pointer-suppression.html",
+      "sha256": "b353367c253d77a24cde4db39e3c430dcd0d7a7320a23ec426bbf2991ac21e52",
+      "historical_ids": [
+        "html/editing/dnd/events/pointer-suppression.html|window|"
+      ],
+      "family": "events",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs"
+      ],
+      "regressions": [
+        "interrupted_enter_and_over_do_not_repeat_source_drag",
+        "dragleave_uses_current_coordinates_in_previous_transformed_frame",
+        "pointer_actions_deliver_native_drag_payload_without_a_followup_click"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_true(pointerCancelCalled, 'pointercancel should have been called after dragstart:');",
+        "assert_true(pointerOutCalled, 'pointerout should have been called after dragstart:');",
+        "assert_true(pointerLeftCalled, 'pointerleave should have been called after dragstart:');"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/historical.html",
+      "sha256": "c5226d8bc27a7e6d4bc622d70f87a5cd8b3df659f6c232708ca057d4c9386e84",
+      "historical_ids": [
+        "html/editing/dnd/historical.html|window|"
+      ],
+      "family": "historical.html",
+      "production": [
+        "crates/oryn-js/src/v8_bindings.rs",
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs"
+      ],
+      "regressions": [
+        "synthetic_events_are_untrusted_and_callbacks_are_queued",
+        "native_transfer_live_items_files_and_string_semantics"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(\"ondragexit\" in location,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/001.html",
+      "sha256": "1a16724509bd588b655f3ae317785c6ae3cbe7038823210af092b5b3097989b6",
+      "historical_ids": [
+        "html/editing/dnd/images/001.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.querySelector('img').src, img.src);",
+        "dragDropTest(img, div, onDropCallBack, 'Dragging the image to the bottom div should copy the image there');"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/002.html",
+      "sha256": "95f785bd6ff3c3862552b82213f8b4c9df9771648408a4d182cc55867d9d0d7e",
+      "historical_ids": [
+        "html/editing/dnd/images/002.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.querySelector('img').src, img.src);",
+        "dragDropTest(img, div, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/004.html",
+      "sha256": "029269aaabbda582fb387c0bf62547a4fd2013c7d8318db813d7a93b990efbb8",
+      "historical_ids": [
+        "html/editing/dnd/images/004.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.querySelector('img').src, object.getAttribute('data'));",
+        "dragDropTest(object, div, onDropCallBack, 'Dragging the object to the bottom div should copy the image there');"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/005.html",
+      "sha256": "a9f617fa76c78b949c23f44fe3acdd9bd289e0a34e744e15c127c4e1fd7842a0",
+      "historical_ids": [
+        "html/editing/dnd/images/005.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.querySelector('img').src, img.src);",
+        "dragDropTest(img, div, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/006.html",
+      "sha256": "b5d23ca2de6f694d67f95a3cf76c234eef42bba7e82167d3f14479d9e535841e",
+      "historical_ids": [
+        "html/editing/dnd/images/006.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(frames[0].document.querySelector('img').src, img.src);",
+        "dragDropTest(iframe, div, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/007.html",
+      "sha256": "1eb19e659aa34a8c63e75f2af0f8095958ea8f534452b258aecb33d5bdbd1437",
+      "historical_ids": [
+        "html/editing/dnd/images/007.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.querySelector('img').src, img.src);",
+        "dragDropTest(img, div, onDropCallBack, 'Dragging a dataURL image to an iframe should copy it there', /*dragIframe=*/null, iframe);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/008.html",
+      "sha256": "b0e22094b2b612ca97663d8be4c313ce13988a5208c26b101ad139262703cf56",
+      "historical_ids": [
+        "html/editing/dnd/images/008.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.querySelector('img').src, img.src);",
+        "dragDropTest(dragIframe, div, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/009.html",
+      "sha256": "d265c30824cc340b1bc8b34508a04f9ccaa1234651eed0c0e3b1aafb8a2c0071",
+      "historical_ids": [
+        "html/editing/dnd/images/009.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.querySelector('img').src, dragImg.src);",
+        "dragDropTest(iframe, div, onDropCallBack, 'Dragging an image within an iframe to a div should copy it there');"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/010.html",
+      "sha256": "ccb9df9890acd42ca5c3c093afccab48d7e429548fb9711de01d1389d7cba501",
+      "historical_ids": [
+        "html/editing/dnd/images/010.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.querySelector('img').src, img.src);",
+        "dragDropTest(img, div, onDropCallBack, 'Dragging an image to an iframe should copy it there', /*dragIframe=*/null, iframe)"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/015.html",
+      "sha256": "9753703c40cf7c8568cb4838855e7b152c797ec861d6c2639b7800e29b74f116",
+      "historical_ids": [
+        "html/editing/dnd/images/015.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.firstChild.nodeValue, 'PASS');",
+        "dragDropTest(img, div, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/016.html",
+      "sha256": "49590211e1f045ca31fbe7ce86e4e444280927558d778f7a678f0dd2a15c5ba1",
+      "historical_ids": [
+        "html/editing/dnd/images/016.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.firstChild.nodeValue, 'P A S S');",
+        "dragDropTest(img, div, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/017.html",
+      "sha256": "d94b28faa283ed4ce0c1a6e873fc708e3846962563a160ceb73c88332debdedf",
+      "historical_ids": [
+        "html/editing/dnd/images/017.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.firstChild.nodeValue, 'PASS');",
+        "dragDropTest(img, div, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/018.html",
+      "sha256": "06528fd120b7990aed2acd83f75a87b62b60098966bd866d9ae0fc20a1f45099",
+      "historical_ids": [
+        "html/editing/dnd/images/018.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(div.firstChild.nodeValue, 'P A S S');",
+        "dragDropTest(img, div, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/021.html",
+      "sha256": "acd62b10adece16d29d97e0903e76a9fd2ddea5b27c0eb6d161267cf3ac3b1b3",
+      "historical_ids": [
+        "html/editing/dnd/images/021.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "dragDropTestNoDropEvent(img, div,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/023.html",
+      "sha256": "252ce18c013497ec44b458532ef981fa59bba50e8d9d92a6bf263535238d83c1",
+      "historical_ids": [
+        "html/editing/dnd/images/023.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "dragDropTestNoDropEvent(img, div,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/images/024.html",
+      "sha256": "83ca2a52a22d39527060d8033f8fab179a854f9b777deab111bc30e7ecc94b2d",
+      "historical_ids": [
+        "html/editing/dnd/images/024.html|window|"
+      ],
+      "family": "images",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_cross_frame.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer.rs",
+        "crates/oryn-native/src/drag_image_capture.rs"
+      ],
+      "regressions": [
+        "native_drag_crosses_frame_without_embedding_drop_or_release_click",
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "live_layout_provider_uses_native_classic_scrollbar_metrics"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "dragDropTestNoDropEvent(img, div,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/button_inside_draggable_element.html",
+      "sha256": "f8646bef20fbb761757384405d60c1d90de1eabc8a93c58d4f423598e3d51dcd",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/button_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(result.didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_equals(result.targetId, \"outer\", \"should drag outer element\");",
+        "assert_equals(result.dataTransferItemsCount, 0, \"dataTransfer should have no items\");",
+        "assert_equals(result.dataTransferTypesCount, 0, \"dataTransfer should have no types\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/contenteditable_inside_draggable_element.html",
+      "sha256": "06c3915a55fe05fc71f8ce84f52d9de7860eaa1195276c08c516abcd4491da48",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/contenteditable_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/disabled_input_text_inside_draggable_element.html",
+      "sha256": "222915aa65c9f7cedf41c79c15177a5a68de7df465b14a75ce3d29b5c82d350b",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/disabled_input_text_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_button.html",
+      "sha256": "800a98a0c32c1e44fcdb614e46a8b4d02b2ff6afa3e94afe59b1e6422fbe94bb",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_button.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(result.didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_equals(result.targetId, \"inner\", \"should drag inner element\");",
+        "assert_equals(result.dataTransferItemsCount, 0, \"dataTransfer should have no items\");",
+        "assert_equals(result.dataTransferTypesCount, 0, \"dataTransfer should have no types\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_contenteditable.html",
+      "sha256": "cb002452c007850b45d274f5389e6c618bc0ff79b1b56497d754d52edb26cc59",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_contenteditable.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_disabled_input_text.html",
+      "sha256": "4e68a3c4d94643902f9794f8581af93b47a733503555dd1e8aa958ec79247684",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_disabled_input_text.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_input_button.html",
+      "sha256": "e0749a3418420d79c31ff402c74c7ce521f537fba6de38e25f1cfff6bdea86a7",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_input_button.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(result.didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_equals(result.targetId, \"inner\", \"should drag inner element\");",
+        "assert_equals(result.dataTransferItemsCount, 0, \"dataTransfer should have no items\");",
+        "assert_equals(result.dataTransferTypesCount, 0, \"dataTransfer should have no types\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_input_image.html",
+      "sha256": "91f0f4ad6ecfd601fa5b705467ae60cb2fe521664d69a85ee76cd357d3c9be78",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_input_image.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(result.didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_equals(result.targetId, \"inner\", \"should drag inner element\");",
+        "assert_equals(result.dataTransferItemsCount, 0, \"dataTransfer should have no items\");",
+        "assert_equals(result.dataTransferTypesCount, 0, \"dataTransfer should have no types\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_input_reset.html",
+      "sha256": "5e74e77a97a38e0a0de99ccacad3860c7e799d09fda914d42dae80b86c4fc9c7",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_input_reset.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(result.didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_equals(result.targetId, \"inner\", \"should drag inner element\");",
+        "assert_equals(result.dataTransferItemsCount, 0, \"dataTransfer should have no items\");",
+        "assert_equals(result.dataTransferTypesCount, 0, \"dataTransfer should have no types\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_input_submit.html",
+      "sha256": "228c24344e8815c8bee6e5f08e3634f141348edc2d72fbc26b84c3e8bbbffd1b",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_input_submit.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(result.didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_equals(result.targetId, \"inner\", \"should drag inner element\");",
+        "assert_equals(result.dataTransferItemsCount, 0, \"dataTransfer should have no items\");",
+        "assert_equals(result.dataTransferTypesCount, 0, \"dataTransfer should have no types\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_input_text.html",
+      "sha256": "9dc69573488845ea3fe63d50d19766bbe90f6dec355e0cf2e275c904739edf85",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_input_text.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_readonly_input_text.html",
+      "sha256": "4b46918ce3c6ffec87541ef325b4d95d56ec4869f0c1152d1cffc0fd1fa0bba2",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_readonly_input_text.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_select.html",
+      "sha256": "9b0a4b74c275bde48f824a89938410a7d6a591ba28d89f7b562df92fba1df0fd",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_select.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_select_multiple.html",
+      "sha256": "71d261573fcc3f90fa1badcf5763247592d614d917c7b9dcd99d3e5ab0fcd151",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_select_multiple.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/draggable_textarea.html",
+      "sha256": "89abb3c691e2ad2b7eafec52f6756ec0ffa09c272839f2095ba18f3c041b90a5",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/draggable_textarea.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/input_button_inside_draggable_element.html",
+      "sha256": "4cd22f06264ad6be8b2ac5cf1040d25c5d0aa4add62e5fd799b4833eb4497a18",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/input_button_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(result.didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_equals(result.targetId, \"outer\", \"should drag outer element\");",
+        "assert_equals(result.dataTransferItemsCount, 0, \"dataTransfer should have no items\");",
+        "assert_equals(result.dataTransferTypesCount, 0, \"dataTransfer should have no types\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/input_image_inside_draggable_element.html",
+      "sha256": "3ddd767480e5803ae9347fd5cd24aebc0c3a8d11bdbdd52c6909cc85e3715ad6",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/input_image_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(result.didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_equals(result.targetId, \"outer\", \"should drag outer element\");",
+        "assert_equals(result.dataTransferItemsCount, 0, \"dataTransfer should have no items\");",
+        "assert_equals(result.dataTransferTypesCount, 0, \"dataTransfer should have no types\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/input_reset_inside_draggable_element.html",
+      "sha256": "b05b55993c600e7ff72a5e98dd48da8d06b05803a61b12f3420e994a015af35e",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/input_reset_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(result.didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_equals(result.targetId, \"outer\", \"should drag outer element\");",
+        "assert_equals(result.dataTransferItemsCount, 0, \"dataTransfer should have no items\");",
+        "assert_equals(result.dataTransferTypesCount, 0, \"dataTransfer should have no types\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/input_submit_inside_draggable_element.html",
+      "sha256": "c6c5e6f79e8262e80ea8bc12e318fb9b137c15cfc546e78f9ffb9921f661f793",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/input_submit_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(result.didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_equals(result.targetId, \"outer\", \"should drag outer element\");",
+        "assert_equals(result.dataTransferItemsCount, 0, \"dataTransfer should have no items\");",
+        "assert_equals(result.dataTransferTypesCount, 0, \"dataTransfer should have no types\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/input_text_inside_draggable_element.html",
+      "sha256": "2f19b07c305a9cda176e0f17840190330fea54eeee2aca4984f9423d781a0cb0",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/input_text_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/readonly_input_text_inside_draggable_element.html",
+      "sha256": "24f31a18667704c4148c816c987475a603cc39ca85d6aa383c0b0f3dd66aeab5",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/readonly_input_text_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/select_inside_draggable_element.html",
+      "sha256": "896109828bb07af023e6a1610abd268b7432a7c1dfc58ba69e23677dafdf3b51",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/select_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/select_multiple_inside_draggable_element.html",
+      "sha256": "f98e1cba1e6db1a6498c7fed5554109656fc52d2cd67459e0f66689d6137c191",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/select_multiple_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/interactiveelements/textarea_inside_draggable_element.html",
+      "sha256": "1f943fdca180ad9a1819fc3052ea7fe671c8b50e31acb7c4452c558e6ce0edb1",
+      "historical_ids": [
+        "html/editing/dnd/interactiveelements/textarea_inside_draggable_element.html|window|"
+      ],
+      "family": "interactiveelements",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::element_drag_source",
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs"
+      ],
+      "regressions": [
+        "interactive_drag_source_matrix_preserves_buttons_and_native_selection",
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");",
+        "assert_false(didReceiveDragStart, \"dragstart should not fire\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/js-file-fallback-text-only.html",
+      "sha256": "dd60bfe6605dad51e727784b6d75e506c3f67b7aa62b824d73c2fcd6484ef2be",
+      "historical_ids": [
+        "html/editing/dnd/js-file-fallback-text-only.html|window|"
+      ],
+      "family": "js-file-fallback-text-only.html",
+      "production": [
+        "crates/oryn-js/src/v8_bindings.rs",
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs"
+      ],
+      "regressions": [
+        "synthetic_events_are_untrusted_and_callbacks_are_queued",
+        "native_transfer_live_items_files_and_string_semantics"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(e.dataTransfer.files.length, 0,",
+        "assert_equals(text, 'test.png',"
+      ],
+      "disposition": "configuration_contract_conflict",
+      "note": "Explicitly assumes DragAndDropJSFileObjects disabled; js-file-image-drag requires actual binary File. Native supports File payloads. Same configuration cannot satisfy both assertions; preserve denominator and resolve profile qualification."
+    },
+    {
+      "path": "html/editing/dnd/js-file-image-drag.html",
+      "sha256": "fb5fcef6aeb7355988d931095049b552fb9d52234b4cb3f1b7c6f7a4be103078",
+      "historical_ids": [
+        "html/editing/dnd/js-file-image-drag.html|window|"
+      ],
+      "family": "js-file-image-drag.html",
+      "production": [
+        "crates/oryn-js/src/data_transfer.rs::Store::add_file",
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs",
+        "crates/oryn-native/src/production_input_regressions.rs"
+      ],
+      "regressions": [
+        "native_transfer_live_items_files_and_string_semantics",
+        "foreign_realm_drop_preserves_event_store_modes_and_detaches_after_end"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(e.dataTransfer.files.length, 1, \"File should be in .files\");",
+        "assert_equals(file.name, 'test.png');",
+        "assert_equals(buffer.byteLength, PNG_BYTES.byteLength, \"Content size mismatch\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/layoutshift/001.html",
+      "sha256": "9d7992e2e60113c880779937a961fc4df0cfd0d22bda0204966d1653149ad857",
+      "historical_ids": [
+        "html/editing/dnd/layoutshift/001.html|window|"
+      ],
+      "family": "layoutshift",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag_image.rs"
+      ],
+      "regressions": [
+        "capture_owns_call_time_pixels_and_rejects_retirement",
+        "dragstart_retry_admits_one_session_with_completed_payload"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(img.src, canvas.toDataURL('image/png'));",
+        "dragDropTestWithLayoutShift(canvas, div, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/platform/mousedown-drag-select-input-display-change.html",
+      "sha256": "65cd56b3b753ca79bf6f9fadabac8384abea776eaf6bdf959a8f67aa74b9ad6f",
+      "historical_ids": [
+        "html/editing/dnd/platform/mousedown-drag-select-input-display-change.html|window|"
+      ],
+      "family": "platform",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport"
+      ],
+      "regressions": [
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries",
+        "canceled_dragstart_is_attempted_once_per_press"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(document.activeElement, input, \"<input> should be focused\");",
+        "assert_not_equals(input.selectionStart, 0, \"selection shouldn't be started from the start\");",
+        "assert_not_equals(input.selectionStart, input.selectionEnd,",
+        "assert_equals(document.activeElement, input, \"<input> should be focused\");",
+        "assert_equals(input.selectionStart, input.selectionEnd,",
+        "assert_equals(document.activeElement, input, \"<input> should be focused\");",
+        "assert_not_equals(input.selectionStart, 0, \"selection shouldn't be started from the start\");",
+        "assert_equals(input.selectionStart, input.selectionEnd,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/platform/mousedown-move-inner-when-dragging-1.html",
+      "sha256": "698f14ab1b2f90ca86bcb85a9ea179d7aef762a35d3a9469a571266dd1bbbd28",
+      "historical_ids": [
+        "html/editing/dnd/platform/mousedown-move-inner-when-dragging-1.html|window|"
+      ],
+      "family": "platform",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport"
+      ],
+      "regressions": [
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries",
+        "canceled_dragstart_is_attempted_once_per_press"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(e.target, element);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/platform/mousedown-move-inner-when-dragging-2.html",
+      "sha256": "bb5badacf8c3675b43f5341d274da1c34f6c904e878ffffc692235b7a9558ce4",
+      "historical_ids": [
+        "html/editing/dnd/platform/mousedown-move-inner-when-dragging-2.html|window|"
+      ],
+      "family": "platform",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport"
+      ],
+      "regressions": [
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries",
+        "canceled_dragstart_is_attempted_once_per_press"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(e.target, element);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/platform/pointerdown-add-display-none.html",
+      "sha256": "cfa3f837615bd835ade2870a873ec3ceaae0816f553d286df32908535930187a",
+      "historical_ids": [
+        "html/editing/dnd/platform/pointerdown-add-display-none.html|window|"
+      ],
+      "family": "platform",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport"
+      ],
+      "regressions": [
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries",
+        "canceled_dragstart_is_attempted_once_per_press"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(e.target, dragBox);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/platform/pointerdown-add-overflow-hidden.html",
+      "sha256": "ef03957a2c3fa714adc0f2537e9e509b0412434f4b43c8aa17b7a77c8bd5f0e2",
+      "historical_ids": [
+        "html/editing/dnd/platform/pointerdown-add-overflow-hidden.html|window|"
+      ],
+      "family": "platform",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_pointer/drag_admission.rs",
+        "crates/oryn-js/src/v8_bindings/native_pointer_selection.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport"
+      ],
+      "regressions": [
+        "control_pointer_selection_preserves_drag_sources_and_utf16_boundaries",
+        "canceled_dragstart_is_attempted_once_per_press"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(e.target, item);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/remove/001.html",
+      "sha256": "1b8189081c2bf6e1e93a529363c6cfde4b244da416c8bca41af4e3e222d22433",
+      "historical_ids": [
+        "html/editing/dnd/remove/001.html|window|"
+      ],
+      "family": "remove",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/native_drag/input.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/advance.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag/drop_operation.rs",
+        "crates/oryn-native/src/rust_executable.rs::begin_pointer_drag_transport",
+        "crates/oryn-js/src/v8_bindings/native_drag/begin.rs",
+        "crates/oryn-js/src/v8_bindings/native_drag.rs::Session::present"
+      ],
+      "regressions": [
+        "dragstart_retry_admits_one_session_with_completed_payload",
+        "capture_owns_call_time_pixels_and_rejects_retirement"
+      ],
+      "helpers": [
+        "/html/editing/dnd/resources/test-helper.js"
+      ],
+      "assertion_source": [
+        "assert_equals(img.src, canvas.toDataURL('image/png'));",
+        "dragDropTestWithLayoutShift(canvas, div, onDropCallBack,"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/synthetic/001.html",
+      "sha256": "230f99cd7cd1a2859d919245a00d54f0ce8cbbc03185c70c6ae6f288026efc2b",
+      "historical_ids": [
+        "html/editing/dnd/synthetic/001.html|window|"
+      ],
+      "family": "synthetic",
+      "production": [
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs",
+        "crates/oryn-js/src/v8_bindings.rs"
+      ],
+      "regressions": [
+        "synthetic_events_are_untrusted_and_callbacks_are_queued"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_own_property(window,'DragEvent');",
+        "assert_false( !!evt.initDragEvent, 'initDragEvent' );",
+        "assert_true( !!evt.initMouseEvent, 'initMouseEvent' );",
+        "assert_true( !!evt.initUIEvent, 'initUIEvent' );",
+        "assert_true( !!evt.initEvent, 'initEvent' );",
+        "assert_true(ranlistener);",
+        "assert_true(ranlistener);",
+        "assert_throws_js(TypeError, function() {",
+        "assert_true(ranlistener);",
+        "assert_true(ranlistener);",
+        "assert_true(ranlistener);",
+        "assert_equals(dTrans,null);",
+        "assert_equals(dTrans,null);",
+        "assert_equals(dTrans,null);",
+        "assert_equals(dTrans,null);",
+        "assert_equals(dTrans,null);"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/target-origin/202.html",
+      "sha256": "6e63d04d1bd893a92da63cdfc7933b48bd5db0461c36df3ba4551dffc19419a3",
+      "historical_ids": [
+        "html/editing/dnd/target-origin/202.html|window|"
+      ],
+      "family": "target-origin",
+      "production": [
+        "crates/oryn-js/src/v8_bindings.rs",
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs"
+      ],
+      "regressions": [
+        "synthetic_events_are_untrusted_and_callbacks_are_queued",
+        "native_transfer_live_items_files_and_string_semantics"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_true(evtdone.dragstart, 'dragstart must fire');",
+        "assert_true(evtdone.drag, 'drag must fire');",
+        "assert_true(evtdone.dragend, 'dragend must fire');",
+        "assert_false(evtdone.dragenter, 'dragenter must not fire');",
+        "assert_false(evtdone.dragover, 'dragover must not fire');",
+        "assert_false(evtdone.dragleave, 'dragleave must not fire');",
+        "assert_false(evtdone.drop, 'drop must not fire');"
+      ],
+      "disposition": "pinned_contract_conflict",
+      "note": "Uses removed initDragEvent and allowTargetOrigin, conflicting with synthetic/001 assertion that initDragEvent is absent. Preserve failed row; root must resolve contract disposition, no fixture-specific implementation."
+    },
+    {
+      "path": "html/editing/dnd/the-draggable-attribute/draggable-enumerated-ascii-case-insensitive.html",
+      "sha256": "3e1bbb47240bc5d6a792a7e0429d8d5374e1cb67ad5040f22233592d7e0aa184",
+      "historical_ids": [
+        "html/editing/dnd/the-draggable-attribute/draggable-enumerated-ascii-case-insensitive.html|window|"
+      ],
+      "family": "the-draggable-attribute",
+      "production": [
+        "crates/oryn-webidl/idl/browser.webidl",
+        "crates/oryn-js/src/v8_bindings.rs::get_attribute_value",
+        "crates/oryn-js/src/v8_bindings.rs::set_attribute_value"
+      ],
+      "regressions": [
+        "draggable_reflection_defaults_ascii_tokens_and_boolean_conversion",
+        "element_drag_resolution_preserves_native_defaults_and_explicit_false",
+        "synthetic_events_are_untrusted_and_callbacks_are_queued"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_equals(img[0].draggable, false, \"lowercase valid\");",
+        "assert_equals(img[1].draggable, false, \"mixed case valid\");",
+        "assert_equals(img[2].draggable, true, \"non-ASCII invalid\");"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/the-draggable-attribute/draggable_attribute.html",
+      "sha256": "cb006531125c6d59b2916fb202519f2ffc19af00e522bc0fa7821cb1629999af",
+      "historical_ids": [
+        "html/editing/dnd/the-draggable-attribute/draggable_attribute.html|window|"
+      ],
+      "family": "the-draggable-attribute",
+      "production": [
+        "crates/oryn-webidl/idl/browser.webidl",
+        "crates/oryn-js/src/v8_bindings.rs::get_attribute_value",
+        "crates/oryn-js/src/v8_bindings.rs::set_attribute_value"
+      ],
+      "regressions": [
+        "draggable_reflection_defaults_ascii_tokens_and_boolean_conversion",
+        "element_drag_resolution_preserves_native_defaults_and_explicit_false",
+        "synthetic_events_are_untrusted_and_callbacks_are_queued"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_inherits(eElement, 'draggable', 'Element ' + a[0] +' should have draggable property');",
+        "assert_true(element.draggable, 'Element ' + element_name +' should be draggable');",
+        "assert_false(element.draggable, 'Element ' + element_name +' should not be draggable');",
+        "assert_equals(element.getAttribute('draggable'), 'true', 'Element ' + element_name +' should be draggable');",
+        "assert_equals(element.getAttribute('draggable'), 'false', 'Element ' + element_name +' should not be draggable');",
+        "assert_equals(typeof eElement.title, 'string', '<' + a[0] + '> draggable block has title attribute');"
+      ],
+      "disposition": "mapped_source_execution_deferred",
+      "note": "Existing regression names cover algorithm boundaries, not an executed equivalent of every fixture assertion."
+    },
+    {
+      "path": "html/editing/dnd/the-dropzone-attribute/dropzone_attribute.html",
+      "sha256": "9185e7906775a03d6632b1c07b783dc9d45e0d7fcaae1bb9b39ef596cba40479",
+      "historical_ids": [
+        "html/editing/dnd/the-dropzone-attribute/dropzone_attribute.html|window|"
+      ],
+      "family": "the-dropzone-attribute",
+      "production": [
+        "crates/oryn-js/src/v8_bindings.rs",
+        "crates/oryn-js/src/v8_bindings/data_transfer.rs"
+      ],
+      "regressions": [
+        "synthetic_events_are_untrusted_and_callbacks_are_queued",
+        "native_transfer_live_items_files_and_string_semantics"
+      ],
+      "helpers": [],
+      "assertion_source": [
+        "assert_not_equals(drop_element.dropzone, undefined, 'div.dropzone should not be undefined if it\\'s been set');",
+        "assert_not_equals(drop_element.dropzone, null,  'div.dropzone should not be null');",
+        "assert_equals(drop_element.dropzone, 'copy file:image/png file:image/gif file:image/jpeg', 'div dropzone idl attribute must reflect the content attribute of the same name');",
+        "assert_equals(drop_element.getAttribute('dropzone'), 'copy file:image/png file:image/gif file:image/jpeg', 'div dropzone content attribute is set to the literal value');"
+      ],
+      "disposition": "obsolete_api_contract_review",
+      "note": "Requires removed dropzone reflection. No native obsolete dropzone implementation invented; root must retain explicit pinned contract disposition."
+    }
+  ],
+  "rows": [
+    {
+      "id": "html/editing/dnd/canvas/001.html|window|",
+      "path": "html/editing/dnd/canvas/001.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/canvas/002.html|window|",
+      "path": "html/editing/dnd/canvas/002.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/canvas/003.html|window|",
+      "path": "html/editing/dnd/canvas/003.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/canvas/005.html|window|",
+      "path": "html/editing/dnd/canvas/005.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": [
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/canvas/007.html|window|",
+      "path": "html/editing/dnd/canvas/007.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": [
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/datastore/datatransfer-constructor-001.html|window|",
+      "path": "html/editing/dnd/datastore/datatransfer-constructor-001.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/datastore/datatransfer-getdata-url.html|window|",
+      "path": "html/editing/dnd/datastore/datatransfer-getdata-url.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/datastore/datatransfer-types.html|window|",
+      "path": "html/editing/dnd/datastore/datatransfer-types.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/datastore/datatransferitemlist-indexed-getter.html|window|",
+      "path": "html/editing/dnd/datastore/datatransferitemlist-indexed-getter.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/datastore/datatransferitemlist-remove.html|window|",
+      "path": "html/editing/dnd/datastore/datatransferitemlist-remove.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/dom/draggable.html|window|",
+      "path": "html/editing/dnd/dom/draggable.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/dom/events.html|window|",
+      "path": "html/editing/dnd/dom/events.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/dom/specials.html|window|",
+      "path": "html/editing/dnd/dom/specials.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=all",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=copy",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=copyLink",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=copyMove",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=dummy",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=link",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=linkMove",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=move",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=none",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=undefined",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=copy&effectallowed=uninitialized",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=all",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=copy",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=copyLink",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=copyMove",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=dummy",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=link",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=linkMove",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=move",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=none",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=undefined",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=dummy&effectallowed=uninitialized",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=all",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=copy",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=copyLink",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=copyMove",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=dummy",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=link",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=linkMove",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=move",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=none",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=undefined",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=link&effectallowed=uninitialized",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=all",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=copy",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=copyLink",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=copyMove",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=dummy",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=link",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=linkMove",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=move",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=none",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=undefined",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=move&effectallowed=uninitialized",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=all",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=copy",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=copyLink",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=copyMove",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=dummy",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=link",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=linkMove",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=move",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=none",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=undefined",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/029.html|window|?dropeffect=none&effectallowed=uninitialized",
+      "path": "html/editing/dnd/drop/029.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=all",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=copy",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=copyLink",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=copyMove",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=dummy",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=link",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=linkMove",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=move",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=none",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=undefined",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=copy&effectallowed=uninitialized",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=all",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=copy",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=copyLink",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=copyMove",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=dummy",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=link",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=linkMove",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=move",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=none",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=undefined",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=dummy&effectallowed=uninitialized",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=all",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=copy",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=copyLink",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=copyMove",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=dummy",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=link",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=linkMove",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=move",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=none",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=undefined",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=link&effectallowed=uninitialized",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=all",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=copy",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=copyLink",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=copyMove",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=dummy",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=link",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=linkMove",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=move",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=none",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=undefined",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=move&effectallowed=uninitialized",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=all",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=copy",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=copyLink",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=copyMove",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=dummy",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=link",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=linkMove",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=move",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=none",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=undefined",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/drop/030.html|window|?dropeffect=none&effectallowed=uninitialized",
+      "path": "html/editing/dnd/drop/030.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/events/dragenter-dragleave-related-target.html|window|",
+      "path": "html/editing/dnd/events/dragenter-dragleave-related-target.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/events/pointer-suppression.html|window|",
+      "path": "html/editing/dnd/events/pointer-suppression.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/historical.html|window|",
+      "path": "html/editing/dnd/historical.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/images/001.html|window|",
+      "path": "html/editing/dnd/images/001.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/images/002.html|window|",
+      "path": "html/editing/dnd/images/002.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/images/004.html|window|",
+      "path": "html/editing/dnd/images/004.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/images/005.html|window|",
+      "path": "html/editing/dnd/images/005.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/images/006.html|window|",
+      "path": "html/editing/dnd/images/006.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/images/007.html|window|",
+      "path": "html/editing/dnd/images/007.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": [
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/images/008.html|window|",
+      "path": "html/editing/dnd/images/008.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": [
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/images/009.html|window|",
+      "path": "html/editing/dnd/images/009.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/images/010.html|window|",
+      "path": "html/editing/dnd/images/010.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": [
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/images/015.html|window|",
+      "path": "html/editing/dnd/images/015.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/images/016.html|window|",
+      "path": "html/editing/dnd/images/016.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/images/017.html|window|",
+      "path": "html/editing/dnd/images/017.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/images/018.html|window|",
+      "path": "html/editing/dnd/images/018.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/images/021.html|window|",
+      "path": "html/editing/dnd/images/021.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/images/023.html|window|",
+      "path": "html/editing/dnd/images/023.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/images/024.html|window|",
+      "path": "html/editing/dnd/images/024.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/button_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/button_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/contenteditable_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/contenteditable_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/disabled_input_text_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/disabled_input_text_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_button.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_button.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_contenteditable.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_contenteditable.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_disabled_input_text.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_disabled_input_text.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_input_button.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_input_button.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_input_image.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_input_image.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_input_reset.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_input_reset.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_input_submit.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_input_submit.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_input_text.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_input_text.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_readonly_input_text.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_readonly_input_text.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_select.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_select.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_select_multiple.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_select_multiple.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/draggable_textarea.html|window|",
+      "path": "html/editing/dnd/interactiveelements/draggable_textarea.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/input_button_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/input_button_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/input_image_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/input_image_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/input_reset_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/input_reset_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/input_submit_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/input_submit_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/input_text_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/input_text_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/readonly_input_text_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/readonly_input_text_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/select_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/select_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/select_multiple_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/select_multiple_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/interactiveelements/textarea_inside_draggable_element.html|window|",
+      "path": "html/editing/dnd/interactiveelements/textarea_inside_draggable_element.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/js-file-fallback-text-only.html|window|",
+      "path": "html/editing/dnd/js-file-fallback-text-only.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/js-file-image-drag.html|window|",
+      "path": "html/editing/dnd/js-file-image-drag.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/layoutshift/001.html|window|",
+      "path": "html/editing/dnd/layoutshift/001.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/platform/mousedown-drag-select-input-display-change.html|window|",
+      "path": "html/editing/dnd/platform/mousedown-drag-select-input-display-change.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/platform/mousedown-move-inner-when-dragging-1.html|window|",
+      "path": "html/editing/dnd/platform/mousedown-move-inner-when-dragging-1.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/platform/mousedown-move-inner-when-dragging-2.html|window|",
+      "path": "html/editing/dnd/platform/mousedown-move-inner-when-dragging-2.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/platform/pointerdown-add-display-none.html|window|",
+      "path": "html/editing/dnd/platform/pointerdown-add-display-none.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout",
+        "testdriver_operation_not_implemented"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/platform/pointerdown-add-overflow-hidden.html|window|",
+      "path": "html/editing/dnd/platform/pointerdown-add-overflow-hidden.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": [
+        "harness_timeout"
+      ]
+    },
+    {
+      "id": "html/editing/dnd/remove/001.html|window|",
+      "path": "html/editing/dnd/remove/001.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "harness",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/synthetic/001.html|window|",
+      "path": "html/editing/dnd/synthetic/001.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/target-origin/202.html|window|",
+      "path": "html/editing/dnd/target-origin/202.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/the-draggable-attribute/draggable-enumerated-ascii-case-insensitive.html|window|",
+      "path": "html/editing/dnd/the-draggable-attribute/draggable-enumerated-ascii-case-insensitive.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/the-draggable-attribute/draggable_attribute.html|window|",
+      "path": "html/editing/dnd/the-draggable-attribute/draggable_attribute.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    },
+    {
+      "id": "html/editing/dnd/the-dropzone-attribute/dropzone_attribute.html|window|",
+      "path": "html/editing/dnd/the-dropzone-attribute/dropzone_attribute.html",
+      "historical_status": "failed",
+      "historical_failure_domain": "assertion",
+      "historical_diagnostic_tags": []
+    }
+  ]
+}

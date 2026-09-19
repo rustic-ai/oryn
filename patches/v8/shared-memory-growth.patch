@@ -1,0 +1,157 @@
+--- a/include/v8-array-buffer.h
++++ b/include/v8-array-buffer.h
+@@ -32,6 +32,24 @@
+ enum class ArrayBufferCreationMode { kInternalized, kExternalized };
+ enum class BackingStoreInitializationMode { kZeroInitialized, kUninitialized };
+ enum class BackingStoreOnFailureMode { kReturnNull, kOutOfMemory };
++
++// Oryn engine ABI: native shared metadata and absolute GSAB growth.
++// Install before publishing any ArrayBuffer view of the backing store.
++#define V8_ORYN_SHARED_GROWTH_ABI 1
++class V8_EXPORT SharedMemoryGrowthDelegate {
++ public:
++  enum class Result { kSuccess, kFailure, kRace };
++  virtual ~SharedMemoryGrowthDelegate() = default;
++  // Must perform an acquire read from native shared metadata, without JS calls.
++  virtual size_t ByteLength() const = 0;
++  // Stable, naturally aligned native-size atomic cell. Compiled shared Wasm
++  // accesses load this with atomic ordering. The delegate retains its mapping
++  // until all backing/instance references are gone; the address never moves.
++  virtual const size_t* ByteLengthAddress() const = 0;
++  // Publish zeroed accessible bytes before the new shared length. This operation
++  // must serialize with concurrent absolute growth in every mapped process.
++  virtual Result GrowAbsolute(size_t new_byte_length) = 0;
++};
+ 
+ /**
+  * A wrapper around the backing store (i.e. the raw memory) of an array buffer.
+@@ -50,6 +68,14 @@
+  public:
+   ~BackingStore();
+ 
++  // The embedder attests that reserved_capacity bytes are actually mapped in
++  // the V8 sandbox. This API does not allocate, move, or free that mapping.
++  // Existing custom-deleter ownership remains attached to the backing store.
++  void SetSharedMemoryGrowthDelegate(
++      std::shared_ptr<SharedMemoryGrowthDelegate> delegate,
++      size_t maximum_length, size_t reserved_capacity);
++
++
+   /**
+    * Return a pointer to the beginning of the memory block for this backing
+    * store. The pointer is only valid as long as this backing store object
+--- a/src/objects/backing-store.h
++++ b/src/objects/backing-store.h
+@@ -95,7 +95,30 @@
+   }
+   size_t byte_length(
+       std::memory_order memory_order = std::memory_order_relaxed) const {
++    if (shared_growth_delegate_) {
++      const size_t length = shared_growth_delegate_->ByteLength();
++      CHECK_LE(length, max_byte_length_);
++      CHECK_LE(length, byte_capacity_);
++      return length;
++    }
+     return byte_length_.load(memory_order);
++  }
++  void SetSharedMemoryGrowthDelegate(
++      std::shared_ptr<v8::SharedMemoryGrowthDelegate> delegate,
++      size_t maximum_length, size_t reserved_capacity);
++
++  const size_t* shared_byte_length_address() const {
++    CHECK(is_shared());
++    if (shared_growth_delegate_) {
++      const size_t* address = shared_growth_delegate_->ByteLengthAddress();
++      CHECK_NOT_NULL(address);
++      CHECK_EQ(reinterpret_cast<uintptr_t>(address) % alignof(size_t), 0u);
++      return address;
++    }
++    // V8-owned shared memory uses its native atomic cell. Both addresses have
++    // the same backing-store lifetime and are never relocated during growth.
++    static_assert(sizeof(std::atomic<size_t>) == sizeof(size_t));
++    return reinterpret_cast<const size_t*>(&byte_length_);
+   }
+   size_t max_byte_length() const { return max_byte_length_; }
+   size_t byte_capacity() const { return byte_capacity_; }
+@@ -270,6 +293,7 @@
+ 
+   void* buffer_start_ = nullptr;
+   std::atomic<size_t> byte_length_;
++  std::shared_ptr<v8::SharedMemoryGrowthDelegate> shared_growth_delegate_;
+   // Max byte length of the corresponding JSArrayBuffer(s).
+   size_t max_byte_length_;
+   // Amount of the memory allocated
+--- a/src/objects/backing-store.cc
++++ b/src/objects/backing-store.cc
+@@ -29,6 +29,15 @@
+     if (v8_flags.trace_backing_store) PrintF(__VA_ARGS__); \
+   } while (false)
+ 
++namespace v8 {
++void BackingStore::SetSharedMemoryGrowthDelegate(
++    std::shared_ptr<SharedMemoryGrowthDelegate> delegate,
++    size_t maximum_length, size_t reserved_capacity) {
++  reinterpret_cast<internal::BackingStore*>(this)->SetSharedMemoryGrowthDelegate(
++      std::move(delegate), maximum_length, reserved_capacity);
++}
++}  // namespace v8
++
+ namespace v8::internal {
+ 
+ namespace {
+@@ -68,6 +77,28 @@
+ }
+ 
+ }  // namespace
++
++void BackingStore::SetSharedMemoryGrowthDelegate(
++    std::shared_ptr<v8::SharedMemoryGrowthDelegate> delegate,
++    size_t maximum_length, size_t reserved_capacity) {
++  CHECK(is_shared());
++  CHECK(!is_wasm_memory());  // Wasm needs its allocation/guard/bounds hook.
++  CHECK(!shared_growth_delegate_);
++  CHECK_NOT_NULL(delegate.get());
++  CHECK_GE(reserved_capacity, maximum_length);
++  CHECK_GE(maximum_length, byte_length_.load(std::memory_order_relaxed));
++  CHECK_LE(maximum_length, JSArrayBuffer::kMaxByteLength);
++  const size_t current = delegate->ByteLength();
++  CHECK_LE(current, maximum_length);
++  CHECK_GE(current, byte_length_.load(std::memory_order_relaxed));
++  // Installation is only allowed before publication. The native mapping is
++  // already reserved; no V8 allocator ownership or sandbox address changes.
++  max_byte_length_ = maximum_length;
++  byte_capacity_ = reserved_capacity;
++  byte_length_.store(current, std::memory_order_relaxed);
++  shared_growth_delegate_ = std::move(delegate);
++  set_flag(kIsResizableByJs);
++}
+ 
+ size_t BackingStore::GetWasmReservationSize(bool has_guard_regions,
+                                             size_t byte_capacity,
+@@ -199,7 +230,7 @@
+   }
+ #endif  // V8_ENABLE_WEBASSEMBLY
+ 
+-  if (is_resizable_by_js()) {
++  if (is_resizable_by_js() && !(shared_growth_delegate_ && custom_deleter())) {
+     FreeResizableMemory();
+     return;
+   }
+@@ -692,6 +723,17 @@
+ // Commit already reserved memory (for GSAB backing stores (shared)).
+ BackingStore::ResizeOrGrowResult BackingStore::GrowInPlace(
+     Isolate* isolate, size_t new_byte_length) {
++  if (shared_growth_delegate_) {
++    if (new_byte_length > max_byte_length_) return kFailure;
++    switch (shared_growth_delegate_->GrowAbsolute(new_byte_length)) {
++      case v8::SharedMemoryGrowthDelegate::Result::kFailure: return kFailure;
++      case v8::SharedMemoryGrowthDelegate::Result::kRace: return kRace;
++      case v8::SharedMemoryGrowthDelegate::Result::kSuccess:
++        CHECK_GE(byte_length(std::memory_order_seq_cst), new_byte_length);
++        return kSuccess;
++    }
++    UNREACHABLE();
++  }
+   size_t page_size = AllocatePageSize();
+   size_t new_committed_pages;
+   bool round_return_value =

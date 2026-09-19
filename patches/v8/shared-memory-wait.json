@@ -1,0 +1,24 @@
+{
+  "status": "source_generated_unbuilt_unqualified",
+  "requires": [
+    "shared-memory-growth"
+  ],
+  "required_patch_sha256": {
+    "shared-memory-growth": "63e630f2136d2690058ed0b647533572c957604bbca83f7aaa3359ad56432acd"
+  },
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "patch_sha256": "b113edc50dd5788b86e4b5c2c68c7805ae49401898fff0c88cdce1c9f188480e",
+  "base_files": {
+    "include/v8-array-buffer.h": "31b45c43270ce7c5b29df2286c7cd16a820d270cbaf3b20003e66253c4ebf9d5",
+    "src/objects/backing-store.h": "5420016a5138d878af61df42c1ffaa8dfdb3b984e0edc450e451b2d707d0b869",
+    "src/objects/backing-store.cc": "8bb9b6d883b45570d34a9de8a62e8d8453fc1263cc4fb686db8af418347d6f04",
+    "src/execution/futex-emulation.cc": "08738a3f36715501c80d7b0f27535715bfd15893eb0a228ff37cf520fff15cce"
+  },
+  "patched_files": {
+    "include/v8-array-buffer.h": "df612c2dd72c4b3ae1cc2a92081f3974de4f15c7d13125e58f090f55f6a007fe",
+    "src/objects/backing-store.h": "28205a3a522f41f625534427a2f86402c22bb232b8f8d5271b599882a1727094",
+    "src/objects/backing-store.cc": "7b12840547017a62a01de2007fb3a5afb6b084cdcae616cf33045b5567cc3c2d",
+    "src/execution/futex-emulation.cc": "c19fba753ae22c761f9b7ff194855f27a148b9b54ffc80a890242f9587a3a978"
+  },
+  "scope": "Native sync/async and raw Wasm notification delegate dispatch; native callback adapter, Wasm allocation and lifecycle qualification remain open"
+}

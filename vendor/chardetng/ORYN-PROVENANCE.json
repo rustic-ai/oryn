@@ -1,0 +1,7 @@
+{
+  "crate": "chardetng",
+  "version": "0.1.17",
+  "archive": "https://crates.io/api/v1/crates/chardetng/0.1.17/download",
+  "sha256": "14b8f0b65b7b08ae3c8187e8d77174de20cb6777864c6b832d8ad365999cf1ea",
+  "purpose": "Native bounded HTML encoding detection; no build or execution during generation"
+}

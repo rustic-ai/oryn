@@ -29,6 +29,9 @@
 
 pub(crate) use cssparser;
 
+/// Explicit native layout property admission, shared with CSSOM.
+pub mod native_profile;
+
 #[macro_use]
 extern crate bitflags;
 #[macro_use]
@@ -331,3 +334,10 @@ where
 
 // TODO(emilio): Measure and see if we're wasting a lot of memory on Vec /
 // SmallVec, and if so consider shrinking those as well.
+
+/// Native Servo embedders resolve anchor geometry after style computation.
+/// Keep parsing and CSSOM on the shared Stylo implementation.
+#[inline]
+pub fn anchor_positioning_enabled() -> bool {
+    cfg!(feature = "servo") || static_prefs::pref!("layout.css.anchor-positioning.enabled")
+}

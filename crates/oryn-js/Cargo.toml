@@ -6,27 +6,42 @@ license = "MIT OR Apache-2.0"
 description = "V8 realm and generated binding boundary for Oryn"
 
 [features]
+historical-test-input = []
 default = []
-v8-host = ["dep:image", "dep:v8"]
+v8-host = ["dep:image", "dep:v8", "dep:oryn-layout"]
 v8-sandbox = ["v8/v8_enable_sandbox"]
 
 [dependencies]
+oryn-common = { path = "../oryn-common" }
 base64 = "0.22"
+cssparser = "=0.37.0"
+kurbo = "=0.13.1"
 encoding_rs = "0.8"
 getrandom = "0.3"
+aes = { version = "0.8", features = ["zeroize"] }
+cbc = { version = "0.1", features = ["alloc", "block-padding"] }
+ed25519-dalek = { version = "2", features = ["pkcs8"] }
+sha1 = "0.10"
+sha2 = "0.10"
+zeroize = { version = "1", features = ["serde"] }
 image = { version = "0.25", default-features = false, features = ["bmp", "png", "jpeg", "gif", "webp"], optional = true }
 oryn-dom = { path = "../oryn-dom" }
+oryn-layout = { path = "../oryn-layout", optional = true }
+oryn-net = { path = "../oryn-net" }
+markup5ever = "0.39"
 oryn-webidl = { path = "../oryn-webidl" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 url = "2"
+psl = "2"
+unicode-segmentation = "=1.12.0"
 v8 = { version = "150.4", optional = true }
 
 [dev-dependencies]
-markup5ever = "0.39"
 
 [build-dependencies]
+oryn-webidl = { path = "../oryn-webidl" }
 cc = "1"
 serde_json = "1"
 sha2 = "0.10"

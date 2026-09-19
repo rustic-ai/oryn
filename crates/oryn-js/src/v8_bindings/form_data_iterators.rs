@@ -120,7 +120,9 @@ fn iterator_prototype<'s>(
     state: &V8BindingState,
 ) -> Result<v8::Local<'s, v8::Object>> {
     if let Some(prototype) = state.form_data_iterator_prototype.borrow().as_ref() {
-        return Ok(v8::Local::new(scope, prototype));
+        return prototype
+            .to_local(scope)
+            .ok_or(V8BindingError::Allocation("iterator prototype"));
     }
     let holder = v8::ObjectTemplate::new(scope);
     let key = v8::String::new(scope, "parent")
@@ -163,10 +165,16 @@ fn iterator_prototype<'s>(
             v8::PropertyAttribute::READ_ONLY | v8::PropertyAttribute::DONT_ENUM,
         )
         .ok_or(V8BindingError::Allocation("iterator tag"))?;
+    let retained = context_intrinsics::retain_object_for(
+        scope,
+        state,
+        "form-data-iterator-prototype",
+        prototype,
+    )?;
     state
         .form_data_iterator_prototype
         .borrow_mut()
-        .replace(v8::Global::new(scope, prototype));
+        .replace(retained);
     Ok(prototype)
 }
 fn next_callback(

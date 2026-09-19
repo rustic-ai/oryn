@@ -3,8 +3,11 @@
 //! The parser stays intentionally small, but represents the binding constructs
 //! used by Oryn's generated browser APIs rather than silently flattening them.
 
+pub mod typedefs;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Definition {
+    Typedef(typedefs::Typedef),
     Interface(Interface),
     InterfaceMixin(Interface),
     Dictionary(Dictionary),
@@ -70,6 +73,7 @@ pub struct Callback {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeDescriptor {
+    Attributed(Vec<ExtendedAttribute>, Box<TypeDescriptor>),
     Named(String),
     Nullable(Box<TypeDescriptor>),
     Sequence(Box<TypeDescriptor>),
@@ -152,9 +156,7 @@ pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
     let (header, body_and_tail) = declaration
         .split_once('{')
         .ok_or(ParseError::MissingInterface)?;
-    let (body, _) = body_and_tail
-        .split_once('}')
-        .ok_or(ParseError::UnterminatedBody)?;
+    let body = braced_body(body_and_tail)?;
 
     let (name, inherits) = if let Some((name, parent)) = header.split_once(':') {
         (name.trim(), Some(parent.trim().to_string()))
@@ -166,9 +168,10 @@ pub fn parse_interface(input: &str) -> Result<Interface, ParseError> {
         validate_identifier(parent)?;
     }
 
-    let members = body
-        .split(';')
-        .map(str::trim)
+    let member_sources = split_top_level(body, ';');
+    let members = member_sources
+        .iter()
+        .map(|member| member.trim())
         .filter(|member| !member.is_empty())
         .map(parse_member)
         .collect::<Result<Vec<_>, _>>()?;
@@ -202,6 +205,8 @@ pub fn parse_definitions(input: &str) -> Result<Vec<Definition>, ParseError> {
                 parse_dictionary(trimmed).map(Definition::Dictionary)
             } else if declaration.starts_with("callback ") {
                 parse_callback(trimmed).map(Definition::Callback)
+            } else if declaration.starts_with("typedef ") {
+                typedefs::parse(trimmed).map(Definition::Typedef)
             } else if declaration.starts_with("enum ") {
                 parse_enumeration(trimmed).map(Definition::Enumeration)
             } else if declaration.contains(" includes ") {
@@ -339,6 +344,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              pub kind: GeneratedMemberKind,\n\
              pub arity: u8,\n\
              pub readonly: bool,\n\
+             pub static_member: bool,\n\
              pub indexed_getter: bool,\n\
              pub named_getter: bool,\n\
              pub value_iterable: bool,\n\
@@ -468,6 +474,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
                 }
             );
             let value_iterable = matches!(member, Member::Iterable { key: None, .. });
+            let static_member = has_extended_attribute(attributes, "Static");
             let same_object = has_extended_attribute(attributes, "SameObject");
             let new_object = has_extended_attribute(attributes, "NewObject");
             let ce_reactions = has_extended_attribute(attributes, "CEReactions");
@@ -482,7 +489,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
                 Vec::new()
             };
             output.push_str(&format!(
-                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, exposed: &{exposed:?}, put_forwards: {put_forwards:?} }},",
+                "GeneratedMember {{ id: GeneratedMemberId({token}), name: {name:?}, kind: GeneratedMemberKind::{kind}, arity: {arity}, readonly: {readonly}, static_member: {static_member}, indexed_getter: {indexed_getter}, named_getter: {named_getter}, value_iterable: {value_iterable}, constant_value: {constant_value:?}, type_name: {type_name:?}, same_object: {same_object}, new_object: {new_object}, ce_reactions: {ce_reactions}, unscopable: {unscopable}, unforgeable: {unforgeable}, replaceable: {replaceable}, exposed: &{exposed:?}, put_forwards: {put_forwards:?} }},",
                 token = ((interface_index as u32) << 16) | member_index as u32,
             ));
         }
@@ -606,6 +613,7 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
              (member.id == id).then_some((interface, member))\n\
          }\n",
     );
+    typedefs::emit(definitions, &mut output)?;
     let syntax = syn::parse_file(&output).map_err(|error| {
         ParseError::UnsupportedDefinition(format!("generated Rust did not parse: {error}"))
     })?;
@@ -616,7 +624,16 @@ pub fn emit_binding_registry(definitions: &[Definition]) -> Result<String, Parse
 }
 
 fn parse_member(member: &str) -> Result<Member, ParseError> {
-    let (extended_attributes, member) = take_extended_attributes(member.trim())?;
+    let (mut extended_attributes, member) = take_extended_attributes(member.trim())?;
+    let member = if let Some(rest) = member.strip_prefix("static ") {
+        extended_attributes.push(ExtendedAttribute {
+            name: "Static".into(),
+            value: None,
+        });
+        rest.trim()
+    } else {
+        member
+    };
     let (readonly, member) = member
         .strip_prefix("readonly ")
         .map_or((false, member), |rest| (true, rest.trim()));
@@ -678,24 +695,15 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
         });
     }
 
-    let (getter, member) = member
-        .strip_prefix("getter ")
-        .map_or((false, member), |member| (true, member));
+    let (special, member) = member
+        .split_once(char::is_whitespace)
+        .filter(|(keyword, _)| matches!(*keyword, "getter" | "setter" | "deleter"))
+        .map_or((None, member), |(keyword, member)| {
+            (Some(keyword), member.trim())
+        });
     if !readonly
         && let Some((head, arguments)) = operation_signature(member)
-        && let Some((return_type, name)) = if getter
-            && (split_type_and_name(head).is_none()
-                || head.trim().ends_with(')')
-                || head.trim().ends_with(")?")
-                || matches!(
-                    head.trim(),
-                    "unsigned short"
-                        | "unsigned long"
-                        | "long long"
-                        | "unsigned long long"
-                        | "unrestricted float"
-                        | "unrestricted double"
-                )) {
+        && let Some((return_type, name)) = if special.is_some() && anonymous_operation_head(head) {
             Some((head.trim(), ""))
         } else {
             split_type_and_name(head)
@@ -705,19 +713,23 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
             validate_identifier(name)?;
         }
         let arguments = parse_arguments(arguments)?;
-        if getter
-            && (arguments.len() != 1
+        if let Some(special) = special
+            && (arguments.len() != (if special == "setter" { 2 } else { 1 })
                 || !matches!(
                     arguments[0].type_name.as_str(),
                     "unsigned long" | "DOMString"
                 )
-                || arguments[0].optional)
+                || (special == "deleter" && arguments[0].type_name != "DOMString")
+                || arguments.iter().any(|argument| {
+                    argument.optional || argument.variadic || argument.default.is_some()
+                })
+                || (special == "setter" && return_type != "undefined"))
         {
             return Err(ParseError::UnsupportedMember(member.into()));
         }
         return Ok(Member::Operation {
-            indexed_getter: getter && arguments[0].type_name == "unsigned long",
-            named_getter: getter && arguments[0].type_name == "DOMString",
+            indexed_getter: special == Some("getter") && arguments[0].type_name == "unsigned long",
+            named_getter: special == Some("getter") && arguments[0].type_name == "DOMString",
             name: name.to_string(),
             return_type: return_type.to_string(),
             return_type_descriptor: parse_type(return_type)?,
@@ -727,6 +739,36 @@ fn parse_member(member: &str) -> Result<Member, ParseError> {
     }
 
     Err(ParseError::UnsupportedMember(member.to_string()))
+}
+
+// A special operation may omit its identifier. Only a complete type is an
+// anonymous head: a named operation such as `DOMString item` must still split.
+fn anonymous_operation_head(head: &str) -> bool {
+    fn complete_type(descriptor: &TypeDescriptor) -> bool {
+        match descriptor {
+            TypeDescriptor::Named(name) => {
+                validate_identifier(name).is_ok()
+                    || matches!(
+                        name.as_str(),
+                        "unsigned short"
+                            | "unsigned long"
+                            | "long long"
+                            | "unsigned long long"
+                            | "unrestricted float"
+                            | "unrestricted double"
+                    )
+            }
+            TypeDescriptor::Attributed(_, inner)
+            | TypeDescriptor::Nullable(inner)
+            | TypeDescriptor::Sequence(inner)
+            | TypeDescriptor::Promise(inner)
+            | TypeDescriptor::FrozenArray(inner)
+            | TypeDescriptor::ObservableArray(inner) => complete_type(inner),
+            TypeDescriptor::Record(key, value) => complete_type(key) && complete_type(value),
+            TypeDescriptor::Union(members) => members.iter().all(complete_type),
+        }
+    }
+    parse_type(head).is_ok_and(|descriptor| complete_type(&descriptor))
 }
 
 fn parse_arguments(arguments: &str) -> Result<Vec<Argument>, ParseError> {
@@ -783,9 +825,7 @@ fn parse_dictionary(input: &str) -> Result<Dictionary, ParseError> {
     let (header, body_and_tail) = declaration
         .split_once('{')
         .ok_or(ParseError::MissingInterface)?;
-    let (body, _) = body_and_tail
-        .split_once('}')
-        .ok_or(ParseError::UnterminatedBody)?;
+    let body = braced_body(body_and_tail)?;
     let (name, inherits) = if let Some((name, parent)) = header.split_once(':') {
         (name.trim(), Some(parent.trim().to_string()))
     } else {
@@ -795,9 +835,10 @@ fn parse_dictionary(input: &str) -> Result<Dictionary, ParseError> {
     if let Some(parent) = &inherits {
         validate_identifier(parent)?;
     }
-    let members = body
-        .split(';')
-        .map(str::trim)
+    let member_sources = split_top_level(body, ';');
+    let members = member_sources
+        .iter()
+        .map(|member| member.trim())
         .filter(|member| !member.is_empty())
         .map(|member| {
             let (extended_attributes, member) = take_extended_attributes(member)?;
@@ -860,6 +901,13 @@ fn parse_callback(input: &str) -> Result<Callback, ParseError> {
 
 fn parse_type(input: &str) -> Result<TypeDescriptor, ParseError> {
     let input = input.trim();
+    if input.starts_with('[') {
+        let (attributes, rest) = take_extended_attributes(input)?;
+        return Ok(TypeDescriptor::Attributed(
+            attributes,
+            Box::new(parse_type(rest)?),
+        ));
+    }
     if let Some(inner) = input.strip_suffix('?') {
         return Ok(TypeDescriptor::Nullable(Box::new(parse_type(inner)?)));
     }
@@ -929,7 +977,7 @@ fn parse_enumeration(input: &str) -> Result<Enumeration, ParseError> {
     let (name, body) = declaration
         .split_once('{')
         .ok_or(ParseError::UnterminatedBody)?;
-    let body = body.split_once('}').ok_or(ParseError::UnterminatedBody)?.0;
+    let body = braced_body(body)?;
     let name = name.trim();
     validate_identifier(name)?;
     let values = split_top_level(body, ',')
@@ -984,14 +1032,51 @@ fn split_type_and_name(input: &str) -> Option<(&str, &str)> {
     (!type_name.is_empty() && !name.is_empty()).then_some((type_name, name))
 }
 
+// Input starts just after the opening brace. Dictionary defaults may contain
+// their own braces and quoted strings may contain arbitrary delimiters.
+fn braced_body(input: &str) -> Result<&str, ParseError> {
+    let mut depth = 1;
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in input.char_indices() {
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == delimiter {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok(&input[..index]);
+                }
+            }
+            _ => {}
+        }
+    }
+    Err(ParseError::UnterminatedBody)
+}
+
 fn split_top_level(input: &str, separator: char) -> Vec<String> {
     let mut depth = 0_i32;
     let mut quoted = None;
+    let mut escaped = false;
     let mut start = 0;
     let mut values = Vec::new();
     for (index, character) in input.char_indices() {
         if let Some(quote) = quoted {
-            if character == quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == quote {
                 quoted = None;
             }
             continue;
@@ -1012,26 +1097,11 @@ fn split_top_level(input: &str, separator: char) -> Vec<String> {
 }
 
 fn split_definitions(input: &str) -> Vec<String> {
-    let mut definitions = Vec::new();
-    let mut depth = 0_i32;
-    let mut start = 0;
-    for (index, character) in input.char_indices() {
-        match character {
-            '{' => depth += 1,
-            '}' => depth -= 1,
-            ';' if depth == 0 => {
-                if !input[start..=index].trim().is_empty() {
-                    definitions.push(input[start..=index].to_string());
-                }
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    if !input[start..].trim().is_empty() {
-        definitions.push(input[start..].to_string());
-    }
-    definitions
+    split_top_level(input, ';')
+        .into_iter()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| format!("{value};"))
+        .collect()
 }
 
 fn validate_identifier(value: &str) -> Result<(), ParseError> {
@@ -1047,11 +1117,48 @@ fn validate_identifier(value: &str) -> Result<(), ParseError> {
 }
 
 fn strip_line_comments(input: &str) -> String {
-    input
-        .lines()
-        .map(|line| line.split_once("//").map_or(line, |(code, _)| code))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut output = String::new();
+    let mut characters = input.chars().peekable();
+    let mut quote = None;
+    let mut escaped = false;
+    while let Some(character) = characters.next() {
+        if let Some(delimiter) = quote {
+            output.push(character);
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == delimiter {
+                quote = None;
+            }
+        } else if matches!(character, '\'' | '"') {
+            quote = Some(character);
+            output.push(character);
+        } else if character == '/' && characters.peek() == Some(&'/') {
+            characters.next();
+            for next in characters.by_ref() {
+                if next == '\n' {
+                    output.push('\n');
+                    break;
+                }
+            }
+        } else if character == '/' && characters.peek() == Some(&'*') {
+            characters.next();
+            output.push(' ');
+            while let Some(next) = characters.next() {
+                if next == '*' && characters.peek() == Some(&'/') {
+                    characters.next();
+                    break;
+                }
+                if next == '\n' {
+                    output.push('\n');
+                }
+            }
+        } else {
+            output.push(character);
+        }
+    }
+    output
 }
 
 fn take_extended_attributes(input: &str) -> Result<(Vec<ExtendedAttribute>, &str), ParseError> {
@@ -1124,6 +1231,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn nested_dictionary_defaults_do_not_end_interface_or_dictionary_bodies() {
+        let definitions = parse_definitions(
+            r#"
+            interface Example { constructor(optional Options options = {}); undefined run(); };
+            dictionary Options { Options nested = {}; DOMString url = "https://example.test/};"; };
+        "#,
+        )
+        .unwrap();
+        let Definition::Interface(interface) = &definitions[0] else {
+            panic!("interface")
+        };
+        assert_eq!(interface.members.len(), 2);
+        let Member::Constructor { arguments, .. } = &interface.members[0] else {
+            panic!("constructor")
+        };
+        assert_eq!(arguments[0].default.as_deref(), Some("{}"));
+        let Definition::Dictionary(dictionary) = &definitions[1] else {
+            panic!("dictionary")
+        };
+        assert_eq!(dictionary.members.len(), 2);
+        assert_eq!(dictionary.members[0].default.as_deref(), Some("{}"));
+        assert_eq!(
+            dictionary.members[1].default.as_deref(),
+            Some("\"https://example.test/};\"")
+        );
+    }
+
+    #[test]
+    fn lexical_delimiters_in_strings_and_comments_do_not_split_definitions() {
+        let source = r#"/* ignored }; */ enum Values { "}", "a;b", "https://example.test/" }; // trailing
+            interface Next { constructor(); };
+        "#;
+        let definitions = parse_definitions(source).unwrap();
+        assert_eq!(definitions.len(), 2);
+        let Definition::Enumeration(values) = &definitions[0] else {
+            panic!("enum")
+        };
+        assert_eq!(values.values, ["}", "a;b", "https://example.test/"]);
+        assert_eq!(braced_body("{}};"), Ok("{}"));
+        assert_eq!(braced_body("{}"), Err(ParseError::UnterminatedBody));
+    }
+
+    #[test]
     fn hyphenated_css_attributes_preserve_their_webidl_names() {
         let definitions = parse_definitions("[Exposed=Window] interface CSSPageDescriptors { attribute DOMString margin-top; attribute DOMString page-orientation; };").unwrap();
         let generated = emit_binding_registry(&definitions).unwrap();
@@ -1150,6 +1300,163 @@ mod tests {
         let generated = emit_binding_registry(&definitions).unwrap();
         assert!(generated.contains("name: \"\""));
         assert!(generated.contains("indexed_getter: true"));
+    }
+
+    #[test]
+    fn anonymous_special_operations_preserve_types_arity_and_reactions() {
+        let definitions = parse_definitions(
+            r#"
+            [Exposed=Window] interface DOMStringMap {
+                getter DOMString (DOMString name);
+                [CEReactions] setter undefined (DOMString name, DOMString value);
+                [CEReactions] deleter undefined (DOMString name);
+            };
+        "#,
+        )
+        .unwrap();
+        let Definition::Interface(interface) = &definitions[0] else {
+            panic!("interface")
+        };
+        assert_eq!(interface.members.len(), 3);
+        for (member, (expected_type, arity, getter, reactions)) in interface.members.iter().zip([
+            ("DOMString", 1, true, false),
+            ("undefined", 2, false, true),
+            ("undefined", 1, false, true),
+        ]) {
+            let Member::Operation {
+                name,
+                return_type,
+                return_type_descriptor,
+                arguments,
+                indexed_getter,
+                named_getter,
+                extended_attributes,
+            } = member
+            else {
+                panic!("operation")
+            };
+            assert!(name.is_empty());
+            assert_eq!(return_type, expected_type);
+            assert_eq!(
+                return_type_descriptor,
+                &TypeDescriptor::Named(expected_type.into())
+            );
+            assert_eq!(required_arity(arguments), arity);
+            assert!(!indexed_getter);
+            assert_eq!(*named_getter, getter);
+            assert_eq!(
+                has_extended_attribute(extended_attributes, "CEReactions"),
+                reactions
+            );
+        }
+        let generated = emit_binding_registry(&definitions).unwrap();
+        assert_eq!(generated.matches("name: \"\"").count(), 3);
+        assert!(!generated.contains("name: \"undefined\""));
+        assert!(!generated.contains("Some(\"setter\")"));
+        assert!(!generated.contains("Some(\"deleter\")"));
+        let indexed = parse_interface("interface Values { [CEReactions] setter undefined (unsigned long index, Element? value); };").unwrap();
+        assert!(matches!(&indexed.members[0], Member::Operation {
+            name, return_type, arguments, indexed_getter: false, named_getter: false, ..
+        } if name.is_empty() && return_type == "undefined" && required_arity(arguments) == 2));
+    }
+
+    #[test]
+    fn named_special_operations_and_ordinary_keyword_names_are_preserved() {
+        let interface = parse_interface(
+            r#"interface Values {
+            getter DOMString item(unsigned long index);
+            getter DOMString namedItem(DOMString name);
+            [CEReactions] setter undefined setItem(DOMString name, DOMString value);
+            [CEReactions] deleter boolean removeItem(DOMString name);
+            undefined getter(DOMString name);
+        };"#,
+        )
+        .unwrap();
+        assert_eq!(interface.members.len(), 5);
+        for (member, (expected_name, expected_type, arity, indexed, named, reactions)) in
+            interface.members.iter().zip([
+                ("item", "DOMString", 1, true, false, false),
+                ("namedItem", "DOMString", 1, false, true, false),
+                ("setItem", "undefined", 2, false, false, true),
+                ("removeItem", "boolean", 1, false, false, true),
+                ("getter", "undefined", 1, false, false, false),
+            ])
+        {
+            let Member::Operation {
+                name,
+                return_type,
+                arguments,
+                indexed_getter,
+                named_getter,
+                extended_attributes,
+                ..
+            } = member
+            else {
+                panic!("operation")
+            };
+            assert_eq!(name, expected_name);
+            assert_eq!(return_type, expected_type);
+            assert_eq!(required_arity(arguments), arity);
+            assert_eq!((*indexed_getter, *named_getter), (indexed, named));
+            assert_eq!(
+                has_extended_attribute(extended_attributes, "CEReactions"),
+                reactions
+            );
+        }
+        let generated = emit_binding_registry(&[Definition::Interface(interface)]).unwrap();
+        for name in ["item", "namedItem", "setItem", "removeItem", "getter"] {
+            assert!(generated.contains(&format!("name: {name:?}")));
+        }
+    }
+
+    #[test]
+    fn anonymous_getter_heads_accept_complete_compound_types() {
+        for return_type in [
+            "unsigned long",
+            "unsigned long?",
+            "(Element or DOMString)?",
+            "sequence<unsigned long>",
+            "record<DOMString, sequence<Element?>>",
+        ] {
+            let interface = parse_interface(&format!(
+                "interface Values {{ getter\t{return_type} (DOMString name); }};"
+            ))
+            .unwrap();
+            let Member::Operation {
+                name,
+                return_type: actual,
+                named_getter,
+                ..
+            } = &interface.members[0]
+            else {
+                panic!("operation")
+            };
+            assert!(name.is_empty());
+            assert_eq!(actual, return_type);
+            assert!(*named_getter);
+        }
+    }
+
+    #[test]
+    fn special_operations_reject_invalid_keys_arity_and_optional_values() {
+        for member in [
+            "getter DOMString ()",
+            "getter DOMString (DOMString... names)",
+            "setter undefined (DOMString name)",
+            "setter undefined (boolean key, DOMString value)",
+            "setter undefined (DOMString name, optional DOMString value)",
+            "setter undefined (DOMString name, DOMString... values)",
+            "setter DOMString (DOMString name, DOMString value)",
+            "deleter undefined ()",
+            "deleter undefined (unsigned long index)",
+            "deleter undefined (optional DOMString name)",
+            "deleter undefined (DOMString name, DOMString extra)",
+        ] {
+            assert!(
+                parse_interface(&format!("interface Bad {{ {member}; }};")).is_err(),
+                "{member}"
+            );
+        }
     }
 
     #[test]

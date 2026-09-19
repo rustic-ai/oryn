@@ -1,0 +1,269 @@
+//! Native text-system command receipt. No synthetic key events are introduced.
+use super::*;
+use crate::composition::{TextCommand, TextDirection};
+enum Work {
+    Selection(receipt::SelectionJob),
+    Edit(receipt::EditJob),
+    Focus(super::super::retained_focus::Transition),
+}
+pub(in super::super) struct Receipt {
+    owner: Rc<V8BindingState>,
+    target: oryn_dom::TrackedNodeLease,
+    generation: u64,
+    epoch: u64,
+    command: TextCommand,
+    work: Option<Work>,
+    done: bool,
+}
+impl Receipt {
+    pub(in super::super) fn new(
+        state: Rc<V8BindingState>,
+        target: NodeId,
+        command: TextCommand,
+    ) -> Result<Self, V8BindingError> {
+        let lease = oryn_dom::TrackedNodeLease::new(&state.dom, target)?;
+        Ok(Self {
+            generation: state.document_generation(),
+            epoch: state.document_stream_epoch(),
+            owner: state,
+            target: lease,
+            command,
+            work: None,
+            done: false,
+        })
+    }
+    pub(in super::super) fn owner(&self) -> Rc<V8BindingState> {
+        self.owner.clone()
+    }
+    pub(in super::super) fn retry_safe(&self) -> bool {
+        true
+    }
+    pub(in super::super) fn poll(
+        &mut self,
+        scope: &mut v8::PinScope,
+    ) -> Result<bool, V8BindingError> {
+        if self.done {
+            return Ok(true);
+        }
+        if self.owner.execution_suspended() || scope.is_execution_terminating() {
+            return Ok(false);
+        }
+        let (dom, target) = self.target.current();
+        if !Rc::ptr_eq(&dom, &self.owner.dom)
+            || !live(&self.owner, target, self.generation, self.epoch)
+        {
+            self.cancel();
+            return Ok(true);
+        }
+        if self.work.is_none() {
+            match self.command {
+                TextCommand::Tab { backward } => {
+                    let next = focus_navigation::next_sequential(&self.owner, backward)?;
+                    self.work = Some(Work::Focus(super::super::retained_focus::Transition::new(
+                        &self.owner,
+                        next,
+                    )?));
+                }
+                TextCommand::Move {
+                    direction,
+                    unit,
+                    extend,
+                } => {
+                    let direction = match direction {
+                        TextDirection::Left => "left",
+                        TextDirection::Right => "right",
+                        TextDirection::Backward => "backward",
+                        TextDirection::Forward => "forward",
+                    };
+                    let alter = if extend { "extend" } else { "move" };
+                    if self.owner.dom.borrow().is_editable_text_control(target) {
+                        if let Some(plan) = selection_movement::prepare_control_movement(
+                            &self.owner,
+                            target,
+                            alter,
+                            direction,
+                            text_unit(unit),
+                        )? {
+                            plan.commit(scope, &self.owner)?;
+                        }
+                        self.done = true;
+                        return Ok(true);
+                    }
+                    if let Some(plan) = selection_movement::prepare_movement(
+                        &self.owner,
+                        alter,
+                        direction,
+                        text_unit(unit),
+                    )? {
+                        self.work = Some(Work::Selection(receipt::SelectionJob::new(
+                            &self.owner,
+                            plan,
+                        )))
+                    } else {
+                        self.done = true;
+                        return Ok(true);
+                    }
+                }
+                TextCommand::Delete { backward, unit } => {
+                    let description = prepare_edit(
+                        &self.owner,
+                        target,
+                        if backward { "Backspace" } else { "Delete" },
+                        NativeKeyboardModifiers::default(),
+                        Some(unit),
+                    )?;
+                    if let Some(description) = description {
+                        self.work = Some(Work::Edit(receipt::EditJob::new(
+                            &self.owner,
+                            target,
+                            description,
+                        )?));
+                    } else {
+                        self.done = true;
+                        return Ok(true);
+                    }
+                }
+                TextCommand::Newline { line_break } => {
+                    let description = prepare_edit(
+                        &self.owner,
+                        target,
+                        "Enter",
+                        NativeKeyboardModifiers {
+                            shift: line_break,
+                            ..Default::default()
+                        },
+                        None,
+                    )?;
+                    if let Some(description) = description {
+                        self.work = Some(Work::Edit(receipt::EditJob::new(
+                            &self.owner,
+                            target,
+                            description,
+                        )?));
+                    } else {
+                        self.done = true;
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        let complete = match self.work.as_mut().unwrap() {
+            Work::Selection(job) => job.poll(scope, &self.owner)?.is_some(),
+            Work::Edit(job) => job.poll(scope, &self.owner)?.is_some(),
+            Work::Focus(job) => job.poll(scope, &self.owner)?,
+        };
+        if complete {
+            self.work = None;
+            self.done = true;
+        }
+        Ok(complete)
+    }
+    pub(in super::super) fn cancel(&mut self) {
+        if let Some(work) = &mut self.work {
+            match work {
+                Work::Selection(job) => job.cancel(&self.owner),
+                Work::Edit(job) => job.cancel(),
+                Work::Focus(job) => job.cancel(&self.owner),
+            }
+        }
+        self.work = None;
+        self.done = true;
+    }
+}
+impl Drop for Receipt {
+    fn drop(&mut self) {
+        self.cancel()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str) -> v8::Local<'s, v8::Value> {
+        let source = v8::String::new(scope, source).unwrap();
+        v8::Script::compile(scope, source, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+    }
+    #[test]
+    fn document_boundary_delete_retains_beforeinput_and_commits_once() {
+        super::super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<textarea id=t>ab\ncd</textarea>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(237), 1).unwrap();
+        eval(
+            scope,
+            "t.focus();t.setSelectionRange(2,2);globalThis.log=[];t.addEventListener('beforeinput',e=>{globalThis.original=e;log.push('first')},{once:true});t.addEventListener('beforeinput',e=>log.push(e===original?'second':'wrong'));t.addEventListener('input',()=>log.push('input'))",
+        );
+        let node = state
+            .dom
+            .borrow()
+            .get_element_by_id(state.document_root(), "t")
+            .unwrap()
+            .unwrap();
+        let mut command = Receipt::new(
+            state.clone(),
+            node,
+            TextCommand::Delete {
+                backward: false,
+                unit: crate::composition::TextUnit::DocumentBoundary,
+            },
+        )
+        .unwrap();
+        native_platform::publication::fail_after_next_callback();
+        assert!(command.poll(scope).is_err());
+        assert!(eval(scope, "t.value==='ab\\ncd'&&log.join()==='first'").is_true());
+        assert!(command.poll(scope).unwrap());
+        assert!(command.poll(scope).unwrap());
+        assert!(eval(scope, "t.value==='ab'&&log.join()==='first,second,input'").is_true());
+    }
+    #[test]
+    fn canceled_delete_never_expands_control_selection() {
+        super::super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<textarea id=t>ab\ncd</textarea>")
+                .into_runtime()
+                .unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(238), 1).unwrap();
+        eval(
+            scope,
+            "t.focus();t.setSelectionRange(4,4);t.onbeforeinput=e=>e.preventDefault()",
+        );
+        let node = state
+            .dom
+            .borrow()
+            .get_element_by_id(state.document_root(), "t")
+            .unwrap()
+            .unwrap();
+        let mut command = Receipt::new(
+            state,
+            node,
+            TextCommand::Delete {
+                backward: true,
+                unit: crate::composition::TextUnit::DocumentBoundary,
+            },
+        )
+        .unwrap();
+        assert!(command.poll(scope).unwrap());
+        assert!(
+            eval(
+                scope,
+                "t.value==='ab\\ncd'&&t.selectionStart===4&&t.selectionEnd===4"
+            )
+            .is_true()
+        );
+    }
+}

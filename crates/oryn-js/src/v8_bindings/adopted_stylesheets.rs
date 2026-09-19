@@ -11,7 +11,7 @@ fn error(name: &str) -> V8BindingError {
 
 pub(super) fn capture_reflect_set(
     scope: &mut v8::PinScope,
-) -> Result<v8::Global<v8::Function>, V8BindingError> {
+) -> Result<v8::Weak<v8::Function>, V8BindingError> {
     let global = scope.get_current_context().global(scope);
     let key = v8::String::new(scope, "Reflect").unwrap();
     let reflect = global
@@ -23,7 +23,7 @@ pub(super) fn capture_reflect_set(
         .get(scope, key.into())
         .and_then(|v| v8::Local::<v8::Function>::try_from(v).ok())
         .ok_or(error("TypeError"))?;
-    Ok(v8::Global::new(scope, function))
+    context_intrinsics::retain_function(scope, "reflect-set", function)
 }
 
 fn index(scope: &mut v8::PinScope, key: v8::Local<v8::Value>) -> Option<u32> {
@@ -56,7 +56,7 @@ pub(super) fn mark_sheet(
     constructed: bool,
 ) -> Result<(), V8BindingError> {
     let owner = if constructed {
-        wrap_node(scope, state, state.document)?.into()
+        wrap_node(scope, state, state.document_root())?.into()
     } else {
         v8::null(scope).into()
     };
@@ -95,7 +95,7 @@ fn validate(
     )
 }
 
-pub(super) fn get<'s>(
+fn get_native<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     state: &Rc<V8BindingState>,
     root: NodeId,
@@ -161,6 +161,77 @@ pub(super) fn get<'s>(
         .borrow_mut()
         .insert(root, v8::Weak::new(scope, proxy));
     Ok(proxy)
+}
+
+pub(super) fn get<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &Rc<V8BindingState>,
+    root: NodeId,
+) -> Result<v8::Local<'s, v8::Proxy>, V8BindingError> {
+    declarative_stylesheets::prepare_root(scope, state, root)?;
+    let proxy = get_native(scope, state, root)?;
+    refresh_native_list(scope, state, root, proxy)?;
+    Ok(proxy)
+}
+fn refresh_native_list(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    root: NodeId,
+    proxy: v8::Local<v8::Proxy>,
+) -> Result<(), V8BindingError> {
+    let sheets = state
+        .dom
+        .borrow()
+        .arena()
+        .get(root)?
+        .adopted_stylesheets
+        .clone();
+    let mut values = Vec::new();
+    for sheet in sheets {
+        values.push(associated_wrapper(scope, state, sheet, "CSSStyleSheet")?);
+    }
+    let target = proxy
+        .get_target(scope)
+        .try_cast::<v8::Array>()
+        .map_err(|_| error("TypeError"))?;
+    for (index, value) in values.iter().enumerate() {
+        let key = v8::String::new(scope, &index.to_string()).ok_or(error("allocation"))?;
+        if target.create_data_property(scope, key.into(), *value) != Some(true) {
+            return Err(error("allocation"));
+        }
+    }
+    let length = v8::String::new(scope, "length").ok_or(error("allocation"))?;
+    let count = v8::Integer::new_from_unsigned(scope, values.len() as u32);
+    if target.set(scope, length.into(), count.into()) != Some(true) {
+        return Err(error("allocation"));
+    }
+    Ok(())
+}
+/// Native publication bypasses author array iteration/prototype setters, while
+/// preserving the already-exposed observable array object.
+#[cfg(test)]
+thread_local! {pub(super) static FAIL_NATIVE_REFRESH:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
+pub(super) fn publish_native_list(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    root: NodeId,
+    sheets: Vec<NodeId>,
+) -> Result<(), V8BindingError> {
+    let proxy = get_native(scope, state, root)?;
+    // Prepare wrapper custody before native replacement can release old edges.
+    let mut retained = Vec::new();
+    for sheet in &sheets {
+        retained.push(associated_wrapper(scope, state, *sheet, "CSSStyleSheet")?);
+    }
+    let result = state.dom.borrow_mut().set_adopted_stylesheets(root, sheets);
+    #[cfg(test)]
+    if FAIL_NATIVE_REFRESH.with(|fault| fault.replace(false)) {
+        return Err(V8BindingError::Allocation(
+            "injected adopted stylesheet refresh",
+        ));
+    }
+    let refreshed = refresh_native_list(scope, state, root, proxy);
+    result.map_err(Into::into).and(refreshed)
 }
 
 fn sync(
@@ -253,7 +324,10 @@ fn trap(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v
                     .map_err(|_| error("TypeError"))?;
                 // Preserve receiver/proxy semantics without exposing the target
                 // to inherited setters. Capture the intrinsic before page code runs.
-                let set = v8::Local::new(scope, &state.intrinsic_reflect_set);
+                let set = state
+                    .intrinsic_reflect_set
+                    .to_local(scope)
+                    .ok_or(V8BindingError::Allocation("Reflect.set intrinsic"))?;
                 let undefined = v8::undefined(scope);
                 set.call(
                     scope,
@@ -435,23 +509,25 @@ pub(super) fn assign(
 
 #[cfg(test)]
 pub(super) fn styles(
-    scope: &mut v8::PinScope,
+    _scope: &mut v8::PinScope,
     state: &V8BindingState,
 ) -> Result<BTreeMap<NodeId, Vec<String>>, V8BindingError> {
+    // Native associations remain authoritative even after their observable
+    // array wrappers are collected or a prior wrapper refresh was interrupted.
+    let dom = state.dom.borrow();
     let mut result = BTreeMap::new();
-    for (root, proxy) in state.adopted_stylesheets.borrow().iter() {
-        let Some(proxy) = proxy.to_local(scope) else {
+    for (root, record) in dom.arena().iter() {
+        if !matches!(
+            record.kind,
+            NodeKind::Document | NodeKind::ShadowRoot { .. }
+        ) {
             continue;
-        };
-        let target = v8::Local::<v8::Array>::try_from(proxy.get_target(scope))
-            .map_err(|_| error("TypeError"))?;
-        let mut sheets = Vec::new();
-        for i in 0..target.length() {
-            let value = target.get_index(scope, i).ok_or(error("TypeError"))?;
-            let node = validate(scope, state, *root, value)?;
-            sheets.push(state.dom.borrow().arena().stylesheet_text(node)?);
         }
-        result.insert(*root, sheets);
+        let mut sheets = Vec::new();
+        for sheet in &record.adopted_stylesheets {
+            sheets.push(dom.arena().stylesheet_text(*sheet)?);
+        }
+        result.insert(root, sheets);
     }
     Ok(result)
 }

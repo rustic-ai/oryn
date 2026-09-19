@@ -7,9 +7,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from evidence_protocols import validate_protocol_pair
 import secrets
 import select
 import signal
+from generation_gate import check_execution_generation
 import subprocess
 import sys
 import threading
@@ -26,7 +28,7 @@ def digest(path):
 
 def expected_action_count(case, contract):
     commands = case["before_fill"] + (contract["fill"] if case["fill"] else []) + case["after_fill"]
-    return len(commands) + int(case["submit"]) + int(case.get("expected_receipts", 1) > 0)
+    return sum(line.split()[0] in ("click", "type", "select", "check", "uncheck", "upload") for line in commands) + int(case["submit"]) + int(case.get("expected_receipts", 1) > 0)
 
 
 def validate_outcome(case, contract, case_id, origin, frames, snapshot, upload):
@@ -93,13 +95,17 @@ def validate_outcome(case, contract, case_id, origin, frames, snapshot, upload):
         nodes = observations[-1].get("nodes", []) if observations else []
         if not any(node.get("name") == "Application received" for node in nodes):
             errors.append("browser did not observe receipt confirmation")
+    if "expected_validations" in case and snapshot.get("validations") != case["expected_validations"]:
+        errors.append("async validation request history mismatch")
     return errors
 
 
 class Oracle:
     def __init__(self, output, fixture=None, arguments=()):
+        check_execution_generation()
         self.lock = threading.Lock()
         self.stderr = open(output / "fixture.stderr", "wb")
+        check_execution_generation()
         self.process = subprocess.Popen(
             [sys.executable, str(fixture or FIXTURES / "forms_fixture.py"), *map(str, arguments)],
             stdin=subprocess.PIPE,
@@ -113,9 +119,14 @@ class Oracle:
             if ready.get("event") != "ready" or type(ready.get("port")) is not int:
                 raise ValueError("invalid fixture startup")
             self.origin = f"http://127.0.0.1:{ready['port']}"
-        except Exception:
-            self.close()
-            raise
+        except Exception as error:
+            cleanup = self.close()
+            # Preserve startup diagnostics even when a test's temporary output
+            # directory is removed during unwinding. Never treat EOF as readiness.
+            stderr = (output / "fixture.stderr").read_text(errors="replace")[-8192:]
+            raise ValueError(
+                f"fixture startup failed: {error}; cleanup={cleanup}; stderr={stderr}"
+            ) from error
 
     def read(self):
         if not select.select([self.process.stdout], [], [], 15)[0]:
@@ -198,6 +209,7 @@ def run_case(oracle, case, sample, contract, binary, worker, output):
         }
         if case["upload"]:
             command += ["--upload", f"authorized={document}"]
+        check_execution_generation()
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -240,13 +252,17 @@ def main():
         default=ROOT / "target/release/OrynPageWorker.app/Contents/MacOS/oryn-page-worker",
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--frontend-v2", action="store_true")
     parser.add_argument("--samples", type=int, choices=range(1, 9), default=3)
     parser.add_argument("--jobs", type=int, choices=range(1, 5), default=2)
     args = parser.parse_args()
+    from generation_gate import inherited_generation_lease
+    admission = inherited_generation_lease()
     args.output = args.output.resolve()
     args.binary, args.worker = args.binary.resolve(), args.worker.resolve()
+    admission.check()
     args.output.mkdir(parents=True, exist_ok=False)
-    contract = json.loads((FIXTURES / "forms-cases.json").read_text())
+    contract = json.loads((FIXTURES / ("forms-cases-v2.json" if args.frontend_v2 else "forms-cases.json")).read_text())
     report = {
         "schema_version": 1,
         "goal_complete": False,
@@ -282,12 +298,15 @@ def main():
         (args.output / "runtime-info.stderr").write_bytes(result.stderr)
         result.check_returncode()
         report["runtime"] = json.loads(result.stdout)
+        validate_protocol_pair(report["runtime"], report["worker_manifest"], ROOT)
         if (
             not report["runtime"].get("sandboxed")
             or report["runtime"].get("worker_binary_sha256") != report["worker_sha256"]
         ):
             raise ValueError("signed runtime identity mismatch")
-        oracle = Oracle(args.output)
+        if args.frontend_v2:
+            report["frontend_module_sha256"] = digest(FIXTURES / "v2/forms-client.mjs")
+        oracle = Oracle(args.output, FIXTURES / "forms_fixture_v2.py" if args.frontend_v2 else None)
         report["origin"] = oracle.origin
         jobs = [
             (case, sample) for sample in range(1, args.samples + 1) for case in contract["cases"]
@@ -333,6 +352,14 @@ def main():
             record["passed"] = not record["errors"]
             record["final_oracle_verified"] = True
             (directory / "result.json").write_text(json.dumps(record, indent=2) + "\n")
+        report["artifact_identities_unchanged"] = (
+            report["parent_sha256"] == digest(args.binary)
+            and report["worker_sha256"] == digest(args.worker)
+            and report["runner_sha256"] == digest(__file__)
+            and all(digest(FIXTURES / name) == value for name, value in report["fixture_hashes"].items())
+            and (not args.frontend_v2 or report["frontend_module_sha256"] == digest(FIXTURES / "v2/forms-client.mjs")))
+        if not report["artifact_identities_unchanged"]:
+            raise ValueError("candidate or fixture artifacts changed during run")
     except Exception as error:
         report["infrastructure_error"] = str(error)
     finally:

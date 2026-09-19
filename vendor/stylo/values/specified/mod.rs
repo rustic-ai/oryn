@@ -656,3 +656,5 @@ impl ToCss for Attr {
         dest.write_char(')')
     }
 }
+
+pub use self::time::InterestDelay;

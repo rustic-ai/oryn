@@ -1,0 +1,215 @@
+--- a/src/wasm/wasm-objects.h
++++ b/src/wasm/wasm-objects.h
+@@ -817,7 +817,8 @@
+   static_assert(kProtectedFieldOffsets.size() == kProtectedFieldNames.size(),
+                 "every protected field offset needs a name");
+ 
+-  void SetRawMemory(uint32_t memory_index, uint8_t* mem_start, size_t mem_size);
++  void SetRawMemory(uint32_t memory_index, uint8_t* mem_start, size_t mem_size,
++                    const size_t* shared_size_address = nullptr);
+ 
+ #if V8_ENABLE_DRUMBRAKE
+   // Get the interpreter object associated with the given wasm object.
+--- a/src/wasm/wasm-objects-inl.h
++++ b/src/wasm/wasm-objects-inl.h
+@@ -293,8 +293,14 @@
+ 
+ PRIMITIVE_ACCESSORS(WasmTrustedInstanceData, memory0_start, uint8_t*,
+                     kMemory0StartOffset)
+-PRIMITIVE_ACCESSORS(WasmTrustedInstanceData, memory0_size, size_t,
+-                    kMemory0SizeOffset)
++size_t WasmTrustedInstanceData::memory0_size() const {
++  if (!module()->memories.empty() && module()->memories[0].is_shared == SharedFlag::kYes)
++    return memory_size(0);
++  return ReadField<size_t>(kMemory0SizeOffset);
++}
++void WasmTrustedInstanceData::set_memory0_size(size_t value) {
++  WriteField<size_t>(kMemory0SizeOffset, value);
++}
+ // ACCESSORS/OPTIONAL_ACCESSORS/PROTECTED_POINTER_ACCESSORS all use
+ // CONDITIONAL_*_WRITE_BARRIER(this, ...) which expands to (object)->... —
+ // arrow access that fails for HeapObject value types.  Spell out the
+@@ -434,7 +440,11 @@
+ }
+ 
+ size_t WasmTrustedInstanceData::memory_size(uint32_t memory_index) const {
+-  DCHECK_EQ(memory0_size(), memory_bases_and_sizes()->get(1));
++  if (module()->memories[memory_index].is_shared == SharedFlag::kYes) {
++    Address address = memory_bases_and_sizes()->get(2 * module()->memories.size() + memory_index);
++    CHECK_NE(address, 0u);
++    return reinterpret_cast<const std::atomic<size_t>*>(address)->load(std::memory_order_acquire);
++  }
+   return memory_bases_and_sizes()->get(2 * memory_index + 1);
+ }
+ 
+--- a/src/wasm/wasm-objects.cc
++++ b/src/wasm/wasm-objects.cc
+@@ -769,7 +769,9 @@
+   // corruption primitive could have modified it since then.
+   SBXCHECK_GE(byte_length, memory.min_memory_size);
+ 
+-  trusted_instance_data->SetRawMemory(memory_index, base_address, byte_length);
++  trusted_instance_data->SetRawMemory(memory_index, base_address, byte_length,
++      is_wasm_module && backing_store->is_shared()
++          ? backing_store->shared_byte_length_address() : nullptr);
+ 
+ #if V8_ENABLE_DRUMBRAKE
+   if (v8_flags.wasm_jitless &&
+@@ -1528,7 +1530,8 @@
+ 
+ void WasmTrustedInstanceData::SetRawMemory(uint32_t memory_index,
+                                            uint8_t* mem_start,
+-                                           size_t mem_size) {
++                                           size_t mem_size,
++                                           const size_t* shared_size_address) {
+   CHECK_LT(memory_index, module()->memories.size());
+ 
+   CHECK_LE(mem_size, module()->memories[memory_index].is_memory64()
+@@ -1538,6 +1541,12 @@
+   Tagged<TrustedFixedAddressArray> bases_and_sizes = memory_bases_and_sizes();
+   bases_and_sizes->set(memory_index * 2, reinterpret_cast<Address>(mem_start));
+   bases_and_sizes->set(memory_index * 2 + 1, mem_size);
++  CHECK_EQ(shared_size_address != nullptr,
++           module()->memories[memory_index].is_shared == SharedFlag::kYes);
++  // The first 2*N entries retain their existing base/size ABI. The final N
++  // trusted entries point to stable backing-owned atomic length cells.
++  bases_and_sizes->set(2 * module()->memories.size() + memory_index,
++                      reinterpret_cast<Address>(shared_size_address));
+   // Memory 0 has fast-access fields.
+   if (memory_index == 0) {
+     set_memory0_start(mem_start);
+@@ -1616,12 +1625,12 @@
+       FixedInt32Array::New(isolate, num_imported_functions);
+ #endif  // V8_ENABLE_DRUMBRAKE
+ 
+-  static_assert(wasm::kV8MaxWasmMemories < kMaxInt / 2);
++  static_assert(wasm::kV8MaxWasmMemories < kMaxInt / 3);
+   uint32_t num_memories = static_cast<uint32_t>(module->memories.size());
+   DirectHandle<FixedArray> memory_objects =
+       isolate->factory()->NewFixedArray(num_memories, allocation);
+   DirectHandle<TrustedFixedAddressArray> memory_bases_and_sizes =
+-      TrustedFixedAddressArray::New(isolate, 2 * num_memories,
++      TrustedFixedAddressArray::New(isolate, 3 * num_memories,
+                                     trusted_allocation);
+ 
+   // TODO(clemensb): Should we have singleton empty dispatch table in the
+@@ -1696,6 +1705,7 @@
+       memory_bases_and_sizes->set(
+           2 * i, reinterpret_cast<Address>(empty_backing_store_buffer));
+       memory_bases_and_sizes->set(2 * i + 1, 0);
++      memory_bases_and_sizes->set(2 * num_memories + i, 0);
+     }
+   }
+ 
+--- a/src/wasm/turboshaft-graph-interface.cc
++++ b/src/wasm/turboshaft-graph-interface.cc
+@@ -8358,6 +8358,15 @@
+   }
+ 
+   V<WordPtr> MemSize(uint32_t index) {
++    if (env_->module->memories[index].is_shared == SharedFlag::kYes) {
++      V<TrustedByteArray> memories = LOAD_IMMUTABLE_PROTECTED_INSTANCE_FIELD(
++          trusted_instance_data(SharedFlag::kNo), MemoryBasesAndSizes, TrustedByteArray);
++      V<WordPtr> address = __ Load(memories, LoadOp::Kind::TaggedBase(),
++          MemoryRepresentation::UintPtr(), TrustedFixedAddressArray::OffsetOfElementAt(
++              2 * env_->module->memories.size() + index));
++      return __ Load(address, __ WordPtrConstant(0), LoadOp::Kind::RawAligned().Atomic(),
++          MemoryRepresentation::UintPtr(), RegisterRepresentation::WordPtr());
++    }
+     if (index == 0) {
+       // TODO(14108): Port TF's dynamic "cached_memory_index" infrastructure.
+       return instance_cache_.memory0_size();
+--- a/src/wasm/baseline/liftoff-compiler.cc
++++ b/src/wasm/baseline/liftoff-compiler.cc
+@@ -4023,7 +4023,15 @@
+     LiftoffRegister mem_size = pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+ 
+     // TODO(13957): Clamp the loaded memory size to a safe value.
+-    if (memory->index == 0) {
++    if (memory->is_shared == SharedFlag::kYes) {
++      LOAD_PROTECTED_PTR_INSTANCE_FIELD(mem_size.gp(), MemoryBasesAndSizes, pinned);
++      int offset = OFFSET_OF_DATA_START(ByteArray) - kHeapObjectTag + kSystemPointerSize *
++          (2 * env_->module->memories.size() + memory->index);
++      __ LoadFullPointer(mem_size.gp(), mem_size.gp(), offset);
++      __ AtomicLoad(mem_size, mem_size.gp(), no_reg, 0,
++          kSystemPointerSize == 8 ? LoadType::kI64Load : LoadType::kI32Load,
++          nullptr, AtomicMemoryOrder::kSeqCst, pinned, false, LiftoffAssembler::kNative);
++    } else if (memory->index == 0) {
+       LOAD_INSTANCE_FIELD(mem_size.gp(), Memory0Size, kSystemPointerSize,
+                           pinned);
+     } else {
+@@ -4546,7 +4554,15 @@
+                           Value* /* result */) {
+     LiftoffRegList pinned;
+     LiftoffRegister mem_size = pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+-    if (imm.index == 0) {
++    if (imm.memory->is_shared == SharedFlag::kYes) {
++      LOAD_PROTECTED_PTR_INSTANCE_FIELD(mem_size.gp(), MemoryBasesAndSizes, pinned);
++      int offset = OFFSET_OF_DATA_START(ByteArray) - kHeapObjectTag + kSystemPointerSize *
++          (2 * env_->module->memories.size() + imm.index);
++      __ LoadFullPointer(mem_size.gp(), mem_size.gp(), offset);
++      __ AtomicLoad(mem_size, mem_size.gp(), no_reg, 0,
++          kSystemPointerSize == 8 ? LoadType::kI64Load : LoadType::kI32Load,
++          nullptr, AtomicMemoryOrder::kSeqCst, pinned, false, LiftoffAssembler::kNative);
++    } else if (imm.index == 0) {
+       LOAD_INSTANCE_FIELD(mem_size.gp(), Memory0Size, kSystemPointerSize,
+                           pinned);
+     } else {
+--- a/src/wasm/wasm-module.cc
++++ b/src/wasm/wasm-module.cc
+@@ -36,6 +36,11 @@
+ 
+   if (!v8_flags.wasm_bounds_checks) {
+     memory->bounds_checks = kNoBoundsChecks;
++  } else if (memory->is_shared == SharedFlag::kYes) {
++    // Native cross-process shared mappings reserve usable capacity in every
++    // process. The shared logical length, not local page permissions, defines
++    // the accessible Wasm extent. Keep explicit atomic bounds checks.
++    memory->bounds_checks = kExplicitBoundsChecks;
+   } else if (v8_flags.wasm_enforce_bounds_checks) {
+     // Explicit bounds checks requested via flag (for testing).
+     memory->bounds_checks = kExplicitBoundsChecks;
+--- a/src/objects/backing-store.cc
++++ b/src/objects/backing-store.cc
+@@ -543,7 +543,7 @@
+ 
+   bool is_wasm_memory64 = wasm_memory == WasmMemoryFlag::kWasmMemory64;
+   bool has_guard_regions =
+-      trap_handler::IsTrapHandlerEnabled() &&
++      shared == SharedFlag::kNo && trap_handler::IsTrapHandlerEnabled() &&
+       (wasm_memory == WasmMemoryFlag::kWasmMemory32 ||
+        (is_wasm_memory64 && v8_flags.wasm_memory64_trap_handling));
+ 
+--- a/gni/v8.gni
++++ b/gni/v8.gni
+@@ -137,11 +137,10 @@
+   # While arm64 uses the standard AAPCS64 calling convention, component builds
+   # work without this restriction only on iOS due to platform-specific
+   # build constraints.
+-  v8_drumbrake_bounds_checks =
+-      (is_win && (is_asan || is_ubsan || is_msan || is_tsan)) ||
+-      !(is_win || is_linux || is_mac || is_ios) ||
+-      (v8_current_cpu != "x64" && v8_current_cpu != "arm64") || !is_clang ||
+-      (is_component_build && target_os != "ios")
++  # Oryn native shared mappings use logical atomic size cells, not per-process
++  # committed-page faults, for bounds. Use the explicit C++ interpreter handlers
++  # on every supported architecture; these read WasmTrustedInstanceData sizes.
++  v8_drumbrake_bounds_checks = true
+ 
+   # Enable the Turbofan compiler.
+   # Sets -dV8_ENABLE_TURBOFAN.
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -1513,9 +1513,9 @@
+     if (v8_enable_drumbrake_tracing) {
+       defines += [ "V8_ENABLE_DRUMBRAKE_TRACING" ]
+     }
+-    if (v8_drumbrake_bounds_checks) {
+-      defines += [ "V8_DRUMBRAKE_BOUNDS_CHECKS" ]
+-    }
++    assert(v8_drumbrake_bounds_checks,
++           "Oryn shared-memory interpreter requires explicit bounds checks")
++    defines += [ "V8_DRUMBRAKE_BOUNDS_CHECKS" ]
+   }
+   if (v8_enable_sandbox_hardware_support) {
+     defines += [ "V8_ENABLE_SANDBOX_HARDWARE_SUPPORT" ]

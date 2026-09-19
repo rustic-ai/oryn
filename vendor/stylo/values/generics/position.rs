@@ -424,7 +424,7 @@ where
     fn collect_completion_keywords(f: style_traits::KeywordsCollectFn) {
         LP::collect_completion_keywords(f);
         f(&["auto"]);
-        if static_prefs::pref!("layout.css.anchor-positioning.enabled") {
+        if crate::anchor_positioning_enabled() {
             f(&["anchor", "anchor-size"]);
         }
     }

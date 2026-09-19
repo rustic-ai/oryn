@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     io::{BufRead, Write},
     sync::OnceLock,
     time::Duration,
@@ -15,16 +16,16 @@ use crate::{
     Browser, BrowserConfig, ContentKind, ContextOptions, NavigationResult, PageHandle,
     WaitPredicate,
     network::SharedNetworkBroker,
-    oil::{NativeOilError, NativeOilOutput, NativeOilSession},
-    runtime::NativeAction,
+    oil::{NativeOilOutput, NativeOilSession},
+    runtime::{NativeAction, RuntimeError},
 };
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 10;
+pub const WORKER_PROTOCOL_VERSION: u32 = 18;
 use crate::worker_route::WorkerRoute;
 pub const MAX_IPC_FRAME_BYTES: usize = 24 * 1024 * 1024;
 static WORKER_BINARY_SHA256: OnceLock<String> = OnceLock::new();
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkerLimits {
     pub runtime_profile: crate::runtime::RuntimeProfile,
     pub v8_heap_bytes: usize,
@@ -37,6 +38,8 @@ pub struct WorkerLimits {
     pub max_font_bytes: usize,
     pub max_page_font_bytes: usize,
     pub max_viewport_css_px: u32,
+    #[serde(default)]
+    pub native_scrollbar_width: f64,
     pub max_resource_cache_entries: usize,
     pub max_resource_cache_bytes: usize,
     pub max_resource_cache_entry_bytes: usize,
@@ -62,6 +65,7 @@ impl From<&BrowserConfig> for WorkerLimits {
             max_font_bytes: config.max_font_bytes,
             max_page_font_bytes: config.max_page_font_bytes,
             max_viewport_css_px: config.max_viewport_css_px,
+            native_scrollbar_width: config.native_scrollbar_width,
             max_resource_cache_entries: config.max_resource_cache_entries,
             max_resource_cache_bytes: config.max_resource_cache_bytes,
             max_resource_cache_entry_bytes: config.max_resource_cache_entry_bytes,
@@ -89,6 +93,13 @@ impl WorkerLimits {
             max_font_bytes: self.max_font_bytes.min(8 * 1024 * 1024),
             max_page_font_bytes: self.max_page_font_bytes.min(32 * 1024 * 1024),
             max_viewport_css_px: self.max_viewport_css_px.min(16_384),
+            native_scrollbar_width: if self.native_scrollbar_width.is_finite()
+                && (0.0..=128.0).contains(&self.native_scrollbar_width)
+            {
+                self.native_scrollbar_width
+            } else {
+                0.0
+            },
             max_revision_snapshots: 128,
             max_revision_bytes: 16 * 1024 * 1024,
             max_resource_cache_entries: self.max_resource_cache_entries.min(256),
@@ -122,7 +133,18 @@ pub struct WorkerEnvelope {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum WorkerRequest {
+    ScriptCloseHistory,
+    PrepareScriptClose {
+        token: u64,
+        expected: oryn_js::worker_wire::Creator,
+    },
+    ControlledNavigate {
+        id: crate::navigation_control::NavigationId,
+        request: crate::navigation_control::NavigationRequest,
+    },
     Initialize {
+        #[serde(default)]
+        related_actor: Option<WorkerRoute>,
         nonce: String,
         limits: WorkerLimits,
         context: Box<ContextOptions>,
@@ -135,6 +157,9 @@ pub enum WorkerRequest {
         url: String,
     },
     GotoResource {
+        #[serde(default)]
+        service_authority: Option<oryn_js::navigation::ServiceNavigationAdmission>,
+        form_authority: Option<oryn_js::navigation::FormNavigationAuthority>,
         url: String,
         post: Option<oryn_js::navigation::PostResource>,
         referrer_policy: Option<String>,
@@ -143,20 +168,47 @@ pub enum WorkerRequest {
     Forward,
     Refresh,
     LoadHtml {
+        policy_token: Option<String>,
         url: String,
         html: String,
     },
     WaitFor {
         predicate: WaitPredicate,
     },
+    WaitForUntil {
+        predicate: WaitPredicate,
+        timeout_ms: Option<u64>,
+    },
     Evaluate {
         source: String,
     },
+    Scoped {
+        scope: crate::host::webdriver_script::AutomationRealmSnapshot,
+        request: Box<WorkerRequest>,
+    },
+    WebdriverFrames {
+        #[serde(rename = "operation")]
+        command: crate::host::webdriver_script::FrameCommand,
+    },
+    WebdriverScript {
+        request: crate::host::webdriver_script::ScriptRequest,
+        context: crate::host::webdriver_script::ScriptContext,
+    },
+    WebdriverActions {
+        #[serde(rename = "operation")]
+        command: crate::webdriver_actions::ActionCommand,
+        context: crate::host::webdriver_script::ScriptContext,
+    },
     Capabilities,
     ChallengeAssessment,
+    ResolveFocusedForm,
     ResolveSelector {
         selector: String,
         action: oryn_common::v3::SemanticAction,
+    },
+    ResolveTarget {
+        target: oryn_common::agent::Target,
+        action: Option<oryn_common::v3::SemanticAction>,
     },
     ResolveSemantic {
         target: oryn_common::agent::Target,
@@ -181,10 +233,19 @@ pub enum WorkerRequest {
     ComputedStyle {
         target: SemanticRef,
     },
+    AccessibilitySnapshot,
+    AccessibilityText {
+        target: SemanticRef,
+        #[serde(rename = "operation")]
+        command: oryn_js::accessibility::TextCommand,
+    },
     BoxModel {
         target: SemanticRef,
     },
     PaintSnapshot,
+    PrintSnapshot {
+        options: oryn_common::v4::PrintOptions,
+    },
     SetViewport {
         viewport: oryn_common::v4::ViewportState,
     },
@@ -221,6 +282,7 @@ pub enum WorkerRequest {
         nonce: String,
     },
     Close,
+    ReleaseEnvironment,
     Exit,
 }
 
@@ -238,6 +300,29 @@ pub struct NativeActionRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum WorkerResponse {
+    ScriptCloseHistory {
+        proof: crate::context_service::ScriptCloseHistoryProof,
+    },
+    ScriptClosePreparation {
+        outcome: crate::context_service::ScriptClosePreparation,
+    },
+    WebdriverFrames {
+        result: Result<
+            crate::host::webdriver_script::FrameResponse,
+            crate::host::webdriver_script::ScriptError,
+        >,
+    },
+    WebdriverScript {
+        result: Result<
+            crate::host::webdriver_script::ScriptValue,
+            crate::host::webdriver_script::ScriptError,
+        >,
+    },
+    WebdriverActions {
+        result: Result<(), crate::host::webdriver_script::ScriptError>,
+        feedback: oryn_js::drag_image::FeedbackBatch,
+        receipts: Vec<crate::webdriver_actions::OsKeyReceipt>,
+    },
     Ready {
         nonce: String,
         protocol_version: u32,
@@ -278,11 +363,20 @@ pub enum WorkerResponse {
     ComputedStyle {
         style: oryn_common::v4::ComputedStyle,
     },
+    AccessibilitySnapshot {
+        snapshot: Box<crate::accessibility_platform::NativeSnapshot>,
+    },
+    AccessibilityText {
+        snapshot: oryn_js::accessibility::TextSnapshot,
+    },
     BoxModel {
         box_model: oryn_common::v4::BoxModel,
     },
     PaintSnapshot {
         snapshot: Box<oryn_common::v4::PaintSnapshot>,
+    },
+    PrintSnapshot {
+        snapshot: Box<oryn_common::v4::PrintSnapshot>,
     },
     Viewport {
         viewport: oryn_common::v4::ViewportState,
@@ -331,6 +425,7 @@ pub enum WorkerResponse {
     },
     Satisfied,
     Closed,
+    EnvironmentReleased,
     Exiting,
     Error {
         error: Box<crate::runtime::RuntimeError>,
@@ -348,6 +443,7 @@ pub struct WorkerCodeIdentity {
 }
 
 struct PageSession {
+    parent_policy_authority: bool,
     page: PageHandle,
     oil: NativeOilSession,
 }
@@ -361,27 +457,67 @@ impl PageSession {
         page_id: PageId,
         opener_page_id: Option<PageId>,
     ) -> Self {
+        Self::new_with_related(
+            config,
+            context,
+            broker,
+            #[cfg(unix)]
+            context_client,
+            page_id,
+            opener_page_id,
+            None,
+        )
+        .expect("native page session admission")
+    }
+    fn new_with_related(
+        config: BrowserConfig,
+        context: ContextOptions,
+        broker: Option<SharedNetworkBroker>,
+        #[cfg(unix)] context_client: Option<SharedContextClient>,
+        page_id: PageId,
+        opener_page_id: Option<PageId>,
+        related_actor: Option<WorkerRoute>,
+    ) -> Result<Self, crate::runtime::RuntimeError> {
+        #[cfg(unix)]
+        let parent_policy_authority = broker.is_some() && context_client.is_some();
+        #[cfg(not(unix))]
+        let parent_policy_authority = false;
         let browser = Browser::in_process_with_config(config);
         #[cfg(all(unix, not(feature = "v8-host")))]
         let _ = &context_client;
-        let page = match broker {
+        let context = match broker {
             #[cfg(all(unix, feature = "v8-host"))]
             Some(broker) if context_client.is_some() => browser
                 .new_context_with_broker_and_services(
                     context,
                     broker,
                     context_client.expect("checked context client"),
-                )
-                .new_page_with_identity(page_id, opener_page_id),
-            Some(broker) => browser
-                .new_context_with_broker(context, broker)
-                .new_page_with_identity(page_id, opener_page_id),
-            None => browser
-                .new_context_with_options(context)
-                .new_page_with_identity(page_id, opener_page_id),
+                ),
+            Some(broker) => browser.new_context_with_broker(context, broker),
+            None => browser.new_context_with_options(context),
+        };
+        #[cfg(all(unix, feature = "v8-host"))]
+        let page = match related_actor {
+            Some(actor) => {
+                context.new_related_page_with_identity(page_id, opener_page_id, actor)?
+            }
+            None => context.new_page_with_identity(page_id, opener_page_id),
+        };
+        #[cfg(not(all(unix, feature = "v8-host")))]
+        let page = {
+            if related_actor.is_some() {
+                return Err(crate::runtime::RuntimeError::ProtocolViolation(
+                    "related actor requires native V8 host".into(),
+                ));
+            }
+            context.new_page_with_identity(page_id, opener_page_id)
         };
         let oil = NativeOilSession::new(page.clone());
-        Self { page, oil }
+        Ok(Self {
+            page,
+            oil,
+            parent_policy_authority,
+        })
     }
 }
 
@@ -403,9 +539,9 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
     broker: Option<SharedNetworkBroker>,
     #[cfg(unix)] context_client: Option<SharedContextClient>,
 ) -> std::io::Result<()> {
-    let mut session: Option<PageSession> = None;
+    let mut sessions = BTreeMap::<u64, Option<PageSession>>::new();
     let mut active_session_id: Option<u64> = None;
-    let mut active_route: Option<WorkerRoute> = None;
+    let mut active_routes = BTreeMap::<u64, WorkerRoute>::new();
     let mut last_message_id = 0_u64;
     loop {
         let mut line = Vec::new();
@@ -445,7 +581,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                             route.environment == page_id.0
                                 && route.generation == *document_generation_base
                         }
-                        _ => active_route.as_ref() == Some(route),
+                        _ => active_routes.get(&route.environment) == Some(route),
                     }
             }) {
                 WorkerResponse::Error {
@@ -466,18 +602,43 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
                         "duplicate or out-of-order worker message".into(),
                     )),
                 }
-            } else if active_session_id.is_some()
-                && matches!(&envelope.command, WorkerRequest::Initialize { .. })
+            } else if matches!(&envelope.command, WorkerRequest::Initialize { .. })
+                && envelope
+                    .route
+                    .as_ref()
+                    .is_some_and(|route| active_routes.contains_key(&route.environment))
             {
                 WorkerResponse::Error {
                     error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
                         "worker session is already initialized".into(),
                     )),
                 }
+            } else if matches!(&envelope.command, WorkerRequest::Initialize { .. })
+                && sessions.len() >= 256
+            {
+                WorkerResponse::LimitExceeded {
+                    resource: "process environments".into(),
+                }
+            } else if sessions.len() > 1
+                && matches!(
+                    &envelope.command,
+                    WorkerRequest::Reset { .. } | WorkerRequest::Exit
+                )
+            {
+                WorkerResponse::Error {
+                    error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
+                        "process control requires every sibling environment to be released".into(),
+                    )),
+                }
             } else {
                 last_message_id = envelope.message_id;
+                let environment = envelope
+                    .route
+                    .as_ref()
+                    .expect("validated route")
+                    .environment;
                 dispatch(
-                    &mut session,
+                    sessions.entry(environment).or_default(),
                     broker.clone().map(|broker| {
                         broker.for_route(envelope.route.clone().expect("validated route"))
                     }),
@@ -491,7 +652,17 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             };
             if matches!(response, WorkerResponse::Ready { .. }) {
                 active_session_id = Some(envelope.session_id);
-                active_route = envelope.route.clone();
+                let route = envelope
+                    .route
+                    .clone()
+                    .expect("ready response has validated route");
+                active_routes.insert(route.environment, route);
+            }
+            if matches!(response, WorkerResponse::EnvironmentReleased)
+                && let Some(route) = envelope.route.as_ref()
+            {
+                sessions.remove(&route.environment);
+                active_routes.remove(&route.environment);
             }
             let reset = matches!(response, WorkerResponse::ResetReady { .. });
             let exiting = matches!(response, WorkerResponse::Exiting);
@@ -508,7 +679,8 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             writer.flush()?;
             if reset {
                 active_session_id = None;
-                active_route = None;
+                active_routes.clear();
+                sessions.clear();
                 last_message_id = 0;
             }
             if exiting {
@@ -522,7 +694,7 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             Ok(WorkerRequest::Ping) => WorkerResponse::Pong {
                 protocol_version: WORKER_PROTOCOL_VERSION,
             },
-            Ok(WorkerRequest::Exit) => WorkerResponse::Exiting,
+            Ok(WorkerRequest::Exit) if active_session_id.is_none() => WorkerResponse::Exiting,
             Ok(_) => WorkerResponse::Error {
                 error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(format!(
                     "page commands require worker protocol v{} initialization",
@@ -541,10 +713,30 @@ pub async fn serve_with_services<R: BufRead, W: Write>(
             break;
         }
     }
-    if let Some(session) = session {
-        let _ = session.page.close().await;
+    let mut cleanup_failure = None;
+    for (environment, session) in sessions {
+        if let Some(session) = session {
+            if let Err(error) = session.page.close().await {
+                cleanup_failure.get_or_insert_with(|| error.to_string());
+            }
+        }
+        #[cfg(unix)]
+        if let Some(client) = context_client
+            .as_ref()
+            .zip(active_routes.get(&environment))
+            .map(|(client, route)| client.for_route(route.clone()))
+        {
+            if let Err(error) = client.drain_resource_teardown(Duration::from_secs(2)) {
+                cleanup_failure.get_or_insert_with(|| error.to_string());
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = environment;
     }
-    Ok(())
+    match cleanup_failure {
+        Some(error) => Err(std::io::Error::other(error)),
+        None => Ok(()),
+    }
 }
 
 fn write_legacy(writer: &mut impl Write, response: &WorkerResponse) -> std::io::Result<()> {
@@ -560,6 +752,7 @@ async fn dispatch(
     request: WorkerRequest,
 ) -> WorkerResponse {
     if let WorkerRequest::Initialize {
+        related_actor,
         nonce,
         limits,
         context,
@@ -580,15 +773,21 @@ async fn dispatch(
         let effective = WorkerLimits::from(&limits.browser_config());
         let mut config = effective.browser_config();
         config.document_generation_base = document_generation_base;
-        *session = Some(PageSession::new(
-            config,
-            *context,
-            broker,
-            #[cfg(unix)]
-            context_client,
-            page_id,
-            opener_page_id,
-        ));
+        *session = Some(
+            match PageSession::new_with_related(
+                config,
+                *context,
+                broker,
+                #[cfg(unix)]
+                context_client,
+                page_id,
+                opener_page_id,
+                related_actor,
+            ) {
+                Ok(session) => session,
+                Err(value) => return error(value),
+            },
+        );
         let runtime = crate::runtime_build_info();
         return WorkerResponse::Ready {
             nonce,
@@ -618,10 +817,40 @@ async fn dispatch(
         };
     }
     if matches!(request, WorkerRequest::Exit) {
+        if let Some(active) = session.as_ref() {
+            if let Err(value) = active.page.close().await {
+                return error(value);
+            }
+        }
+        #[cfg(unix)]
+        if let Some(client) = &context_client {
+            if let Err(value) = client.drain_resource_teardown(Duration::from_secs(2)) {
+                return error(value);
+            }
+        }
+        session.take();
         return WorkerResponse::Exiting;
     }
+    if matches!(request, WorkerRequest::ReleaseEnvironment) {
+        let Some(active) = session.as_ref() else {
+            return error(crate::runtime::RuntimeError::Closed);
+        };
+        return match active.page.close().await {
+            Ok(()) => {
+                #[cfg(unix)]
+                if let Some(client) = &context_client {
+                    if let Err(value) = client.drain_resource_teardown(Duration::from_secs(2)) {
+                        return error(value);
+                    }
+                }
+                session.take();
+                WorkerResponse::EnvironmentReleased
+            }
+            Err(value) => error(value),
+        };
+    }
     if let WorkerRequest::Reset { nonce } = request {
-        let Some(active) = session.take() else {
+        let Some(active) = session.as_ref() else {
             return WorkerResponse::Error {
                 error: Box::new(crate::runtime::RuntimeError::ProtocolViolation(
                     "worker has not been initialized".into(),
@@ -631,6 +860,13 @@ async fn dispatch(
         if let Err(value) = active.page.close().await {
             return error(value);
         }
+        #[cfg(unix)]
+        if let Some(client) = &context_client {
+            if let Err(value) = client.drain_resource_teardown(Duration::from_secs(2)) {
+                return error(value);
+            }
+        }
+        session.take();
         return WorkerResponse::ResetReady {
             nonce,
             code_identity: WorkerCodeIdentity {
@@ -648,16 +884,53 @@ async fn dispatch(
         };
     };
     match request {
+        WorkerRequest::ControlledNavigate { id, request } => {
+            match session.page.run_remote_navigation(id, request).await {
+                Ok(()) => WorkerResponse::Satisfied,
+                Err(error) => WorkerResponse::Error {
+                    error: Box::new(error),
+                },
+            }
+        }
         WorkerRequest::Goto { url } => navigation(session.page.goto(url).await),
         WorkerRequest::GotoResource {
+            service_authority,
+            form_authority,
             url,
             post,
             referrer_policy,
-        } => navigation(session.page.goto_resource(url, post, referrer_policy).await),
+        } => {
+            if let Some(authority) = service_authority {
+                if post.is_some() || form_authority.is_some() || referrer_policy.is_some() {
+                    return WorkerResponse::Error{error:Box::new(RuntimeError::ProtocolViolation("service navigation cannot carry form authority, body, or referrer override".into()))};
+                }
+                navigation(session.page.goto_service_resource(url, authority).await)
+            } else {
+                navigation(
+                    session
+                        .page
+                        .goto_resource(url, post, referrer_policy, form_authority)
+                        .await,
+                )
+            }
+        }
         WorkerRequest::Back => navigation(session.page.back().await),
         WorkerRequest::Forward => navigation(session.page.forward().await),
         WorkerRequest::Refresh => navigation(session.page.refresh().await),
-        WorkerRequest::LoadHtml { url, html } => match session.page.load_html(url, html).await {
+        WorkerRequest::LoadHtml {
+            policy_token,
+            url,
+            html,
+        } => match if session.parent_policy_authority {
+            session
+                .page
+                .load_html_with_policy(url, html, policy_token)
+                .await
+        } else {
+            // A standalone dispatcher owns its native BrowserContext. A child
+            // with a parent endpoint must instead consume the forwarded grant.
+            session.page.load_html(url, html).await
+        } {
             Ok(revision) => match session.page.observe().await {
                 Ok(observation) => WorkerResponse::Loaded {
                     revision,
@@ -671,10 +944,61 @@ async fn dispatch(
             Ok(()) => WorkerResponse::Satisfied,
             Err(value) => error(value),
         },
+        WorkerRequest::WaitForUntil {
+            predicate,
+            timeout_ms,
+        } => match session
+            .page
+            .wait_for_timeout(predicate, timeout_ms.map(Duration::from_millis))
+            .await
+        {
+            Ok(()) => WorkerResponse::Satisfied,
+            Err(value) => error(value),
+        },
+        WorkerRequest::Scoped { scope, request } => {
+            match session.page.scoped_worker_request(scope, *request).await {
+                Ok(response) => response,
+                Err(value) => error(value),
+            }
+        }
+        WorkerRequest::WebdriverFrames { command } => WorkerResponse::WebdriverFrames {
+            result: session.page.webdriver_frames(command).await,
+        },
+        WorkerRequest::WebdriverActions { command, context } => {
+            let outcome = session
+                .page
+                .execute_native_actions_with_receipts(command, context)
+                .await;
+            let (result, receipts) = match outcome {
+                Ok(receipts) => (Ok(()), receipts),
+                Err(error) => (Err(error), Vec::new()),
+            };
+            WorkerResponse::WebdriverActions {
+                result,
+                receipts,
+                feedback: session.page.take_drag_feedback_batch(),
+            }
+        }
+        WorkerRequest::WebdriverScript { request, context } => WorkerResponse::WebdriverScript {
+            result: session
+                .page
+                .execute_webdriver_script_in_context(request, context)
+                .await,
+        },
         WorkerRequest::Evaluate { source } => match session.page.evaluate(source).await {
             Ok(value) => WorkerResponse::Value { value },
             Err(value) => error(value),
         },
+        WorkerRequest::ScriptCloseHistory => match session.page.script_close_history().await {
+            Ok(proof) => WorkerResponse::ScriptCloseHistory { proof },
+            Err(value) => error(value),
+        },
+        WorkerRequest::PrepareScriptClose { token, expected } => {
+            match session.page.prepare_script_close(token, expected).await {
+                Ok(outcome) => WorkerResponse::ScriptClosePreparation { outcome },
+                Err(value) => error(value),
+            }
+        }
         WorkerRequest::Capabilities => match session.page.capabilities().await {
             Ok(capabilities) => WorkerResponse::Capabilities { capabilities },
             Err(value) => error(value),
@@ -683,9 +1007,19 @@ async fn dispatch(
             Ok(assessment) => WorkerResponse::ChallengeAssessment { assessment },
             Err(value) => error(value),
         },
+        WorkerRequest::ResolveFocusedForm => match session.page.resolve_focused_form().await {
+            Ok(semantic_ref) => WorkerResponse::SemanticRef { semantic_ref },
+            Err(value) => error(value),
+        },
         WorkerRequest::ResolveSelector { selector, action } => {
             match session.page.resolve_selector(selector, action).await {
                 Ok(semantic_ref) => WorkerResponse::SemanticRef { semantic_ref },
+                Err(value) => error(value),
+            }
+        }
+        WorkerRequest::ResolveTarget { target, action } => {
+            match session.page.resolve_target(target, action).await {
+                Ok(result) => WorkerResponse::Resolution { result },
                 Err(value) => error(value),
             }
         }
@@ -733,6 +1067,18 @@ async fn dispatch(
                 Err(value) => error(value),
             }
         }
+        WorkerRequest::AccessibilitySnapshot => match session.page.accessibility_snapshot().await {
+            Ok(snapshot) => WorkerResponse::AccessibilitySnapshot {
+                snapshot: Box::new(snapshot),
+            },
+            Err(value) => error(value),
+        },
+        WorkerRequest::AccessibilityText { target, command } => {
+            match session.page.accessibility_text(target, command).await {
+                Ok(snapshot) => WorkerResponse::AccessibilityText { snapshot },
+                Err(value) => error(value),
+            }
+        }
         WorkerRequest::BoxModel { target } => match session.page.box_model(target).await {
             Ok(box_model) => WorkerResponse::BoxModel { box_model },
             Err(value) => error(value),
@@ -743,6 +1089,14 @@ async fn dispatch(
             },
             Err(value) => error(value),
         },
+        WorkerRequest::PrintSnapshot { options } => {
+            match session.page.print_snapshot(options).await {
+                Ok(snapshot) => WorkerResponse::PrintSnapshot {
+                    snapshot: Box::new(snapshot),
+                },
+                Err(value) => error(value),
+            }
+        }
         WorkerRequest::SetViewport { viewport } => {
             match session.page.set_viewport(viewport).await {
                 Ok(viewport) => WorkerResponse::Viewport { viewport },
@@ -813,7 +1167,13 @@ async fn dispatch(
                 };
                 match result {
                     Ok(result) => results.push(result),
-                    Err(value) => return error(value),
+                    Err(value) => {
+                        return error(RuntimeError::BatchExecutionFailed {
+                            failed_index: results.len(),
+                            completed: results,
+                            cause: Box::new(value),
+                        });
+                    }
                 }
             }
             WorkerResponse::Actions { results }
@@ -826,8 +1186,11 @@ async fn dispatch(
         }
         WorkerRequest::Oil { input } => match session.oil.execute(&input).await {
             Ok(outputs) => WorkerResponse::Oil { outputs },
-            Err(NativeOilError::Runtime(value)) => error(value),
-            Err(value) => error(crate::runtime::RuntimeError::Script(value.to_string())),
+            Err(value) => error(value.into_runtime().unwrap_or_else(|failure| {
+                RuntimeError::ProtocolViolation(format!(
+                    "OIL receipt serialization failed: {failure}"
+                ))
+            })),
         },
         WorkerRequest::Trace => match session.page.trace().await {
             Ok(events) => WorkerResponse::Trace { events },
@@ -840,6 +1203,7 @@ async fn dispatch(
         WorkerRequest::Initialize { .. }
         | WorkerRequest::Ping
         | WorkerRequest::Reset { .. }
+        | WorkerRequest::ReleaseEnvironment
         | WorkerRequest::Exit => {
             unreachable!("handled before session dispatch")
         }
@@ -948,15 +1312,132 @@ fn secret_environment_present() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn native_scrollbar_width_round_trips_and_rejects_nonfinite_geometry() {
+        let mut config = BrowserConfig::default();
+        config.native_scrollbar_width = 17.5;
+        let encoded = serde_json::to_vec(&WorkerLimits::from(&config)).unwrap();
+        let mut limits: WorkerLimits = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(limits.browser_config().native_scrollbar_width, 17.5);
+        for invalid in [f64::NAN, f64::INFINITY, -1.0, 129.0] {
+            limits.native_scrollbar_width = invalid;
+            assert_eq!(limits.browser_config().native_scrollbar_width, 0.0);
+        }
+    }
     use std::io::{BufReader, Cursor};
 
     use super::*;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn process_dispatches_two_environment_grants_and_releases_only_one() {
+        let first = WorkerRoute::issue(31, 1, 0).unwrap();
+        let second = WorkerRoute::issue(31, 2, 0).unwrap();
+        let initialize = |page_id| WorkerRequest::Initialize {
+            related_actor: None,
+            nonce: format!("environment-{page_id}"),
+            limits: WorkerLimits::default(),
+            context: Box::new(ContextOptions::default()),
+            page_id: PageId(page_id),
+            opener_page_id: None,
+            document_generation_base: 0,
+        };
+        let requests = vec![
+            (first.clone(), initialize(1)),
+            (second.clone(), initialize(2)),
+            (
+                first.clone(),
+                WorkerRequest::LoadHtml {
+                    policy_token: None,
+                    url: "https://first.test/".into(),
+                    html: "<p>alpha</p>".into(),
+                },
+            ),
+            (
+                second.clone(),
+                WorkerRequest::LoadHtml {
+                    policy_token: None,
+                    url: "https://second.test/".into(),
+                    html: "<p>beta</p>".into(),
+                },
+            ),
+            (
+                first.clone(),
+                WorkerRequest::Evaluate {
+                    source: "document.querySelector('p').textContent".into(),
+                },
+            ),
+            (
+                second.clone(),
+                WorkerRequest::Evaluate {
+                    source: "document.querySelector('p').textContent".into(),
+                },
+            ),
+            (
+                first.clone(),
+                WorkerRequest::Reset {
+                    nonce: "forbidden-with-sibling".into(),
+                },
+            ),
+            (first.clone(), WorkerRequest::ReleaseEnvironment),
+            (first, WorkerRequest::Ping),
+            (
+                second.clone(),
+                WorkerRequest::Evaluate {
+                    source: "document.querySelector('p').textContent".into(),
+                },
+            ),
+            (second, WorkerRequest::Exit),
+        ];
+        let mut input = Vec::new();
+        for (index, (route, command)) in requests.into_iter().enumerate() {
+            serde_json::to_writer(
+                &mut input,
+                &HostEnvelope {
+                    protocol_version: WORKER_PROTOCOL_VERSION,
+                    route: Some(route),
+                    session_id: 31,
+                    message_id: index as u64 + 1,
+                    command,
+                },
+            )
+            .unwrap();
+            input.push(b'\n');
+        }
+        let mut output = Vec::new();
+        serve(BufReader::new(Cursor::new(input)), &mut output)
+            .await
+            .unwrap();
+        let replies = output
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice::<WorkerEnvelope>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(replies.len(), 11);
+        assert!(matches!(replies[0].response, WorkerResponse::Ready { .. }));
+        assert!(matches!(replies[1].response, WorkerResponse::Ready { .. }));
+        assert!(
+            matches!(&replies[4].response, WorkerResponse::Value { value } if value == "alpha")
+        );
+        assert!(matches!(&replies[5].response, WorkerResponse::Value { value } if value == "beta"));
+        assert!(matches!(replies[6].response, WorkerResponse::Error { .. }));
+        assert!(matches!(
+            replies[7].response,
+            WorkerResponse::EnvironmentReleased
+        ));
+        assert!(matches!(replies[8].response, WorkerResponse::Error { .. }));
+        assert!(matches!(&replies[9].response, WorkerResponse::Value { value } if value == "beta"));
+        assert!(matches!(replies[10].response, WorkerResponse::Exiting));
+        for (index, reply) in replies.iter().enumerate() {
+            assert_eq!(reply.correlation_id, index as u64 + 1);
+        }
+    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn serves_initialized_page_requests_over_v8_json_lines() {
         let route = WorkerRoute::issue(7, 7, 0).unwrap();
         let requests = vec![
             WorkerRequest::Initialize {
+                related_actor: None,
                 nonce: "test-nonce".into(),
                 limits: WorkerLimits::default(),
                 context: Box::new(ContextOptions::default()),
@@ -965,6 +1446,7 @@ mod tests {
                 document_generation_base: 0,
             },
             WorkerRequest::LoadHtml {
+                policy_token: None,
                 url: "https://example.test".into(),
                 html: "<button>Save</button>".into(),
             },
@@ -1051,6 +1533,82 @@ mod tests {
         assert_eq!(values[2]["status"], "exiting");
     }
 
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn reset_waits_for_script_ownership_and_preserves_failed_cleanup_for_retry() {
+        use crate::context_service::{
+            ContextScriptLoad, ContextServiceRequest, ContextServiceResponse, ContextTransport,
+            IpcContextClient, serve_context_transport,
+        };
+        struct CleanupService;
+        impl ContextTransport for CleanupService {
+            fn request(
+                &self,
+                request: ContextServiceRequest,
+            ) -> Result<ContextServiceResponse, crate::RuntimeError> {
+                match request {
+                    ContextServiceRequest::CancelScriptLoad { .. } => {
+                        Ok(ContextServiceResponse::ScriptLoadCancelled)
+                    }
+                    _ => Err(crate::RuntimeError::ContextService(
+                        "unexpected fixture request".into(),
+                    )),
+                }
+            }
+        }
+        let (worker, parent) = std::os::unix::net::UnixStream::pair().unwrap();
+        let shutdown = parent.try_clone().unwrap();
+        let server = std::thread::spawn(move || {
+            serve_context_transport(parent, std::sync::Arc::new(CleanupService))
+        });
+        let client = SharedContextClient::new(IpcContextClient::new(worker));
+        let owner = ContextScriptLoad::from_reserved(client.clone(), PageId(1), 71);
+        let resource_job = client.track_resource_job().unwrap();
+        let mut session = Some(PageSession::new(
+            BrowserConfig::default(),
+            ContextOptions::default(),
+            None,
+            None,
+            PageId(1),
+            None,
+        ));
+        let response = dispatch(
+            &mut session,
+            None,
+            Some(client.clone()),
+            WorkerRequest::Reset {
+                nonce: "first".into(),
+            },
+        )
+        .await;
+        assert!(matches!(response, WorkerResponse::Error { .. }));
+        assert!(
+            session.is_some(),
+            "failed teardown must retain retry ownership"
+        );
+        assert!(
+            client.track_resource_job().is_err(),
+            "failed drain keeps the old route sealed"
+        );
+        drop(resource_job);
+        assert!(client.drain_script_cleanup(Duration::ZERO).is_err());
+        drop(owner);
+        client.drain_script_cleanup(Duration::from_secs(5)).unwrap();
+        let response = dispatch(
+            &mut session,
+            None,
+            Some(client.clone()),
+            WorkerRequest::Reset {
+                nonce: "retry".into(),
+            },
+        )
+        .await;
+        assert!(matches!(response, WorkerResponse::ResetReady { nonce, .. } if nonce == "retry"));
+        assert!(session.is_none());
+        shutdown.shutdown(std::net::Shutdown::Both).unwrap();
+        let _ = server.join().unwrap();
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn reset_destroys_the_session_and_accepts_a_fresh_nonce_and_session() {
         let first = WorkerRoute::issue(41, 1, 0).unwrap();
@@ -1062,6 +1620,7 @@ mod tests {
                 message_id: 1,
                 route: Some(first.clone()),
                 command: WorkerRequest::Initialize {
+                    related_actor: None,
                     nonce: "first".into(),
                     limits: WorkerLimits::default(),
                     context: Box::new(ContextOptions::default()),
@@ -1085,6 +1644,7 @@ mod tests {
                 message_id: 1,
                 route: Some(second.clone()),
                 command: WorkerRequest::Initialize {
+                    related_actor: None,
                     nonce: "second".into(),
                     limits: WorkerLimits::default(),
                     context: Box::new(ContextOptions::default()),
@@ -1135,6 +1695,7 @@ mod tests {
                 9,
                 1,
                 WorkerRequest::Initialize {
+                    related_actor: None,
                     nonce: "nonce".into(),
                     limits: WorkerLimits::default(),
                     context: Box::new(ContextOptions::default()),
@@ -1149,6 +1710,7 @@ mod tests {
                 9,
                 3,
                 WorkerRequest::Initialize {
+                    related_actor: None,
                     nonce: "again".into(),
                     limits: WorkerLimits::default(),
                     context: Box::new(ContextOptions::default()),
@@ -1212,6 +1774,7 @@ mod tests {
             (
                 Some(route.clone()),
                 WorkerRequest::Initialize {
+                    related_actor: None,
                     nonce: "route-test".into(),
                     limits: WorkerLimits::default(),
                     context: Box::new(ContextOptions::default()),
@@ -1257,5 +1820,101 @@ mod tests {
         }
         assert!(matches!(replies[4].response, WorkerResponse::Pong { .. }));
         assert!(matches!(replies[5].response, WorkerResponse::Exiting));
+    }
+}
+
+#[cfg(test)]
+mod semantic_identity_contract_tests {
+    use super::*;
+    #[test]
+    fn pending_worker14_identity_resolution_preserves_optional_action_and_native_reference() {
+        let reference = oryn_common::v3::SemanticRef {
+            page_id: oryn_common::v3::PageId(91),
+            document_generation: 7,
+            node: 4294967301,
+        };
+        for action in [None, Some(oryn_common::v3::SemanticAction::Click)] {
+            let request = WorkerRequest::ResolveTarget {
+                target: oryn_common::agent::Target::Inside {
+                    target: Box::new(oryn_common::agent::Target::Reference { reference }),
+                    container: Box::new(oryn_common::agent::Target::Css {
+                        selector: "section[data-owner]".into(),
+                    }),
+                },
+                action,
+            };
+            let bytes = serde_json::to_vec(&request).unwrap();
+            let WorkerRequest::ResolveTarget {
+                target,
+                action: decoded,
+            } = serde_json::from_slice(&bytes).unwrap()
+            else {
+                panic!("identity request")
+            };
+            assert_eq!(decoded, action);
+            assert!(
+                matches!(target,oryn_common::agent::Target::Inside{target,..} if matches!(*target,oryn_common::agent::Target::Reference{reference:actual} if actual==reference))
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod nested_command_wire_tests {
+    use super::*;
+    #[test]
+    fn nested_operations_preserve_outer_command_tags_and_round_trip() {
+        let requests = [
+            (
+                "webdriver_frames",
+                WorkerRequest::WebdriverFrames {
+                    command: crate::host::webdriver_script::FrameCommand::Inventory,
+                },
+            ),
+            (
+                "webdriver_actions",
+                WorkerRequest::WebdriverActions {
+                    command: crate::webdriver_actions::ActionCommand::Release,
+                    context: Default::default(),
+                },
+            ),
+            (
+                "accessibility_text",
+                WorkerRequest::AccessibilityText {
+                    target: SemanticRef {
+                        page_id: PageId(9),
+                        document_generation: 3,
+                        node: 7,
+                    },
+                    command: oryn_js::accessibility::TextCommand::Read,
+                },
+            ),
+        ];
+        for (tag, request) in requests {
+            let value = serde_json::to_value(&request).unwrap();
+            assert_eq!(value["command"], tag);
+            assert!(value.get("operation").is_some());
+            assert_eq!(
+                serde_json::from_value::<WorkerRequest>(value.clone()).unwrap(),
+                request
+            );
+            let mut missing = value.clone();
+            missing.as_object_mut().unwrap().remove("operation");
+            assert!(serde_json::from_value::<WorkerRequest>(missing).is_err());
+            let mut malformed = value;
+            malformed["operation"] = serde_json::Value::Null;
+            assert!(serde_json::from_value::<WorkerRequest>(malformed).is_err());
+        }
+        assert_eq!(
+            serde_json::to_value(WorkerRequest::Ping).unwrap(),
+            serde_json::json!({"command":"ping"})
+        );
+        assert_eq!(
+            serde_json::to_value(WorkerRequest::Goto {
+                url: "https://example.test/".into()
+            })
+            .unwrap(),
+            serde_json::json!({"command":"goto","url":"https://example.test/"})
+        );
     }
 }

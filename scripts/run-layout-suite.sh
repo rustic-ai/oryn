@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+expected_worker_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field worker)"
+expected_context_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field context)"
+expected_agent_protocol="$(python3 "$repo_root/scripts/native_protocol_versions.py" --field agent)"
 output_dir="${1:-$repo_root/artifacts/layout-v1/production-gate}"
 if [[ "$output_dir" != /* ]]; then output_dir="$repo_root/$output_dir"; fi
 parent="$repo_root/target/release/oryn"
@@ -34,11 +40,12 @@ test -x "$parent"
 test -x "$worker"
 export ORYN_PAGE_WORKER="$worker"
 
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
 runtime="$($parent native --runtime-info --allow-loopback)"
-jq -e '
+jq -e --argjson expected_worker_protocol "$expected_worker_protocol" --argjson expected_context_protocol "$expected_context_protocol" --argjson expected_agent_protocol "$expected_agent_protocol" '
   .contract_version == 4 and .native_v8 == true and .build_profile == "release" and
   .execution_mode == "sandboxed_worker" and .sandboxed == true and
-  .sandbox_state == "app_sandbox" and .worker_protocol_version == 10 and
+  .sandbox_state == "app_sandbox" and .worker_protocol_version == $expected_worker_protocol and .context_service_protocol_version == $expected_context_protocol and .agent_ipc_protocol_version == $expected_agent_protocol and
   .worker_team_id == "5HVA9VFF8K" and
   .style_engine_version == "stylo-stylesheets-selectors-0.20+oryn-cascade-v3" and
   .box_engine_version == "taffy-0.14" and
@@ -58,8 +65,12 @@ ORYN_BIN="$parent" ORYN_LAYOUT_ARTIFACT_DIR="$output_dir/limitations" \
   "$repo_root/scripts/validate-layout-limitations.sh" >"$output_dir/layout-limitations.log" 2>&1
 "$repo_root/scripts/validate-layout-differential.sh" "$output_dir/differential" \
   >"$output_dir/layout-differential.log" 2>&1
-cargo run --release --locked -p oryn-native --example layout_probe \
-  >"$output_dir/layout-result.json"
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  python3 "$repo_root/scripts/security_prebuilt.py" run layout_probe >"$output_dir/layout-result.json"
+else
+  cargo run --release --locked -p oryn-native --example layout_probe >"$output_dir/layout-result.json"
+fi
 jq -e '
   .outcome.status == "passed" and
   .relations.table_geometry_unavailable == false and
@@ -80,9 +91,18 @@ ORYN_BIN="$parent" ORYN_APP_COMPATIBILITY_DOMAIN=both ORYN_APP_COMPATIBILITY_ART
 "$repo_root/scripts/validate-executable-document-manifest.sh" --gate >"$output_dir/executable-document.log" 2>&1
 "$repo_root/scripts/validate-semantic-controlled.sh" >"$output_dir/semantic-controlled.log" 2>&1
 
-cargo run --release --locked -p oryn-native --example sandbox_worker_integration \
-  >"$output_dir/worker-integration.txt"
-cargo run --release --locked -p oryn-native --example semantic_reference_churn >"$output_dir/churn.json"
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  python3 "$repo_root/scripts/security_prebuilt.py" run sandbox_worker_integration >"$output_dir/worker-integration.txt"
+else
+  cargo run --release --locked -p oryn-native --example sandbox_worker_integration >"$output_dir/worker-integration.txt"
+fi
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  python3 "$repo_root/scripts/security_prebuilt.py" run semantic_reference_churn >"$output_dir/churn.json"
+else
+  cargo run --release --locked -p oryn-native --example semantic_reference_churn >"$output_dir/churn.json"
+fi
 jq -e '.schema_version == 5 and .false_preservation.numerator == 0 and .worker_replacement.status == "passed" and .status == "passed"' \
   "$output_dir/churn.json" >/dev/null
 

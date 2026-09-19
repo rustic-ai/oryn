@@ -18,6 +18,20 @@
 namespace v8 {
 
 class SharedArrayBuffer;
+class BackingStore;
+
+// Called only for shared allocations, after engine argument validation. The
+// callback must not execute JavaScript or leave an exception pending. It must
+// resolve authority from the current native context, zero new storage, and
+// install growth/wait delegates before returning. A null result fails the
+// allocation; V8 must not silently substitute process-local shared storage.
+class V8_EXPORT SharedMemoryAllocationDelegate {
+ public:
+  virtual ~SharedMemoryAllocationDelegate() = default;
+  virtual std::shared_ptr<BackingStore> AllocateSharedMemory(
+      Isolate* isolate, size_t initial_length, size_t maximum_length,
+      bool growable, bool wasm, bool memory64) = 0;
+};
 
 #if defined(V8_COMPRESS_POINTERS) && \
     !defined(V8_COMPRESS_POINTERS_IN_SHARED_CAGE)
@@ -32,6 +46,54 @@ class IsolateGroup;
 enum class ArrayBufferCreationMode { kInternalized, kExternalized };
 enum class BackingStoreInitializationMode { kZeroInitialized, kUninitialized };
 enum class BackingStoreOnFailureMode { kReturnNull, kOutOfMemory };
+
+// Oryn engine ABI: native shared metadata and absolute GSAB growth.
+// Install before publishing any ArrayBuffer view of the backing store.
+#define V8_ORYN_SHARED_GROWTH_ABI 1
+// Native wait ownership is independent of a JavaScript wrapper. Destruction
+// must cancel/reclaim a pending coordinator waiter without invoking JavaScript.
+class V8_EXPORT SharedMemoryWaiter {
+ public:
+  enum class State { kPending, kOk, kNotEqual, kTimedOut, kCancelled, kAdmitting };
+  virtual ~SharedMemoryWaiter() = default;
+  // Blocks for at most max_wait_ms, allowing V8 to service termination/GC.
+  virtual State Poll(uint32_t max_wait_ms) = 0;
+};
+class V8_EXPORT SharedMemoryWaitDelegate {
+ public:
+  using ProcessInterrupts = bool (*)(void*);
+  virtual ~SharedMemoryWaitDelegate() = default;
+  // Begin must return promptly; Poll reports kAdmitting while native admission
+  // is pending. Compare-and-enqueue is atomic with Notify. Negative timeout is infinite.
+  virtual std::unique_ptr<SharedMemoryWaiter> Begin(
+      size_t offset, bool width64, uint64_t expected, int64_t timeout_ns) = 0;
+  // Produces the native Atomics.waitAsync result in the current context. Native
+  // environment retirement must cancel its waiter and discard pending delivery.
+  virtual MaybeLocal<Object> WaitAsync(Isolate* isolate, size_t offset,
+      bool width64, uint64_t expected, int64_t timeout_ns,
+      ProcessInterrupts process_interrupts, void* interrupt_context) = 0;
+  virtual uint32_t Notify(size_t offset, uint32_t count) = 0;
+};
+
+class V8_EXPORT SharedMemoryGrowthDelegate {
+ public:
+  enum class Result { kSuccess, kFailure, kRace };
+  virtual ~SharedMemoryGrowthDelegate() = default;
+  // Must perform an acquire read from native shared metadata, without JS calls.
+  virtual size_t ByteLength() const = 0;
+  // Stable, naturally aligned native-size atomic cell. Compiled shared Wasm
+  // accesses load this with atomic ordering. The delegate retains its mapping
+  // until all backing/instance references are gone; the address never moves.
+  virtual const size_t* ByteLengthAddress() const = 0;
+  // Publish zeroed accessible bytes before the new shared length. This operation
+  // must serialize with concurrent absolute growth in every mapped process.
+  virtual Result GrowAbsolute(size_t new_byte_length) = 0;
+  // Native atomic delta growth. On success writes the distinct prior page count.
+  // Pages are 64KiB; the maximum is conjoined with the backing's logical maximum.
+  virtual bool GrowWasmByPages(size_t delta, size_t maximum, size_t* previous) {
+    return false;
+  }
+};
 
 /**
  * A wrapper around the backing store (i.e. the raw memory) of an array buffer.
@@ -49,6 +111,16 @@ enum class BackingStoreOnFailureMode { kReturnNull, kOutOfMemory };
 class V8_EXPORT BackingStore : public v8::internal::BackingStoreBase {
  public:
   ~BackingStore();
+  // Install once before publishing the backing; delegate retains native mapping.
+  void SetSharedMemoryWaitDelegate(std::shared_ptr<SharedMemoryWaitDelegate> delegate);
+
+  // The embedder attests that reserved_capacity bytes are actually mapped in
+  // the V8 sandbox. This API does not allocate, move, or free that mapping.
+  // Existing custom-deleter ownership remains attached to the backing store.
+  void SetSharedMemoryGrowthDelegate(
+      std::shared_ptr<SharedMemoryGrowthDelegate> delegate,
+      size_t maximum_length, size_t reserved_capacity);
+
 
   /**
    * Return a pointer to the beginning of the memory block for this backing
@@ -114,6 +186,15 @@ class V8_EXPORT BackingStore : public v8::internal::BackingStoreBase {
    * ArrayBuffer.
    */
   static void EmptyDeleter(void* data, size_t length, void* deleter_data);
+
+  // Wrap a native sandbox mapping with explicit Wasm bounds. Consumes the
+  // deleter owner on every call, including validation failure. The delegate
+  // retains the metadata mapping for the lifetime of compiled size-cell reads.
+  static std::unique_ptr<BackingStore> NewSharedWasmBackingStore(
+      void* data, size_t initial_length, size_t maximum_length,
+      size_t reserved_capacity, bool memory64,
+      std::shared_ptr<SharedMemoryGrowthDelegate> growth,
+      DeleterCallback deleter, void* deleter_data);
 
  private:
   /**

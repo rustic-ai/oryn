@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "crate": "v8",
+  "crate_version": "150.4.0",
+  "source_basis": "authenticated crates.io v8-150.4.0.crate SHA256 42a978ff11f15b24e5c05a7123cf2b68f41e763546699781a924ef4e2cf43a49; active src and build manifest verified byte-identical",
+  "cpp_changes": false,
+  "base_files": {
+    "src/handle.rs": "d61f4266308823c13bcdd0ae6bb55680b3c0f07ad6125dde01b51e8edc0518b9",
+    "src/isolate.rs": "857451a4481061055176596a1b26f02303977fe7d07704937f1e51833c1b0873",
+    "build.rs": "cd979d31a70f3d5a2d240019a52de2412a803690f8d3b441bf8254c548588c31",
+    "Cargo.toml": "0ee160af757ab32c48bf8afbb6f8bb38aecd7dbd7dad9caed5b7ba69ff99fcd3",
+    "tests/oryn_weak_teardown.rs": null
+  },
+  "patched_files": {
+    "src/handle.rs": "e6210568483ab62f8653446174d611333e89da2d9f3de25a83dbc5a3a8f729fd",
+    "src/isolate.rs": "98da7b09a722b4d8dae80cb3a2acc0c4e5e0367a5449655b19182c580c83299e",
+    "build.rs": "c0bcac8f1beaddbdab39cc801aade8086b577a7da07f4811a41df3b7d78beb53",
+    "Cargo.toml": "cbe6ef406259f5f42a56b0cbbfdc3aaacad7e10163f1d66c42a42bfbd588b58e",
+    "tests/oryn_weak_teardown.rs": "c482fe9aee665095a607b8b63cd3c8f21544b7277dc9257769df7028da04eb96"
+  },
+  "patch_sha256": "ac4352f5cb39d1b434fdcf8dfefb42e2ffdcf3d409a0b824dab0c604de5a7574"
+}

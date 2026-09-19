@@ -94,6 +94,7 @@ pub enum StorageRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum StorageResponse {
+    Unchanged,
     Value { value: Option<String> },
     Entries { entries: Vec<(String, String)> },
     Changed { change: StorageChange },
@@ -136,9 +137,80 @@ pub struct IdbCursorStep {
     pub with_value: bool,
 }
 
+#[path = "storage_idb_connections.rs"]
+mod idb_connections;
+/// Transaction correlations are scoped to the native caller, independently of
+/// the shared database bucket. Never trust a script-provided token as ownership.
+pub(crate) fn scope_idb_transaction(command: &mut IdbCommand, principal: &str) {
+    let connection = match command {
+        IdbCommand::OpenConnection { token, .. }
+        | IdbCommand::UpgradeConnection { token, .. }
+        | IdbCommand::DeleteConnection { token, .. }
+        | IdbCommand::CloseConnection { token, .. }
+        | IdbCommand::RetireConnection { token, .. }
+        | IdbCommand::PollConnection { token, .. }
+        | IdbCommand::AcknowledgeConnection { token, .. } => Some(token),
+        IdbCommand::BeginTransaction { connection, .. } => connection.as_mut(),
+        _ => None,
+    };
+    if let Some(token) = connection {
+        *token = serde_json::to_string(&("oryn:idb-connection:v1", principal, token.as_str()))
+            .expect("string tuple serialization");
+    }
+    match command {
+        IdbCommand::BeginTransaction { token, .. }
+        | IdbCommand::Transaction { token, .. }
+        | IdbCommand::CommitTransaction { token, .. }
+        | IdbCommand::AbortTransaction { token, .. } => {
+            *token = serde_json::to_string(&("oryn:idb-transaction:v1", principal, token.as_str()))
+                .expect("string tuple serialization");
+        }
+        _ => {}
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum IdbCommand {
+    BeginTransaction {
+        token: String,
+        database: String,
+        scope: Vec<String>,
+        mode: String,
+        #[serde(default)]
+        connection: Option<String>,
+    },
+    OpenConnection {
+        token: String,
+        name: String,
+        version: u64,
+    },
+    UpgradeConnection {
+        token: String,
+        name: String,
+        inner: Box<IdbCommand>,
+    },
+    DeleteConnection {
+        token: String,
+        name: String,
+    },
+    CloseConnection {
+        token: String,
+        name: String,
+    },
+    RetireConnection {
+        token: String,
+        name: String,
+    },
+    PollConnection {
+        token: String,
+        name: String,
+    },
+    AcknowledgeConnection {
+        token: String,
+        name: String,
+        event: u64,
+    },
     Transaction {
         token: String,
         database: String,
@@ -254,6 +326,14 @@ pub struct DatabaseInfo {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IdbResponse {
+    #[serde(default)]
+    pub transaction_blocked: bool,
+    #[serde(default)]
+    pub connection_blocked: bool,
+    #[serde(default)]
+    pub connection_managed: bool,
+    #[serde(default)]
+    pub connection_events: Vec<oryn_js::platform::IdbConnectionEvent>,
     pub databases: Vec<DatabaseInfo>,
     pub version: Option<u64>,
     pub old_version: Option<u64>,
@@ -272,6 +352,8 @@ pub struct IdbResponse {
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StorageError {
+    #[error("storage notification admission failed: {0}")]
+    NotificationCapacity(String),
     #[error("storage quota exceeded for {origin}; limit is {limit} bytes")]
     QuotaExceeded { origin: String, limit: usize },
     #[error("persistent profile failed: {0}")]
@@ -296,14 +378,104 @@ pub enum StorageError {
     Version { requested: u64, current: u64 },
 }
 
+#[path = "storage_cache.rs"]
+pub(crate) mod cache;
+#[path = "storage_service.rs"]
+mod service;
+pub use cache::CacheCoordinator;
+pub use service::{ServiceStorageKind, ServiceStorageRequest, ServiceStorageSnapshot};
+#[path = "storage_service_versions.rs"]
+mod service_versions;
+pub(crate) use service_versions::{
+    ServiceVersionClaim, ServiceVersionDirectory, ServiceVersionObservation,
+    ServiceVersionReservation,
+};
+#[path = "storage_service_jobs.rs"]
+mod service_jobs;
+pub use service_jobs::ServiceJobCoordinator;
+pub(crate) use service_jobs::{
+    ServiceActivityLease, ServiceClientLease, ServiceJobLease, ServiceScopeWatch,
+};
+
+#[cfg(test)]
+thread_local! {static FAIL_WEB_STORAGE_COMMIT:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
+
 pub trait ContextStore: Send + Sync {
-    fn execute(&self, request: StorageRequest) -> Result<StorageResponse, StorageError>;
+    fn service_job_coordinator(&self) -> Option<Arc<ServiceJobCoordinator>> {
+        None
+    }
+    fn cache_coordinator(&self) -> Option<Arc<Mutex<CacheCoordinator>>> {
+        None
+    }
+    /// Parent-only native service storage. Never routed by StorageRequest.
+    fn service_storage(
+        &self,
+        _request: ServiceStorageRequest,
+    ) -> Result<ServiceStorageSnapshot, StorageError> {
+        Err(StorageError::Persistent(
+            "store does not support service persistence".into(),
+        ))
+    }
+    fn execute(&self, request: StorageRequest) -> Result<StorageResponse, StorageError> {
+        self.execute_with_admission(request, &mut |_| Ok(()))
+    }
+    /// Admit the exact notification while the storage transaction is private.
+    /// Rejection must leave its old state intact; no callback runs for reads or
+    /// unchanged writes. The caller publishes admitted custody after success.
+    fn execute_with_admission(
+        &self,
+        request: StorageRequest,
+        admit: &mut dyn FnMut(&StorageChange) -> Result<(), StorageError>,
+    ) -> Result<StorageResponse, StorageError>;
 }
 
 #[derive(Clone)]
 pub struct SharedContextStore(Arc<dyn ContextStore>);
 
 impl SharedContextStore {
+    pub(crate) fn service_coordinator(&self) -> Result<Arc<ServiceJobCoordinator>, StorageError> {
+        self.0.service_job_coordinator().ok_or_else(|| {
+            StorageError::Persistent("store lacks service ownership coordinator".into())
+        })
+    }
+
+    pub(crate) fn service_job(
+        &self,
+        partition: &str,
+        origin: &str,
+        scope: &str,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<ServiceJobLease, StorageError> {
+        self.0
+            .service_job_coordinator()
+            .ok_or_else(|| StorageError::Persistent("store lacks service job coordinator".into()))?
+            .acquire(partition, origin, scope, cancel)
+    }
+
+    pub(crate) fn service_storage(
+        &self,
+        request: ServiceStorageRequest,
+    ) -> Result<ServiceStorageSnapshot, StorageError> {
+        self.0.service_storage(request)
+    }
+    pub(crate) fn cache_operation(
+        &self,
+        owner: cache::CacheLeaseOwner,
+        partition: &str,
+        origin: &str,
+        operation: cache::CacheOperation,
+    ) -> Result<cache::CacheResult, StorageError> {
+        let coordinator = self.0.cache_coordinator().ok_or_else(|| {
+            StorageError::Persistent("store has no cache ownership coordinator".into())
+        })?;
+        cache::execute_owned(self, &coordinator, owner, partition, origin, operation)
+    }
+    pub(crate) fn release_caches(&self, owner: cache::CacheLeaseOwner) -> Result<(), StorageError> {
+        let coordinator = self.0.cache_coordinator().ok_or_else(|| {
+            StorageError::Persistent("store has no cache ownership coordinator".into())
+        })?;
+        cache::release_owner(self, &coordinator, owner)
+    }
     pub fn memory(limits: StorageLimits) -> Self {
         Self(Arc::new(MemoryContextStore::new(limits)))
     }
@@ -311,12 +483,24 @@ impl SharedContextStore {
     pub fn persistent(profile: &PersistentProfile, limits: StorageLimits) -> Self {
         Self(Arc::new(PersistentContextStore::new(
             profile.database.clone(),
+            profile.cache_coordinator.clone(),
+            profile.service_jobs.clone(),
+            profile.idb_mutations.clone(),
+            profile.idb_transactions.clone(),
+            profile.idb_connections.clone(),
             limits,
         )))
     }
 
     pub fn execute(&self, request: StorageRequest) -> Result<StorageResponse, StorageError> {
         self.0.execute(request)
+    }
+    pub(crate) fn execute_with_admission(
+        &self,
+        request: StorageRequest,
+        admit: &mut dyn FnMut(&StorageChange) -> Result<(), StorageError>,
+    ) -> Result<StorageResponse, StorageError> {
+        self.0.execute_with_admission(request, admit)
     }
 }
 
@@ -325,6 +509,11 @@ pub struct PersistentProfile {
     path: PathBuf,
     database: Arc<Database>,
     cookies: Arc<ContextCookieStore>,
+    cache_coordinator: Arc<Mutex<cache::CacheCoordinator>>,
+    service_jobs: Arc<ServiceJobCoordinator>,
+    idb_mutations: Arc<Mutex<()>>,
+    idb_transactions: Arc<Mutex<BTreeMap<String, TransactionSnapshot>>>,
+    idb_connections: Arc<Mutex<idb_connections::Connections>>,
 }
 
 impl std::fmt::Debug for PersistentProfile {
@@ -368,6 +557,11 @@ impl PersistentProfile {
             path: path.to_path_buf(),
             database,
             cookies,
+            cache_coordinator: Arc::new(Mutex::new(Default::default())),
+            service_jobs: Arc::new(ServiceJobCoordinator::default()),
+            idb_mutations: Arc::new(Mutex::new(())),
+            idb_transactions: Arc::new(Mutex::new(BTreeMap::new())),
+            idb_connections: Arc::new(Mutex::new(Default::default())),
         })
     }
 
@@ -382,13 +576,17 @@ impl PersistentProfile {
 
 #[derive(Default)]
 struct MemoryState {
+    service_records: BTreeMap<String, ServiceStorageSnapshot>,
     local: BTreeMap<(String, String), String>,
     session: BTreeMap<(PageId, String, String), String>,
     indexed_db: BTreeMap<(String, String), DatabaseData>,
     indexed_db_transactions: BTreeMap<String, TransactionSnapshot>,
+    idb_connections: idb_connections::Connections,
 }
 
 struct MemoryContextStore {
+    cache_coordinator: Arc<Mutex<cache::CacheCoordinator>>,
+    service_jobs: Arc<ServiceJobCoordinator>,
     state: Mutex<MemoryState>,
     limits: StorageLimits,
 }
@@ -397,13 +595,35 @@ impl MemoryContextStore {
     fn new(limits: StorageLimits) -> Self {
         Self {
             state: Mutex::new(MemoryState::default()),
+            cache_coordinator: Arc::new(Mutex::new(Default::default())),
+            service_jobs: Arc::new(ServiceJobCoordinator::default()),
             limits,
         }
     }
 }
 
 impl ContextStore for MemoryContextStore {
-    fn execute(&self, request: StorageRequest) -> Result<StorageResponse, StorageError> {
+    fn service_job_coordinator(&self) -> Option<Arc<ServiceJobCoordinator>> {
+        Some(self.service_jobs.clone())
+    }
+    fn cache_coordinator(&self) -> Option<Arc<Mutex<CacheCoordinator>>> {
+        Some(self.cache_coordinator.clone())
+    }
+    fn service_storage(
+        &self,
+        request: ServiceStorageRequest,
+    ) -> Result<ServiceStorageSnapshot, StorageError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| StorageError::Persistent("memory store lock poisoned".into()))?;
+        service::memory(&mut state.service_records, request)
+    }
+    fn execute_with_admission(
+        &self,
+        request: StorageRequest,
+        admit: &mut dyn FnMut(&StorageChange) -> Result<(), StorageError>,
+    ) -> Result<StorageResponse, StorageError> {
         let mut state = self
             .state
             .lock()
@@ -419,6 +639,9 @@ impl ContextStore for MemoryContextStore {
                 value,
             } => {
                 let old_value = memory_get(&state, area, &scope, &key);
+                if old_value.as_ref() == Some(&value) {
+                    return Ok(StorageResponse::Unchanged);
+                }
                 memory_set(&mut state, area, &scope, key.clone(), value.clone());
                 if memory_area_bytes(&state, area, &scope)
                     > self.limits.web_storage_bytes_per_origin
@@ -432,18 +655,34 @@ impl ContextStore for MemoryContextStore {
                         limit: self.limits.web_storage_bytes_per_origin,
                     });
                 }
-                Ok(StorageResponse::Changed {
-                    change: StorageChange {
-                        area,
-                        scope,
-                        key: Some(key),
-                        old_value,
-                        new_value: Some(value),
-                    },
-                })
+                let change = StorageChange {
+                    area,
+                    scope: scope.clone(),
+                    key: Some(key.clone()),
+                    old_value: old_value.clone(),
+                    new_value: Some(value),
+                };
+                if let Err(error) = admit(&change) {
+                    match old_value {
+                        Some(old) => memory_set(&mut state, area, &scope, key, old),
+                        None => memory_remove(&mut state, area, &scope, &key),
+                    };
+                    return Err(error);
+                }
+                Ok(StorageResponse::Changed { change })
             }
             StorageRequest::Remove { area, scope, key } => {
                 let old_value = memory_get(&state, area, &scope, &key);
+                if old_value.is_none() {
+                    return Ok(StorageResponse::Unchanged);
+                }
+                admit(&StorageChange {
+                    area,
+                    scope: scope.clone(),
+                    key: Some(key.clone()),
+                    old_value: old_value.clone(),
+                    new_value: None,
+                })?;
                 memory_remove(&mut state, area, &scope, &key);
                 Ok(StorageResponse::Changed {
                     change: StorageChange {
@@ -456,6 +695,16 @@ impl ContextStore for MemoryContextStore {
                 })
             }
             StorageRequest::Clear { area, scope } => {
+                if memory_entries(&state, area, &scope).is_empty() {
+                    return Ok(StorageResponse::Unchanged);
+                }
+                admit(&StorageChange {
+                    area,
+                    scope: scope.clone(),
+                    key: None,
+                    old_value: None,
+                    new_value: None,
+                })?;
                 memory_clear(&mut state, area, &scope);
                 Ok(StorageResponse::Changed {
                     change: StorageChange {
@@ -474,11 +723,13 @@ impl ContextStore for MemoryContextStore {
                 let MemoryState {
                     indexed_db,
                     indexed_db_transactions,
+                    idb_connections,
                     ..
                 } = &mut *state;
-                let response = execute_idb_transactional(
+                let response = execute_idb_coordinated(
                     indexed_db,
                     indexed_db_transactions,
+                    idb_connections,
                     &origin,
                     command,
                     self.limits.indexed_db_bytes_per_origin,
@@ -490,18 +741,38 @@ impl ContextStore for MemoryContextStore {
 }
 
 struct PersistentContextStore {
+    cache_coordinator: Arc<Mutex<cache::CacheCoordinator>>,
+    service_jobs: Arc<ServiceJobCoordinator>,
     database: Arc<Database>,
     session: Mutex<BTreeMap<(PageId, String, String), String>>,
-    indexed_db_transactions: Mutex<BTreeMap<String, TransactionSnapshot>>,
+    indexed_db_transactions: Arc<Mutex<BTreeMap<String, TransactionSnapshot>>>,
     limits: StorageLimits,
+    idb_mutations: Arc<Mutex<()>>,
+    #[cfg(test)]
+    fail_next_idb_commit: std::sync::atomic::AtomicBool,
+    idb_connections: Arc<Mutex<idb_connections::Connections>>,
 }
 
 impl PersistentContextStore {
-    fn new(database: Arc<Database>, limits: StorageLimits) -> Self {
+    fn new(
+        database: Arc<Database>,
+        cache_coordinator: Arc<Mutex<cache::CacheCoordinator>>,
+        service_jobs: Arc<ServiceJobCoordinator>,
+        idb_mutations: Arc<Mutex<()>>,
+        idb_transactions: Arc<Mutex<BTreeMap<String, TransactionSnapshot>>>,
+        idb_connections: Arc<Mutex<idb_connections::Connections>>,
+        limits: StorageLimits,
+    ) -> Self {
         Self {
             database,
+            cache_coordinator,
+            service_jobs,
             session: Mutex::new(BTreeMap::new()),
-            indexed_db_transactions: Mutex::new(BTreeMap::new()),
+            indexed_db_transactions: idb_transactions,
+            idb_connections,
+            idb_mutations,
+            #[cfg(test)]
+            fail_next_idb_commit: std::sync::atomic::AtomicBool::new(false),
             limits,
         }
     }
@@ -538,71 +809,98 @@ impl PersistentContextStore {
         key: Option<String>,
         value: Option<String>,
         clear: bool,
+        admit: &mut dyn FnMut(&StorageChange) -> Result<(), StorageError>,
     ) -> Result<StorageResponse, StorageError> {
-        let old_entries = self.local_entries(&scope.origin)?;
-        let old_value = key
-            .as_ref()
-            .and_then(|key| old_entries.iter().find(|(item, _)| item == key))
-            .map(|(_, value)| value.clone());
-        let mut next = old_entries.into_iter().collect::<BTreeMap<_, _>>();
-        if clear {
-            next.clear();
-        } else if let Some(key) = &key {
-            if let Some(value) = &value {
-                next.insert(key.clone(), value.clone());
-            } else {
-                next.remove(key);
-            }
-        }
-        let size = next
-            .iter()
-            .map(|(key, value)| key.len() + value.len())
-            .sum::<usize>();
-        if size > self.limits.web_storage_bytes_per_origin {
-            return Err(StorageError::QuotaExceeded {
-                origin: scope.origin,
-                limit: self.limits.web_storage_bytes_per_origin,
-            });
-        }
+        // Read and mutate under the same database writer. Separate read/write
+        // transactions lose an overlapping context's update to another key.
         let write = self
             .database
             .begin_write()
             .map_err(|error| StorageError::Persistent(error.to_string()))?;
+        let old_value;
         {
             let mut table = write
                 .open_table(LOCAL_STORAGE)
                 .map_err(|error| StorageError::Persistent(error.to_string()))?;
             let prefix = format!("{}\0", scope.origin);
-            let removals = table
+            let mut current = BTreeMap::new();
+            for item in table
                 .iter()
                 .map_err(|error| StorageError::Persistent(error.to_string()))?
-                .filter_map(|item| item.ok().map(|(key, _)| key.value().to_string()))
-                .filter(|key| key.starts_with(&prefix))
-                .collect::<Vec<_>>();
-            for key in removals {
-                table
-                    .remove(key.as_str())
-                    .map_err(|error| StorageError::Persistent(error.to_string()))?;
+            {
+                let (stored_key, stored_value) =
+                    item.map_err(|error| StorageError::Persistent(error.to_string()))?;
+                if let Some(key) = stored_key.value().strip_prefix(&prefix) {
+                    current.insert(
+                        key.to_owned(),
+                        String::from_utf8(stored_value.value().to_vec())
+                            .map_err(|error| StorageError::Persistent(error.to_string()))?,
+                    );
+                }
             }
-            for (key, value) in next {
+            old_value = key.as_ref().and_then(|key| current.get(key)).cloned();
+            if (clear && current.is_empty()) || (!clear && old_value == value) {
+                return Ok(StorageResponse::Unchanged);
+            }
+            if clear {
+                for key in current.keys() {
+                    let key = format!("{prefix}{key}");
+                    table
+                        .remove(key.as_str())
+                        .map_err(|error| StorageError::Persistent(error.to_string()))?;
+                }
+            } else if let Some(key) = &key {
+                let mut next = current;
+                match &value {
+                    Some(value) => {
+                        next.insert(key.clone(), value.clone());
+                    }
+                    None => {
+                        next.remove(key);
+                    }
+                }
+                let size = next.iter().fold(0usize, |bytes, (key, value)| {
+                    bytes.saturating_add(key.len()).saturating_add(value.len())
+                });
+                if size > self.limits.web_storage_bytes_per_origin {
+                    return Err(StorageError::QuotaExceeded {
+                        origin: scope.origin,
+                        limit: self.limits.web_storage_bytes_per_origin,
+                    });
+                }
                 let key = format!("{prefix}{key}");
-                table
-                    .insert(key.as_str(), value.as_bytes())
-                    .map_err(|error| StorageError::Persistent(error.to_string()))?;
+                match &value {
+                    Some(value) => {
+                        table
+                            .insert(key.as_str(), value.as_bytes())
+                            .map_err(|error| StorageError::Persistent(error.to_string()))?;
+                    }
+                    None => {
+                        table
+                            .remove(key.as_str())
+                            .map_err(|error| StorageError::Persistent(error.to_string()))?;
+                    }
+                }
             }
+        }
+        let change = StorageChange {
+            area: StorageArea::Local,
+            scope,
+            key,
+            old_value,
+            new_value: value,
+        };
+        admit(&change)?;
+        #[cfg(test)]
+        if FAIL_WEB_STORAGE_COMMIT.with(|failure| failure.replace(false)) {
+            return Err(StorageError::Persistent(
+                "injected commit after notification admission".into(),
+            ));
         }
         write
             .commit()
             .map_err(|error| StorageError::Persistent(error.to_string()))?;
-        Ok(StorageResponse::Changed {
-            change: StorageChange {
-                area: StorageArea::Local,
-                scope,
-                key,
-                old_value,
-                new_value: value,
-            },
-        })
+        Ok(StorageResponse::Changed { change })
     }
 
     fn load_idb(
@@ -638,6 +936,15 @@ impl PersistentContextStore {
         origin: &str,
         databases: BTreeMap<(String, String), DatabaseData>,
     ) -> Result<(), StorageError> {
+        #[cfg(test)]
+        if self
+            .fail_next_idb_commit
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(StorageError::Persistent(
+                "injected IDB commit failure".into(),
+            ));
+        }
         let write = self
             .database
             .begin_write()
@@ -674,7 +981,23 @@ impl PersistentContextStore {
 }
 
 impl ContextStore for PersistentContextStore {
-    fn execute(&self, request: StorageRequest) -> Result<StorageResponse, StorageError> {
+    fn service_job_coordinator(&self) -> Option<Arc<ServiceJobCoordinator>> {
+        Some(self.service_jobs.clone())
+    }
+    fn cache_coordinator(&self) -> Option<Arc<Mutex<CacheCoordinator>>> {
+        Some(self.cache_coordinator.clone())
+    }
+    fn service_storage(
+        &self,
+        request: ServiceStorageRequest,
+    ) -> Result<ServiceStorageSnapshot, StorageError> {
+        service::persistent(&self.database, request)
+    }
+    fn execute_with_admission(
+        &self,
+        request: StorageRequest,
+        admit: &mut dyn FnMut(&StorageChange) -> Result<(), StorageError>,
+    ) -> Result<StorageResponse, StorageError> {
         match request {
             StorageRequest::Get {
                 area: StorageArea::Local,
@@ -692,16 +1015,16 @@ impl ContextStore for PersistentContextStore {
                 scope,
                 key,
                 value,
-            } => self.update_local(scope, Some(key), Some(value), false),
+            } => self.update_local(scope, Some(key), Some(value), false, admit),
             StorageRequest::Remove {
                 area: StorageArea::Local,
                 scope,
                 key,
-            } => self.update_local(scope, Some(key), None, false),
+            } => self.update_local(scope, Some(key), None, false, admit),
             StorageRequest::Clear {
                 area: StorageArea::Local,
                 scope,
-            } => self.update_local(scope, None, None, true),
+            } => self.update_local(scope, None, None, true, admit),
             StorageRequest::Entries {
                 area: StorageArea::Local,
                 scope,
@@ -710,20 +1033,33 @@ impl ContextStore for PersistentContextStore {
             }),
             StorageRequest::IndexedDb { origin, command } => {
                 let changes_storage = idb_command_changes_storage(&command);
+                // Serialize the complete read/modify/commit across every context
+                // sharing this profile, not just each context's undo ledger.
+                let _mutation = self.idb_mutations.lock().map_err(|_| {
+                    StorageError::Persistent("IndexedDB mutation lock poisoned".into())
+                })?;
                 let mut databases = self.load_idb(&origin)?;
                 let mut transactions = self.indexed_db_transactions.lock().map_err(|_| {
                     StorageError::Persistent("IndexedDB transaction lock poisoned".into())
                 })?;
-                let response = execute_idb_transactional(
+                let mut connections = self.idb_connections.lock().map_err(|_| {
+                    StorageError::Persistent("IndexedDB connection lock poisoned".into())
+                })?;
+                let mut next_connections = connections.clone();
+                let mut next_transactions = transactions.clone();
+                let response = execute_idb_coordinated(
                     &mut databases,
-                    &mut transactions,
+                    &mut next_transactions,
+                    &mut next_connections,
                     &origin,
                     command,
                     self.limits.indexed_db_bytes_per_origin,
                 )?;
-                if changes_storage {
+                if changes_storage && !response.transaction_blocked {
                     self.save_idb(&origin, databases)?;
                 }
+                *transactions = next_transactions;
+                *connections = next_connections;
                 Ok(StorageResponse::IndexedDb { response })
             }
             request => {
@@ -731,7 +1067,7 @@ impl ContextStore for PersistentContextStore {
                     .session
                     .lock()
                     .map_err(|_| StorageError::Persistent("session store lock poisoned".into()))?;
-                execute_session(&mut session, request, self.limits)
+                execute_session_with_admission(&mut session, request, self.limits, admit)
             }
         }
     }
@@ -742,16 +1078,25 @@ fn execute_session(
     request: StorageRequest,
     limits: StorageLimits,
 ) -> Result<StorageResponse, StorageError> {
+    execute_session_with_admission(session, request, limits, &mut |_| Ok(()))
+}
+
+fn execute_session_with_admission(
+    session: &mut BTreeMap<(PageId, String, String), String>,
+    request: StorageRequest,
+    limits: StorageLimits,
+    admit: &mut dyn FnMut(&StorageChange) -> Result<(), StorageError>,
+) -> Result<StorageResponse, StorageError> {
     let mut state = MemoryState {
         session: std::mem::take(session),
         ..MemoryState::default()
     };
     let store = MemoryContextStore::new(limits);
     *store.state.lock().expect("fresh memory store") = state;
-    let response = store.execute(request)?;
+    let response = store.execute_with_admission(request, admit);
     state = store.state.into_inner().expect("fresh memory store");
     *session = state.session;
-    Ok(response)
+    response
 }
 
 fn memory_get(
@@ -863,7 +1208,12 @@ struct DatabaseData {
 struct TransactionSnapshot {
     origin: String,
     database: String,
-    before: BTreeMap<String, Option<ObjectStoreData>>,
+    scope: Vec<String>,
+    mode: String,
+    order: u64,
+    connection: Option<String>,
+    working: Option<DatabaseData>,
+    dirty: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -880,6 +1230,331 @@ struct RecordData {
     value: serde_json::Value,
 }
 
+/// The script protocol uses connection/transaction capabilities. Raw storage
+/// commands remain a trusted in-process API for profile tools and fixtures.
+pub(crate) fn validate_script_idb_command(command: &IdbCommand) -> Result<(), StorageError> {
+    match command{
+        IdbCommand::ListDatabases|IdbCommand::OpenConnection{..}|IdbCommand::DeleteConnection{..}|IdbCommand::CloseConnection{..}|IdbCommand::RetireConnection{..}|IdbCommand::PollConnection{..}|IdbCommand::AcknowledgeConnection{..}|IdbCommand::UpgradeConnection{..}|IdbCommand::BeginTransaction{connection:Some(_),..}|IdbCommand::Transaction{..}|IdbCommand::CommitTransaction{..}|IdbCommand::AbortTransaction{..}=>Ok(()),
+        _=>Err(StorageError::Persistent("SecurityError: script IndexedDB operation requires connection or transaction authority".into())),
+    }
+}
+
+fn execute_idb_coordinated(
+    databases: &mut BTreeMap<(String, String), DatabaseData>,
+    transactions: &mut BTreeMap<String, TransactionSnapshot>,
+    connections: &mut idb_connections::Connections,
+    origin: &str,
+    command: IdbCommand,
+    limit: usize,
+) -> Result<IdbResponse, StorageError> {
+    connections.reap_closed(transactions);
+    let response = match command {
+        IdbCommand::OpenConnection {
+            token,
+            name,
+            version,
+        } => {
+            connections.reserve(&token, origin, &name, Some(version))?;
+            if !connections.job_ready(&token) {
+                return Ok(IdbResponse {
+                    transaction_blocked: true,
+                    connection_managed: true,
+                    ..Default::default()
+                });
+            }
+            let old = databases
+                .get(&(origin.into(), name.clone()))
+                .map_or(0, |data| data.version);
+            let wanted = if version == 0 { old.max(1) } else { version };
+            if wanted > old {
+                if let Some(blocked) = connections.changing(&token, origin, &name, Some(wanted))? {
+                    return Ok(IdbResponse {
+                        transaction_blocked: true,
+                        connection_blocked: blocked,
+                        connection_managed: true,
+                        old_version: Some(old),
+                        version: Some(wanted),
+                        ..Default::default()
+                    });
+                }
+            }
+            let mut view = databases.clone();
+            let key = (origin.into(), name.clone());
+            let mut response = match execute_idb_transactional(
+                &mut view,
+                transactions,
+                origin,
+                IdbCommand::Open { name, version },
+                limit,
+            ) {
+                Ok(response) => response,
+                Err(error) => {
+                    connections.remove(&token);
+                    return Err(error);
+                }
+            };
+            response.connection_managed = true;
+            if !response.transaction_blocked {
+                let private = response
+                    .upgrade_needed
+                    .then(|| view.remove(&key).expect("opened upgrade snapshot"));
+                connections.opened(
+                    &token,
+                    response.version.unwrap_or(wanted),
+                    response.old_version.unwrap_or(0),
+                    private,
+                )?;
+            }
+            response
+        }
+        IdbCommand::UpgradeConnection { token, name, inner } => {
+            let mut view = databases.clone();
+            let key = (origin.into(), name.clone());
+            view.insert(key.clone(), connections.upgrade(&token, origin, &name)?);
+            let commit = matches!(inner.as_ref(), IdbCommand::CommitUpgrade { .. });
+            let abort = matches!(inner.as_ref(), IdbCommand::AbortUpgrade { .. });
+            let database = match inner.as_ref() {
+                IdbCommand::CommitUpgrade { name } | IdbCommand::AbortUpgrade { name, .. } => name,
+                IdbCommand::CreateObjectStore { database, .. }
+                | IdbCommand::DeleteObjectStore { database, .. }
+                | IdbCommand::CreateIndex { database, .. }
+                | IdbCommand::DeleteIndex { database, .. }
+                | IdbCommand::RenameObjectStore { database, .. }
+                | IdbCommand::RenameIndex { database, .. }
+                | IdbCommand::Batch { database, .. }
+                | IdbCommand::Delete { database, .. }
+                | IdbCommand::Clear { database, .. }
+                | IdbCommand::Get { database, .. }
+                | IdbCommand::GetAll { database, .. }
+                | IdbCommand::Count { database, .. }
+                | IdbCommand::Cursor { database, .. }
+                | IdbCommand::CursorStep { database, .. } => database,
+                _ => {
+                    return Err(StorageError::Persistent(
+                        "invalid private upgrade command".into(),
+                    ));
+                }
+            };
+            if database != &name {
+                return Err(StorageError::Persistent(
+                    "private upgrade database mismatch".into(),
+                ));
+            }
+            let response = execute_idb(&mut view, origin, *inner, limit)?;
+            if commit {
+                *databases = view;
+                connections.finish_upgrade(origin, &name);
+            } else if abort {
+                connections.finish_upgrade(origin, &name);
+            } else {
+                connections
+                    .stage_upgrade(&token, view.remove(&key).expect("private upgrade snapshot"))?;
+            }
+            response
+        }
+        IdbCommand::DeleteConnection { token, name } => {
+            connections.reserve(&token, origin, &name, None)?;
+            if !connections.job_ready(&token) {
+                return Ok(IdbResponse {
+                    transaction_blocked: true,
+                    connection_managed: true,
+                    ..Default::default()
+                });
+            }
+            let old = databases
+                .get(&(origin.into(), name.clone()))
+                .map_or(0, |data| data.version);
+            if let Some(blocked) = connections.changing(&token, origin, &name, None)? {
+                return Ok(IdbResponse {
+                    transaction_blocked: true,
+                    connection_blocked: blocked,
+                    connection_managed: true,
+                    old_version: Some(old),
+                    ..Default::default()
+                });
+            }
+            let mut response = execute_idb_transactional(
+                databases,
+                transactions,
+                origin,
+                IdbCommand::DeleteDatabase { name },
+                limit,
+            )?;
+            response.connection_managed = true;
+            if !response.transaction_blocked {
+                connections.remove(&token);
+            }
+            response
+        }
+        IdbCommand::RetireConnection { token, name } => {
+            // Forced closure aborts every transaction belonging to this exact
+            // native connection. Merely dropping the lease strands snapshots
+            // and leaves later writers/version changes blocked indefinitely.
+            connections.close(&token, origin, &name)?;
+            transactions.retain(|_, transaction| {
+                !(transaction.origin == origin
+                    && transaction.database == name
+                    && transaction.connection.as_deref() == Some(token.as_str()))
+            });
+            connections.remove(&token);
+            IdbResponse::default()
+        }
+        IdbCommand::CloseConnection { token, name } => {
+            connections.close(&token, origin, &name)?;
+            IdbResponse::default()
+        }
+        IdbCommand::PollConnection { token, name } => IdbResponse {
+            connection_events: connections.poll(&token, origin, &name)?,
+            ..Default::default()
+        },
+        IdbCommand::AcknowledgeConnection { token, name, event } => {
+            connections.acknowledge(&token, origin, &name, event)?;
+            IdbResponse::default()
+        }
+        command => {
+            if let IdbCommand::BeginTransaction {
+                token,
+                database,
+                connection: Some(connection),
+                ..
+            } = &command
+            {
+                if !transactions.contains_key(token) {
+                    connections.validate_live(connection, origin, database)?;
+                }
+            }
+            let finished = match &command {
+                IdbCommand::CommitUpgrade { name } | IdbCommand::AbortUpgrade { name, .. } => {
+                    Some(name.clone())
+                }
+                _ => None,
+            };
+            let response =
+                execute_idb_transactional(databases, transactions, origin, command, limit)?;
+            if let Some(name) = finished {
+                connections.finish_upgrade(origin, &name);
+            }
+            response
+        }
+    };
+    connections.reap_closed(transactions);
+    Ok(response)
+}
+fn admit_idb_transaction(
+    databases: &BTreeMap<(String, String), DatabaseData>,
+    transactions: &mut BTreeMap<String, TransactionSnapshot>,
+    origin: &str,
+    token: &str,
+    database: &str,
+    mut scope: Vec<String>,
+    mode: String,
+    connection: Option<String>,
+) -> Result<bool, StorageError> {
+    scope.sort();
+    scope.dedup();
+    if scope.is_empty() || scope.len() > 1024 || !matches!(mode.as_str(), "readonly" | "readwrite")
+    {
+        return Err(StorageError::Persistent(
+            "Invalid transaction scope or mode".into(),
+        ));
+    }
+    if let Some(existing) = transactions.get(token) {
+        if existing.origin != origin
+            || existing.database != database
+            || existing.scope != scope
+            || existing.mode != mode
+            || existing.connection != connection
+        {
+            return Err(StorageError::Persistent(
+                "IndexedDB transaction identity mismatch".into(),
+            ));
+        }
+    } else {
+        if transactions.len() >= 1024 {
+            return Err(StorageError::Persistent(
+                "IndexedDB transaction capacity".into(),
+            ));
+        }
+        let data = databases
+            .get(&(origin.into(), database.into()))
+            .ok_or_else(|| StorageError::Persistent("IndexedDB database missing".into()))?;
+        if scope.iter().any(|name| !data.stores.contains_key(name)) {
+            return Err(StorageError::Persistent(
+                "NotFoundError: transaction object store missing".into(),
+            ));
+        }
+        let order = transactions
+            .values()
+            .map(|entry| entry.order)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| {
+                StorageError::Persistent("IndexedDB transaction order exhausted".into())
+            })?;
+        transactions.insert(
+            token.into(),
+            TransactionSnapshot {
+                origin: origin.into(),
+                database: database.into(),
+                scope,
+                mode,
+                order,
+                connection,
+                working: None,
+                dirty: BTreeSet::new(),
+            },
+        );
+    }
+    let current = &transactions[token];
+    if current.working.is_some() {
+        return Ok(true);
+    }
+    if transactions.values().any(|earlier| {
+        earlier.origin == origin
+            && earlier.database == database
+            && earlier.order < current.order
+            && (earlier.mode == "readwrite" || current.mode == "readwrite")
+            && earlier
+                .scope
+                .iter()
+                .any(|name| current.scope.contains(name))
+    }) {
+        return Ok(false);
+    }
+    let mut working = databases
+        .get(&(origin.into(), database.into()))
+        .cloned()
+        .ok_or_else(|| StorageError::Persistent("IndexedDB database missing".into()))?;
+    if working.upgrade_backup.is_some() {
+        return Ok(false);
+    }
+    working
+        .stores
+        .retain(|name, _| current.scope.contains(name));
+    working.serialized_bytes.set(None);
+    let bytes = serde_json::to_vec(&working)
+        .map_err(|error| StorageError::Persistent(error.to_string()))?
+        .len();
+    let retained = transactions
+        .values()
+        .filter_map(|entry| entry.working.as_ref())
+        .try_fold(bytes, |total, working| {
+            serde_json::to_vec(working)
+                .map(|bytes| total.saturating_add(bytes.len()))
+                .map_err(|error| StorageError::Persistent(error.to_string()))
+        })?;
+    if retained > 256 * 1024 * 1024 {
+        return Err(StorageError::Persistent(
+            "IndexedDB transaction snapshot capacity".into(),
+        ));
+    }
+    transactions
+        .get_mut(token)
+        .expect("admitted transaction")
+        .working = Some(working);
+    Ok(true)
+}
 fn execute_idb_transactional(
     databases: &mut BTreeMap<(String, String), DatabaseData>,
     transactions: &mut BTreeMap<String, TransactionSnapshot>,
@@ -887,31 +1562,84 @@ fn execute_idb_transactional(
     command: IdbCommand,
     limit: usize,
 ) -> Result<IdbResponse, StorageError> {
+    let connection_name = match &command {
+        IdbCommand::Open { name, .. } | IdbCommand::DeleteDatabase { name } => Some(name),
+        _ => None,
+    };
+    if let Some(name) = connection_name {
+        let data = databases.get(&(origin.into(), name.clone()));
+        let changing = matches!(&command, IdbCommand::DeleteDatabase { .. })
+            || matches!(&command,IdbCommand::Open{version,..}if *version>data.map_or(0,|data|data.version));
+        if data.is_some_and(|data| data.upgrade_backup.is_some())
+            || changing
+                && transactions
+                    .values()
+                    .any(|entry| entry.origin == origin && entry.database == *name)
+        {
+            return Ok(IdbResponse {
+                transaction_blocked: true,
+                ..Default::default()
+            });
+        }
+    }
     match command {
+        IdbCommand::BeginTransaction {
+            token,
+            database,
+            scope,
+            mode,
+            connection,
+        } => {
+            let ready = admit_idb_transaction(
+                databases,
+                transactions,
+                origin,
+                &token,
+                &database,
+                scope,
+                mode,
+                connection,
+            )?;
+            Ok(IdbResponse {
+                transaction_blocked: !ready,
+                ..Default::default()
+            })
+        }
         IdbCommand::Transaction {
             token,
             database,
             inner,
         } => {
-            let (inner_database, changed_stores) = match inner.as_ref() {
+            let (inner_database, stores, write) = match inner.as_ref() {
                 IdbCommand::Batch { database, writes } => (
                     database,
                     writes
                         .iter()
                         .map(|write| write.store.clone())
                         .collect::<BTreeSet<_>>(),
+                    true,
                 ),
                 IdbCommand::Delete {
                     database, store, ..
                 }
                 | IdbCommand::Clear { database, store } => {
-                    (database, BTreeSet::from([store.clone()]))
+                    (database, BTreeSet::from([store.clone()]), true)
                 }
-                IdbCommand::Get { database, .. }
-                | IdbCommand::GetAll { database, .. }
-                | IdbCommand::Count { database, .. }
-                | IdbCommand::Cursor { database, .. }
-                | IdbCommand::CursorStep { database, .. } => (database, BTreeSet::new()),
+                IdbCommand::Get {
+                    database, store, ..
+                }
+                | IdbCommand::GetAll {
+                    database, store, ..
+                }
+                | IdbCommand::Count {
+                    database, store, ..
+                }
+                | IdbCommand::Cursor {
+                    database, store, ..
+                }
+                | IdbCommand::CursorStep {
+                    database, store, ..
+                } => (database, BTreeSet::from([store.clone()]), false),
                 _ => {
                     return Err(StorageError::Persistent(
                         "Invalid transactional command".into(),
@@ -923,78 +1651,161 @@ fn execute_idb_transactional(
                     "IndexedDB transaction database mismatch".into(),
                 ));
             }
-            if let Some(snapshot) = transactions.get(&token)
-                && (snapshot.origin != origin || snapshot.database != database)
+            // Script ingress puts tokens into this native namespace only after
+            // authenticating the principal. Such a request must use a snapshot
+            // admitted by BeginTransaction with a live connection; it cannot
+            // create or revive a transaction by presenting a correlation alone.
+            let scoped = serde_json::from_str::<(String, String, String)>(&token)
+                .is_ok_and(|(domain, _, _)| domain == "oryn:idb-transaction:v1");
+            if scoped
+                && !transactions
+                    .get(&token)
+                    .is_some_and(|entry| entry.connection.is_some())
             {
                 return Err(StorageError::Persistent(
-                    "IndexedDB transaction identity mismatch".into(),
+                    "TransactionInactiveError: no admitted native connection transaction".into(),
                 ));
             }
-            // Reads need no undo state. Read-only transactions finish locally,
-            // so retaining an empty snapshot here would never be released.
-            if changed_stores.is_empty() {
-                return execute_idb(databases, origin, *inner, limit);
+            // Trusted internal callers may submit an unscoped first command
+            // directly; they enter the same conflict queue with its exact scope.
+            let (scope, mode) = transactions
+                .get(&token)
+                .map(|entry| (entry.scope.clone(), entry.mode.clone()))
+                .unwrap_or_else(|| {
+                    (
+                        stores.iter().cloned().collect(),
+                        if write { "readwrite" } else { "readonly" }.into(),
+                    )
+                });
+            let connection = transactions
+                .get(&token)
+                .and_then(|entry| entry.connection.clone());
+            if !admit_idb_transaction(
+                databases,
+                transactions,
+                origin,
+                &token,
+                &database,
+                scope,
+                mode,
+                connection,
+            )? {
+                return Ok(IdbResponse {
+                    transaction_blocked: true,
+                    ..Default::default()
+                });
+            }
+            let entry = transactions.get(&token).expect("admitted transaction");
+            if stores.iter().any(|name| !entry.scope.contains(name))
+                || write && entry.mode != "readwrite"
+            {
+                return Err(StorageError::Persistent(
+                    "ReadOnlyError: request outside transaction authority".into(),
+                ));
             }
             let key = (origin.to_string(), database.clone());
-            let snapshot = transactions
-                .entry(token)
-                .or_insert_with(|| TransactionSnapshot {
-                    origin: origin.to_string(),
-                    database: database.clone(),
-                    before: BTreeMap::new(),
-                });
-            if snapshot.origin != origin || snapshot.database != database {
+            let mut view = databases.clone();
+            let target = view
+                .get_mut(&key)
+                .ok_or_else(|| StorageError::Persistent("IndexedDB database missing".into()))?;
+            let working = entry.working.as_ref().expect("active snapshot");
+            for name in &entry.scope {
+                if let Some(store) = working.stores.get(name) {
+                    target.stores.insert(name.clone(), store.clone());
+                } else {
+                    target.stores.remove(name);
+                }
+            }
+            target.serialized_bytes.set(None);
+            let response = execute_idb(&mut view, origin, *inner, limit)?;
+            let mut working = view.remove(&key).expect("transaction view");
+            working.stores.retain(|name, _| entry.scope.contains(name));
+            working.serialized_bytes.set(None);
+            let retained = transactions
+                .iter()
+                .filter(|(existing, _)| *existing != &token)
+                .filter_map(|(_, entry)| entry.working.as_ref())
+                .chain(std::iter::once(&working))
+                .try_fold(0usize, |total, working| {
+                    serde_json::to_vec(working)
+                        .map(|bytes| total.saturating_add(bytes.len()))
+                        .map_err(|error| StorageError::Persistent(error.to_string()))
+                })?;
+            if retained > 256 * 1024 * 1024 {
+                return Err(StorageError::Persistent(
+                    "IndexedDB transaction snapshot capacity".into(),
+                ));
+            }
+            let entry = transactions.get_mut(&token).expect("admitted transaction");
+            entry.working = Some(working);
+            if write {
+                entry.dirty.extend(stores);
+            }
+            Ok(response)
+        }
+        IdbCommand::CommitTransaction { token, database } => {
+            let Some(entry) = transactions.get(&token) else {
+                return Ok(IdbResponse::default());
+            };
+            if entry.origin != origin || entry.database != database {
                 return Err(StorageError::Persistent(
                     "IndexedDB transaction identity mismatch".into(),
                 ));
             }
-            // Save only stores this transaction mutates. Restoring a whole
-            // database would discard commits made concurrently to other stores.
-            for name in changed_stores {
-                snapshot.before.entry(name.clone()).or_insert_with(|| {
-                    databases
-                        .get(&key)
-                        .and_then(|db| db.stores.get(&name))
-                        .cloned()
+            let (scope, mode) = (entry.scope.clone(), entry.mode.clone());
+            let connection = transactions
+                .get(&token)
+                .and_then(|entry| entry.connection.clone());
+            if !admit_idb_transaction(
+                databases,
+                transactions,
+                origin,
+                &token,
+                &database,
+                scope,
+                mode,
+                connection,
+            )? {
+                return Ok(IdbResponse {
+                    transaction_blocked: true,
+                    ..Default::default()
                 });
             }
-            execute_idb(databases, origin, *inner, limit)
+            let entry = &transactions[&token];
+            let mut next = databases.clone();
+            let key = (origin.into(), database);
+            let target = next
+                .get_mut(&key)
+                .ok_or_else(|| StorageError::Persistent("IndexedDB database missing".into()))?;
+            let working = entry.working.as_ref().expect("active snapshot");
+            for name in &entry.dirty {
+                if let Some(store) = working.stores.get(name) {
+                    target.stores.insert(name.clone(), store.clone());
+                } else {
+                    target.stores.remove(name);
+                }
+            }
+            target.serialized_bytes.set(None);
+            if indexed_db_origin_bytes(&next, origin)? > limit {
+                return Err(StorageError::QuotaExceeded {
+                    origin: origin.into(),
+                    limit,
+                });
+            }
+            *databases = next;
+            transactions.remove(&token);
+            Ok(IdbResponse::default())
         }
-        IdbCommand::CommitTransaction { token, database } => {
-            if let Some(snapshot) = transactions.get(&token)
-                && (snapshot.origin != origin || snapshot.database != database)
+        IdbCommand::AbortTransaction { token, database } => {
+            if transactions
+                .get(&token)
+                .is_some_and(|entry| entry.origin != origin || entry.database != database)
             {
                 return Err(StorageError::Persistent(
                     "IndexedDB transaction identity mismatch".into(),
                 ));
             }
             transactions.remove(&token);
-            Ok(IdbResponse::default())
-        }
-        IdbCommand::AbortTransaction { token, database } => {
-            if let Some(snapshot) = transactions.get(&token)
-                && (snapshot.origin != origin || snapshot.database != database)
-            {
-                return Err(StorageError::Persistent(
-                    "IndexedDB transaction identity mismatch".into(),
-                ));
-            }
-            if let Some(snapshot) = transactions.remove(&token) {
-                let key = (origin.to_string(), database);
-                if let Some(database) = databases.get_mut(&key) {
-                    database.serialized_bytes.set(None);
-                    for (name, before) in snapshot.before {
-                        match before {
-                            Some(store) => {
-                                database.stores.insert(name, store);
-                            }
-                            None => {
-                                database.stores.remove(&name);
-                            }
-                        }
-                    }
-                }
-            }
             Ok(IdbResponse::default())
         }
         command => execute_idb(databases, origin, command, limit),
@@ -1067,7 +1878,15 @@ fn execute_idb(
         _ => false,
     };
     let response = match command {
-        IdbCommand::Transaction { .. }
+        IdbCommand::UpgradeConnection { .. }
+        | IdbCommand::RetireConnection { .. }
+        | IdbCommand::OpenConnection { .. }
+        | IdbCommand::DeleteConnection { .. }
+        | IdbCommand::CloseConnection { .. }
+        | IdbCommand::PollConnection { .. }
+        | IdbCommand::AcknowledgeConnection { .. }
+        | IdbCommand::BeginTransaction { .. }
+        | IdbCommand::Transaction { .. }
         | IdbCommand::CommitTransaction { .. }
         | IdbCommand::AbortTransaction { .. } => {
             return Err(StorageError::Persistent(
@@ -1548,8 +2367,17 @@ fn execute_idb(
 
 fn idb_command_changes_storage(command: &IdbCommand) -> bool {
     match command {
-        IdbCommand::Transaction { inner, .. } => idb_command_changes_storage(inner),
-        IdbCommand::CommitTransaction { .. } | IdbCommand::AbortTransaction { .. } => true,
+        IdbCommand::UpgradeConnection { inner, .. } => {
+            matches!(inner.as_ref(), IdbCommand::CommitUpgrade { .. })
+        }
+        IdbCommand::CloseConnection { .. }
+        | IdbCommand::PollConnection { .. }
+        | IdbCommand::AcknowledgeConnection { .. }
+        | IdbCommand::BeginTransaction { .. }
+        | IdbCommand::Transaction { .. }
+        | IdbCommand::AbortTransaction { .. } => false,
+        IdbCommand::DeleteConnection { .. } | IdbCommand::CommitTransaction { .. } => true,
+        IdbCommand::RetireConnection { .. } | IdbCommand::OpenConnection { .. } => false,
         IdbCommand::Open { .. }
         | IdbCommand::DeleteDatabase { .. }
         | IdbCommand::AbortUpgrade { .. }
@@ -1800,6 +2628,15 @@ fn inject_json_key_path(
     path: &str,
     key: serde_json::Value,
 ) -> Result<(), StorageError> {
+    if value
+        .get("__oryn_clone_type")
+        .and_then(serde_json::Value::as_str)
+        == Some("storage")
+    {
+        return oryn_js::indexed_db::inject_storage_key(value, path, key)
+            .then_some(())
+            .ok_or(StorageError::KeyRequired);
+    }
     let mut segments = path.split('.').peekable();
     let mut current = value;
     while let Some(segment) = segments.next() {
@@ -1864,6 +2701,153 @@ fn indexed_db_origin_bytes(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn web_storage_noop_mutations_do_not_produce_broadcast_changes() {
+        let path = std::env::temp_dir().join(format!(
+            "oryn-storage-noop-{}",
+            format!(
+                "{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )
+        ));
+        {
+            let profile = PersistentProfile::open(&path).unwrap();
+            for store in [
+                SharedContextStore::memory(StorageLimits::default()),
+                SharedContextStore::persistent(&profile, StorageLimits::default()),
+            ] {
+                for area in [StorageArea::Local, StorageArea::Session] {
+                    assert!(matches!(
+                        store
+                            .execute(StorageRequest::Clear {
+                                area,
+                                scope: scope(1)
+                            })
+                            .unwrap(),
+                        StorageResponse::Unchanged
+                    ));
+                    assert!(matches!(
+                        store
+                            .execute(StorageRequest::Remove {
+                                area,
+                                scope: scope(1),
+                                key: "missing".into()
+                            })
+                            .unwrap(),
+                        StorageResponse::Unchanged
+                    ));
+                    assert!(matches!(
+                        store
+                            .execute(StorageRequest::Set {
+                                area,
+                                scope: scope(1),
+                                key: "key".into(),
+                                value: "value".into()
+                            })
+                            .unwrap(),
+                        StorageResponse::Changed { .. }
+                    ));
+                    assert!(matches!(
+                        store
+                            .execute(StorageRequest::Set {
+                                area,
+                                scope: scope(1),
+                                key: "key".into(),
+                                value: "value".into()
+                            })
+                            .unwrap(),
+                        StorageResponse::Unchanged
+                    ));
+                    assert!(matches!(
+                        store
+                            .execute(StorageRequest::Clear {
+                                area,
+                                scope: scope(1)
+                            })
+                            .unwrap(),
+                        StorageResponse::Changed { .. }
+                    ));
+                    assert!(matches!(
+                        store
+                            .execute(StorageRequest::Clear {
+                                area,
+                                scope: scope(1)
+                            })
+                            .unwrap(),
+                        StorageResponse::Unchanged
+                    ));
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(path);
+    }
+    #[test]
+    fn persistent_web_storage_overlapping_context_writes_preserve_both_keys() {
+        let path = std::env::temp_dir().join(format!(
+            "oryn-storage-overlap-{}",
+            format!(
+                "{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )
+        ));
+        {
+            let profile = PersistentProfile::open(&path).unwrap();
+            let stores = [
+                SharedContextStore::persistent(&profile, StorageLimits::default()),
+                SharedContextStore::persistent(&profile, StorageLimits::default()),
+            ];
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let mut jobs = Vec::new();
+            for (writer, store) in stores.iter().cloned().enumerate() {
+                let barrier = barrier.clone();
+                jobs.push(std::thread::spawn(move || {
+                    for round in 0..64 {
+                        barrier.wait();
+                        store
+                            .execute(StorageRequest::Set {
+                                area: StorageArea::Local,
+                                scope: scope(writer as u64 + 1),
+                                key: format!("{writer}-{round}"),
+                                value: "retained".into(),
+                            })
+                            .unwrap();
+                    }
+                }));
+            }
+            for job in jobs {
+                job.join().unwrap();
+            }
+            let StorageResponse::Entries { entries } = stores[0]
+                .execute(StorageRequest::Entries {
+                    area: StorageArea::Local,
+                    scope: scope(1),
+                })
+                .unwrap()
+            else {
+                panic!()
+            };
+            assert_eq!(entries.len(), 128);
+            for (writer, round) in
+                (0..2).flat_map(|writer| (0..64).map(move |round| (writer, round)))
+            {
+                assert!(
+                    entries
+                        .iter()
+                        .any(|(key, value)| key == &format!("{writer}-{round}")
+                            && value == "retained")
+                );
+            }
+        }
+        let _ = std::fs::remove_dir_all(path);
+    }
     use super::*;
 
     #[test]
@@ -2285,7 +3269,7 @@ mod tests {
     }
 
     #[test]
-    fn indexed_db_reads_do_not_retain_rollback_state() {
+    fn indexed_db_reads_release_native_snapshots_on_finalization() {
         let mut databases = BTreeMap::new();
         let mut transactions = BTreeMap::new();
         let origin = "https://example.test";
@@ -2322,6 +3306,17 @@ mod tests {
                         store: "store".into(),
                         key: serde_json::json!(1),
                     }),
+                },
+                usize::MAX,
+            )
+            .unwrap();
+            execute_idb_transactional(
+                &mut databases,
+                &mut transactions,
+                origin,
+                IdbCommand::CommitTransaction {
+                    token: format!("reader-{index}"),
+                    database: "reads".into(),
                 },
                 usize::MAX,
             )
@@ -2439,7 +3434,7 @@ mod tests {
     }
 
     #[test]
-    fn indexed_db_transactions_commit_or_restore_the_parent_snapshot() {
+    fn indexed_db_transactions_publish_or_discard_private_snapshots() {
         let store = SharedContextStore::memory(StorageLimits::default());
         let origin = "https://example.test".to_string();
         for command in [
@@ -2587,147 +3582,227 @@ mod tests {
     #[test]
     fn indexed_db_open_restores_object_store_definitions() {
         let store = SharedContextStore::memory(StorageLimits::default());
-        let origin = "https://example.test".to_string();
-        store
-            .execute(StorageRequest::IndexedDb {
-                origin: origin.clone(),
-                command: IdbCommand::Open {
-                    name: "metadata".into(),
-                    version: 1,
-                },
-            })
-            .unwrap();
+        let origin = partitioned_idb_origin("context/site-a", "oryn:origin:https://example.test");
+        let execute = |command| {
+            let StorageResponse::IndexedDb { response } = store
+                .execute(StorageRequest::IndexedDb {
+                    origin: origin.clone(),
+                    command,
+                })
+                .unwrap()
+            else {
+                panic!("expected IndexedDB response");
+            };
+            response
+        };
+        let open = |version| IdbCommand::Open {
+            name: "metadata".into(),
+            version,
+        };
+        assert!(execute(open(1)).upgrade_needed);
         let mut definition = ObjectStoreDefinition {
             name: "items".into(),
             key_path: Some("id".into()),
             auto_increment: true,
             indexes: Vec::new(),
         };
-        store
-            .execute(StorageRequest::IndexedDb {
-                origin: origin.clone(),
-                command: IdbCommand::CreateObjectStore {
-                    database: "metadata".into(),
-                    definition: definition.clone(),
-                },
-            })
-            .unwrap();
+        execute(IdbCommand::CreateObjectStore {
+            database: "metadata".into(),
+            definition: definition.clone(),
+        });
         let index = IndexDefinition {
             name: "by_name".into(),
             key_path: "name".into(),
             unique: false,
             multi_entry: false,
         };
-        store
-            .execute(StorageRequest::IndexedDb {
-                origin: origin.clone(),
-                command: IdbCommand::CreateIndex {
-                    database: "metadata".into(),
-                    store: "items".into(),
-                    definition: index.clone(),
-                },
-            })
-            .unwrap();
+        execute(IdbCommand::CreateIndex {
+            database: "metadata".into(),
+            store: "items".into(),
+            definition: index.clone(),
+        });
         definition.indexes.push(index);
-        let reopened = store
-            .execute(StorageRequest::IndexedDb {
-                origin,
-                command: IdbCommand::Open {
-                    name: "metadata".into(),
-                    version: 1,
-                },
-            })
-            .unwrap();
-        assert!(matches!(
-            reopened,
-            StorageResponse::IndexedDb { response }
-                if response.object_store_definitions == vec![definition]
-        ));
-        store
-            .execute(StorageRequest::IndexedDb {
-                origin: "https://example.test".into(),
-                command: IdbCommand::DeleteIndex {
-                    database: "metadata".into(),
-                    store: "items".into(),
-                    index: "by_name".into(),
-                },
-            })
-            .unwrap();
-        let reopened = store
-            .execute(StorageRequest::IndexedDb {
-                origin: "https://example.test".into(),
-                command: IdbCommand::Open {
-                    name: "metadata".into(),
-                    version: 1,
-                },
-            })
-            .unwrap();
-        assert!(matches!(
-            reopened,
-            StorageResponse::IndexedDb { response }
-                if response.object_store_definitions[0].indexes.is_empty()
-        ));
+
+        // These are trusted native storage commands. A second open still must
+        // wait for the existing versionchange transaction to finish.
+        let pending = execute(open(1));
+        assert!(pending.transaction_blocked, "{pending:?}");
+        assert!(pending.object_store_definitions.is_empty());
+        execute(IdbCommand::CommitUpgrade {
+            name: "metadata".into(),
+        });
+        let reopened = execute(open(1));
+        assert!(
+            !reopened.transaction_blocked && !reopened.upgrade_needed,
+            "{reopened:?}"
+        );
+        assert_eq!(reopened.version, Some(1));
+        assert_eq!(reopened.object_stores, vec!["items"]);
+        assert_eq!(reopened.object_store_definitions, vec![definition.clone()]);
+
+        for (partition, authority) in [
+            ("context/site-b", "oryn:origin:https://example.test"),
+            ("context/site-a", "oryn:origin:https://other.test"),
+        ] {
+            let StorageResponse::IndexedDb { response } = store
+                .execute(StorageRequest::IndexedDb {
+                    origin: partitioned_idb_origin(partition, authority),
+                    command: IdbCommand::ListDatabases,
+                })
+                .unwrap()
+            else {
+                panic!("expected IndexedDB response");
+            };
+            assert!(
+                response.databases.is_empty(),
+                "foreign bucket: {response:?}"
+            );
+        }
+
+        assert!(execute(open(2)).upgrade_needed);
+        execute(IdbCommand::DeleteIndex {
+            database: "metadata".into(),
+            store: "items".into(),
+            index: "by_name".into(),
+        });
+        execute(IdbCommand::CommitUpgrade {
+            name: "metadata".into(),
+        });
+        definition.indexes.clear();
+        let reopened = execute(open(2));
+        assert!(
+            !reopened.transaction_blocked && !reopened.upgrade_needed,
+            "{reopened:?}"
+        );
+        assert_eq!(reopened.version, Some(2));
+        assert_eq!(reopened.object_store_definitions, vec![definition]);
     }
 
     #[test]
     fn indexed_db_store_rename_preserves_metadata_and_rolls_back() {
         let store = SharedContextStore::memory(StorageLimits::default());
+        let origin = partitioned_idb_origin("context/site-a", "oryn:origin:https://example.test");
         let execute = |command| {
-            store.execute(StorageRequest::IndexedDb {
-                origin: "https://example.test".into(),
-                command,
-            })
+            let StorageResponse::IndexedDb { response } = store
+                .execute(StorageRequest::IndexedDb {
+                    origin: origin.clone(),
+                    command,
+                })
+                .unwrap()
+            else {
+                panic!("expected IndexedDB response");
+            };
+            response
         };
-        execute(IdbCommand::Open {
+        let open = |version| IdbCommand::Open {
             name: "rename".into(),
-            version: 1,
-        })
-        .unwrap();
-        execute(IdbCommand::CreateObjectStore {
-            database: "rename".into(),
-            definition: ObjectStoreDefinition {
-                name: "books".into(),
-                key_path: None,
-                auto_increment: true,
-                indexes: Vec::new(),
-            },
-        })
-        .unwrap();
-        execute(IdbCommand::CommitUpgrade {
-            name: "rename".into(),
-        })
-        .unwrap();
-        execute(IdbCommand::Open {
-            name: "rename".into(),
-            version: 2,
-        })
-        .unwrap();
-        execute(IdbCommand::RenameObjectStore {
+            version,
+        };
+        let rename = || IdbCommand::RenameObjectStore {
             database: "rename".into(),
             store: "books".into(),
             new_name: "renamed".into(),
-        })
-        .unwrap();
-        let response = execute(IdbCommand::Open {
+        };
+        let write = |store: &str, title: &str| IdbCommand::Batch {
+            database: "rename".into(),
+            writes: vec![IdbWrite {
+                store: store.into(),
+                key: None,
+                value: serde_json::json!({"title": title}),
+                add_only: true,
+            }],
+        };
+        let mut definition = ObjectStoreDefinition {
+            name: "books".into(),
+            key_path: None,
+            auto_increment: true,
+            indexes: Vec::new(),
+        };
+        assert!(execute(open(1)).upgrade_needed);
+        execute(IdbCommand::CreateObjectStore {
+            database: "rename".into(),
+            definition: definition.clone(),
+        });
+        let index = IndexDefinition {
+            name: "by_title".into(),
+            key_path: "title".into(),
+            unique: true,
+            multi_entry: false,
+        };
+        execute(IdbCommand::CreateIndex {
+            database: "rename".into(),
+            store: "books".into(),
+            definition: index.clone(),
+        });
+        definition.indexes.push(index);
+        assert_eq!(
+            execute(write("books", "original")).key,
+            Some(serde_json::json!(1))
+        );
+        execute(IdbCommand::CommitUpgrade {
             name: "rename".into(),
-            version: 2,
-        })
-        .unwrap();
-        assert!(matches!(response, StorageResponse::IndexedDb { response }
-            if response.object_stores == ["renamed"] && response.object_store_definitions[0].name == "renamed"
-                && response.object_store_definitions[0].auto_increment));
+        });
+
+        assert!(execute(open(2)).upgrade_needed);
+        execute(rename());
+        assert_eq!(
+            execute(write("renamed", "discarded")).key,
+            Some(serde_json::json!(2))
+        );
+        let pending = execute(open(2));
+        assert!(pending.transaction_blocked, "{pending:?}");
+        assert!(pending.object_store_definitions.is_empty());
         execute(IdbCommand::AbortUpgrade {
             name: "rename".into(),
             old_version: 1,
-        })
-        .unwrap();
-        let response = execute(IdbCommand::Open {
+        });
+        let restored = execute(open(1));
+        assert!(
+            !restored.transaction_blocked && !restored.upgrade_needed,
+            "{restored:?}"
+        );
+        assert_eq!(restored.version, Some(1));
+        assert_eq!(restored.object_stores, vec!["books"]);
+        assert_eq!(restored.object_store_definitions, vec![definition.clone()]);
+        assert_eq!(
+            execute(IdbCommand::Get {
+                database: "rename".into(),
+                store: "books".into(),
+                key: serde_json::json!(1),
+            })
+            .value,
+            Some(serde_json::json!({"title": "original"}))
+        );
+        assert_eq!(
+            execute(IdbCommand::Get {
+                database: "rename".into(),
+                store: "books".into(),
+                key: serde_json::json!(2),
+            })
+            .value,
+            None
+        );
+
+        // Observe renamed metadata only after a separate upgrade commits;
+        // aborting the previous attempt must also have restored its generator.
+        assert!(execute(open(2)).upgrade_needed);
+        execute(rename());
+        execute(IdbCommand::CommitUpgrade {
             name: "rename".into(),
-            version: 1,
-        })
-        .unwrap();
-        assert!(matches!(response, StorageResponse::IndexedDb { response }
-            if response.object_stores == ["books"] && response.object_store_definitions[0].name == "books"));
+        });
+        definition.name = "renamed".into();
+        let reopened = execute(open(2));
+        assert!(
+            !reopened.transaction_blocked && !reopened.upgrade_needed,
+            "{reopened:?}"
+        );
+        assert_eq!(reopened.version, Some(2));
+        assert_eq!(reopened.object_stores, vec!["renamed"]);
+        assert_eq!(reopened.object_store_definitions, vec![definition]);
+        assert_eq!(
+            execute(write("renamed", "committed")).key,
+            Some(serde_json::json!(2))
+        );
     }
 
     #[test]
@@ -3442,5 +4517,1121 @@ mod tests {
             &compound,
             &serde_json::json!(["b", 1])
         ));
+    }
+}
+
+/// Internal IndexedDB bucket key. Inputs must come from the parent authority
+/// registry, after opaque-origin rejection; author-facing origin strings never
+/// directly select this key. JSON tuple framing prevents delimiter collisions.
+pub(crate) fn partitioned_idb_origin(partition: &str, authority: &str) -> String {
+    format!(
+        "oryn:idb-partition:v1:{}",
+        serde_json::to_string(&(partition, authority)).expect("string tuple serialization")
+    )
+}
+
+#[cfg(test)]
+mod partitioned_idb_tests {
+    use super::*;
+    #[test]
+    fn indexeddb_bucket_shares_matching_native_partition_and_separates_site_and_origin() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        let key = partitioned_idb_origin("context/site-a", "oryn:origin:https://frame.test");
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: key.clone(),
+                command: IdbCommand::Open {
+                    name: "shared".into(),
+                    version: 1,
+                },
+            })
+            .unwrap();
+        store
+            .execute(StorageRequest::IndexedDb {
+                origin: key.clone(),
+                command: IdbCommand::CommitUpgrade {
+                    name: "shared".into(),
+                },
+            })
+            .unwrap();
+        for (partition, origin, expected) in [
+            ("context/site-a", "oryn:origin:https://frame.test", 1),
+            ("context/site-b", "oryn:origin:https://frame.test", 0),
+            ("context/site-a", "oryn:origin:https://other.test", 0),
+            ("context/site-a/oryn:origin:", "https://frame.test", 0),
+        ] {
+            let StorageResponse::IndexedDb { response } = store
+                .execute(StorageRequest::IndexedDb {
+                    origin: partitioned_idb_origin(partition, origin),
+                    command: IdbCommand::ListDatabases,
+                })
+                .unwrap()
+            else {
+                panic!("IndexedDB response")
+            };
+            assert_eq!(response.databases.len(), expected);
+        }
+    }
+}
+
+#[cfg(test)]
+mod native_transaction_authority_tests {
+    use super::*;
+    fn scoped(principal: &str, token: &str) -> String {
+        let mut command = IdbCommand::AbortTransaction {
+            token: token.into(),
+            database: "shared".into(),
+        };
+        scope_idb_transaction(&mut command, principal);
+        let IdbCommand::AbortTransaction { token, .. } = command else {
+            unreachable!()
+        };
+        token
+    }
+    #[test]
+    fn native_transaction_identity_cannot_be_forged_by_matching_author_tokens() {
+        let agent = scoped("agent:1", "same");
+        assert_ne!(agent, scoped("agent:2", "same"));
+        assert_ne!(agent, scoped("window:1", "same"));
+        assert_ne!(agent, scoped("window:1", &agent));
+        assert_ne!(scoped("a:b", "c"), scoped("a", "b:c"));
+        assert_eq!(agent, scoped("agent:1", "same"));
+    }
+}
+
+#[cfg(test)]
+mod storage_commit_fault_regressions {
+    use super::*;
+    #[test]
+    fn rejected_session_write_preserves_all_existing_pages() {
+        let scope = StorageScope {
+            origin: "https://a.example".into(),
+            top_level_page_id: PageId(1),
+        };
+        let mut session = BTreeMap::from([
+            (
+                (PageId(1), scope.origin.clone(), "old".into()),
+                "value".into(),
+            ),
+            (
+                (PageId(2), scope.origin.clone(), "other".into()),
+                "page".into(),
+            ),
+        ]);
+        let before = session.clone();
+        let limits = StorageLimits {
+            web_storage_bytes_per_origin: 1,
+            ..Default::default()
+        };
+        assert!(
+            execute_session(
+                &mut session,
+                StorageRequest::Set {
+                    area: StorageArea::Session,
+                    scope,
+                    key: "new".into(),
+                    value: "too-large".into()
+                },
+                limits
+            )
+            .is_err()
+        );
+        assert_eq!(session, before);
+    }
+    #[test]
+    fn persistent_commit_failure_retains_private_transaction_until_retry_commits() {
+        let path = std::env::temp_dir().join(format!(
+            "oryn-idb-commit-fault-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        {
+            let profile = PersistentProfile::open(&path).unwrap();
+            let store = PersistentContextStore::new(
+                profile.database.clone(),
+                profile.cache_coordinator.clone(),
+                profile.service_jobs.clone(),
+                profile.idb_mutations.clone(),
+                profile.idb_transactions.clone(),
+                profile.idb_connections.clone(),
+                StorageLimits::default(),
+            );
+            let origin = "https://a.example";
+            let key = (origin.to_string(), "db".to_string());
+            let mut database = DatabaseData::default();
+            database.stores.insert(
+                "store".into(),
+                ObjectStoreData {
+                    next_key: 42,
+                    ..Default::default()
+                },
+            );
+            store
+                .save_idb(origin, BTreeMap::from([(key.clone(), database)]))
+                .unwrap();
+            let mut working = store.load_idb(origin).unwrap().remove(&key).unwrap();
+            working.stores.get_mut("store").unwrap().next_key = 7;
+            store.indexed_db_transactions.lock().unwrap().insert(
+                "owner-token".into(),
+                TransactionSnapshot {
+                    origin: origin.into(),
+                    database: "db".into(),
+                    scope: vec!["store".into()],
+                    mode: "readwrite".into(),
+                    order: 1,
+                    connection: None,
+                    working: Some(working),
+                    dirty: BTreeSet::from(["store".into()]),
+                },
+            );
+            let commit = || StorageRequest::IndexedDb {
+                origin: origin.into(),
+                command: IdbCommand::CommitTransaction {
+                    token: "owner-token".into(),
+                    database: "db".into(),
+                },
+            };
+            store
+                .fail_next_idb_commit
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            assert!(store.execute(commit()).is_err());
+            assert!(
+                store
+                    .indexed_db_transactions
+                    .lock()
+                    .unwrap()
+                    .contains_key("owner-token")
+            );
+            assert_eq!(
+                store.load_idb(origin).unwrap()[&key].stores["store"].next_key,
+                42
+            );
+            store.execute(commit()).unwrap();
+            assert!(
+                !store
+                    .indexed_db_transactions
+                    .lock()
+                    .unwrap()
+                    .contains_key("owner-token")
+            );
+            assert_eq!(
+                store.load_idb(origin).unwrap()[&key].stores["store"].next_key,
+                7
+            );
+            // Separate contexts use the same profile mutation lock, including
+            // through a cloned profile handle.
+            let cloned = profile.clone();
+            let sibling = PersistentContextStore::new(
+                cloned.database.clone(),
+                cloned.cache_coordinator.clone(),
+                cloned.service_jobs.clone(),
+                cloned.idb_mutations.clone(),
+                cloned.idb_transactions.clone(),
+                cloned.idb_connections.clone(),
+                StorageLimits::default(),
+            );
+            assert!(Arc::ptr_eq(&store.idb_mutations, &sibling.idb_mutations));
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod idb_scope_admission_regressions {
+    use super::*;
+    fn execute(store: &SharedContextStore, command: IdbCommand) -> IdbResponse {
+        let StorageResponse::IndexedDb { response } = store
+            .execute(StorageRequest::IndexedDb {
+                origin: "https://a.example".into(),
+                command,
+            })
+            .unwrap()
+        else {
+            panic!("IDB response")
+        };
+        response
+    }
+    fn begin(token: &str, scope: &str, mode: &str) -> IdbCommand {
+        IdbCommand::BeginTransaction {
+            token: token.into(),
+            database: "db".into(),
+            scope: vec![scope.into()],
+            mode: mode.into(),
+            connection: None,
+        }
+    }
+    fn write(token: &str, store: &str, value: &str) -> IdbCommand {
+        IdbCommand::Transaction {
+            token: token.into(),
+            database: "db".into(),
+            inner: Box::new(IdbCommand::Batch {
+                database: "db".into(),
+                writes: vec![IdbWrite {
+                    store: store.into(),
+                    key: Some(serde_json::json!(1)),
+                    value: serde_json::json!(value),
+                    add_only: false,
+                }],
+            }),
+        }
+    }
+    fn read(token: &str, store: &str) -> IdbCommand {
+        IdbCommand::Transaction {
+            token: token.into(),
+            database: "db".into(),
+            inner: Box::new(IdbCommand::Get {
+                database: "db".into(),
+                store: store.into(),
+                key: serde_json::json!(1),
+            }),
+        }
+    }
+    fn finish(token: &str, commit: bool) -> IdbCommand {
+        if commit {
+            IdbCommand::CommitTransaction {
+                token: token.into(),
+                database: "db".into(),
+            }
+        } else {
+            IdbCommand::AbortTransaction {
+                token: token.into(),
+                database: "db".into(),
+            }
+        }
+    }
+    #[test]
+    fn profile_transactions_stage_privately_and_admit_conflicts_in_order() {
+        let path = std::env::temp_dir().join(format!(
+            "oryn-idb-scope-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        {
+            let profile = PersistentProfile::open(&path).unwrap();
+            let first = SharedContextStore::persistent(&profile, StorageLimits::default());
+            let second = SharedContextStore::persistent(&profile.clone(), StorageLimits::default());
+            execute(
+                &first,
+                IdbCommand::Open {
+                    name: "db".into(),
+                    version: 1,
+                },
+            );
+            for name in ["left", "right"] {
+                execute(
+                    &first,
+                    IdbCommand::CreateObjectStore {
+                        database: "db".into(),
+                        definition: ObjectStoreDefinition {
+                            name: name.into(),
+                            key_path: None,
+                            auto_increment: false,
+                            indexes: Vec::new(),
+                        },
+                    },
+                );
+            }
+            execute(&first, IdbCommand::CommitUpgrade { name: "db".into() });
+            assert!(!execute(&first, begin("writer", "left", "readwrite")).transaction_blocked);
+            execute(&first, write("writer", "left", "uncommitted"));
+            assert!(
+                execute(
+                    &second,
+                    IdbCommand::Open {
+                        name: "db".into(),
+                        version: 2
+                    }
+                )
+                .transaction_blocked
+            );
+            assert!(
+                first
+                    .execute(StorageRequest::IndexedDb {
+                        origin: "https://a.example".into(),
+                        command: begin("writer", "right", "readwrite")
+                    })
+                    .is_err(),
+                "token cannot widen its declared scope"
+            );
+            assert!(execute(&second, begin("reader", "left", "readonly")).transaction_blocked);
+            assert!(
+                !execute(&second, begin("independent", "right", "readwrite")).transaction_blocked
+            );
+            execute(&second, write("independent", "right", "survives"));
+            execute(&second, finish("independent", true));
+            let observed = execute(
+                &second,
+                IdbCommand::Get {
+                    database: "db".into(),
+                    store: "left".into(),
+                    key: serde_json::json!(1),
+                },
+            );
+            assert!(
+                observed.value.is_none(),
+                "private transaction writes must never reach persistent storage"
+            );
+            execute(&first, finish("writer", false));
+            assert!(!execute(&second, begin("reader", "left", "readonly")).transaction_blocked);
+            assert!(execute(&second, read("reader", "left")).value.is_none());
+            assert!(execute(&first, begin("later", "left", "readwrite")).transaction_blocked);
+            let denied = second.execute(StorageRequest::IndexedDb {
+                origin: "https://a.example".into(),
+                command: write("reader", "left", "forbidden"),
+            });
+            assert!(denied.is_err());
+            execute(&second, finish("reader", true));
+            assert!(!execute(&first, begin("later", "left", "readwrite")).transaction_blocked);
+            execute(&first, write("later", "left", "committed"));
+            execute(&first, finish("later", true));
+            assert_eq!(
+                execute(
+                    &second,
+                    IdbCommand::Get {
+                        database: "db".into(),
+                        store: "left".into(),
+                        key: serde_json::json!(1)
+                    }
+                )
+                .value,
+                Some(serde_json::json!("committed"))
+            );
+            assert_eq!(
+                execute(
+                    &second,
+                    IdbCommand::Get {
+                        database: "db".into(),
+                        store: "right".into(),
+                        key: serde_json::json!(1)
+                    }
+                )
+                .value,
+                Some(serde_json::json!("survives"))
+            );
+            assert!(profile.idb_transactions.lock().unwrap().is_empty());
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod idb_connection_delivery_regressions {
+    use super::*;
+    fn execute(store: &SharedContextStore, command: IdbCommand) -> IdbResponse {
+        let StorageResponse::IndexedDb { response } = store
+            .execute(StorageRequest::IndexedDb {
+                origin: "https://a.example".into(),
+                command,
+            })
+            .unwrap()
+        else {
+            panic!()
+        };
+        response
+    }
+    fn open(token: &str, version: u64) -> IdbCommand {
+        IdbCommand::OpenConnection {
+            token: token.into(),
+            name: "db".into(),
+            version,
+        }
+    }
+    fn upgrade(token: &str, inner: IdbCommand) -> IdbCommand {
+        IdbCommand::UpgradeConnection {
+            token: token.into(),
+            name: "db".into(),
+            inner: Box::new(inner),
+        }
+    }
+    fn schema(name: &str) -> IdbCommand {
+        IdbCommand::CreateObjectStore {
+            database: "db".into(),
+            definition: ObjectStoreDefinition {
+                name: name.into(),
+                key_path: None,
+                auto_increment: false,
+                indexes: Vec::new(),
+            },
+        }
+    }
+    fn close_pending_and_forced_retirement(store: &SharedContextStore) {
+        execute(store, open("first", 1));
+        execute(store, upgrade("first", schema("records")));
+        execute(
+            store,
+            upgrade("first", IdbCommand::CommitUpgrade { name: "db".into() }),
+        );
+        execute(store, open("sibling", 1));
+        let begin = |token: &str, connection: &str| IdbCommand::BeginTransaction {
+            token: token.into(),
+            database: "db".into(),
+            scope: vec!["records".into()],
+            mode: "readwrite".into(),
+            connection: Some(connection.into()),
+        };
+        assert!(!execute(store, begin("writer", "first")).transaction_blocked);
+        execute(
+            store,
+            IdbCommand::Transaction {
+                token: "writer".into(),
+                database: "db".into(),
+                inner: Box::new(IdbCommand::Batch {
+                    database: "db".into(),
+                    writes: vec![IdbWrite {
+                        store: "records".into(),
+                        key: Some(serde_json::json!(1)),
+                        value: serde_json::json!("uncommitted"),
+                        add_only: false,
+                    }],
+                }),
+            },
+        );
+        assert!(execute(store, begin("queued", "sibling")).transaction_blocked);
+        execute(
+            store,
+            IdbCommand::CloseConnection {
+                token: "first".into(),
+                name: "db".into(),
+            },
+        );
+        let waiting = execute(store, open("upgrade", 2));
+        assert!(waiting.transaction_blocked);
+        assert!(
+            execute(
+                store,
+                IdbCommand::PollConnection {
+                    token: "first".into(),
+                    name: "db".into()
+                }
+            )
+            .connection_events
+            .is_empty(),
+            "close-pending connections receive no versionchange task"
+        );
+        let notice = execute(
+            store,
+            IdbCommand::PollConnection {
+                token: "sibling".into(),
+                name: "db".into(),
+            },
+        )
+        .connection_events
+        .remove(0);
+        execute(
+            store,
+            IdbCommand::AcknowledgeConnection {
+                token: "sibling".into(),
+                name: "db".into(),
+                event: notice.event,
+            },
+        );
+        assert!(
+            execute(store, open("upgrade", 2)).connection_blocked,
+            "a closing connection needs no impossible notification acknowledgement"
+        );
+        let foreign = store.execute(StorageRequest::IndexedDb {
+            origin: "https://foreign.example".into(),
+            command: IdbCommand::RetireConnection {
+                token: "first".into(),
+                name: "db".into(),
+            },
+        });
+        assert!(foreign.is_err());
+        assert!(
+            execute(store, begin("queued", "sibling")).transaction_blocked,
+            "foreign cleanup preserves the original lock"
+        );
+        execute(
+            store,
+            IdbCommand::RetireConnection {
+                token: "first".into(),
+                name: "db".into(),
+            },
+        );
+        assert!(
+            !execute(store, begin("queued", "sibling")).transaction_blocked,
+            "forced retirement aborts original snapshots and unblocks the sibling"
+        );
+        execute(
+            store,
+            IdbCommand::RetireConnection {
+                token: "first".into(),
+                name: "db".into(),
+            },
+        );
+        let visible = execute(
+            store,
+            IdbCommand::Transaction {
+                token: "queued".into(),
+                database: "db".into(),
+                inner: Box::new(IdbCommand::Get {
+                    database: "db".into(),
+                    store: "records".into(),
+                    key: serde_json::json!(1),
+                }),
+            },
+        );
+        assert_eq!(
+            visible.value, None,
+            "retirement cannot commit uncommitted writes"
+        );
+        execute(
+            store,
+            IdbCommand::CommitTransaction {
+                token: "queued".into(),
+                database: "db".into(),
+            },
+        );
+        execute(
+            store,
+            IdbCommand::CloseConnection {
+                token: "sibling".into(),
+                name: "db".into(),
+            },
+        );
+        assert!(execute(store, open("upgrade", 2)).upgrade_needed);
+        execute(
+            store,
+            IdbCommand::RetireConnection {
+                token: "upgrade".into(),
+                name: "db".into(),
+            },
+        );
+    }
+    #[test]
+    fn close_pending_notifications_and_forced_retirement_preserve_exact_connection_ownership() {
+        close_pending_and_forced_retirement(&SharedContextStore::memory(StorageLimits::default()));
+        let path = std::env::temp_dir().join(format!(
+            "oryn-idb-forced-close-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        {
+            let profile = PersistentProfile::open(&path).unwrap();
+            close_pending_and_forced_retirement(&SharedContextStore::persistent(
+                &profile,
+                StorageLimits::default(),
+            ));
+        }
+        {
+            let profile = PersistentProfile::open(&path).unwrap();
+            let store = SharedContextStore::persistent(&profile, StorageLimits::default());
+            let restored = execute(&store, open("restart", 1));
+            assert!(!restored.upgrade_needed);
+            assert_eq!(restored.object_stores, vec!["records"]);
+            assert_eq!(
+                execute(
+                    &store,
+                    IdbCommand::Get {
+                        database: "db".into(),
+                        store: "records".into(),
+                        key: serde_json::json!(1)
+                    }
+                )
+                .value,
+                None
+            );
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn profile_versionchange_waits_for_delivery_ack_and_close_pending_transactions() {
+        let path = std::env::temp_dir().join(format!(
+            "oryn-idb-connections-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        {
+            let profile = PersistentProfile::open(&path).unwrap();
+            let first = SharedContextStore::persistent(&profile, StorageLimits::default());
+            let second = SharedContextStore::persistent(&profile.clone(), StorageLimits::default());
+            assert!(execute(&first, open("first", 1)).upgrade_needed);
+            execute(&first, upgrade("first", schema("records")));
+            assert!(
+                execute(&second, IdbCommand::ListDatabases)
+                    .databases
+                    .is_empty(),
+                "uncommitted schema is private"
+            );
+            execute(
+                &first,
+                upgrade("first", IdbCommand::CommitUpgrade { name: "db".into() }),
+            );
+            let waiting = execute(&second, open("next", 2));
+            assert!(waiting.transaction_blocked);
+            assert!(!waiting.connection_blocked);
+            let poll = || IdbCommand::PollConnection {
+                token: "first".into(),
+                name: "db".into(),
+            };
+            let notices = execute(&first, poll()).connection_events;
+            assert_eq!(notices.len(), 1);
+            assert_eq!(notices[0].old_version, 1);
+            assert_eq!(notices[0].new_version, Some(2));
+            assert_eq!(
+                execute(&first, poll()).connection_events,
+                notices,
+                "unacknowledged notice retains custody"
+            );
+            execute(
+                &first,
+                IdbCommand::AcknowledgeConnection {
+                    token: "first".into(),
+                    name: "db".into(),
+                    event: notices[0].event,
+                },
+            );
+            assert!(execute(&second, open("next", 2)).connection_blocked);
+            execute(
+                &first,
+                IdbCommand::BeginTransaction {
+                    token: "reader".into(),
+                    database: "db".into(),
+                    scope: vec!["records".into()],
+                    mode: "readonly".into(),
+                    connection: Some("first".into()),
+                },
+            );
+            execute(
+                &first,
+                IdbCommand::CloseConnection {
+                    token: "first".into(),
+                    name: "db".into(),
+                },
+            );
+            assert!(execute(&second, open("next", 2)).transaction_blocked);
+            execute(
+                &first,
+                IdbCommand::CommitTransaction {
+                    token: "reader".into(),
+                    database: "db".into(),
+                },
+            );
+            assert!(execute(&second, open("next", 2)).upgrade_needed);
+            execute(&second, upgrade("next", schema("discarded")));
+            assert_eq!(
+                execute(&first, IdbCommand::ListDatabases).databases[0].version,
+                1
+            );
+            execute(
+                &second,
+                IdbCommand::RetireConnection {
+                    token: "next".into(),
+                    name: "db".into(),
+                },
+            );
+            let restored = execute(&first, open("restored", 1));
+            assert!(!restored.upgrade_needed);
+            assert_eq!(restored.object_stores, vec!["records"]);
+            let foreign = first.execute(StorageRequest::IndexedDb {
+                origin: "https://foreign.example".into(),
+                command: IdbCommand::PollConnection {
+                    token: "restored".into(),
+                    name: "db".into(),
+                },
+            });
+            assert!(foreign.is_err());
+            execute(
+                &first,
+                IdbCommand::CloseConnection {
+                    token: "restored".into(),
+                    name: "db".into(),
+                },
+            );
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod private_upgrade_commit_fault_regressions {
+    use super::*;
+    #[test]
+    fn private_upgrade_commit_failure_keeps_schema_out_of_disk_until_retry() {
+        let path = std::env::temp_dir().join(format!(
+            "oryn-idb-upgrade-fault-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        {
+            let profile = PersistentProfile::open(&path).unwrap();
+            let store = PersistentContextStore::new(
+                profile.database.clone(),
+                profile.cache_coordinator.clone(),
+                profile.service_jobs.clone(),
+                profile.idb_mutations.clone(),
+                profile.idb_transactions.clone(),
+                profile.idb_connections.clone(),
+                StorageLimits::default(),
+            );
+            let execute = |command| {
+                store.execute(StorageRequest::IndexedDb {
+                    origin: "https://a.example".into(),
+                    command,
+                })
+            };
+            execute(IdbCommand::OpenConnection {
+                token: "owner".into(),
+                name: "db".into(),
+                version: 1,
+            })
+            .unwrap();
+            execute(IdbCommand::UpgradeConnection {
+                token: "owner".into(),
+                name: "db".into(),
+                inner: Box::new(IdbCommand::CreateObjectStore {
+                    database: "db".into(),
+                    definition: ObjectStoreDefinition {
+                        name: "private".into(),
+                        key_path: None,
+                        auto_increment: false,
+                        indexes: Vec::new(),
+                    },
+                }),
+            })
+            .unwrap();
+            let commit = || IdbCommand::UpgradeConnection {
+                token: "owner".into(),
+                name: "db".into(),
+                inner: Box::new(IdbCommand::CommitUpgrade { name: "db".into() }),
+            };
+            assert!(store.load_idb("https://a.example").unwrap().is_empty());
+            store
+                .fail_next_idb_commit
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            assert!(execute(commit()).is_err());
+            assert!(store.load_idb("https://a.example").unwrap().is_empty());
+            execute(commit()).unwrap();
+            let data = store.load_idb("https://a.example").unwrap();
+            assert!(
+                data[&("https://a.example".into(), "db".into())]
+                    .stores
+                    .contains_key("private")
+            );
+            execute(IdbCommand::RetireConnection {
+                token: "owner".into(),
+                name: "db".into(),
+            })
+            .unwrap();
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod script_idb_protocol_regressions {
+    use super::*;
+    #[test]
+    fn scoped_script_requests_require_admission_and_cannot_revive_committed_transactions() {
+        let store = SharedContextStore::memory(StorageLimits::default());
+        let execute = |mut command: IdbCommand| {
+            scope_idb_transaction(&mut command, "window-document:original");
+            store.execute(StorageRequest::IndexedDb {
+                origin: "https://a.example".into(),
+                command,
+            })
+        };
+        execute(IdbCommand::OpenConnection {
+            token: "c".into(),
+            name: "db".into(),
+            version: 1,
+        })
+        .unwrap();
+        execute(IdbCommand::UpgradeConnection {
+            token: "c".into(),
+            name: "db".into(),
+            inner: Box::new(IdbCommand::CreateObjectStore {
+                database: "db".into(),
+                definition: ObjectStoreDefinition {
+                    name: "records".into(),
+                    key_path: None,
+                    auto_increment: false,
+                    indexes: Vec::new(),
+                },
+            }),
+        })
+        .unwrap();
+        execute(IdbCommand::UpgradeConnection {
+            token: "c".into(),
+            name: "db".into(),
+            inner: Box::new(IdbCommand::CommitUpgrade { name: "db".into() }),
+        })
+        .unwrap();
+        let read = || IdbCommand::Transaction {
+            token: "t".into(),
+            database: "db".into(),
+            inner: Box::new(IdbCommand::Get {
+                database: "db".into(),
+                store: "records".into(),
+                key: serde_json::json!(1),
+            }),
+        };
+        assert!(
+            execute(read())
+                .unwrap_err()
+                .to_string()
+                .contains("TransactionInactiveError")
+        );
+        execute(IdbCommand::BeginTransaction {
+            token: "t".into(),
+            database: "db".into(),
+            scope: vec!["records".into()],
+            mode: "readonly".into(),
+            connection: Some("c".into()),
+        })
+        .unwrap();
+        execute(read()).unwrap();
+        execute(IdbCommand::CommitTransaction {
+            token: "t".into(),
+            database: "db".into(),
+        })
+        .unwrap();
+        assert!(
+            execute(read())
+                .unwrap_err()
+                .to_string()
+                .contains("TransactionInactiveError")
+        );
+        execute(IdbCommand::RetireConnection {
+            token: "c".into(),
+            name: "db".into(),
+        })
+        .unwrap();
+        assert!(
+            execute(IdbCommand::BeginTransaction {
+                token: "t".into(),
+                database: "db".into(),
+                scope: vec!["records".into()],
+                mode: "readonly".into(),
+                connection: Some("c".into())
+            })
+            .is_err()
+        );
+    }
+    #[test]
+    fn script_routes_reject_legacy_unowned_database_mutations() {
+        for command in [
+            IdbCommand::Open {
+                name: "db".into(),
+                version: 1,
+            },
+            IdbCommand::DeleteDatabase { name: "db".into() },
+            IdbCommand::CommitUpgrade { name: "db".into() },
+            IdbCommand::Clear {
+                database: "db".into(),
+                store: "s".into(),
+            },
+            IdbCommand::BeginTransaction {
+                token: "t".into(),
+                database: "db".into(),
+                scope: vec!["s".into()],
+                mode: "readonly".into(),
+                connection: None,
+            },
+        ] {
+            assert!(validate_script_idb_command(&command).is_err());
+        }
+        assert!(
+            validate_script_idb_command(&IdbCommand::OpenConnection {
+                token: "c".into(),
+                name: "db".into(),
+                version: 1
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_script_idb_command(&IdbCommand::BeginTransaction {
+                token: "t".into(),
+                database: "db".into(),
+                scope: vec!["s".into()],
+                mode: "readonly".into(),
+                connection: Some("c".into())
+            })
+            .is_ok()
+        );
+    }
+}
+
+#[cfg(test)]
+mod event_admission_tests {
+    use super::*;
+    fn scope() -> StorageScope {
+        StorageScope {
+            origin: "https://events.example".into(),
+            top_level_page_id: PageId(7),
+        }
+    }
+    fn verify(store: &SharedContextStore) {
+        for area in [StorageArea::Local, StorageArea::Session] {
+            store
+                .execute(StorageRequest::Set {
+                    area,
+                    scope: scope(),
+                    key: "key".into(),
+                    value: "before".into(),
+                })
+                .unwrap();
+            for request in [
+                StorageRequest::Set {
+                    area,
+                    scope: scope(),
+                    key: "key".into(),
+                    value: "after".into(),
+                },
+                StorageRequest::Remove {
+                    area,
+                    scope: scope(),
+                    key: "key".into(),
+                },
+                StorageRequest::Clear {
+                    area,
+                    scope: scope(),
+                },
+            ] {
+                let mut admitted = 0;
+                let result = store.execute_with_admission(request, &mut |change| {
+                    admitted += 1;
+                    assert_eq!(change.area, area);
+                    Err(StorageError::Persistent(
+                        "injected notification backpressure".into(),
+                    ))
+                });
+                assert!(result.is_err());
+                assert_eq!(admitted, 1);
+                assert!(
+                    matches!(store.execute(StorageRequest::Get{area,scope:scope(),key:"key".into()}).unwrap(),StorageResponse::Value{value:Some(value)}if value=="before")
+                );
+            }
+            let response = store
+                .execute_with_admission(
+                    StorageRequest::Set {
+                        area,
+                        scope: scope(),
+                        key: "key".into(),
+                        value: "before".into(),
+                    },
+                    &mut |_| panic!("unchanged write cannot reserve an event"),
+                )
+                .unwrap();
+            assert!(matches!(response, StorageResponse::Unchanged));
+            let mut accepted = None;
+            store
+                .execute_with_admission(
+                    StorageRequest::Set {
+                        area,
+                        scope: scope(),
+                        key: "key".into(),
+                        value: "after".into(),
+                    },
+                    &mut |change| {
+                        accepted = Some(change.clone());
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            let change = accepted.unwrap();
+            assert_eq!(change.old_value.as_deref(), Some("before"));
+            assert_eq!(change.new_value.as_deref(), Some("after"));
+        }
+    }
+    #[test]
+    fn memory_backpressure_preserves_all_web_storage_mutations() {
+        verify(&SharedContextStore::memory(StorageLimits::default()));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn failed_persistent_commit_cancels_accepted_event_without_publication() {
+        let path = std::env::temp_dir().join(format!(
+            "oryn-event-commit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let profile = PersistentProfile::open(&path).unwrap();
+        let store = SharedContextStore::persistent(&profile, StorageLimits::default());
+        store
+            .execute(StorageRequest::Set {
+                area: StorageArea::Local,
+                scope: scope(),
+                key: "key".into(),
+                value: "old".into(),
+            })
+            .unwrap();
+        let mut journal = crate::context_event_journal::Journal::default();
+        let mut admitted = None;
+        let creator = oryn_js::worker_wire::Creator::Window {
+            target: oryn_js::message_wire::WindowTarget::Root,
+            document_generation: 1,
+            stream_epoch: 0,
+        };
+        FAIL_WEB_STORAGE_COMMIT.with(|failure| failure.set(true));
+        let result = store.execute_with_admission(
+            StorageRequest::Set {
+                area: StorageArea::Local,
+                scope: scope(),
+                key: "key".into(),
+                value: "new".into(),
+            },
+            &mut |change| {
+                admitted = Some(
+                    journal
+                        .prepare(vec![crate::context_service::ContextEvent::Storage {
+                            source_page_id: PageId(1),
+                            source_creator: creator.clone(),
+                            source_url: "https://events.example/writer".into(),
+                            targets: vec![(PageId(2), creator.clone())],
+                            change: change.clone(),
+                        }])
+                        .map_err(StorageError::NotificationCapacity)?,
+                );
+                Ok(())
+            },
+        );
+        assert!(result.is_err());
+        assert!(admitted.is_some());
+        drop(admitted);
+        assert!(journal.is_empty());
+        assert_eq!(journal.evidence().last_published_id, 0);
+        assert!(
+            matches!(store.execute(StorageRequest::Get{area:StorageArea::Local,scope:scope(),key:"key".into()}).unwrap(),StorageResponse::Value{value:Some(value)}if value=="old")
+        );
+        drop(store);
+        drop(profile);
+        let _ = std::fs::remove_dir_all(path);
+    }
+    #[test]
+    fn persistent_backpressure_preserves_all_web_storage_mutations() {
+        let path = std::env::temp_dir().join(format!(
+            "oryn-event-admission-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let profile = PersistentProfile::open(&path).unwrap();
+        verify(&SharedContextStore::persistent(
+            &profile,
+            StorageLimits::default(),
+        ));
+        drop(profile);
+        let _ = std::fs::remove_dir_all(path);
     }
 }

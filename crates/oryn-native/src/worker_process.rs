@@ -29,6 +29,27 @@ pub fn run() -> std::io::Result<()> {
 }
 
 async fn async_main() -> std::io::Result<()> {
+    #[cfg(unix)]
+    if let Some(control_fd) = inherited_fd("--agent-control-fd")? {
+        let service_fd = inherited_fd("--agent-service-fd")?
+            .ok_or_else(|| std::io::Error::other("agent service descriptor required"))?;
+        if control_fd < 3 || service_fd < 3 || control_fd == service_fd {
+            return Err(std::io::Error::other(
+                "agent descriptors must be distinct capability descriptors",
+            ));
+        }
+        // SAFETY: F_GETFD only checks validity and does not assume ownership.
+        if unsafe { libc::fcntl(control_fd, libc::F_GETFD) } < 0
+            || unsafe { libc::fcntl(service_fd, libc::F_GETFD) } < 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: dedicated socket capabilities are transferred by the verified
+        // parent before exec, exactly as for the page-worker broker descriptors.
+        let control = unsafe { UnixStream::from_raw_fd(control_fd) };
+        let services = unsafe { UnixStream::from_raw_fd(service_fd) };
+        return crate::agent_process::serve_child(control, services);
+    }
     if let Some(path) = argument_value("--security-probe") {
         security_probe(&path)?;
         return Ok(());

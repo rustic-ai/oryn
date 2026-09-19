@@ -1,0 +1,11 @@
+# Source-bound Core assessment procedures
+
+`core-manual-visual-2026-09-16.jsonl` contains all 752 pinned Core manual/visual identities: 392 exact ATTA procedures and 360 native manual/visual procedures. Every record carries the original source hash, literal instructions, required platform/API branches, source-defined observations, cleanup and evidence requirements. ATTA comparison operators and values are preserved without normalization. Non-ATTA records retain helper instructions and executable assertion source where the page supplies its instructions dynamically.
+
+These are procedure sources. `observations` and `qualification` are intentionally null. Operators must execute the procedures after the all-generation gate, retain native observations and artifacts, and obtain independent review. `scripts/wpt_manual_procedures.py` rejects substituted procedures, changed helper bytes, incomplete platform evidence and rewritten ATTA assertions.
+
+Ten records also retain a pinned dynamic sibling-URL defect. The exact repair declarations live in `tools/wptrunner-oryn/oryn_wptrunner/fixture-repairs.json`, along with two confirmed misplaced helper imports. The official fixture environment verifies both original and target hashes and installs only the declared missing GET paths. It never edits source/assertion bytes or the denominator. Manual qualification additionally requires a candidate-bound delivery receipt for those repaired resources; declaring a repair does not prove it was served successfully.
+
+Candidate artifacts must include the procedure corpus (`manual_procedures`) and repair manifest (`fixture_repairs`). Official run information retains the repair manifest digest. Historical reports remain unchanged.
+
+Platform/API branches are alternatives selected explicitly in each candidate-bound assessment: `platform_selection` contains `platform` (macOS, Linux or Windows) and, for ATTA, `api`. macOS requires AXAPI; Linux requires ATK; Windows uses its actual IAccessible2, MSAA or UIA API. Every source branch remains in the corpus. A missing branch stays open, and selecting a foreign platform API cannot produce a pass. Cross-platform plan qualification remains a separate gate.

@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import tempfile
 import unittest
+from unittest.mock import patch
 from urllib.parse import urlencode
 from urllib.request import build_opener, HTTPCookieProcessor
 from urllib.error import HTTPError
@@ -71,6 +72,66 @@ class SaaSValidatorTests(unittest.TestCase):
         data = copy.deepcopy(self.data)
         data["views"] = []
         self.assertIn("persisted page authorization sequence mismatch", runner.validate(self.case, self.lines, self.base, self.frames, data))
+
+
+class SaaSOAuthValidatorTests(SaaSValidatorTests):
+    def setUp(self):
+        super().setUp()
+        self.case['expected_oauth'] = dict(events=[dict(action='token_exchange', outcome=200)],
+                                           codes=[dict(consumed=1)], tokens=[dict(revoked=0)])
+        self.case['expected_login_events'] = [dict(action='authenticated', outcome=303)]
+        self.case['expected_concurrent_edits'] = [dict(title='Concurrent', version=2)]
+        self.data['oauth'] = copy.deepcopy(self.case['expected_oauth'])
+        self.data['login_events'] = copy.deepcopy(self.case['expected_login_events'])
+        self.data['concurrent_edits'] = copy.deepcopy(self.case['expected_concurrent_edits'])
+
+    def test_missing_exchange_callback_or_concurrent_writer_cannot_qualify(self):
+        for field in ('oauth', 'login_events', 'concurrent_edits'):
+            data = copy.deepcopy(self.data)
+            del data[field]
+            self.assertTrue(runner.validate(self.case, self.lines, self.base, self.frames, data), field)
+
+    def test_unconsumed_grant_or_revoked_token_cannot_qualify(self):
+        for field, value in (('codes', [dict(consumed=0)]), ('tokens', [dict(revoked=1)]),
+                             ('events', [dict(action='token_exchange', outcome=400)])):
+            data = copy.deepcopy(self.data)
+            data['oauth'][field] = value
+            self.assertIn('persisted OAuth code/token/authorization sequence mismatch',
+                          runner.validate(self.case, self.lines, self.base, self.frames, data))
+
+
+class NumericLoopbackServerTests(unittest.TestCase):
+    def test_numeric_bind_preserves_address_without_reverse_dns(self):
+        with patch("socket.getfqdn", side_effect=AssertionError("unexpected DNS lookup")) as resolver:
+            server = receiver.NumericLoopbackHTTPServer(("127.0.0.1", 0), receiver.BaseHTTPRequestHandler)
+            try:
+                self.assertEqual(server.server_name, "127.0.0.1")
+                self.assertGreater(server.server_port, 0)
+                self.assertEqual(server.server_address, (server.server_name, server.server_port))
+                self.assertEqual(server.socket.getsockname(), server.server_address)
+                resolver.assert_not_called()
+            finally:
+                server.server_close()
+
+
+class OracleStartupDiagnosticsTests(unittest.TestCase):
+    def test_failed_startup_retains_stderr_and_reaps_before_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory).resolve()
+            with patch.object(support, "check_execution_generation"), \
+                    patch.object(support.subprocess, "Popen") as launch, \
+                    patch.object(support.Oracle, "read", side_effect=ValueError("invalid fixture control frame")):
+                launch.return_value.poll.return_value = 1
+                launch.return_value.returncode = 1
+                def started(*args, **kwargs):
+                    kwargs["stderr"].write(b"fixture prerequisite unavailable")
+                    kwargs["stderr"].flush()
+                    return launch.return_value
+                launch.side_effect = started
+                with self.assertRaisesRegex(ValueError, "fixture prerequisite unavailable"):
+                    support.Oracle(output)
+                launch.return_value.stdin.close.assert_called_once()
+                launch.return_value.stdout.close.assert_called_once()
 
 
 class SaaSHTTPTests(unittest.TestCase):

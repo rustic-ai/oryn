@@ -1,0 +1,283 @@
+{
+  "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "inventory": "artifacts/wpt-full-baseline/inventory-v3/core-html-0006.inventory.json",
+  "fixtures": [
+    {
+      "path": "html/dom/partial-updates/tentative/fragment/src-buffered.sub.html",
+      "source_sha256": "8980f93578c39d64c9628bc47db16e0d9e9d572a5762152ad075f1bdb53c07d2",
+      "inventory": {
+        "globals": [
+          "window"
+        ],
+        "kind": "html",
+        "path": "html/dom/partial-updates/tentative/fragment/src-buffered.sub.html",
+        "root": "html",
+        "sha256": "8980f93578c39d64c9628bc47db16e0d9e9d572a5762152ad075f1bdb53c07d2",
+        "variants": [
+          ""
+        ],
+        "workstream": "core"
+      }
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/fragment/src-cancel.html",
+      "source_sha256": "d909f9e5afa6a235f2e076f8c3905565444b7855210359116b790db0a047087b",
+      "inventory": {
+        "globals": [
+          "window"
+        ],
+        "kind": "html",
+        "path": "html/dom/partial-updates/tentative/fragment/src-cancel.html",
+        "root": "html",
+        "sha256": "d909f9e5afa6a235f2e076f8c3905565444b7855210359116b790db0a047087b",
+        "variants": [
+          ""
+        ],
+        "workstream": "core"
+      }
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/fragment/src-csp-cors.sub.html",
+      "source_sha256": "c401647f825dc86656749415f453991be237c4d9d0d68385689bc00266bedff3",
+      "inventory": {
+        "globals": [
+          "window"
+        ],
+        "kind": "html",
+        "path": "html/dom/partial-updates/tentative/fragment/src-csp-cors.sub.html",
+        "root": "html",
+        "sha256": "c401647f825dc86656749415f453991be237c4d9d0d68385689bc00266bedff3",
+        "variants": [
+          ""
+        ],
+        "workstream": "core"
+      }
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/fragment/src-csp.sub.html",
+      "source_sha256": "eb635feaf215aa0f3e48eb07eb5d1a1571818f3f4a248fbe2a91b5f5a390242e",
+      "inventory": {
+        "globals": [
+          "window"
+        ],
+        "kind": "html",
+        "path": "html/dom/partial-updates/tentative/fragment/src-csp.sub.html",
+        "root": "html",
+        "sha256": "eb635feaf215aa0f3e48eb07eb5d1a1571818f3f4a248fbe2a91b5f5a390242e",
+        "variants": [
+          ""
+        ],
+        "workstream": "core"
+      }
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/fragment/src-nonce.sub.html",
+      "source_sha256": "580f721a783fd6182c5058e990b8ff03b6cbad2777d364900f4d310558c63233",
+      "inventory": {
+        "globals": [
+          "window"
+        ],
+        "kind": "html",
+        "path": "html/dom/partial-updates/tentative/fragment/src-nonce.sub.html",
+        "root": "html",
+        "sha256": "580f721a783fd6182c5058e990b8ff03b6cbad2777d364900f4d310558c63233",
+        "variants": [
+          ""
+        ],
+        "workstream": "core"
+      }
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/fragment/src-parser-blocking.html",
+      "source_sha256": "ff23669bb4f59c314af0cf780b7f040edb05549f1b024887a9b8dd8269ae8d67",
+      "inventory": {
+        "globals": [
+          "window"
+        ],
+        "kind": "html",
+        "path": "html/dom/partial-updates/tentative/fragment/src-parser-blocking.html",
+        "root": "html",
+        "sha256": "ff23669bb4f59c314af0cf780b7f040edb05549f1b024887a9b8dd8269ae8d67",
+        "variants": [
+          ""
+        ],
+        "workstream": "core"
+      }
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/fragment/src-referrerpolicy.sub.html",
+      "source_sha256": "d8876fc6fcf9115f8ec65d2a87e80b8941fbd3c1146658f0f3de4dde559faebc",
+      "inventory": {
+        "globals": [
+          "window"
+        ],
+        "kind": "html",
+        "path": "html/dom/partial-updates/tentative/fragment/src-referrerpolicy.sub.html",
+        "root": "html",
+        "sha256": "d8876fc6fcf9115f8ec65d2a87e80b8941fbd3c1146658f0f3de4dde559faebc",
+        "variants": [
+          ""
+        ],
+        "workstream": "core"
+      }
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/fragment/src-sri.sub.html",
+      "source_sha256": "09b33a375851dbf9578cd4a7dea11d7ff14b9c95d794d7d163bee6e56b2488f5",
+      "inventory": {
+        "globals": [
+          "window"
+        ],
+        "kind": "html",
+        "path": "html/dom/partial-updates/tentative/fragment/src-sri.sub.html",
+        "root": "html",
+        "sha256": "09b33a375851dbf9578cd4a7dea11d7ff14b9c95d794d7d163bee6e56b2488f5",
+        "variants": [
+          ""
+        ],
+        "workstream": "core"
+      }
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/fragment/src-streaming.html",
+      "source_sha256": "e83244acf9d1c86e21885369694d0f523610df0c787a09e29255553a6d1a4bad",
+      "inventory": {
+        "globals": [
+          "window"
+        ],
+        "kind": "html",
+        "path": "html/dom/partial-updates/tentative/fragment/src-streaming.html",
+        "root": "html",
+        "sha256": "e83244acf9d1c86e21885369694d0f523610df0c787a09e29255553a6d1a4bad",
+        "variants": [
+          ""
+        ],
+        "workstream": "core"
+      }
+    }
+  ],
+  "cohort": "artifacts/wpt-full-baseline/full-current-2026-09-15/cohort.json",
+  "cohort_entries": [
+    {
+      "classification": "core",
+      "failure_domain": "harness",
+      "global": "window",
+      "id": "html/dom/partial-updates/tentative/fragment/src-buffered.sub.html|window|",
+      "path": "html/dom/partial-updates/tentative/fragment/src-buffered.sub.html",
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "status": "failed",
+      "variant": ""
+    },
+    {
+      "classification": "core",
+      "failure_domain": null,
+      "global": "window",
+      "id": "html/dom/partial-updates/tentative/fragment/src-cancel.html|window|",
+      "path": "html/dom/partial-updates/tentative/fragment/src-cancel.html",
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "status": "passed",
+      "variant": ""
+    },
+    {
+      "classification": "core",
+      "failure_domain": "harness",
+      "global": "window",
+      "id": "html/dom/partial-updates/tentative/fragment/src-csp-cors.sub.html|window|",
+      "path": "html/dom/partial-updates/tentative/fragment/src-csp-cors.sub.html",
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "status": "failed",
+      "variant": ""
+    },
+    {
+      "classification": "core",
+      "failure_domain": null,
+      "global": "window",
+      "id": "html/dom/partial-updates/tentative/fragment/src-csp.sub.html|window|",
+      "path": "html/dom/partial-updates/tentative/fragment/src-csp.sub.html",
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "status": "passed",
+      "variant": ""
+    },
+    {
+      "classification": "core",
+      "failure_domain": "harness",
+      "global": "window",
+      "id": "html/dom/partial-updates/tentative/fragment/src-nonce.sub.html|window|",
+      "path": "html/dom/partial-updates/tentative/fragment/src-nonce.sub.html",
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "status": "failed",
+      "variant": ""
+    },
+    {
+      "classification": "core",
+      "failure_domain": "harness",
+      "global": "window",
+      "id": "html/dom/partial-updates/tentative/fragment/src-parser-blocking.html|window|",
+      "path": "html/dom/partial-updates/tentative/fragment/src-parser-blocking.html",
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "status": "failed",
+      "variant": ""
+    },
+    {
+      "classification": "core",
+      "failure_domain": "assertion",
+      "global": "window",
+      "id": "html/dom/partial-updates/tentative/fragment/src-referrerpolicy.sub.html|window|",
+      "path": "html/dom/partial-updates/tentative/fragment/src-referrerpolicy.sub.html",
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "status": "failed",
+      "variant": ""
+    },
+    {
+      "classification": "core",
+      "failure_domain": "harness",
+      "global": "window",
+      "id": "html/dom/partial-updates/tentative/fragment/src-sri.sub.html|window|",
+      "path": "html/dom/partial-updates/tentative/fragment/src-sri.sub.html",
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "status": "failed",
+      "variant": ""
+    },
+    {
+      "classification": "core",
+      "failure_domain": "harness",
+      "global": "window",
+      "id": "html/dom/partial-updates/tentative/fragment/src-streaming.html|window|",
+      "path": "html/dom/partial-updates/tentative/fragment/src-streaming.html",
+      "resource_error": null,
+      "resource_evidence_complete": true,
+      "status": "failed",
+      "variant": ""
+    }
+  ],
+  "direct_helpers": [
+    {
+      "path": "resources/testharness.js",
+      "sha256": "d2399236c2a09c429804ff2299ad6629e17e2b53f17a74dd341e936adb11ae3e"
+    },
+    {
+      "path": "resources/testharnessreport.js",
+      "sha256": "3777176fc736b0a78cf7617b9613b220f635daae7536ec7ebb99c61dbb525aae"
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/resources/chunked-html.py",
+      "sha256": "478cbe51770f5c30b388297bce5e644924dd65653a9f7133e318933349c10836"
+    },
+    {
+      "path": "html/dom/partial-updates/tentative/fragment/src-nonce.sub.html.headers",
+      "sha256": "5c387114c830b214b1ddbf724ddccf6a46d7ed84aa74215f9e3de1e0fe4c5bae"
+    },
+    {
+      "path": "preload/resources/stash-referrer.py",
+      "sha256": "e744edbffc25e5374cbba6c36629c6232f87e6120f460813848b514eb5924f03"
+    }
+  ]
+}

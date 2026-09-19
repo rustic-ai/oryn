@@ -10,7 +10,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from evidence_protocols import validate_protocols, validate_protocol_pair
+
 from jsonschema import Draft202012Validator, FormatChecker
+
+from native_protocol_versions import versions as native_protocol_versions
 
 from evidence_assertions import assertion_bound_cases, verified_regressions
 
@@ -46,7 +50,12 @@ def main() -> int:
     args = parser.parse_args()
     root = args.repo_root.resolve()
     result = load(args.result.resolve())
-    schema = load(root / "benchmarks/schema/security-result-v2.schema.json")
+    validate_protocols(result.get("fingerprint", {}).get("worker"), root, fingerprint=True, historical=args.allow_historical)
+    version = result.get("schema_version")
+    require(version == 3 or (args.allow_historical and version == 2), "current security evidence requires schema 3")
+    schema = load(root / f"benchmarks/schema/security-result-v{version}.schema.json")
+    if not args.allow_historical:
+        require(result.get("fingerprint", {}).get("worker", {}).get("protocol_version") == native_protocol_versions(root)["worker"], "native worker protocol mismatch")
 
     Draft202012Validator.check_schema(schema)
     errors = sorted(
@@ -131,12 +140,13 @@ def main() -> int:
         )
 
         runtime = load(raw / "runtime.json")
+        validate_protocol_pair(runtime, result["fingerprint"]["worker"], root, historical=args.allow_historical)
         require(
             runtime.get("native_v8") is True
             and runtime.get("build_profile") == "release"
             and runtime.get("execution_mode") == "sandboxed_worker"
             and runtime.get("sandbox_state") == "app_sandbox"
-            and runtime.get("worker_protocol_version") == 10,
+            and runtime.get("worker_protocol_version") == (result["fingerprint"]["worker"]["protocol_version"] if args.allow_historical else native_protocol_versions(root)["worker"]),
             "raw runtime is not signed sandboxed V8",
         )
         require(

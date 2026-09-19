@@ -1,0 +1,18 @@
+{
+  "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "kind": "source_reachability_audit",
+  "patterns": "mask-border|maskBorder|backdrop-filter|backdropFilter",
+  "source_count": 12651,
+  "source_set_sha256": "63dd0cf063331b8cf86fb31503c37d604a17fc3b473484c33ab507df38861fab",
+  "occurrences": [
+    {
+      "path": "css/css-cascade/all-prop-revert-layer.html",
+      "sha256": "6e684917c8dbfc29b440bab83aac4d73f7ec31a97f55478cfb930cfbab8fee0d",
+      "line": 36,
+      "text": "  backdrop-filter: invert(1);"
+    }
+  ],
+  "family_occurrences": [],
+  "qualification": null,
+  "limits": "Literal source occurrence review; dynamic construction requires separate evidence. Not an executed conformance result."
+}

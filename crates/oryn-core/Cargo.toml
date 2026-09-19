@@ -16,6 +16,9 @@ oryn-common = { path = "../oryn-common" }
 async-trait = "0.1"
 async-recursion = "1.0"
 
+[dev-dependencies]
+serde_json = "1.0"
+
 [lib]
 name = "oryn_core"
 path = "src/lib.rs"

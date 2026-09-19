@@ -706,6 +706,12 @@ trait PrivateMatchMethods: TElement {
     ) -> bool {
         use crate::animation::{AnimationSetKey, AnimationState};
 
+        if !self.css_animations_rendered(){
+            let key=AnimationSetKey::new(self.as_node().opaque(),pseudo_element);
+            if let Some(set)=context.shared.animations.sets.write().get_mut(&key){set.animations.clear();set.transitions.clear();set.dirty=true;}
+            return true;
+        }
+
         // We need to call this before accessing the `ElementAnimationSet` from the
         // map because this call will do a RwLock::read().
         let needs_animations_update = self.needs_animations_update(
@@ -762,15 +768,10 @@ trait PrivateMatchMethods: TElement {
             after_change_style.as_ref().unwrap_or(new_values),
         );
 
-        // This should change the computed values in the style, so we don't need
-        // to mark this set as dirty.
-        animation_set
-            .transitions
-            .retain(|transition| transition.state != AnimationState::Finished);
-
-        animation_set
-            .animations
-            .retain(|animation| animation.state != AnimationState::Finished);
+        // Retain terminal records for the embedding animation/event identities.
+        // Declaration sampling already excludes completed transitions and applies
+        // CSS animation fill modes; removal here loses forward fill and turns an
+        // animationend observation into an apparent cancellation.
 
         // If the ElementAnimationSet is empty, and don't store it in order to
         // save memory and to avoid extra processing later.

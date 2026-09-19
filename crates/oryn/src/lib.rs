@@ -6,6 +6,7 @@
 
 pub mod mcp;
 pub mod secret_input;
+pub mod webdriver;
 
 pub use oryn_common::agent::{
     AGENT_INTENT_CONTRACT_VERSION, ExtractKind, Input, Intent, IntentRequest,

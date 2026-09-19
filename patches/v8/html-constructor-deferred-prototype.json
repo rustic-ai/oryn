@@ -1,0 +1,34 @@
+{
+  "status": "source_generated_unbuilt_unqualified",
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "rusty_v8_version": "150.4.0",
+  "patch_sha256": "b5abc04f33b0bb2c0c49d81a1e58b4c6bd69acce3f7c6442b4d886a86d6ea602",
+  "required_patch_sha256": {
+    "window-proxy-structural-semantics": "42332f3f8b47282c6074e0f0175e30700ab67d5691b8c77659bff629629d6579",
+    "shared-memory-growth": "63e630f2136d2690058ed0b647533572c957604bbca83f7aaa3359ad56432acd",
+    "shared-memory-wait": "b113edc50dd5788b86e4b5c2c68c7805ae49401898fff0c88cdce1c9f188480e",
+    "shared-wasm-size": "8d1ea11c9b35f6e59853ebf781b0a92d86e0d2b138a3136fa3ebf5132da70365",
+    "shared-wasm-backing": "15248e8a1d4836f0f02d8616ac2a8c7feb60907cfadc20ad302bcb7c60e13a2f",
+    "shared-memory-factory": "2f5d505baae3313e32e80acbe46302447feb9a875762517356f81eb59049c74f",
+    "frame-context-reattachment": "c323777828940c5b6b3b44034d60742ce2f97b45328e19bab6320096e8cedb27"
+  },
+  "base_files": {
+    "include/v8-template.h": "159dcdc32b90610651ef54d485cc2a5a153e65fe8553081559509451d507f337",
+    "src/objects/templates.tq": "69480df074f5af9b885694ec82866ffc344dd9845ed7688ca149584910514a3e",
+    "src/objects/templates.h": "443302d75b81d76aadbf3b117fab677232fd4ead5c1459d4f79a3533e0510d38",
+    "src/objects/templates-inl.h": "3e4b29f7dfe5365fdb09b944d2d3f53ad6a310b99b3e556e1ef7f726d3d05ad8",
+    "src/api/api.cc": "6b21bc04c5a70ed98996a46bdfec2dbecb595f79489acb685419121e84a0a106",
+    "src/heap/factory-base.cc": "e5c638c3ec7390773b496c1110ff5c0f97d198668c72c4b3946f258843907f57",
+    "src/builtins/builtins-api.cc": "8d2e6462310383a6fdaef0e01fbd5ca8faef10f60ff0e286080ce541380bbbec"
+  },
+  "patched_files": {
+    "include/v8-template.h": "4f5f13f1951227f009c4473755845cb7d685af41640d4cc6fd469a535dee69a6",
+    "src/objects/templates.tq": "818f187b7970faf4c3b3170240707230b74446cbde12737e4d75c217f2555d43",
+    "src/objects/templates.h": "33510289328085a72a378cbf24d7d79b251d85afc0e16c2ce535e11fb3acf450",
+    "src/objects/templates-inl.h": "6aa92356fa32bef6b6eeee97c9458e18487452ef6f41482ae3ba6f42a10abd5b",
+    "src/api/api.cc": "7e1109f644d5977a20762148f980f67501bf53faf17906d0e928c67749962ae6",
+    "src/heap/factory-base.cc": "c02bc413e50293d52cecb54b0e4375e6f62c8c4733ce535daae09d2db3361f96",
+    "src/builtins/builtins-api.cc": "f137c33dae1bcced7cc796764465271b85e2ac665383c97a06a852ae7b352177"
+  },
+  "scope": "Opt-in native HTMLConstructor receiver allocation defers NewTarget prototype lookup until native registration checks; no changes to ordinary API constructor behavior. Source generated; not built or qualified."
+}

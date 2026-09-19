@@ -2153,7 +2153,7 @@ impl Inset {
         }
         match input.try_parse(|i| i.expect_ident_matching("auto")) {
             Ok(_) => return Ok(Self::Auto),
-            Err(e) if !static_prefs::pref!("layout.css.anchor-positioning.enabled") => {
+            Err(e) if !crate::anchor_positioning_enabled() => {
                 return Err(e.into());
             },
             Err(_) => (),
@@ -2179,7 +2179,7 @@ impl Inset {
         allow_quirks: AllowQuirks,
     ) -> Result<Self, ParseError<'i>> {
         debug_assert!(
-            static_prefs::pref!("layout.css.anchor-positioning.enabled"),
+            crate::anchor_positioning_enabled(),
             "How are we parsing with pref off?"
         );
         if let Ok(inner) = input.try_parse(|i| AnchorFunction::parse(context, i)) {
@@ -2213,7 +2213,7 @@ impl Parse for AnchorFunction {
         context: &ParserContext,
         input: &mut Parser<'i, 't>,
     ) -> Result<Self, ParseError<'i>> {
-        if !static_prefs::pref!("layout.css.anchor-positioning.enabled") {
+        if !crate::anchor_positioning_enabled() {
             return Err(input.new_custom_error(StyleParseErrorKind::UnspecifiedError));
         }
         input.expect_function_matching("anchor")?;

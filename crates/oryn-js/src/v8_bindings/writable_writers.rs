@@ -26,8 +26,8 @@ pub(super) fn acquire(
         state,
         PlatformObjectRecord::WritableWriter {
             stream_id: id,
-            ready: v8::Global::new(scope, ready),
-            closed: v8::Global::new(scope, closed),
+            ready: stream_graph::Owned::new(scope, ready),
+            closed: stream_graph::Owned::new(scope, closed),
             released: false,
         },
     );
@@ -71,16 +71,16 @@ pub(super) fn refresh(
     else {
         return Ok(());
     };
-    let mut ready_local = v8::Local::new(scope, &*ready);
-    let closed_local = v8::Local::new(scope, &*closed_promise);
+    let mut ready_local = stream_graph::local(scope, &*ready);
+    let closed_local = stream_graph::local(scope, &*closed_promise);
     if let Some(error) = error {
-        let error = v8::Local::new(scope, error);
+        let error = stream_graph::local(scope, error);
         if ready_local.get_promise(scope).state() != v8::PromiseState::Pending {
             // Once rejected, preserve the observable promise identity.
             if ready_local.get_promise(scope).state() == v8::PromiseState::Fulfilled {
                 ready_local = v8::PromiseResolver::new(scope)
                     .ok_or(V8BindingError::Allocation("writer rejected ready"))?;
-                *ready = v8::Global::new(scope, ready_local);
+                *ready = stream_graph::Owned::new(scope, ready_local);
             }
         }
         ready_local.reject(scope, error);
@@ -94,7 +94,7 @@ pub(super) fn refresh(
             if ready_local.get_promise(scope).state() != v8::PromiseState::Pending {
                 ready_local = v8::PromiseResolver::new(scope)
                     .ok_or(V8BindingError::Allocation("writer backpressure"))?;
-                *ready = v8::Global::new(scope, ready_local);
+                *ready = stream_graph::Owned::new(scope, ready_local);
             }
         } else {
             let undefined = v8::undefined(scope).into();
@@ -126,8 +126,8 @@ pub(super) fn get<'s>(
             return Err(V8BindingError::Allocation("WritableStream writer"));
         };
         match member {
-            "ready" => return Ok(v8::Local::new(scope, ready).get_promise(scope).into()),
-            "closed" => return Ok(v8::Local::new(scope, closed).get_promise(scope).into()),
+            "ready" => return Ok(stream_graph::local(scope, ready).get_promise(scope).into()),
+            "closed" => return Ok(stream_graph::local(scope, closed).get_promise(scope).into()),
             "desiredSize" if *released => {
                 return Err(V8BindingError::EventCallback(
                     "Writer has released its stream".into(),
@@ -174,11 +174,11 @@ pub(super) fn release(
         }
         *released = true;
         for promise in [ready, closed] {
-            let mut resolver = v8::Local::new(scope, &*promise);
+            let mut resolver = stream_graph::local(scope, &*promise);
             if resolver.get_promise(scope).state() != v8::PromiseState::Pending {
                 resolver = v8::PromiseResolver::new(scope)
                     .ok_or(V8BindingError::Allocation("released writer promise"))?;
-                *promise = v8::Global::new(scope, resolver);
+                *promise = stream_graph::Owned::new(scope, resolver);
             }
             resolver.reject(scope, reason);
             resolver.get_promise(scope).mark_as_handled();

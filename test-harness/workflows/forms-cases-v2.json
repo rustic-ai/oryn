@@ -1,0 +1,147 @@
+{
+  "schema_version": 6,
+  "family": "forms_and_document_submission",
+  "scope": "Versioned multistep native upload and asynchronous validation; full method/submitter/authority matrix remains open",
+  "fields": {
+    "name": "Zo\u00eb Test",
+    "email": "zoe@example.test",
+    "role": "developer",
+    "message": "R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e",
+    "quantity": "3",
+    "date": "2026-10-01",
+    "time": "23:00",
+    "reference": "ABC123",
+    "skill": [
+      "rust",
+      "javascript"
+    ]
+  },
+  "fill": [
+    "type \"Full name\" \"Zo\u00eb Test\"",
+    "type \"Email address\" \"zoe@example.test\"",
+    "click \"Choose primary role\"",
+    "click \"Choose Developer\"",
+    "type \"Application note\" \"R&D + 50% = caf\u00e9 \u65e5\u672c\u8a9e\""
+  ],
+  "cases": [
+    {
+      "id": "multistep_custom_role",
+      "before_fill": [
+        "wait visible css(#application[data-state=\"editing\"])"
+      ],
+      "after_fill": [
+        "click \"Review application details\"",
+        "wait visible css(#application[data-state=\"review\"])",
+        "check \"Rust\"",
+        "check \"JavaScript\""
+      ],
+      "fill": true,
+      "submit": true,
+      "upload": false,
+      "expected_validations": [
+        {
+          "email": "zoe@example.test",
+          "valid": true
+        }
+      ]
+    },
+    {
+      "id": "multistep_cancel",
+      "before_fill": [
+        "wait visible css(#application[data-state=\"editing\"])"
+      ],
+      "after_fill": [
+        "click \"Review application details\"",
+        "wait visible css(#application[data-state=\"review\"])",
+        "check \"Rust\"",
+        "check \"JavaScript\"",
+        "check \"Cancel this submission\""
+      ],
+      "fill": true,
+      "submit": true,
+      "upload": false,
+      "expected_validations": [
+        {
+          "email": "zoe@example.test",
+          "valid": true
+        }
+      ],
+      "expected_receipts": 0
+    },
+    {
+      "id": "multistep_cancel_recovery",
+      "before_fill": [
+        "wait visible css(#application[data-state=\"editing\"])"
+      ],
+      "after_fill": [
+        "click \"Review application details\"",
+        "wait visible css(#application[data-state=\"review\"])",
+        "check \"Rust\"",
+        "check \"JavaScript\"",
+        "check \"Cancel this submission\"",
+        "click \"Submit application\"",
+        "uncheck \"Cancel this submission\""
+      ],
+      "fill": true,
+      "submit": true,
+      "upload": false,
+      "expected_validations": [
+        {
+          "email": "zoe@example.test",
+          "valid": true
+        }
+      ]
+    },
+    {
+      "id": "multistep_authorized_upload",
+      "before_fill": [
+        "wait visible css(#application[data-state=\"editing\"])"
+      ],
+      "after_fill": [
+        "click \"Review application details\"",
+        "wait visible css(#application[data-state=\"review\"])",
+        "check \"Rust\"",
+        "check \"JavaScript\"",
+        "upload \"Application document\" $file:authorized"
+      ],
+      "fill": true,
+      "submit": true,
+      "upload": true,
+      "expected_validations": [
+        {
+          "email": "zoe@example.test",
+          "valid": true
+        }
+      ]
+    },
+    {
+      "id": "async_email_recovery",
+      "before_fill": [
+        "wait visible css(#application[data-state=\"editing\"])"
+      ],
+      "after_fill": [
+        "type \"Email address\" \"blocked@example.test\"",
+        "click \"Review application details\"",
+        "wait visible css(#application[data-state=\"rejected\"])",
+        "type \"Email address\" \"zoe@example.test\"",
+        "click \"Review application details\"",
+        "wait visible css(#application[data-state=\"review\"])",
+        "check \"Rust\"",
+        "check \"JavaScript\""
+      ],
+      "fill": true,
+      "submit": true,
+      "upload": false,
+      "expected_validations": [
+        {
+          "email": "blocked@example.test",
+          "valid": false
+        },
+        {
+          "email": "zoe@example.test",
+          "valid": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "status": "source_generated_unbuilt_unqualified",
+  "v8_base_revision": "ac1e23989121713ca642f6650b34deff7b686896",
+  "rusty_v8_version": "150.4.0",
+  "patch_sha256": "c323777828940c5b6b3b44034d60742ce2f97b45328e19bab6320096e8cedb27",
+  "required_patch_sha256": {
+    "window-proxy-structural-semantics": "42332f3f8b47282c6074e0f0175e30700ab67d5691b8c77659bff629629d6579",
+    "shared-memory-growth": "63e630f2136d2690058ed0b647533572c957604bbca83f7aaa3359ad56432acd",
+    "shared-memory-wait": "b113edc50dd5788b86e4b5c2c68c7805ae49401898fff0c88cdce1c9f188480e",
+    "shared-wasm-size": "8d1ea11c9b35f6e59853ebf781b0a92d86e0d2b138a3136fa3ebf5132da70365",
+    "shared-wasm-backing": "15248e8a1d4836f0f02d8616ac2a8c7feb60907cfadc20ad302bcb7c60e13a2f",
+    "shared-memory-factory": "2f5d505baae3313e32e80acbe46302447feb9a875762517356f81eb59049c74f"
+  },
+  "base_files": {
+    "include/v8-context.h": "648978877f2e21195d226a977418bd41c8ac93c96f66343f69af6c037cc0fea5",
+    "src/api/api.cc": "16a32668504358a2098d90dc905658c4b1927d41a08fa2aaaf16f858d20b0645",
+    "src/execution/microtask-queue.h": "1b4a2150e52a2af02d4f2f1418aa2723fcf8a47c23fae74694e3c4ace47d947c",
+    "src/execution/microtask-queue.cc": "91ec602eda9fb914427d35c354882f20b4e92cb318b22b546da6f5b88b8e2351"
+  },
+  "patched_files": {
+    "include/v8-context.h": "45a61d9daa847dd3a0774baea45e16595ad7b32b10c6b1eb79a9f411c4073c72",
+    "src/api/api.cc": "6b21bc04c5a70ed98996a46bdfec2dbecb595f79489acb685419121e84a0a106",
+    "src/execution/microtask-queue.h": "4c0d9e83ab671f63183af165ef223ca5b02301b27c410805a8ea1ab23096023b",
+    "src/execution/microtask-queue.cc": "37007cdebe44ac71cb7b6b38839ba30d7b0d24922900b259fcfe8c1511da4271"
+  },
+  "scope": "Preserved-context WindowProxy reattachment and parked per-context microtask queue transfer; exact predecessor source hashes, unbuilt and unqualified."
+}

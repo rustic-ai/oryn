@@ -1,5 +1,48 @@
 use url::Url;
 
+#[cfg(test)]
+mod response_initialization_tests {
+    use super::ReferrerPolicy;
+
+    #[test]
+    fn meta_values_are_single_tokens_and_invalid_values_are_ignored() {
+        assert_eq!(
+            ReferrerPolicy::parse_meta("  SAME-ORIGIN  "),
+            Some(ReferrerPolicy::SameOrigin)
+        );
+        assert_eq!(
+            ReferrerPolicy::parse_meta("never"),
+            Some(ReferrerPolicy::NoReferrer)
+        );
+        for invalid in ["", "unknown", "origin, no-referrer"] {
+            assert_eq!(ReferrerPolicy::parse_meta(invalid), None);
+        }
+        assert_eq!(
+            ReferrerPolicy::parse_attribute("origin"),
+            Some(ReferrerPolicy::Origin)
+        );
+        for invalid in ["never", "always", "default", "origin, no-referrer"] {
+            assert_eq!(ReferrerPolicy::parse_attribute(invalid), None);
+        }
+    }
+
+    #[test]
+    fn repeated_headers_keep_the_last_recognized_policy() {
+        let headers = vec![
+            ("Referrer-Policy".into(), "no-referrer, origin".into()),
+            ("referrer-policy".into(), "invalid".into()),
+        ];
+        assert_eq!(
+            ReferrerPolicy::default().after_response(&headers),
+            ReferrerPolicy::Origin
+        );
+        assert_eq!(
+            ReferrerPolicy::default().after_response(&[]),
+            ReferrerPolicy::StrictOriginWhenCrossOrigin
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ReferrerPolicy {
     NoReferrer,
@@ -14,6 +57,36 @@ pub enum ReferrerPolicy {
 }
 
 impl ReferrerPolicy {
+    /// Element referrerpolicy attributes accept only the modern policy names.
+    pub fn parse_attribute(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "no-referrer"
+            | "no-referrer-when-downgrade"
+            | "origin"
+            | "origin-when-cross-origin"
+            | "same-origin"
+            | "strict-origin"
+            | "strict-origin-when-cross-origin"
+            | "unsafe-url" => Self::parse_meta(value),
+            _ => None,
+        }
+    }
+
+    /// Meta content is one policy token, not a response-header list.
+    pub fn parse_meta(value: &str) -> Option<Self> {
+        Some(match value.trim().to_ascii_lowercase().as_str() {
+            "no-referrer" | "never" => Self::NoReferrer,
+            "no-referrer-when-downgrade" => Self::NoReferrerWhenDowngrade,
+            "origin" => Self::Origin,
+            "origin-when-cross-origin" | "origin-when-crossorigin" => Self::OriginWhenCrossOrigin,
+            "same-origin" => Self::SameOrigin,
+            "strict-origin" => Self::StrictOrigin,
+            "strict-origin-when-cross-origin" | "default" => Self::StrictOriginWhenCrossOrigin,
+            "unsafe-url" | "always" => Self::UnsafeUrl,
+            _ => return None,
+        })
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::NoReferrer => "no-referrer",
@@ -46,6 +119,34 @@ impl ReferrerPolicy {
             })
             .next_back()
             .unwrap_or_default()
+    }
+
+    /// Apply the last recognized response-header policy; absent or invalid
+    /// tokens preserve the policy already carried by the fetch request.
+    pub fn after_response(self, headers: &[(String, String)]) -> Self {
+        headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("referrer-policy"))
+            .flat_map(|(_, value)| value.split(','))
+            .filter_map(|token| {
+                match token
+                    .trim_matches([' ', '\t', '\r', '\n'])
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "no-referrer" => Some(Self::NoReferrer),
+                    "no-referrer-when-downgrade" => Some(Self::NoReferrerWhenDowngrade),
+                    "origin" => Some(Self::Origin),
+                    "origin-when-cross-origin" => Some(Self::OriginWhenCrossOrigin),
+                    "same-origin" => Some(Self::SameOrigin),
+                    "strict-origin" => Some(Self::StrictOrigin),
+                    "strict-origin-when-cross-origin" => Some(Self::StrictOriginWhenCrossOrigin),
+                    "unsafe-url" => Some(Self::UnsafeUrl),
+                    _ => None,
+                }
+            })
+            .last()
+            .unwrap_or(self)
     }
 
     pub fn header(self, source: &Url, destination: &Url) -> Option<String> {
@@ -103,6 +204,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn redirect_response_policy_uses_last_recognized_header_token() {
+        let initial = ReferrerPolicy::NoReferrer;
+        assert_eq!(initial.after_response(&[]), initial);
+        assert_eq!(
+            initial.after_response(&[("referrer-policy".into(), "unknown,default,always".into())]),
+            initial
+        );
+        let policy = initial.after_response(&[
+            ("Referrer-Policy".into(), "unsafe-url,unknown".into()),
+            (
+                "referrer-policy".into(),
+                "origin, no-referrer,unknown".into(),
+            ),
+        ]);
+        assert_eq!(policy, ReferrerPolicy::NoReferrer);
+        let source = Url::parse("https://example.test/private?q=1").unwrap();
+        let target = Url::parse("https://other.test/script.js").unwrap();
+        assert_eq!(policy.header(&source, &target), None);
+    }
+
+    #[test]
     fn strict_origin_when_cross_origin_strips_and_blocks_downgrades() {
         let source = Url::parse("https://user:secret@example.test/path?q=1#fragment").unwrap();
         let same = Url::parse("https://example.test/next").unwrap();
@@ -151,4 +273,31 @@ mod tests {
             ReferrerPolicy::OriginWhenCrossOrigin
         );
     }
+}
+
+// Fetch appends Origin for CORS tainting and non-GET/HEAD methods. Referrer
+// policy can suppress the origin only in the latter, non-CORS branch.
+pub(crate) fn request_origin_header(
+    origin: &str,
+    source: &Url,
+    target: &Url,
+    method: &str,
+    cors_tainted: bool,
+    policy: crate::referrer::ReferrerPolicy,
+) -> Option<String> {
+    if cors_tainted {
+        return Some(origin.into());
+    }
+    if matches!(method, "GET" | "HEAD") {
+        return None;
+    }
+    use crate::referrer::ReferrerPolicy::*;
+    let downgrade = source.scheme() == "https" && target.scheme() != "https";
+    let suppress = match policy {
+        NoReferrer => true,
+        SameOrigin => source.origin() != target.origin(),
+        NoReferrerWhenDowngrade | StrictOrigin | StrictOriginWhenCrossOrigin => downgrade,
+        _ => false,
+    };
+    Some(if suppress { "null" } else { origin }.into())
 }

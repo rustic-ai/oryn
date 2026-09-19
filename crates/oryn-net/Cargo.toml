@@ -6,6 +6,7 @@ license = "MIT OR Apache-2.0"
 description = "Asynchronous browser network primitives for Oryn"
 
 [dependencies]
+oryn-common = { path = "../oryn-common" }
 async-trait = "0.1"
 bytes = "1"
 futures-core = "0.3"
@@ -15,7 +16,8 @@ async-compression = { version = "0.4", features = ["tokio", "gzip", "brotli", "z
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "stream"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
-tokio = { version = "1", features = ["io-util", "macros", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "sync", "time", "net"] }
 tokio-util = { version = "0.7", features = ["io"] }
 encoding_rs = "0.8"
+chardetng = { version = "=0.1.17", path = "../../vendor/chardetng" }
 url = "2"

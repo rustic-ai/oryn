@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from native_protocol_versions import versions as native_protocol_versions, runtime_matches
 from typing import Any, Callable
 
 Predicate = Callable[[Path], bool]
@@ -191,10 +192,10 @@ def layout_specs() -> list[dict[str, Any]]:
         assertion(
             "worker-protocol-v6-layout-fingerprint",
             check(
-                "protocol v10 signed runtime (stable historical control ID)",
+                "current source worker protocol signed runtime (stable historical control ID)",
                 "runtime.json",
                 json_predicate(
-                    lambda v: v.get("worker_protocol_version") == 10
+                    lambda v: runtime_matches(v)
                     and v.get("contract_version") == 4
                     and v.get("sandbox_state") == "app_sandbox"
                 ),

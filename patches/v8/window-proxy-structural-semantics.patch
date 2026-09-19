@@ -4,11 +4,11 @@
    void SetImmutableProto();
 
    /**
-+   * Opt a Context global template into HTML WindowProxy structural semantics.
-+   * For the resulting global proxy, preventing extensions fails, and a
-+   * cross-origin prototype update succeeds only when the requested prototype
-+   * is null (its cross-origin observable prototype). Other objects and global
-+   * templates retain ordinary V8 behavior. Configure before Context creation.
++   * Opt a Window global or Location instance template into HTML semantics.
++   * For opted-in objects, preventing extensions fails, and a cross-origin
++   * prototype update succeeds only when the requested prototype is null
++   * (the cross-origin observable prototype). Unmarked objects retain ordinary
++   * V8 behavior. Configure before creating the Context or API instance.
 +   * The embedder must also configure immutable prototypes and access checks.
 +   */
 +  void SetWindowProxyStructuralSemantics();
@@ -118,7 +118,36 @@
 
  #include <limits>
  #include <optional>
-@@ -3671,6 +3672,28 @@
+@@ -2806,11 +2807,28 @@
++namespace {
++bool HasWindowOrLocationStructuralSemantics(Tagged<JSObject> object);
++}
++
+ Maybe<bool> JSObject::SetPropertyWithFailedAccessCheck(
+     LookupIterator* it, DirectHandle<Object> value,
+     Maybe<ShouldThrow> should_throw) {
+   Isolate* isolate = it->isolate();
+   DirectHandle<JSObject> checked = it->GetHolder<JSObject>();
+   DirectHandle<InterceptorInfo> interceptor =
+       it->GetInterceptorForFailedAccessCheck();
+   if (!interceptor.is_null()) {
++    // HTML cross-origin setters receive the actual ECMAScript Receiver.
++    // Interceptor callbacks expose only Holder, which loses Reflect.set and
++    // inherited assignment receivers. Invoke the native descriptor setter.
++    if (HasWindowOrLocationStructuralSemantics(*checked)) {
++      PropertyDescriptor desc;
++      Maybe<bool> found = GetPropertyDescriptorWithInterceptor(it, &desc);
++      if (found.IsNothing()) return Nothing<bool>();
++      if (found.FromJust() && desc.has_set() && !IsUndefined(*desc.set())) {
++        return Object::SetPropertyWithDefinedSetter(
++            Cast<JSAny>(it->GetReceiver()), Cast<JSReceiver>(desc.set()), value,
++            should_throw);
++      }
++    }
+     InterceptorResult result;
+     if (!SetPropertyWithInterceptorInternal(it, interceptor, should_throw,
+                                             value)
+@@ -3671,6 +3689,28 @@
  #endif
  }
 
@@ -126,8 +155,8 @@
 +// This flag belongs to an embedder template, never an author-visible property.
 +// Global proxies can carry either a template or its instantiated API function
 +// as their constructor. Detached/non-API objects have no opt-in semantics.
-+bool HasWindowProxyStructuralSemantics(Tagged<JSObject> object) {
-+  if (!IsJSGlobalProxy(object)) return false;
++bool HasWindowOrLocationStructuralSemantics(Tagged<JSObject> object) {
++  // Both opted-in Window globals and Location API instances use this flag.
 +  Tagged<Object> constructor = object->map()->GetConstructor();
 +  Tagged<FunctionTemplateInfo> info;
 +  if (IsFunctionTemplateInfo(constructor)) {
@@ -147,11 +176,11 @@
  // static
  bool JSObject::TryMigrateInstance(Isolate* isolate,
                                    DirectHandle<JSObject> object) {
-@@ -4402,6 +4425,11 @@
+@@ -4402,6 +4442,11 @@
  Maybe<bool> JSObject::PreventExtensions(Isolate* isolate,
                                          DirectHandle<JSObject> object,
                                          ShouldThrow should_throw) {
-+  if (HasWindowProxyStructuralSemantics(*object)) {
++  if (HasWindowOrLocationStructuralSemantics(*object)) {
 +    RETURN_FAILURE(isolate, should_throw,
 +                   NewTypeError(MessageTemplate::kCannotPreventExt));
 +  }
@@ -159,11 +188,11 @@
    if (!object->HasSloppyArgumentsElements()) {
      return PreventExtensionsWithTransition<NONE>(isolate, object, should_throw);
    }
-@@ -4523,6 +4551,11 @@
+@@ -4523,6 +4568,11 @@
  template <PropertyAttributes attrs>
  Maybe<bool> JSObject::PreventExtensionsWithTransition(
      Isolate* isolate, DirectHandle<JSObject> object, ShouldThrow should_throw) {
-+  if (HasWindowProxyStructuralSemantics(*object)) {
++  if (HasWindowOrLocationStructuralSemantics(*object)) {
 +    RETURN_FAILURE(isolate, should_throw,
 +                   NewTypeError(MessageTemplate::kCannotPreventExt));
 +  }
@@ -171,11 +200,11 @@
    static_assert(attrs == NONE || attrs == SEALED || attrs == FROZEN);
 
    // Sealing/freezing sloppy arguments or namespace objects should be handled
-@@ -5405,6 +5438,12 @@
+@@ -5405,6 +5455,12 @@
    if (from_javascript) {
      if (IsAccessCheckNeeded(*object) &&
          !isolate->MayAccess(isolate->native_context(), object)) {
-+      if (HasWindowProxyStructuralSemantics(*object)) {
++      if (HasWindowOrLocationStructuralSemantics(*object)) {
 +        if (IsNull(*value_obj)) return Just(true);
 +        RETURN_FAILURE(isolate, should_throw,
 +                       NewTypeError(MessageTemplate::kImmutablePrototypeSet,
@@ -184,7 +213,7 @@
        RETURN_ON_EXCEPTION_VALUE(
            isolate, isolate->ReportFailedAccessCheck(object), Nothing<bool>());
        UNREACHABLE();
-@@ -5438,7 +5477,11 @@
+@@ -5438,7 +5494,11 @@
    // Nothing to do if prototype is already set.
    if (map->prototype() == *value) return Just(true);
 
@@ -193,10 +222,29 @@
 +  // initialization may still attach the Window prototype chain.
 +  bool immutable_proto = map->is_immutable_proto() ||
 +                         (from_javascript &&
-+                          HasWindowProxyStructuralSemantics(*object));
++                          HasWindowOrLocationStructuralSemantics(*object));
    if (immutable_proto) {
      DirectHandle<Object> msg;
      if (IsJSObjectPrototype(*object)) {  // is [[Object.prototype]]
+@@ -5468,10 +5528,18 @@
+   if (Tagged<JSReceiver> receiver; TryCast<JSReceiver>(*value, &receiver)) {
+     for (PrototypeIterator iter(isolate, receiver, kStartAtReceiver);
+          !iter.IsAtEnd(); iter.Advance()) {
+       if (iter.GetCurrent<JSReceiver>() == *object) {
+         // Cycle detected.
+         RETURN_FAILURE(isolate, should_throw,
+                        NewTypeError(MessageTemplate::kCyclicProto));
+       }
++      // OrdinarySetPrototypeOf stops at objects with a non-ordinary
++      // [[GetPrototypeOf]], even when the currently visible prototype would
++      // complete a cycle (HTML WindowProxy and Location exotic objects).
++      Tagged<JSReceiver> current = iter.GetCurrent<JSReceiver>();
++      if (IsJSObject(current) &&
++          HasWindowOrLocationStructuralSemantics(Cast<JSObject>(current))) {
++        break;
++      }
+     }
+   }
 --- a/include/v8-context.h
 +++ b/include/v8-context.h
 @@ -60,6 +60,13 @@

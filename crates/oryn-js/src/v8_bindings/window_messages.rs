@@ -7,6 +7,7 @@ pub(super) struct Queue {
     origin: Origin,
     pub(super) tasks: VecDeque<Message>,
     bytes: usize,
+    delivering: bool,
 }
 
 impl Queue {
@@ -18,20 +19,30 @@ impl Queue {
                 .unwrap_or_else(Origin::opaque),
             tasks: VecDeque::new(),
             bytes: 0,
+            delivering: false,
         }
     }
 
-    pub(super) fn clear(&mut self) {
-        self.tasks.clear();
+    pub(super) fn clear(&mut self, state: &V8BindingState) {
+        for message in self.tasks.drain(..) {
+            message.delivery.cancel(state);
+        }
         self.bytes = 0;
     }
 }
 
+pub type SourceResolver =
+    Rc<dyn Fn(&mut v8::PinScope) -> Result<v8::Global<v8::Value>, V8BindingError>>;
+enum Source {
+    Local(v8::Global<v8::Object>),
+    External(v8::Global<v8::Value>),
+    Resolve(SourceResolver),
+}
 pub(super) struct Message {
-    payload: structured_clone::SerializedValue,
+    delivery: message_delivery::Delivery,
     target_origin: Option<Origin>,
-    source_origin: String,
-    source: Option<v8::Global<v8::Object>>,
+    source: Option<Source>,
+    admitted: bool,
 }
 
 pub(super) fn install(
@@ -123,6 +134,14 @@ fn enqueue(
 ) -> Result<(), V8BindingError> {
     // Web IDL selects the dictionary overload for object/null/undefined.
     let dictionary = options.is_object() || options.is_null_or_undefined();
+    let include_activation = if dictionary {
+        let Some(include) = structured_clone::include_user_activation(scope, options) else {
+            return Ok(());
+        };
+        include
+    } else {
+        false
+    };
     let origin_value = if dictionary {
         if let Ok(object) = v8::Local::<v8::Object>::try_from(options) {
             let key = v8::String::new(scope, "targetOrigin").unwrap();
@@ -170,9 +189,17 @@ fn enqueue(
             Some(Origin::from_url(text))
         }
     };
-    let Some(payload) = structured_clone::serialize(scope, value, &transfers) else {
+    let Some(mut payload) = structured_clone::serialize(scope, value, &transfers) else {
         return Ok(());
     };
+    payload.set_user_activation(include_activation.then(|| {
+        source.map_or([false, false], |source| {
+            [
+                source.has_transient_user_activation(),
+                source.has_sticky_user_activation(),
+            ]
+        })
+    }));
     // Serialization and transfer side effects occur even for an inactive target.
     if target.execution_retired() {
         return Ok(());
@@ -191,55 +218,90 @@ fn enqueue(
     }
     queue.bytes += bytes;
     queue.tasks.push_back(Message {
-        payload,
+        delivery: message_delivery::Delivery::local(payload).with_origin(source_origin.serialize()),
         target_origin,
-        source_origin: source_origin.serialize(),
-        source,
+        source: source.map(Source::Local),
+        admitted: false,
     });
     Ok(())
 }
 
 /// Run one posted-message task in its destination realm. The host performs a
 /// microtask checkpoint afterwards, just as for other native event tasks.
+struct DeliveryGuard {
+    state: Rc<V8BindingState>,
+    message: Option<Message>,
+    bytes: usize,
+}
+impl Drop for DeliveryGuard {
+    fn drop(&mut self) {
+        let mut queue = self.state.window_messages.borrow_mut();
+        queue.delivering = false;
+        if let Some(message) = self.message.take() {
+            if !self.state.execution_retired() {
+                queue.tasks.push_front(message)
+            } else {
+                queue.bytes = queue.bytes.saturating_sub(self.bytes);
+                message.delivery.cancel(&self.state)
+            }
+        } else {
+            queue.bytes = queue.bytes.saturating_sub(self.bytes);
+        }
+    }
+}
 pub fn deliver(
     scope: &mut v8::PinScope,
     state: &Rc<V8BindingState>,
 ) -> Result<bool, V8BindingError> {
     let message = {
         let mut queue = state.window_messages.borrow_mut();
-        let Some(message) = queue.tasks.pop_front() else {
+        if queue.delivering {
+            return Ok(false);
+        }
+        let Some(mut message) = queue.tasks.pop_front() else {
             return Ok(false);
         };
-        queue.bytes -= message.payload.retained_bytes();
         if state.execution_retired()
-            || message
-                .target_origin
-                .as_ref()
-                .is_some_and(|origin| origin != &queue.origin)
+            || !message.admitted
+                && message
+                    .target_origin
+                    .as_ref()
+                    .is_some_and(|origin| origin != &queue.origin)
         {
+            queue.bytes = queue.bytes.saturating_sub(message.delivery.bytes());
+            message.delivery.cancel(state);
             return Ok(true);
         }
+        message.admitted = true;
+        queue.delivering = true;
         message
     };
-    let Some((data, ports)) = structured_clone::deserialize_with_ports(scope, message.payload)
-    else {
-        return Err(V8BindingError::Allocation("Window message deserialization"));
+    let bytes = message.delivery.bytes();
+    let mut guard = DeliveryGuard {
+        state: state.clone(),
+        message: Some(message),
+        bytes,
     };
-    let event = message_events::delivery(scope, state, data, &ports)?;
-    let fields = event
-        .get_internal_field(scope, 2)
-        .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
-        .ok_or(V8BindingError::Allocation("Window message fields"))?;
-    let origin = v8::String::new(scope, &message.source_origin)
-        .ok_or(V8BindingError::Allocation("Window message origin"))?;
-    fields.set_index(scope, 1, origin.into());
-    let source = message
-        .source
-        .as_ref()
-        .map(|source| v8::Local::new(scope, source).into())
-        .unwrap_or_else(|| v8::null(scope).into());
-    fields.set_index(scope, 3, source);
-    global_events::dispatch(scope, state, event)?;
+    let message = guard.message.as_mut().unwrap();
+    if let Some(source) = &message.source {
+        let value = match source {
+            Source::Local(source) => {
+                let source = v8::Local::new(scope, source);
+                v8::Global::new(scope, v8::Local::<v8::Value>::from(source))
+            }
+            Source::External(source) => source.clone(),
+            Source::Resolve(resolve) => resolve(scope)?,
+        };
+        message.delivery.set_source(value);
+        message.source = None;
+    }
+    if !message
+        .delivery
+        .resume(scope, state, global_events::GLOBAL_TARGET)?
+    {
+        return Ok(false);
+    }
+    guard.message.take();
     Ok(true)
 }
 
@@ -313,19 +375,25 @@ mod tests {
             ));
             states.push(install_generated_bindings(scope, context, dom, RealmId(id), 1).unwrap());
         }
-        let mut callbacks = [original_window.map_fn_to(); 13];
-        callbacks[12] = cross_origin_post.map_fn_to();
         for context in [caller, target] {
             window_proxy::install_context(
                 context,
-                window_proxy::WindowCrossOriginCallbacks {
-                    properties: callbacks,
-                    location_setter: original_window.map_fn_to(),
-                },
+                window_proxy::native_callbacks(window_proxy::WindowLifecycleCallbacks {
+                    close: original_window.map_fn_to(),
+                    closed: original_window.map_fn_to(),
+                    focus: original_window.map_fn_to(),
+                    blur: original_window.map_fn_to(),
+                    opener: original_window.map_fn_to(),
+                    navigate: original_window.map_fn_to(),
+                }),
             );
         }
         {
             let scope = &mut v8::ContextScope::new(scope, target);
+            let child_window = target.global(scope);
+            let parent_window = caller.global(scope);
+            set_native_window_parent(scope, child_window, parent_window).unwrap();
+            set_native_window_top(scope, child_window, parent_window).unwrap();
             let key = v8::String::new(scope, "expectedSource").unwrap();
             target.global(scope).create_data_property(
                 scope,
@@ -347,7 +415,8 @@ mod tests {
                     e.source.postMessage('reply'+e.data.get('x'),'*');
                 });
                 Object.defineProperty(globalThis,'postMessage',{configurable:true,get(){authorCalled=true;throw Error('author getter')}});
-                close=23;focus='override';blur=null;
+                Object.defineProperty(globalThis,'parent',{configurable:true,get(){authorCalled=true;throw Error('author parent getter')}});
+                frames='override';close=23;focus='override';blur=null;
                 'ready'
             "#,
             );
@@ -369,6 +438,11 @@ mod tests {
                 addEventListener('message',e=>replies.push([e.data,e.origin,e.source===foreignWindow]));
                 const check=(value,message)=>{if(!value)throw Error(message)};
                 check(saved instanceof Function && saved===foreignWindow.postMessage,'caller realm and cache');
+                check(parent===window,'root parent');
+                check(foreignWindow.parent===window && foreignWindow.top===window,'native ancestry');
+                check(foreignWindow.frames===foreignWindow && foreignWindow.self===foreignWindow,'native aliases');
+                check(foreignWindow.length===0,'native child count');
+                try{foreignWindow.location.href;throw Error('Location leaked')}catch(e){check(e.name==='SecurityError','Location protection')}
                 for(const key of ['close','focus','blur','postMessage']) {
                     const f=foreignWindow[key];check(f.name===key,'method name');
                     check(f.length===(key==='postMessage'?1:0),'method length');
@@ -428,5 +502,327 @@ mod tests {
             );
         }
         assert!(!states[1].has_pending_window_message());
+    }
+}
+
+pub fn throw_external_message_error(scope: &mut v8::PinScope, name: &str) {
+    if let Ok(error) = dom_exception_value(scope, name) {
+        scope.throw_exception(error);
+    }
+}
+/// Destination-realm construction and native dispatch, without consulting an
+/// author MessageEvent constructor, JSON functions or dispatchEvent property.
+fn queue_external(
+    state: &Rc<V8BindingState>,
+    payload: crate::message_wire::WireValue,
+    origin: &str,
+    source: Source,
+) -> Result<(), V8BindingError> {
+    let delivery = message_delivery::Delivery::wire(state, payload, origin.into());
+    if state.execution_retired() {
+        return Ok(());
+    }
+    let mut queue = state.window_messages.borrow_mut();
+    let bytes = delivery.bytes();
+    if queue.tasks.len() >= 1024 || bytes > (32 * 1024 * 1024usize).saturating_sub(queue.bytes) {
+        return Err(V8BindingError::Allocation(
+            "external message queue capacity",
+        ));
+    }
+    queue.bytes += bytes;
+    queue.tasks.push_back(Message {
+        delivery,
+        target_origin: None,
+        source: Some(source),
+        admitted: false,
+    });
+    Ok(())
+}
+/// Admit the native payload before resolving its source WindowProxy. Failure
+/// to create that wrapper retains both payload and resolver for the next task.
+pub fn queue_external_window(
+    state: &Rc<V8BindingState>,
+    payload: crate::message_wire::WireValue,
+    origin: &str,
+    source: SourceResolver,
+) -> Result<(), V8BindingError> {
+    queue_external(state, payload, origin, Source::Resolve(source))
+}
+pub fn deliver_external(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    payload: crate::message_wire::WireValue,
+    source: v8::Local<v8::Value>,
+    origin: &str,
+) -> Result<(), V8BindingError> {
+    let source = v8::Global::new(scope, source);
+    queue_external(state, payload, origin, Source::External(source))?;
+    deliver(scope, state).map(|_| ())
+}
+
+/// Shared-worker connect uses the same queued trusted-message lifecycle; its
+/// transferred connection port is also the event source.
+pub(super) fn connect(
+    scope: &mut v8::PinScope,
+    state: &Rc<V8BindingState>,
+    token: crate::message_wire::PortToken,
+) -> Result<(), V8BindingError> {
+    let data = match v8::String::new(scope, "") {
+        Some(data) => data,
+        None => {
+            if let Some(transport) = state.message_transport.borrow().clone() {
+                let _ = transport
+                    .request(crate::message_wire::MessageRequest::ClosePort { port: token });
+            }
+            return Err(V8BindingError::Allocation("connect data"));
+        }
+    };
+    let mut wire = match structured_clone::serialize_wire(scope, data.into(), &[]) {
+        Some(wire) => wire,
+        None => {
+            if let Some(transport) = state.message_transport.borrow().clone() {
+                let _ = transport
+                    .request(crate::message_wire::MessageRequest::ClosePort { port: token });
+            }
+            return Err(V8BindingError::Allocation("connect serialization"));
+        }
+    };
+    wire.ports.push(token);
+    let delivery = message_delivery::Delivery::wire(state, wire, String::new()).connect();
+    let bytes = delivery.bytes();
+    let mut queue = state.window_messages.borrow_mut();
+    if queue.tasks.len() >= 1024 || bytes > (32 * 1024 * 1024usize).saturating_sub(queue.bytes) {
+        return Err(V8BindingError::Allocation("connect queue capacity"));
+    }
+    queue.bytes += bytes;
+    queue.tasks.push_back(Message {
+        delivery,
+        target_origin: None,
+        source: None,
+        admitted: false,
+    });
+    drop(queue);
+    deliver(scope, state).map(|_| ())
+}
+
+#[cfg(test)]
+mod retained_tests {
+    use super::*;
+    fn eval<'s>(scope: &mut v8::PinScope<'s, '_>, text: &str) -> v8::Local<'s, v8::Value> {
+        let text = v8::String::new(scope, text).unwrap();
+        v8::Script::compile(scope, text, None)
+            .unwrap()
+            .run(scope)
+            .unwrap()
+    }
+    #[test]
+    fn window_message_handlers_keep_registration_order_and_consumed_retry() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        assert!(eval(scope, "onmessage===null&&onmessageerror===null").is_true());
+        eval(
+            scope,
+            r#"
+            globalThis.seen=[];globalThis.saved=[];globalThis.fields=[];
+            onmessage=()=>seen.push('obsolete');
+            addEventListener('message',event=>seen.push('listener:'+event.data));
+            onmessage=function(event){
+                seen.push('handler:'+event.data);saved.push(event);
+                fields.push(this===window&&event.target===window&&event.currentTarget===window&&
+                    event.source===window&&event.origin==='null'&&event.isTrusted&&event.eventPhase===2);
+            };
+            postMessage('one','*');postMessage('two','*');
+        "#,
+        );
+        native_platform::publication::fail_after_next_callback();
+        assert!(deliver(scope, &state).is_err());
+        assert!(eval(scope, "seen.join(',')==='handler:one'&&fields[0]").is_true());
+        assert!(state.has_pending_window_message());
+        assert!(deliver(scope, &state).unwrap());
+        assert!(deliver(scope, &state).unwrap());
+        assert!(!deliver(scope, &state).unwrap());
+        assert!(eval(scope,"seen.join(',')==='handler:one,listener:one,handler:two,listener:two'&&fields.every(Boolean)&&saved.every(event=>event instanceof MessageEvent&&event.currentTarget===null&&event.eventPhase===0)").is_true());
+        eval(scope, "onmessage=null;postMessage('three','*')");
+        assert!(deliver(scope, &state).unwrap());
+        eval(
+            scope,
+            "onmessage=event=>seen.push('reinstalled:'+event.data);postMessage('four','*')",
+        );
+        assert!(deliver(scope, &state).unwrap());
+        assert!(eval(scope,"seen.join(',')==='handler:one,listener:one,handler:two,listener:two,listener:three,listener:four,reinstalled:four'").is_true());
+        assert!(!deliver(scope, &state).unwrap());
+    }
+
+    #[test]
+    fn document_open_clears_window_handlers_but_keeps_queued_messages() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        eval(
+            scope,
+            r#"
+            globalThis.seen=[];globalThis.fields=[];
+            globalThis.originalWindow=window;globalThis.originalDocument=document;
+            onmessage=()=>seen.push('obsolete-handler');
+            onmessageerror=()=>seen.push('obsolete-error');
+            addEventListener('message',()=>seen.push('obsolete-listener'));
+            postMessage('before','*');document.open();
+            globalThis.handlersCleared=onmessage===null&&onmessageerror===null;
+            onmessage=function(event){
+                seen.push(event.data);
+                fields.push(this===originalWindow&&event.source===originalWindow&&
+                    event.target===originalWindow&&event.currentTarget===originalWindow&&event.isTrusted);
+            };
+            postMessage('after','*');document.write('<body>replacement');document.close();
+        "#,
+        );
+        assert!(state.has_pending_window_message());
+        assert!(eval(scope,"handlersCleared&&seen.length===0&&window===originalWindow&&document===originalDocument").is_true());
+        assert!(deliver(scope, &state).unwrap());
+        assert!(deliver(scope, &state).unwrap());
+        assert!(!deliver(scope, &state).unwrap());
+        assert!(eval(scope,"seen.join(',')==='before,after'&&fields.length===2&&fields.every(Boolean)&&window===originalWindow&&document===originalDocument").is_true());
+    }
+
+    #[test]
+    fn malformed_wire_window_messageerror_handler_retains_trusted_delivery() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        eval(
+            scope,
+            r#"
+            globalThis.seen=[];globalThis.saved=null;globalThis.fields=false;
+            onmessage=()=>seen.push('unexpected-message');
+            onmessageerror=function(event){
+                seen.push('handler');saved=event;
+                fields=this===window&&event instanceof MessageEvent&&event.type==='messageerror'&&
+                    event.isTrusted&&event.target===window&&event.currentTarget===window&&
+                    event.source===null&&event.origin==='https://sender.test'&&event.data===null&&
+                    event.ports.length===0&&Object.isFrozen(event.ports);
+            };
+            addEventListener('messageerror',()=>seen.push('listener'));
+        "#,
+        );
+        let wire = crate::message_wire::WireValue {
+            version: 1,
+            bytes: vec![0],
+            hosts: vec![],
+            buffers: vec![],
+            ports: vec![],
+            shared: vec![],
+            shared_queue: None,
+            shared_recipient: None,
+            wasm_modules: vec![],
+        };
+        queue_external_window(
+            &state,
+            wire,
+            "https://sender.test",
+            Rc::new(|scope| {
+                let source = v8::null(scope);
+                Ok(v8::Global::new(scope, v8::Local::<v8::Value>::from(source)))
+            }),
+        )
+        .unwrap();
+        native_platform::publication::fail_after_next_callback();
+        assert!(deliver(scope, &state).is_err());
+        assert!(eval(scope, "seen.join(',')==='handler'&&fields").is_true());
+        assert!(state.has_pending_window_message());
+        assert!(deliver(scope, &state).unwrap());
+        assert!(!deliver(scope, &state).unwrap());
+        assert!(eval(scope,"seen.join(',')==='handler,listener'&&saved.currentTarget===null&&saved.eventPhase===0").is_true());
+    }
+
+    #[test]
+    fn window_messages_retain_origin_source_and_callback_progress() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        eval(
+            scope,
+            "globalThis.seen=[];globalThis.saved=null;addEventListener('message',e=>{saved=e;seen.push('first:'+e.data)},{once:true});addEventListener('message',e=>{if(e.source!==self)throw Error('source');seen.push('last:'+e.data)});postMessage('one','*');postMessage('two','*');",
+        );
+        let template = state
+            .instance_templates
+            .borrow_mut()
+            .remove("MessageEvent")
+            .unwrap();
+        assert!(deliver(scope, &state).is_err());
+        state
+            .instance_templates
+            .borrow_mut()
+            .insert("MessageEvent", template);
+        native_platform::publication::fail_after_next_callback();
+        assert!(deliver(scope, &state).is_err());
+        assert!(eval(scope, "seen.join(',')==='first:one'").is_true());
+        assert!(deliver(scope, &state).unwrap());
+        assert!(deliver(scope, &state).unwrap());
+        assert!(!deliver(scope, &state).unwrap());
+        assert!(eval(scope,"seen.join(',')==='first:one,last:one,last:two'&&saved.eventPhase===0&&saved instanceof MessageEvent").is_true());
+    }
+    #[test]
+    fn external_window_source_preparation_preserves_native_payload() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        eval(
+            scope,
+            "globalThis.result='';onmessage=e=>result=e.data+'|'+e.origin+'|'+(e.source===null)",
+        );
+        let data = eval(scope, "'payload'");
+        let wire = structured_clone::serialize_wire(scope, data, &[]).unwrap();
+        let attempts = Rc::new(Cell::new(0));
+        let calls = attempts.clone();
+        queue_external_window(
+            &state,
+            wire,
+            "https://sender.test",
+            Rc::new(move |scope| {
+                calls.set(calls.get() + 1);
+                if calls.get() == 1 {
+                    return Err(V8BindingError::Allocation("source preparation"));
+                }
+                let null = v8::null(scope);
+                Ok(v8::Global::new(scope, v8::Local::<v8::Value>::from(null)))
+            }),
+        )
+        .unwrap();
+        assert!(deliver(scope, &state).is_err());
+        assert!(state.has_pending_window_message());
+        assert!(deliver(scope, &state).unwrap());
+        assert_eq!(attempts.get(), 2);
+        assert!(eval(scope, "result==='payload|https://sender.test|true'").is_true());
     }
 }

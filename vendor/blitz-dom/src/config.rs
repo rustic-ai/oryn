@@ -31,6 +31,8 @@ pub enum StyleThreading {
 /// Options used when constructing a [`BaseDocument`](crate::BaseDocument)
 #[derive(Default)]
 pub struct DocumentConfig {
+    /// Retained document style lock when rebuilding an embedding mirror.
+    pub style_lock:Option<style::shared_lock::SharedRwLock>,
     /// The initial `Viewport`
     pub viewport: Option<Viewport>,
     /// The base url which relative URLs are resolved against

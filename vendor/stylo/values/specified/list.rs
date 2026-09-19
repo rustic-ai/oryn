@@ -18,27 +18,33 @@ use style_traits::{ParseError, StyleParseErrorKind};
     MallocSizeOf,
     PartialEq,
     SpecifiedValueInfo,
-    ToComputedValue,
     ToCss,
     ToResolvedValue,
     ToShmem,
     ToTyped,
 )]
-#[repr(transparent)]
+#[repr(C)]
 #[typed(todo_derive_fields)]
-pub struct ListStyleType(pub CounterStyle);
+pub struct ListStyleType(pub CounterStyle, #[css(skip)] pub Option<usize>);
+impl crate::values::computed::ToComputedValue for ListStyleType {
+    type ComputedValue=crate::values::computed::list::ListStyleType;
+    fn to_computed_value(&self,context:&crate::values::computed::Context)->Self::ComputedValue {
+        crate::values::computed::list::ListStyleType(self.0.clone(),self.1.unwrap_or_else(||context.native_tree_scope()))
+    }
+    fn from_computed_value(value:&Self::ComputedValue)->Self{Self(value.0.clone(),Some(value.1))}
+}
 
 impl ListStyleType {
     /// Initial specified value for `list-style-type`.
     #[inline]
     pub fn disc() -> Self {
-        Self(CounterStyle::disc())
+        Self(CounterStyle::disc(),None)
     }
 
     /// none value.
     #[inline]
     pub fn none() -> Self {
-        Self(CounterStyle::None)
+        Self(CounterStyle::None,None)
     }
 
     /// Convert from gecko keyword to list-style-type.
@@ -64,7 +70,7 @@ impl ListStyleType {
             structs::ListStyle_LowerAlpha => atom!("lower-alpha"),
             structs::ListStyle_UpperAlpha => atom!("upper-alpha"),
             _ => unreachable!("Unknown counter style keyword value"),
-        })))
+        })),None)
     }
 
     /// Is this a bullet? (i.e. `list-style-type: disc|circle|square|disclosure-closed|disclosure-open`)
@@ -80,7 +86,7 @@ impl Parse for ListStyleType {
         input: &mut Parser<'i, 't>,
     ) -> Result<Self, ParseError<'i>> {
         let flags = CounterStyleParsingFlags::ALLOW_NONE | CounterStyleParsingFlags::ALLOW_STRING;
-        Ok(Self(CounterStyle::parse(context, input, flags)?))
+        Ok(Self(CounterStyle::parse(context, input, flags)?,None))
     }
 }
 

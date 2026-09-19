@@ -1,0 +1,24 @@
+{
+  "revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "source": "html/webappapis/dynamic-markup-insertion/opening-the-input-stream/ignore-opens-during-unload.window.js",
+  "sha256": "e9d52e144781e810709279b36d9d663904b4834fd22c05a9b8d8091a986f359f",
+  "core": [
+    {
+      "inventory": "artifacts/wpt-full-baseline/inventory-v3/core-html-0020.inventory.json",
+      "entry": {
+        "globals": [
+          "window"
+        ],
+        "kind": "script",
+        "path": "html/webappapis/dynamic-markup-insertion/opening-the-input-stream/ignore-opens-during-unload.window.js",
+        "root": "html",
+        "sha256": "e9d52e144781e810709279b36d9d663904b4834fd22c05a9b8d8091a986f359f",
+        "variants": [
+          ""
+        ],
+        "workstream": "core"
+      }
+    }
+  ],
+  "status": "source-generated-unexecuted"
+}

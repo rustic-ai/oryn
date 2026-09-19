@@ -1,0 +1,2 @@
+# Controlled authorization-code provider; production auth is outside this fixture.
+oauthlib==3.3.1

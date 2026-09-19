@@ -11,9 +11,120 @@ import socket
 import ssl
 import sys
 import threading
+import time
 import uuid
 from contextlib import ExitStack
 from pathlib import Path
+from urllib.parse import urlsplit
+
+
+def http_diagnostic_writer(stream, limit=256):
+    """Bounded metadata only; diagnostic failures never replace HTTP outcomes."""
+    if not isinstance(limit,int) or isinstance(limit,bool) or not 1 <= limit <= 256:
+        raise ValueError('invalid HTTP diagnostic limit')
+    lock = threading.Lock()
+    started = time.monotonic()
+    count = 0
+
+    def emit(event, **fields):
+        nonlocal count
+        try:
+            if event not in ('accepted','request_line_wait','request_line_complete','headers_complete',
+                             'handler_enter','handler_error','response_ready','dispatch_return','dispatch_error'):
+                return
+            with lock:
+                if count > limit:
+                    return
+                record = dict(schema_version=1, kind='wpt_http_boundary', event=event,
+                              at_ms=round((time.monotonic()-started)*1000))
+                if count == limit:
+                    record['event'] = 'records_truncated'
+                    record['limit'] = limit
+                else:
+                    for key in ('server_port','peer_port','request_sequence','status'):
+                        value = fields.get(key)
+                        if isinstance(value,int) and not isinstance(value,bool) and 0 <= value <= 2**53-1:
+                            record[key] = value
+                    for key in ('valid','close_connection'):
+                        if key in fields:
+                            record[key] = fields[key] is True
+                    method = fields.get('method')
+                    if method in ('GET','POST','PUT','DELETE','HEAD','OPTIONS','PATCH','CONNECT','TRACE'):
+                        record['method'] = method
+                    if 'path' in fields:
+                        parsed = urlsplit(str(fields['path']))
+                        if (not parsed.scheme or parsed.scheme in ('http','https')) and parsed.path.startswith('/'):
+                            # An astral code point needs two JSON \u escapes (12 bytes).
+                            # 512 points leave room for every fixed field under 8 KiB.
+                            record.update(path=parsed.path[:512], path_truncated=len(parsed.path)>512,
+                                          query_present=bool(parsed.query), fragment_present=bool(parsed.fragment))
+                        else:
+                            record['opaque_target'] = True
+                    error = fields.get('error_type')
+                    if error is not None:
+                        record['error_type'] = error if error in ('OSError','TimeoutError','ValueError','TypeError','ConnectionError','BrokenPipeError','ConnectionResetError') else 'Exception'
+                count += 1
+                stream.write('ORYN_WPT_HTTP_DIAGNOSTIC '+json.dumps(record,separators=(',',':'))+'\n')
+                stream.flush()
+        except Exception:
+            pass
+    return emit
+
+
+def http_diagnostic_classes(server_base, handler_base, emit):
+    """Observe the existing HTTP dispatch calls without changing their bytes."""
+    def fields(handler):
+        return dict(server_port=handler.server.server_port, peer_port=handler.client_address[1],
+                    request_sequence=getattr(handler,'_diagnostic_sequence',0))
+
+    def report(event, **values):
+        try:
+            emit(event,**values)
+        except Exception:
+            pass
+
+    class DiagnosticServer(server_base):
+        def get_request(self):
+            request, address = super().get_request()
+            report('accepted',server_port=self.server_port,peer_port=address[1])
+            return request, address
+
+    class DiagnosticHandler(handler_base):
+        def get_request_line(self):
+            self._diagnostic_sequence = getattr(self,'_diagnostic_sequence',0)+1
+            report('request_line_wait',**fields(self))
+            valid = super().get_request_line()
+            report('request_line_complete',valid=valid,close_connection=self.close_connection,**fields(self))
+            return valid
+
+        def parse_request(self):
+            valid = super().parse_request()
+            report('headers_complete',valid=valid,method=getattr(self,'command',None),
+                 path=getattr(self,'path',''),**fields(self))
+            return valid
+
+        def finish_handling(self, request, response, handler):
+            def observed_handler(current_request,current_response):
+                report('handler_enter',method=request.method,path=request.request_path,**fields(self))
+                try:
+                    result = handler(current_request,current_response)
+                except BaseException as error:
+                    report('handler_error',error_type=type(error).__name__,**fields(self))
+                    raise
+                report('response_ready',status=current_response.status[0],**fields(self))
+                return result
+            # Upstream uses these routing attributes before invoking the handler.
+            for name in ('base_path','url_base'):
+                if handler is not None and hasattr(handler,name):
+                    setattr(observed_handler,name,getattr(handler,name))
+            try:
+                result = super().finish_handling(request,response,observed_handler if handler is not None else None)
+            except BaseException as error:
+                report('dispatch_error',error_type=type(error).__name__,**fields(self))
+                raise
+            report('dispatch_return',status=response.status[0],close_connection=self.close_connection,**fields(self))
+            return result
+    return DiagnosticServer, DiagnosticHandler
 
 
 def free_loopback_port() -> int:
@@ -38,6 +149,7 @@ def main() -> int:
     parser.add_argument("--wss-port", type=int, default=0)
     parser.add_argument("--tls-certificate", type=Path)
     parser.add_argument("--tls-key", type=Path)
+    parser.add_argument("--http-diagnostics", action="store_true")
     args = parser.parse_args()
     if args.direct and args.vendor_adapter is None:
         parser.error('--direct requires --vendor-adapter')
@@ -62,6 +174,12 @@ def main() -> int:
         ) from error
 
     logger = logging.getLogger("oryn-wptserve")
+    http_classes = {}
+    if args.http_diagnostics:
+        server_class, handler_class = http_diagnostic_classes(
+            wptserve.server.WebTestServer, wptserve.server.Http1WebTestRequestHandler,
+            http_diagnostic_writer(sys.stderr))
+        http_classes = dict(server_cls=server_class,handler_cls=handler_class)
     class GracefulTlsWebTestServer(wptserve.server.WebTestServer):
         def shutdown_request(self, request):
             # Python's TCPServer closes SSLSocket without close_notify. For
@@ -133,6 +251,7 @@ def main() -> int:
                           ("GET", "/resources/testdriver-vendor.js",
                            adapter(args.vendor_adapter))] + routes
             server = wptserve.WebTestHttpd(
+                **http_classes,
                 host="127.0.0.1",
                 port=internal_port,
                 use_ssl=False,

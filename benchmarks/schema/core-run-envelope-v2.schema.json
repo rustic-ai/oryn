@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "core-run-envelope-v2.schema.json",
+  "title": "Immutable Core whole-run envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "upstream_revision",
+    "candidate",
+    "profile_id",
+    "core_profile_registry_sha256",
+    "fixture_sha256",
+    "run_id",
+    "attempt_id",
+    "original_run_id",
+    "collection_ids",
+    "prepared",
+    "outputs"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "upstream_revision": {
+      "const": "719d5e38fdd0903a18ed9007aba816c98cc491e0"
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "profile_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "core_profile_registry_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "fixture_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "original_run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "collection_ids": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "core",
+        "canaries",
+        "placement"
+      ],
+      "properties": {
+        "core": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "canaries": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "placement": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        }
+      }
+    },
+    "prepared": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "core",
+        "canaries",
+        "placement"
+      ],
+      "properties": {
+        "core": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "canaries": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "placement": {
+          "type": "string",
+          "pattern": "^/"
+        }
+      }
+    }
+  },
+  "description": "An envelope selects one reviewed fixture for an entire official run. resolve_envelope verifies candidate and registry hashes, distinct collection identities and nonoverlapping canonical output paths. Retries have new run/attempt/collection identities and retain original_run_id."
+}

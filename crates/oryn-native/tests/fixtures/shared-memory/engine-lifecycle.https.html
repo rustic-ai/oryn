@@ -1,0 +1,88 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="timeout" content="long">
+<meta name="variant" content="">
+<meta name="variant" content="?placement=1">
+<title>Native shared backing growth and waiter ownership</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script>
+'use strict';
+// Serve with COOP: same-origin and COEP: require-corp. Qualification must also
+// record native worker placement: this fixture cannot attest process separation.
+const retainPlacement = new URL(location.href).searchParams.get('placement') === '1';
+const placementResources = [];
+function endpoint(t) {
+  const worker = new Worker(retainPlacement ? 'worker.js?placement=1' : 'worker.js');
+  if (retainPlacement) placementResources.push(worker);
+  else t.add_cleanup(() => worker.terminate());
+  const pending = new Map();
+  let next = 0;
+  worker.onmessage = ({data}) => {
+    const key = `${data.id}:${data.event}`;
+    if (data.event === 'error') {
+      for (const [name, entry] of pending) {
+        if (name.startsWith(`${data.id}:`)) { pending.delete(name); entry.reject(new Error(`${data.name}: ${data.message}`)); }
+      }
+    } else if (pending.has(key)) {
+      const entry = pending.get(key); pending.delete(key); entry.resolve(data);
+    }
+  };
+  worker.onerror = event => { for (const entry of pending.values()) entry.reject(new Error(event.message)); pending.clear(); };
+  return {
+    send(command, payload = {}, events = ['done']) {
+      const id = ++next, result = {};
+      for (const event of events) result[event] = new Promise((resolve, reject) => pending.set(`${id}:${event}`, {resolve,reject}));
+      if (retainPlacement) placementResources.push(payload);
+      worker.postMessage({id, command, ...payload});
+      return result;
+    }
+  };
+}
+promise_test(async t => {
+  assert_true(crossOriginIsolated);
+  const remote = endpoint(t), buffer = new SharedArrayBuffer(4);
+  const request = remote.send('wait', {buffer}, ['armed','done']);
+  await request.armed;
+  // Posting "armed" precedes native wait registration. Retry notify until it
+  // reports the registered waiter, rather than depending on message timing.
+  let woken = 0;
+  for (let attempts = 0; attempts < 500 && woken === 0; ++attempts) {
+    woken = Atomics.notify(new Int32Array(buffer), 0, 1);
+    if (woken === 0) await new Promise(resolve => t.step_timeout(resolve, 10));
+  }
+  assert_equals(woken, 1);
+  assert_equals((await request.done).result, 'ok');
+  assert_equals(Atomics.notify(new Int32Array(buffer), 0), 0);
+}, 'A worker waiter can be notified through another mapping and is removed exactly once');
+promise_test(async t => {
+  const remote = endpoint(t), buffer = new SharedArrayBuffer(4);
+  const result = Atomics.waitAsync(new Int32Array(buffer), 0, 0, 10000);
+  assert_true(result.async);
+  assert_equals((await remote.send('notify', {buffer}).done).count, 1);
+  assert_equals(await result.value, 'ok');
+}, 'A remote notify settles the originating agent asynchronous waiter');
+promise_test(async t => {
+  const first = endpoint(t), second = endpoint(t);
+  const buffer = new SharedArrayBuffer(65536, {maxByteLength:4*65536});
+  const tracking = new Uint8Array(buffer);
+  tracking[0] = 37;
+  const results = await Promise.all([
+    first.send('grow', {buffer,length:2*65536}).done,
+    second.send('grow', {buffer,length:2*65536}).done,
+  ]);
+  assert_equals(buffer.byteLength, 2*65536);
+  assert_equals(tracking.length, 2*65536);
+  assert_equals(tracking[0], 37);
+  assert_equals(tracking[2*65536-1], 0);
+  for (const result of results) { assert_equals(result.length,2*65536); assert_equals(result.viewLength,2*65536); assert_equals(result.tail,0); }
+}, 'Concurrent shared growth publishes length and zeroed bytes in every mapping');
+promise_test(async t => {
+  const first = endpoint(t), second = endpoint(t);
+  const memory = new WebAssembly.Memory({initial:1,maximum:4,shared:true});
+  const results = await Promise.all([first.send('wasm-grow',{memory}).done,second.send('wasm-grow',{memory}).done]);
+  assert_array_equals(results.map(result=>result.previous).sort(), [1,2]);
+  assert_equals(memory.buffer.byteLength,3*65536);
+  assert_equals(new Uint8Array(memory.buffer)[3*65536-1],0);
+}, 'Shared Wasm growth returns distinct previous sizes and refreshes remote memory bounds');
+</script>

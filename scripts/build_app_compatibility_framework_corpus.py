@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+from generation_gate import check_execution_generation
 import subprocess
 import sys
 import time
@@ -45,11 +46,13 @@ def inventory(directory):
 
 
 def command(args, directory, name, env, timeout=240):
+    check_execution_generation()
     started = time.monotonic()
     with (
         (directory / f"{name}.stdout").open("wb") as stdout,
         (directory / f"{name}.stderr").open("wb") as stderr,
     ):
+        check_execution_generation()
         process = subprocess.Popen(
             args, cwd=CORPUS, env=env, stdout=stdout, stderr=stderr, start_new_session=True
         )
@@ -74,6 +77,7 @@ def main():
     parser.add_argument("--node", type=Path, required=True)
     parser.add_argument("--pnpm", default="pnpm")
     args = parser.parse_args()
+    check_execution_generation()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     report = dict(schema_version=1, planned=8, builds={}, status="failed")

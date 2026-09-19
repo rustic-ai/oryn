@@ -33,16 +33,35 @@ fn files(
     scope: &mut v8::PinScope,
     object: v8::Local<v8::Object>,
 ) -> Result<std::sync::Arc<Vec<oryn_dom::SelectedFile>>, V8BindingError> {
-    if object.is_proxy() {
+    if object.is_proxy()
+        || object.internal_field_count() < 2
+        || !object
+            .get_internal_field(scope, 0)
+            .and_then(|value| v8::Local::<v8::Value>::try_from(value).ok())
+            .is_some_and(|value| value.is_number())
+    {
         return Err(invalid());
     }
     let state = binding_state_for_receiver(scope, object).ok_or_else(invalid)?;
     let id = stateful_id(scope, object)?;
-    let record = platform_object(&state, id)?;
-    let PlatformObjectRecord::FileList(files) = &*record else {
+    if state.execution_retired()
+        || !state
+            .platform_wrappers
+            .borrow()
+            .get(&id)
+            .and_then(|wrapper| wrapper.to_local(scope))
+            .is_some_and(|wrapper| wrapper.strict_equals(object.into()))
+    {
         return Err(invalid());
-    };
-    Ok(files.clone())
+    }
+    let record = platform_object(&state, id)?;
+    match &*record {
+        PlatformObjectRecord::FileList(files) => Ok(files.clone()),
+        PlatformObjectRecord::DataTransferFiles(view) => {
+            Ok(std::sync::Arc::new(view.store.borrow().files()))
+        }
+        _ => Err(invalid()),
+    }
 }
 pub(super) fn entries<'s>(
     scope: &mut v8::PinScope<'s, '_>,
@@ -50,6 +69,15 @@ pub(super) fn entries<'s>(
 ) -> Result<Option<Vec<v8::Local<'s, v8::Value>>>, V8BindingError> {
     if files(scope, object).is_err() {
         return Ok(None);
+    }
+    let owner = binding_state_for_receiver(scope, object).ok_or_else(invalid)?;
+    let id = stateful_id(scope, object)?;
+    let transfer = match &*platform_object(&owner, id)? {
+        PlatformObjectRecord::DataTransferFiles(store) => Some(store.clone()),
+        _ => None,
+    };
+    if let Some(store) = transfer {
+        return data_transfer::files_entries(scope, &owner, object, store).map(Some);
     }
     let array = private(scope, object, "oryn.files.entries")
         .and_then(|value| v8::Local::<v8::Array>::try_from(value).ok())
@@ -308,4 +336,61 @@ pub(super) fn configure(instance: v8::Local<v8::ObjectTemplate>) {
             .definer(definer)
             .deleter(deleter),
     );
+}
+
+/// Restore only deserialized native Files; retain their existing destination
+/// wrappers so graph identity is preserved. No filesystem paths are accepted.
+pub(super) fn restore_clone<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    state: &V8BindingState,
+    entries: &[v8::Local<'s, v8::Value>],
+) -> Result<v8::Local<'s, v8::Object>, V8BindingError> {
+    let mut files = Vec::new();
+    for value in entries {
+        if value.is_proxy() {
+            return Err(invalid());
+        }
+        let object = v8::Local::<v8::Object>::try_from(*value).map_err(|_| invalid())?;
+        if object.internal_field_count() < 2
+            || !object
+                .get_internal_field(scope, 0)
+                .and_then(|value| v8::Local::<v8::Value>::try_from(value).ok())
+                .is_some_and(|value| value.is_number())
+        {
+            return Err(invalid());
+        }
+        let owner = binding_state_for_receiver(scope, object).ok_or_else(invalid)?;
+        if owner.execution_retired() {
+            return Err(invalid());
+        }
+        let id = stateful_id(scope, object)?;
+        if !owner
+            .platform_wrappers
+            .borrow()
+            .get(&id)
+            .and_then(|wrapper| wrapper.to_local(scope))
+            .is_some_and(|wrapper| wrapper.strict_equals(object.into()))
+        {
+            return Err(invalid());
+        }
+        let record = platform_object(&owner, id)?;
+        let PlatformObjectRecord::Blob(blob) = &*record else {
+            return Err(invalid());
+        };
+        let file = blob.file.as_ref().ok_or_else(invalid)?;
+        files.push(oryn_dom::SelectedFile {
+            name: file.name.clone(),
+            media_type: blob.media_type.clone(),
+            bytes: blob.bytes.clone().into(),
+            last_modified: file.last_modified,
+        });
+    }
+    let id = register_platform_object(
+        state,
+        PlatformObjectRecord::FileList(std::sync::Arc::new(files)),
+    );
+    let list = new_platform_object(scope, state, "FileList", id)?;
+    let array = v8::Array::new_with_elements(scope, entries);
+    set_private(scope, list, "oryn.files.entries", array.into())?;
+    Ok(list)
 }

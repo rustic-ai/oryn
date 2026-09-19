@@ -27,6 +27,8 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Mode {
+    #[cfg(feature = "webdriver-server")]
+    Webdriver(oryn::webdriver::cli::ServeArgs),
     /// Use headless browser (Chromium) via CDP
     #[cfg(feature = "chromium")]
     Headless {
@@ -218,6 +220,14 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args = Args::parse();
+    #[cfg(feature = "webdriver-server")]
+    if let Some(Mode::Webdriver(service)) = &args.mode {
+        if args.file.is_some() {
+            return Err("--file is not valid for WebDriver service".into());
+        }
+        return service.run().await;
+    }
+
     validate_args(&args)?;
 
     // Native Oryn is the product default. Named compatibility domains and the
@@ -342,6 +352,8 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         },
         #[cfg(feature = "user-browser")]
         Some(Mode::Remote { port }) => Box::new(RemoteBackend::new(port)),
+        #[cfg(feature = "webdriver-server")]
+        Some(Mode::Webdriver(_)) => unreachable!("driver returned before backend dispatch"),
         Some(Mode::Native(_)) => unreachable!("native mode returned before backend dispatch"),
         None => unreachable!("default native mode returned before backend dispatch"),
     };
@@ -538,6 +550,7 @@ async fn run_native(
         match session.execute(&input).await {
             Ok(outputs) => print_native_outputs(outputs)?,
             Err(error) => {
+                print_native_outputs(error.completed_outputs().to_vec())?;
                 if let (Some(path), Some(checkpoint)) = (
                     &session_options.failure_artifact_out,
                     failure_checkpoint.as_ref(),
@@ -567,6 +580,7 @@ async fn run_native(
             match session.execute(&line).await {
                 Ok(outputs) => print_native_outputs(outputs)?,
                 Err(error) => {
+                    print_native_outputs(error.completed_outputs().to_vec())?;
                     if let (Some(path), Some(checkpoint)) = (
                         &session_options.failure_artifact_out,
                         failure_checkpoint.as_ref(),

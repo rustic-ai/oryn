@@ -1,0 +1,621 @@
+{
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "search": "literal document.domain in HTML/DOM/security/navigation source families; filename-only and nonliteral aliases require follow-up",
+  "counts": {
+    "core": 91,
+    "necessary": 9,
+    "extended": 0
+  },
+  "scope_note": "Source files and helpers, not manifest entries or conformance results. Search diagnostics retained below.",
+  "search_diagnostics": "",
+  "sources": [
+    {
+      "path": "content-security-policy/inheritance/sandboxed-blob-scheme.html",
+      "tier": "core",
+      "sha256": "ec11c761ac9e016992d48360ecb080db4508ab0fbb0fe5b40e3a6de100ff2137",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "content-security-policy/inheritance/sandboxed-data-scheme.html",
+      "tier": "core",
+      "sha256": "ceda2e12c14b99ae921704f4bf2af03ca1bed9bd494b711cdaff76568d822ff3",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "content-security-policy/inheritance/support/navigate-self-to-blob.html",
+      "tier": "core",
+      "sha256": "4da59426187c840d9f199042a3f7280bf0545d549c2e3c46cfd2b5e05cd25c28",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "content-security-policy/inheritance/unsandboxed-blob-scheme.html",
+      "tier": "core",
+      "sha256": "90647421193d1c6c4bba7968d7c08af4687c7178efd778caf5b7c59151a65178",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "content-security-policy/inheritance/unsandboxed-data-scheme.html",
+      "tier": "core",
+      "sha256": "eefea6a22e76098a84e5182cdefc33e9a0e2bfe903868fc956b5b8c647944664",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "dom/events/EventListener-incumbent-global-subframe-1.sub.html",
+      "tier": "core",
+      "sha256": "3b6fdca1512bf10b374d0eb7914aee1d40872f572a3d77d14529ca3c48bc470c",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "dom/events/EventListener-incumbent-global-subframe-2.sub.html",
+      "tier": "core",
+      "sha256": "f052fd6ff7c6d1c5897c26c4e3dfc939d6fb2b749d3f0bd73a7dc5f63bee8f44",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "dom/events/EventListener-incumbent-global-subsubframe.sub.html",
+      "tier": "core",
+      "sha256": "11d4495492a01ef82e8067afc9e77e00d5eff2eea92f9a790a206a04869e6665",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/browsing-the-web/navigating-across-documents/javascript-url-security-check-multi-globals.sub.html",
+      "tier": "core",
+      "sha256": "14d77a56e9f6687539aacc131aff06c65050e171032ef2f0456841c9375f54c7",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/browsing-the-web/navigating-across-documents/javascript-url-security-check-same-origin-domain.sub.html",
+      "tier": "core",
+      "sha256": "3548e15a5e9702d0f151ff6496215248348979f768c472e986961180c68a9d57",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/browsing-the-web/navigating-across-documents/resources/document-domain-set-to-site.sub.html",
+      "tier": "core",
+      "sha256": "0f2471f9bde5aa7ea8e21d8f09df8a430fd5a0d07dd419d10cf4bb658e008287",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/browsing-the-web/navigating-across-documents/resources/multi-globals-subframe-1.sub.html",
+      "tier": "core",
+      "sha256": "9f38f4078e6cd2afa3d2b54585c1308cdc08bb1a694876c0ba8282187fdf1cf1",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/browsing-the-web/navigating-across-documents/resources/multi-globals-subframe-2.sub.html",
+      "tier": "core",
+      "sha256": "8e85b59b280cf520200c075caf6f5ac085088c5479ae8bb9b72953c7e4f7c32d",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/history/the-location-interface/allow_prototype_cycle_through_location.sub.html",
+      "tier": "core",
+      "sha256": "6d1550de8d79aa2dae5c4ce1654276a412dcfb3bd7d4b4597c39e85aa0bad195",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/history/the-location-interface/cross_origin_joined_frame.sub.html",
+      "tier": "core",
+      "sha256": "e448104d472c2417cda165bc6ac78ebf07424adab344d82a8e00ad202ba68546",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/history/the-location-interface/location-prototype-setting-cross-origin-domain.sub.html",
+      "tier": "core",
+      "sha256": "3436316dbc4ae89bb96c7d9c16b22f92d65d3d9b4a8eb1fd1af55fa34f55eb75",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/history/the-location-interface/location-prototype-setting-goes-cross-origin-domain.sub.html",
+      "tier": "core",
+      "sha256": "3cfe69c18200259ad5281b4784bedccddaa64d4b629391ae62086142faf7560b",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/history/the-location-interface/location-prototype-setting-same-origin-domain.sub.html",
+      "tier": "core",
+      "sha256": "b1a21567d14e5749d2323878e682d84b4b3a2b4c97d663c3331ffc4a4de90e0b",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/cross-origin-objects/cross-origin-due-to-document-domain-only.html",
+      "tier": "core",
+      "sha256": "2b8f042d8ea14c3ab5a5b4cf0af19a29d9dd3fe24b08ec21e5cb7160e003d61a",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/cross-origin-objects/cross-origin-objects-on-new-window.html",
+      "tier": "core",
+      "sha256": "fdadade6e9c1371867d2992485f7eb34de44985aae9191ca3595d12eec2dfdf1",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/cross-origin-objects/cross-origin-objects.html",
+      "tier": "core",
+      "sha256": "d5f6082f22e55be6c51a3ff8277fa03efb39253c07bed38c76c539061daafbba",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/cross-origin-objects/frame-with-then.html",
+      "tier": "core",
+      "sha256": "a9692d29bb97f8f2b295e86779432d57fcc9f8213876ce52c4894d201b648b53",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/cross-origin-objects/frame.html",
+      "tier": "core",
+      "sha256": "bfe49453340ff0efa548447c40b8935b029f7fbe1775b6cf6a577e8e5b7b3e46",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/cross-origin-objects/resources/cross-origin-due-to-document-domain-only-helper.html",
+      "tier": "core",
+      "sha256": "9ee37a9afc589dac0ffef6239854c6cb0f6e0aa6f891bc6581aa3ed9bce300fd",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/cross-origin-objects/win-documentdomain.sub.html",
+      "tier": "core",
+      "sha256": "a870fee753fb516e61bebd1e9787cd928c5103a1bece57e9990292e45f242181",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/inheritance/about-blank-iframe.html",
+      "tier": "core",
+      "sha256": "df9fbc163ae79cb6b8b92177da6c351e78cf84b748f23c4f326c292f3b2eb507",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/inheritance/about-blank-window.html",
+      "tier": "core",
+      "sha256": "fbb4e1b8b78a305f618bc2c7bb14b39d1edd0fb47bea57f3eb5ebd07820c5923",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/inheritance/about-srcdoc.html",
+      "tier": "core",
+      "sha256": "cfe5521c86d4a28a22334ad8a3a723752df47af0c94947be1b44e0192abf8258",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/inheritance/document-write.https.window.js",
+      "tier": "core",
+      "sha256": "08ad331d7eeec0edcd7ab2c4fc623e07f955e43fa641bdb2301789615dbd39eb",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/inheritance/javascript-url.html",
+      "tier": "core",
+      "sha256": "9ace49f07f6163d505fe101bd8623d4dec8e28e5502bb6cc8cc58f7e54a8db13",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/inheritance/resources/document-write.html",
+      "tier": "core",
+      "sha256": "6f5ec71e31f088ce238a272ae2fc703c1b7d433133844324c560867663d95c6e",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/origin-keyed-agent-clusters/document-domain.sub.https.html",
+      "tier": "core",
+      "sha256": "d61477310c6e90672d459704ed28d2b0aeb2cc0b00daddf4b4495278337d56d7",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/origin-keyed-agent-clusters/getter-special-cases/removed-iframe.sub.https.html",
+      "tier": "core",
+      "sha256": "79210ac0ae930501076f623e96a2237e375462b79eb0f7f387df92b1d2788cce",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/origin-keyed-agent-clusters/resources/frame.html",
+      "tier": "core",
+      "sha256": "8bf86b59848c0ff124c8410903858bb1a6403009200ef5e34d4629493da83ffc",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/relaxing-the-same-origin-restriction/document_domain.html",
+      "tier": "core",
+      "sha256": "033ce83762ecb3c62cfe8cf99f118c967c9475f59178fe5a007ded849b8b9300",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html",
+      "tier": "core",
+      "sha256": "653db928b9b81d1438cd276acac7c29724a33c0ded7961b7ac9c04c60e3d2da2",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_setter.html",
+      "tier": "core",
+      "sha256": "ebee76d934b7bed7f9b778cb9c38a874489eb8b60a264b7ebdfb03a42ec8ea28",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_setter_srcdoc.html",
+      "tier": "core",
+      "sha256": "55c140a081ec8dc0eabbc90f1e2aa49c714939edbaa694cc27204b6b76119179",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/relaxing-the-same-origin-restriction/sandboxed-document_domain.html",
+      "tier": "core",
+      "sha256": "12e629e4670072bdba7b9dd629f8db37402f99269a70734f75f3abf82cf1c66c",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/relaxing-the-same-origin-restriction/support/document_domain_frame.html",
+      "tier": "core",
+      "sha256": "9d3bf70fef8ff14d10557d90587488136f89d40a3e1f8c45292e4a03322d1e8d",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/relaxing-the-same-origin-restriction/support/document_domain_frame.sub.js",
+      "tier": "core",
+      "sha256": "6ce71a7aca50e6107e5994703c7ff9f44a8000e9e3fd0fb88af7832afcb1dbfd",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/origin/relaxing-the-same-origin-restriction/support/document_domain_setter_iframe.html",
+      "tier": "core",
+      "sha256": "b257ebe99474939d98b762a781cf3242adcff5622112a7d3e277c5fb608a19a7",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/sandboxing/popup-from-initial-empty-sandboxed-document.window.js",
+      "tier": "core",
+      "sha256": "8367c0e5fc56507610016c0c7d4af864f9ce4d59bb5ab9bc3e9096ac551171bd",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/sandboxing/resources/check-sandbox-flags.html",
+      "tier": "core",
+      "sha256": "f9295526bad39d73b34463e899baffcdcb12be6a6345c8b89dbcf7dc637fcc9f",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/sandboxing/resources/document-open.html",
+      "tier": "core",
+      "sha256": "5f8eda6af780fad060a81216b41a509ddbdd775be9fe7a05c22520a9bb5ea71b",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/sandboxing/resources/sandbox-inherited-from-initiator-response-helper.html",
+      "tier": "core",
+      "sha256": "19645b0dd4a13bda40d59ca6835bfb26401a9ede90ad7c556235117db0a35346",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/sandboxing/resources/sandbox-javascript-window-open.html",
+      "tier": "core",
+      "sha256": "bce21cd801943ad1dcf1134f4ce22f9fc36f7773448686ad5658d6ae11d49243",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/sandboxing/sandbox-document-open-mutation.window.js",
+      "tier": "core",
+      "sha256": "b51ada0326b41cfc358e3a39ffb17f74a98f85cd3ab11e5ced0193c9dc475b51",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/sandboxing/sandbox-document-open.html",
+      "tier": "core",
+      "sha256": "bb8f6e67a15cf6c35e4e01d58fc209f94b84b4f627c8ec13f31434d4cb1af274",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/sandboxing/sandbox-inherited-from-initiator-frame.html",
+      "tier": "core",
+      "sha256": "857a0401a85872e8dd9b93b8eb0c73de09dadeadd9c9a2b258f30a8b4c57d44d",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/sandboxing/sandbox-inherited-from-required-csp.html",
+      "tier": "core",
+      "sha256": "a02809afc18f0b702e083e0dcf6e629217a8ad288b8fb68e79e5c80817500d71",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/sandboxing/window-open-blank-from-different-initiator.html",
+      "tier": "core",
+      "sha256": "3318ceff3610f66ba35aae9cc0a4a6eee4e6a6de6930f0b599344bf39233df44",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/the-windowproxy-exotic-object/windowproxy-prototype-setting-cross-origin-domain.sub.html",
+      "tier": "core",
+      "sha256": "84ad3e6a8a1a0ef01dca26c7fe0d61cda1f561ecddd829a9ef3e92131dfb7b85",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/the-windowproxy-exotic-object/windowproxy-prototype-setting-goes-cross-origin-domain.sub.html",
+      "tier": "core",
+      "sha256": "6912c48c5a2d89959c13e6f0a701706780947115003bf4397b088c5348bab25a",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/the-windowproxy-exotic-object/windowproxy-prototype-setting-same-origin-domain.sub.html",
+      "tier": "core",
+      "sha256": "352a7ec835f1713e23c64eb93efe11cf9cfc86b2623ce7436a3eb1d9d57d65f9",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/windows/clear-window-name.https.html",
+      "tier": "core",
+      "sha256": "d153b99056e8d7824f7a0f92561d9521df7cdd4af5d462d4da6a7289a5824111",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/windows/document-domain-nested-navigate.window.js",
+      "tier": "core",
+      "sha256": "60c457f51be74426cd35db296e34bf20b65200819e4bdfdf34ddd556962cf3ab",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/windows/document-domain-nested-set.window.js",
+      "tier": "core",
+      "sha256": "305cad09037a02ad878a988986155ccfabf9219b97ded3224180218399b3f997",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/windows/document-domain-nested.window.js",
+      "tier": "core",
+      "sha256": "8bb2f52959ede561cfc7073d8cb6965478190921af7ec012b3a7eda9c1f4550c",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/windows/document-domain-removed-iframe.html",
+      "tier": "core",
+      "sha256": "bc19480d42c34d0170a9ce2d77af95034e918d19e01228dbc08cb0157e5ab507",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/windows/nested-browsing-contexts/frameElement-siblings.sub.html",
+      "tier": "core",
+      "sha256": "65c61ad1dbd97e7ff966a9307c9ed5dce853bf41c0b6f17ff413307525c4ad49",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/windows/nested-browsing-contexts/resources/frameElement-sibling-accessed.html",
+      "tier": "core",
+      "sha256": "7c339269fc80398a081d0a22eb796876062d270133fc9e1d3e8d963a28a547b2",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/windows/nested-browsing-contexts/resources/frameElement-sibling-accessor.html",
+      "tier": "core",
+      "sha256": "f98e7ef67d7c9126b0209ea2e04e6d6e9b58b5cd4107c7e3261fa93fb0af2be1",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/windows/resources/document-domain-setter.html",
+      "tier": "core",
+      "sha256": "26ef3bc93b5d0504d169783b0aee33c3c14c77875e87dfc032534611758b97cb",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/browsers/windows/resources/window-name.sub.html",
+      "tier": "core",
+      "sha256": "a0c7022b378e29334ae4f8b4a0661e8febf83aa19cc162a5842e5e986f0b3108",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/dom/resources/self-origin-subframe.html",
+      "tier": "core",
+      "sha256": "65ee5efabc6b588c70c9aa297c656f43af1072820cc34a0b35008cc18c2e7e12",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/dom/self-origin.sub.html",
+      "tier": "core",
+      "sha256": "d96c538e9b07f891dcb88e0dfee6c2d043423d29a966070b563275ef7eec9c10",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/editing/dnd/file/prompt/002.html",
+      "tier": "core",
+      "sha256": "d5d4f1b5aec201beafd96651b16ad91447562ed4a148878d200e61e49a388d56",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/editing/dnd/resources/crossorigin.sub.js",
+      "tier": "core",
+      "sha256": "0579a0970bb4611ce1306a04ac5b7a9c66342509da897163e76cbed47dc410cd",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/editing/dnd/target-origin/003-manual.html",
+      "tier": "core",
+      "sha256": "3474ae3c45780a45e1090e0120fdead4c4adf5ed249986116d572c316beac3b8",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/editing/dnd/target-origin/012-manual.html",
+      "tier": "core",
+      "sha256": "950d3f711260f1b9383807c931d58a335ccec4dd3257f45cb5348eb0cdf60c8e",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/editing/dnd/target-origin/117-1.html",
+      "tier": "core",
+      "sha256": "cdb693b333d3912771f7968be6abe21b835ca008672d3c30545be5d3406b2785",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/editing/dnd/target-origin/117-manual.html",
+      "tier": "core",
+      "sha256": "b01b3d9598457dceae1dcf66585d351e83371117f1494bf506bf38730415349a",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/editing/dnd/target-origin/HELPER-mustallow.html",
+      "tier": "core",
+      "sha256": "4e14081e4051b7e4df48d76dff20e97aeb01ef2e7fa011b00fd4b02d7457b62c",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/editing/dnd/target-origin/HELPER-mustblock.html",
+      "tier": "core",
+      "sha256": "75ddce0e6c088210d32f309240bb2160b9342e4ccd963185937202e6d3de2e32",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/infrastructure/safe-passing-of-structured-data/shared-array-buffers/resources/iframe-domain-failure.sub.html",
+      "tier": "core",
+      "sha256": "c0ac57294da0ff16269d28e31186512068dda4054cb57d2da3c8c7f5d50010d2",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/infrastructure/safe-passing-of-structured-data/shared-array-buffers/window-domain-failure.https.sub.html",
+      "tier": "core",
+      "sha256": "77fd4fee3591fc23e525195ff9e5c2deb662a025212cc67528f680b0b817fdc9",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/semantics/embedded-content/the-iframe-element/cross-origin-to-whom-part-2.window.js",
+      "tier": "core",
+      "sha256": "0c1a8907b2d79f0c72ffa7aa36cc8d5a6ee2ce5882f0631d37fd84594286f489",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/semantics/embedded-content/the-iframe-element/cross-origin-to-whom.window.js",
+      "tier": "core",
+      "sha256": "af62d0d799d179193c6e421cc84b3019b83538da1270a89a8f6db934cc644efe",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/semantics/embedded-content/the-iframe-element/support/navigation-changed-iframe.html",
+      "tier": "core",
+      "sha256": "755b1f82832c230ef0fe379aa1af209eab5374298e9cc69574583aa619ce5870",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/semantics/forms/the-input-element/resources/show-picker-child-iframe.html",
+      "tier": "core",
+      "sha256": "17cba84d543bdddb0fd16643fc3fb07a542e439ae6abe6cba0178059c762452e",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/semantics/forms/the-input-element/show-picker-cross-origin-iframe.html",
+      "tier": "core",
+      "sha256": "6b91c65d5b1b6e62f26da03ab5f07ce14d3bb0cc320cc6cabf4dc5f66b7a271a",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/semantics/forms/the-select-element/resources/show-picker-child-iframe.html",
+      "tier": "core",
+      "sha256": "9e359aef2354a72905305db3088fd49f8f92950143cf1a0a37aabc863c551ae5",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/semantics/forms/the-select-element/show-picker-cross-origin-iframe.html",
+      "tier": "core",
+      "sha256": "84571c9023d4714b1bb33fd54159d5c08d4060f978d2c623b94219a244f4df1c",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-exception-vs-return-origin.sub.window.js",
+      "tier": "core",
+      "sha256": "957e9ef0176045d42094adf3cf21474159fe25d407ae1ef73476c3bd7d0f78ba",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-side-effects-same-origin-domain.sub.window.js",
+      "tier": "core",
+      "sha256": "1c9435644d2939cd3231c39858733ddc62222715cbb4d454e066ae82fab186a2",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/webappapis/dynamic-markup-insertion/opening-the-input-stream/origin-check-in-document-open-same-origin-domain.sub.html",
+      "tier": "core",
+      "sha256": "eece7d60bf673756e6580f511d4e2107bd0ba006e38c356b769dddabf71a71b3",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/webappapis/dynamic-markup-insertion/opening-the-input-stream/resources/bailout-order-custom-element-with-domain-frame.sub.html",
+      "tier": "core",
+      "sha256": "607cde437ec6eabf128cbd936cd21893e33563664547a63a7381361f5e01e4c3",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/webappapis/dynamic-markup-insertion/opening-the-input-stream/resources/bailout-order-synchronous-script-with-domain-frame.sub.html",
+      "tier": "core",
+      "sha256": "9994e8b342546d76d752de319a83330242b05c77d815d8ffc1dc2557da2a61eb",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/webappapis/dynamic-markup-insertion/opening-the-input-stream/resources/bailout-order-xml-with-domain-frame.sub.xhtml",
+      "tier": "core",
+      "sha256": "10302529e7036c3e35cea11d2e18d117a750d92027c4aa2ea5a4bcfae8dba87c",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "html/webappapis/dynamic-markup-insertion/opening-the-input-stream/resources/set-document-domain.html",
+      "tier": "core",
+      "sha256": "a19c7c7cd9bbf2e315843e119490dc35e82a45c82846774b2eb6070cfbdaf507",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "navigation-api/navigate-event/cross-window/click-crossdocument-crossorigin-sameorigindomain.sub.html",
+      "tier": "necessary",
+      "sha256": "0d50f935fb3d551461a885f577105e23870eb7ae3862163c72e96d66d39125b8",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "navigation-api/navigate-event/cross-window/click-samedocument-crossorigin-sameorigindomain.sub.html",
+      "tier": "necessary",
+      "sha256": "5c2da787f596761824dc92e277f9b7b6bd3036a2b05bd7ee94694aaf8e965534",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "navigation-api/navigate-event/cross-window/location-crossdocument-crossorigin-sameorigindomain.sub.html",
+      "tier": "necessary",
+      "sha256": "8815ab15acef4f8897c86218e19e58789dd772c3db0799654496015b6a22e7b4",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "navigation-api/navigate-event/cross-window/location-samedocument-crossorigin-sameorigindomain.sub.html",
+      "tier": "necessary",
+      "sha256": "135000deaff65f2d2cb86a0cf2b8fe721e609f8d455d036021fc97a2426f74f8",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "navigation-api/navigate-event/cross-window/open-crossdocument-crossorigin-sameorigindomain.sub.html",
+      "tier": "necessary",
+      "sha256": "a54454d12eadc830c059055b795d2f0b59ddbd4639edbe7a87b030c4b4f78a85",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "navigation-api/navigate-event/cross-window/open-samedocument-crossorigin-sameorigindomain.sub.html",
+      "tier": "necessary",
+      "sha256": "72afbd11d606f00cf196c5b77810697ea724f9ec69cae67d5802fd26d8b7c527",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "navigation-api/navigate-event/cross-window/resources/document-domain-setter.sub.html",
+      "tier": "necessary",
+      "sha256": "bad0620db319004b6d02b198fa66be99f23bd55c1bdbf3e53d75b9428ac441c8",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "navigation-api/navigate-event/cross-window/submit-crossdocument-crossorigin-sameorigindomain.sub.html",
+      "tier": "necessary",
+      "sha256": "c087deb2309e19f66f142a5be67af559b8dfa24838de4a156c3631c32f7cd611",
+      "role": "source_or_helper; manifest-entry classification pending"
+    },
+    {
+      "path": "navigation-api/navigate-event/cross-window/submit-samedocument-crossorigin-sameorigindomain.sub.html",
+      "tier": "necessary",
+      "sha256": "7bc8d7232fe4e168e2e0bb5c0529e6132052abdd53cecbb13c234b864217c7ea",
+      "role": "source_or_helper; manifest-entry classification pending"
+    }
+  ],
+  "search_roots": [
+    "html",
+    "dom",
+    "domparsing",
+    "shadow-dom",
+    "content-security-policy",
+    "navigation-api"
+  ]
+}

@@ -9,6 +9,7 @@ fn main() -> ExitCode {
     };
     INITIALIZE.call_once(|| {
         oryn_native::initialize_v8_icu_data();
+        v8::V8::set_flags_from_string(oryn_native::V8_RUNTIME_FLAGS);
         let platform = v8::new_default_platform(0, false).make_shared();
         v8::V8::initialize_platform(platform);
         v8::V8::initialize();

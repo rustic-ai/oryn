@@ -1,0 +1,278 @@
+--- a/include/v8-array-buffer.h
++++ b/include/v8-array-buffer.h
+@@ -36,6 +36,31 @@
+ // Oryn engine ABI: native shared metadata and absolute GSAB growth.
+ // Install before publishing any ArrayBuffer view of the backing store.
+ #define V8_ORYN_SHARED_GROWTH_ABI 1
++// Native wait ownership is independent of a JavaScript wrapper. Destruction
++// must cancel/reclaim a pending coordinator waiter without invoking JavaScript.
++class V8_EXPORT SharedMemoryWaiter {
++ public:
++  enum class State { kPending, kOk, kNotEqual, kTimedOut, kCancelled, kAdmitting };
++  virtual ~SharedMemoryWaiter() = default;
++  // Blocks for at most max_wait_ms, allowing V8 to service termination/GC.
++  virtual State Poll(uint32_t max_wait_ms) = 0;
++};
++class V8_EXPORT SharedMemoryWaitDelegate {
++ public:
++  using ProcessInterrupts = bool (*)(void*);
++  virtual ~SharedMemoryWaitDelegate() = default;
++  // Begin must return promptly; Poll reports kAdmitting while native admission
++  // is pending. Compare-and-enqueue is atomic with Notify. Negative timeout is infinite.
++  virtual std::unique_ptr<SharedMemoryWaiter> Begin(
++      size_t offset, bool width64, uint64_t expected, int64_t timeout_ns) = 0;
++  // Produces the native Atomics.waitAsync result in the current context. Native
++  // environment retirement must cancel its waiter and discard pending delivery.
++  virtual MaybeLocal<Object> WaitAsync(Isolate* isolate, size_t offset,
++      bool width64, uint64_t expected, int64_t timeout_ns,
++      ProcessInterrupts process_interrupts, void* interrupt_context) = 0;
++  virtual uint32_t Notify(size_t offset, uint32_t count) = 0;
++};
++
+ class V8_EXPORT SharedMemoryGrowthDelegate {
+  public:
+   enum class Result { kSuccess, kFailure, kRace };
+@@ -67,6 +92,8 @@
+ class V8_EXPORT BackingStore : public v8::internal::BackingStoreBase {
+  public:
+   ~BackingStore();
++  // Install once before publishing the backing; delegate retains native mapping.
++  void SetSharedMemoryWaitDelegate(std::shared_ptr<SharedMemoryWaitDelegate> delegate);
+ 
+   // The embedder attests that reserved_capacity bytes are actually mapped in
+   // the V8 sandbox. This API does not allocate, move, or free that mapping.
+--- a/src/objects/backing-store.h
++++ b/src/objects/backing-store.h
+@@ -119,6 +119,12 @@
+     // the same backing-store lifetime and are never relocated during growth.
+     static_assert(sizeof(std::atomic<size_t>) == sizeof(size_t));
+     return reinterpret_cast<const size_t*>(&byte_length_);
++  }
++  void SetSharedMemoryWaitDelegate(std::shared_ptr<v8::SharedMemoryWaitDelegate> delegate);
++  static std::shared_ptr<v8::SharedMemoryWaitDelegate> LookupSharedWaitDelegate(
++      void* address, size_t* offset);
++  std::shared_ptr<v8::SharedMemoryWaitDelegate> shared_wait_delegate() const {
++    return shared_wait_delegate_;
+   }
+   size_t max_byte_length() const { return max_byte_length_; }
+   size_t byte_capacity() const { return byte_capacity_; }
+@@ -294,6 +300,7 @@
+   void* buffer_start_ = nullptr;
+   std::atomic<size_t> byte_length_;
+   std::shared_ptr<v8::SharedMemoryGrowthDelegate> shared_growth_delegate_;
++  std::shared_ptr<v8::SharedMemoryWaitDelegate> shared_wait_delegate_;
+   // Max byte length of the corresponding JSArrayBuffer(s).
+   size_t max_byte_length_;
+   // Amount of the memory allocated
+--- a/src/objects/backing-store.cc
++++ b/src/objects/backing-store.cc
+@@ -3,6 +3,9 @@
+ // found in the LICENSE file.
+ 
+ #include "src/objects/backing-store.h"
++#include <map>
++#include <mutex>
++#include <limits>
+ 
+ #include <cstring>
+ #include <optional>
+@@ -30,6 +33,11 @@
+   } while (false)
+ 
+ namespace v8 {
++void BackingStore::SetSharedMemoryWaitDelegate(
++    std::shared_ptr<SharedMemoryWaitDelegate> delegate) {
++  reinterpret_cast<internal::BackingStore*>(this)->SetSharedMemoryWaitDelegate(
++      std::move(delegate));
++}
+ void BackingStore::SetSharedMemoryGrowthDelegate(
+     std::shared_ptr<SharedMemoryGrowthDelegate> delegate,
+     size_t maximum_length, size_t reserved_capacity) {
+@@ -39,6 +47,65 @@
+ }  // namespace v8
+ 
+ namespace v8::internal {
++
++namespace {
++struct NativeWaitRange {
++  uintptr_t end;
++  const BackingStore* identity;
++  std::weak_ptr<v8::SharedMemoryWaitDelegate> delegate;
++};
++struct NativeWaitRanges {
++  std::mutex mutex;
++  std::map<uintptr_t, NativeWaitRange> ranges;
++};
++NativeWaitRanges& GetNativeWaitRanges() {
++  // Process lifetime; backing destruction can run during isolate/group teardown.
++  static NativeWaitRanges* registry = new NativeWaitRanges;
++  return *registry;
++}
++void UnregisterNativeWaitRange(const BackingStore* backing, void* start) {
++  auto& registry = GetNativeWaitRanges();
++  std::lock_guard<std::mutex> lock(registry.mutex);
++  auto entry = registry.ranges.find(reinterpret_cast<uintptr_t>(start));
++  if (entry != registry.ranges.end() && entry->second.identity == backing)
++    registry.ranges.erase(entry);
++}
++}  // namespace
++
++void BackingStore::SetSharedMemoryWaitDelegate(
++    std::shared_ptr<v8::SharedMemoryWaitDelegate> delegate) {
++  CHECK(is_shared());
++  CHECK(!shared_wait_delegate_);
++  CHECK_NOT_NULL(delegate.get());
++  if (max_byte_length_ != 0) {
++    const uintptr_t start = reinterpret_cast<uintptr_t>(buffer_start_);
++    CHECK_NE(start, 0u);
++    CHECK_LE(max_byte_length_, std::numeric_limits<uintptr_t>::max() - start);
++    const uintptr_t end = start + max_byte_length_;
++    auto& registry = GetNativeWaitRanges();
++    std::lock_guard<std::mutex> lock(registry.mutex);
++    auto next = registry.ranges.lower_bound(start);
++    CHECK(next == registry.ranges.end() || end <= next->first);
++    if (next != registry.ranges.begin()) CHECK_LE(std::prev(next)->second.end, start);
++    registry.ranges.emplace(start, NativeWaitRange{end, this, delegate});
++  }
++  shared_wait_delegate_ = std::move(delegate);
++}
++
++std::shared_ptr<v8::SharedMemoryWaitDelegate> BackingStore::LookupSharedWaitDelegate(
++    void* address, size_t* offset) {
++  auto& registry = GetNativeWaitRanges();
++  std::lock_guard<std::mutex> lock(registry.mutex);
++  const uintptr_t location = reinterpret_cast<uintptr_t>(address);
++  auto next = registry.ranges.upper_bound(location);
++  if (next == registry.ranges.begin()) return {};
++  auto entry = std::prev(next);
++  if (location >= entry->second.end) return {};
++  auto delegate = entry->second.delegate.lock();
++  if (delegate) *offset = location - entry->first;
++  return delegate;
++}
++
+ 
+ namespace {
+ 
+@@ -175,6 +242,7 @@
+ }
+ 
+ BackingStore::~BackingStore() {
++  if (shared_wait_delegate_) UnregisterNativeWaitRange(this, buffer_start_);
+   GlobalBackingStoreRegistry::Unregister(this);
+ 
+   struct ClearSharedAllocator {
+--- a/src/execution/futex-emulation.cc
++++ b/src/execution/futex-emulation.cc
+@@ -5,6 +5,7 @@
+ #include "src/execution/futex-emulation.h"
+ 
+ #include <limits>
++#include <type_traits>
+ 
+ #include "src/api/api-inl.h"
+ #include "src/base/lazy-instance.h"
+@@ -271,6 +272,42 @@
+ 
+ namespace {
+ 
++Tagged<Object> NativeSharedWaitError(Isolate* isolate) {
++  return isolate->Throw(*isolate->factory()->NewError(
++      isolate->error_function(),
++      isolate->factory()->NewStringFromAsciiChecked("Native shared-memory wait retired")));
++}
++
++bool NativeSharedWaitProcessInterrupts(void* context) {
++  auto isolate = static_cast<Isolate*>(context);
++  Tagged<Object> interrupt = isolate->stack_guard()->HandleInterrupts();
++  return !IsExceptionHole(interrupt);
++}
++
++template <typename T>
++Tagged<Object> NativeSharedWaitSync(Isolate* isolate,
++    std::shared_ptr<v8::SharedMemoryWaitDelegate> delegate, size_t offset,
++    T expected, int64_t timeout_ns) {
++  VMState<ATOMICS_WAIT> state(isolate);
++  // Preserve the word's bit pattern, including negative Int32 expectations.
++  uint64_t bits = static_cast<std::make_unsigned_t<T>>(expected);
++  auto waiter = delegate->Begin(offset, sizeof(T) == 8, bits, timeout_ns);
++  if (!waiter) return NativeSharedWaitError(isolate);
++  for (;;) {
++    // Never hold a coordinator/local wait-list lock while processing interrupts.
++    Tagged<Object> interrupt = isolate->stack_guard()->HandleInterrupts();
++    if (IsExceptionHole(interrupt)) return interrupt;
++    switch (waiter->Poll(50)) {
++      case v8::SharedMemoryWaiter::State::kAdmitting:
++      case v8::SharedMemoryWaiter::State::kPending: continue;
++      case v8::SharedMemoryWaiter::State::kOk: return Smi::FromInt(kOk);
++      case v8::SharedMemoryWaiter::State::kNotEqual: return Smi::FromInt(kNotEqualValue);
++      case v8::SharedMemoryWaiter::State::kTimedOut: return Smi::FromInt(kTimedOut);
++      case v8::SharedMemoryWaiter::State::kCancelled: return NativeSharedWaitError(isolate);
++    }
++  }
++}
++
+ Tagged<Object> WaitJsTranslateReturn(Isolate* isolate, Tagged<Object> res) {
+   if (IsSmi(res)) {
+     int val = Smi::ToInt(res);
+@@ -310,6 +347,9 @@
+                                           BackingStore* backing_store,
+                                           size_t addr, int32_t value,
+                                           int64_t rel_timeout_ns) {
++  if (auto delegate = backing_store->shared_wait_delegate()) {
++    return NativeSharedWaitSync(isolate, std::move(delegate), addr, value, rel_timeout_ns);
++  }
+   void* wait_location = FutexWaitList::ToWaitLocation(backing_store, addr);
+   return WaitSync<int32_t>(isolate, wait_location, value, rel_timeout_ns >= 0,
+                            rel_timeout_ns, CallType::kIsWasm);
+@@ -319,6 +359,9 @@
+                                           BackingStore* backing_store,
+                                           size_t addr, int64_t value,
+                                           int64_t rel_timeout_ns) {
++  if (auto delegate = backing_store->shared_wait_delegate()) {
++    return NativeSharedWaitSync(isolate, std::move(delegate), addr, value, rel_timeout_ns);
++  }
+   void* wait_location = FutexWaitList::ToWaitLocation(backing_store, addr);
+   return WaitSync<int64_t>(isolate, wait_location, value, rel_timeout_ns >= 0,
+                            rel_timeout_ns, CallType::kIsWasm);
+@@ -380,6 +423,21 @@
+     }
+   }
+ 
++  if (auto delegate = array_buffer->GetBackingStore()->shared_wait_delegate()) {
++    const int64_t timeout = use_timeout ? rel_timeout_ns : -1;
++    if (mode == WaitMode::kSync) {
++      return NativeSharedWaitSync(isolate, std::move(delegate), addr, value, timeout);
++    }
++    Local<v8::Object> result;
++    if (!delegate->WaitAsync(reinterpret_cast<v8::Isolate*>(isolate), addr,
++            sizeof(T) == 8, static_cast<std::make_unsigned_t<T>>(value), timeout,
++            NativeSharedWaitProcessInterrupts, isolate)
++             .ToLocal(&result)) {
++      if (isolate->has_exception()) return ReadOnlyRoots(isolate).exception();
++      return NativeSharedWaitError(isolate);
++    }
++    return *Utils::OpenDirectHandle(*result);
++  }
+   if (mode == WaitMode::kSync) {
+     return WaitSync(isolate, FutexWaitList::ToWaitLocation(*array_buffer, addr),
+                     value, use_timeout, rel_timeout_ns, call_type);
+@@ -663,11 +721,18 @@
+ 
+ int FutexEmulation::Wake(Tagged<JSArrayBuffer> array_buffer, size_t addr,
+                          uint32_t num_waiters_to_wake) {
++  if (auto delegate = array_buffer->GetBackingStore()->shared_wait_delegate()) {
++    return static_cast<int>(delegate->Notify(addr, num_waiters_to_wake));
++  }
+   void* wait_location = FutexWaitList::ToWaitLocation(array_buffer, addr);
+   return Wake(wait_location, num_waiters_to_wake);
+ }
+ 
+ int FutexEmulation::Wake(void* wait_location, uint32_t num_waiters_to_wake) {
++  size_t native_offset = 0;
++  if (auto delegate = BackingStore::LookupSharedWaitDelegate(wait_location, &native_offset)) {
++    return static_cast<int>(delegate->Notify(native_offset, num_waiters_to_wake));
++  }
+   int num_waiters_woken = 0;
+   FutexWaitList* wait_list = GetWaitList();
+   NoGarbageCollectionMutexGuard lock_guard(wait_list->mutex());

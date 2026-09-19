@@ -1,0 +1,29 @@
+{
+  "web_features": {"usermedia_element": "standard"},
+  "third_party_cookies": "block",
+  "bluetooth_testing": true,
+  "media_devices": "synthetic_fixture_v1",
+  "schema_version": 1,
+  "upstream_revision": "719d5e38fdd0903a18ed9007aba816c98cc491e0",
+  "certificate_bypass": false,
+  "hosts": ["web-platform.test", "www.web-platform.test", "www1.web-platform.test", "www2.web-platform.test", "not-web-platform.test"],
+  "tls": {
+    "ca": {"path": "tls/ca.pem", "sha256": "REPLACE_WITH_ARTIFACT_SHA256"},
+    "certificate": {"path": "tls/server.pem", "sha256": "REPLACE_WITH_ARTIFACT_SHA256"},
+    "key": {"path": "tls/server.key", "sha256": "REPLACE_WITH_ARTIFACT_SHA256"}
+  },
+  "ports": {"http": [8000, 8001], "https": [8443, 8444], "h2": [9000], "ws": [8888], "wss": [8889], "http-local": [8002], "https-local": [8445], "http-public": [8003], "https-public": [8446]},
+  "endpoint_routes": [
+    {"protocol": "http", "port": 8000, "connect_ip": "127.0.0.1"},
+    {"protocol": "http", "port": 8001, "connect_ip": "127.0.0.1"},
+    {"protocol": "https", "port": 8443, "connect_ip": "127.0.0.1"},
+    {"protocol": "https", "port": 8444, "connect_ip": "127.0.0.1"},
+    {"protocol": "h2", "port": 9000, "connect_ip": "127.0.0.1"},
+    {"protocol": "ws", "port": 8888, "connect_ip": "127.0.0.1"},
+    {"protocol": "wss", "port": 8889, "connect_ip": "127.0.0.1"},
+    {"protocol": "http-local", "port": 8002, "connect_ip": "REPLACE_WITH_OWNED_VM_PRIVATE_IP"},
+    {"protocol": "https-local", "port": 8445, "connect_ip": "REPLACE_WITH_OWNED_VM_PRIVATE_IP"},
+    {"protocol": "http-public", "port": 8003, "connect_ip": "REPLACE_WITH_OWNED_VM_PUBLIC_IP"},
+    {"protocol": "https-public", "port": 8446, "connect_ip": "REPLACE_WITH_OWNED_VM_PUBLIC_IP"}
+  ]
+}

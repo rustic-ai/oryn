@@ -1,0 +1,39 @@
+{
+  "status": "source_review_only_unexecuted",
+  "labels_unchanged": {
+    "worker": 16,
+    "context_service": 49,
+    "agent_ipc": 18
+  },
+  "proposed_next_if_no_intervening_bump": {
+    "worker": 17,
+    "context_service": 50,
+    "agent_ipc": 19
+  },
+  "baseline_caveat": "No immutable source snapshot exists for the assignment of the current three labels; Git HEAD is not the post-label baseline.",
+  "sources": {
+    "crates/oryn-native/src/worker.rs": "f699eeb1954184f23ff867bd3aaa13fe106a59bae55fbf2ff2c7c8a7ca71bc53",
+    "crates/oryn-native/src/context_service.rs": "a8d0cc10763f35ccc1626dd057d2e86c07375913e76082d103ad9efcf5c960eb",
+    "crates/oryn-native/src/agent_ipc.rs": "c23ad8d5956af65ee460156b55ac1ebd26d647e03a7239feaa24e661e6825b99",
+    "crates/oryn-native/src/worker_client.rs": "38bbe9bb9ce03e5fa592a52f6be64264c0b48942d548cabfc7c50e1c7dd2846a",
+    "crates/oryn-native/src/worker_process.rs": "74da83095c464dd3688e7af4b6c7c6195223cdee8b8bfa6baa28cc0348796c69",
+    "crates/oryn-native/src/runtime.rs": "11d8360e22f696b67dc09e16bbd89292f6b146a39c5f0d6474be9858022931bb",
+    "crates/oryn-native/src/feature_profile.rs": "284215e275024ebe592204489aff2fb10af1ce4b8a893ab7e3c70bcac96c941c",
+    "crates/oryn-native/src/usermedia_profile.rs": "f457bbf47a02e6786b87f47b4c0f188d5ab15c36441579a1528c69f8d96389f5",
+    "crates/oryn-native/src/host.rs": "eb57b1204243cf0d8c46ab099ea62fb44fbd8ed54b3e3857fac14b803924735a",
+    "crates/oryn-native/src/remote_window_v8.rs": "56d1bc6dff2694f53feddef6766a0b66fbdab2ad2e25083f24ba23101ef04d57",
+    "crates/oryn-native/src/agent_platform_service.rs": "47ddc39ac0243d6bcf0b33ccb5ef9a0719962f67dfb3e6e53e3394f354f32301",
+    "crates/oryn-native/src/agent_platform.rs": "d1cdf378cb8c7cc58504344daa44189ccc581dc044bb01350adadf6ef06e39af",
+    "crates/oryn-native/src/protocol_pending_contract_tests.rs": "aca7cc2a676dff13705ffe6c2c8f290f1a4d89ffab9920a34a11a4f45d5a8c41",
+    "crates/oryn-js/src/worker_wire.rs": "a7dcabbdb124a691aad0944445bbb8dfabc3711c29e202277384c58b45dc3612",
+    "crates/oryn-js/src/message_wire.rs": "0f2482dee8f2350b08e2d33e408a2d93f04446f471c31b27c2d03c01ff8bb12c",
+    "crates/oryn-js/src/message_prerender.rs": "8aa9d6794237d99f5fa488265144d997304b273e254722fb82e6d064e735c7a5",
+    "crates/oryn-js/src/platform.rs": "ae524a0bd4935d37c55d2f9a66183cc71f60522f8951d5547657bca38a6a22d3",
+    "crates/oryn-js/src/platform_control.rs": "7d61935b375533f55ce45af72f192d69ffc2cf1390aa9e62618773286c24a471",
+    "crates/oryn-js/src/navigation.rs": "226d85c1e4580d8a73d2d55e21be90ab84b610b648300cc167e0ef9a830966d1",
+    "crates/oryn-js/src/service_worker_wire.rs": "1adb99f5064ef1e528125bf7aabfa21eb836d48e8ae7b61b232156afafeb53d1",
+    "scripts/native_protocol_versions.py": "4d26634dd68e945509ea3e0e060a4242516084a4c47be7b63bb4d93439768a56",
+    "scripts/evidence_protocols.py": "f7706ba9d2f6d620d904da468f1b6876e275c31a8c64db05fdd43598ce9ee2eb",
+    "docs/oryn2/P06-PROTOCOL-EVIDENCE-SOURCE-AUDIT-2026-09-17.md": "a002e395b8403104e55dfa77844e2fef4041003d782c17c8c22e59b0ef31a627"
+  }
+}

@@ -207,7 +207,8 @@ struct WrapContext {
 }
 
 fn block_item_needs_wrap(child_node_kind: NodeKind, display_outside: DisplayOutside) -> bool {
-    child_node_kind == NodeKind::Text || display_outside == DisplayOutside::Inline
+    child_node_kind == NodeKind::Text
+        || matches!(display_outside, DisplayOutside::Inline | DisplayOutside::InternalRuby)
 }
 
 /// Used for flex/grid containers, and for flow containers whose in-flow
@@ -399,7 +400,9 @@ fn classify_flow_children(
                 DisplayOutside::Block
                 | DisplayOutside::TableCaption
                 | DisplayOutside::InternalTable => classification.all_inline = false,
-                DisplayOutside::Inline => {
+                // Internal ruby boxes participate in the inline sequence;
+                // their annotation placement is not a block-flow boundary.
+                DisplayOutside::Inline | DisplayOutside::InternalRuby => {
                     classification.all_block = false;
 
                     // We need the "complex" tree fixing when an inline contains a block
@@ -1305,5 +1308,20 @@ pub(crate) fn build_inline_layout_into(
             }
             NodeData::Document(_) => unreachable!(),
         }
+    }
+}
+
+#[cfg(test)]
+mod ruby_flow_classification_tests {
+    use super::*;
+
+    #[test]
+    fn internal_ruby_joins_the_same_anonymous_inline_run_as_inline_boxes() {
+        for outside in [DisplayOutside::Inline, DisplayOutside::InternalRuby] {
+            assert!(block_item_needs_wrap(NodeKind::Element, outside));
+        }
+        assert!(!block_item_needs_wrap(NodeKind::Element, DisplayOutside::Block));
+        assert!(!block_item_needs_wrap(NodeKind::Element, DisplayOutside::InternalTable));
+        assert!(block_item_needs_wrap(NodeKind::Text, DisplayOutside::Block));
     }
 }

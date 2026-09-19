@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Full-plan generation admission, including direct invocation.
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 parent="$repo_root/target/release/oryn"
 signed_app="$repo_root/target/release/OrynPageWorker.app"
@@ -79,9 +82,15 @@ codesign --force --options runtime --timestamp=none --sign "$identity" \
 expect_rejected wrong-identifier \
   "$wrong_id_app/Contents/MacOS/oryn-page-worker"
 
-cargo build --locked -p oryn-native --features v8-host,v8-sandbox --bin oryn-page-worker
+python3 "$(cd "$(dirname "$0")" && pwd)/generation_gate.py"
+if [[ -n "${ORYN_SECURITY_PREBUILT_CANDIDATE:-}" ]]; then
+  debug_worker="$(python3 "$repo_root/scripts/security_prebuilt.py" path debug_worker)"
+else
+  cargo build --locked -p oryn-native --features v8-host,v8-sandbox --bin oryn-page-worker
+  debug_worker="$repo_root/target/debug/oryn-page-worker"
+fi
 debug_app="$(copy_variant debug)"
-cp "$repo_root/target/debug/oryn-page-worker" \
+cp "$debug_worker" \
   "$debug_app/Contents/MacOS/oryn-page-worker"
 codesign --force --options runtime --timestamp=none --sign "$identity" \
   --entitlements "$entitlements" "$debug_app" >/dev/null

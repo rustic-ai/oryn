@@ -1,0 +1,277 @@
+{
+  "schema_version": 1,
+  "contract_id": "core-oil-five-families-2026-09-15-v1",
+  "source_plan": "docs/oryn2/CORE-AND-OIL-COMPLETION-PLAN-2026-09-15.md",
+  "scope": "Required completion contract; existing controlled fixtures alone do not satisfy it.",
+  "sampling": {
+    "serial": 3,
+    "mixed_family": 3,
+    "recovery_repeat": 30,
+    "context_counts": [
+      1,
+      5,
+      20
+    ],
+    "fault_injection": 1
+  },
+  "required_frontend_dimensions": [
+    "client_rendering",
+    "ssr_hydration",
+    "routing_chunks",
+    "portals_custom_controls",
+    "cross_origin_frames",
+    "async_persistence",
+    "client_timezones"
+  ],
+  "families": [
+    {
+      "id": "research",
+      "cells": [
+        {
+          "id": "research.compare",
+          "behavior": "Search, follow and compare multiple pages",
+          "independent_outcome": "Exact text, table and link facts with canonical URLs; persisted request sequence",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "research.pagination",
+          "behavior": "Pagination and asynchronous refresh in a dynamic frontend",
+          "independent_outcome": "Exact facts after each refresh and page transition",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "research.frames",
+          "behavior": "Same-origin, cross-origin and nested-frame extraction",
+          "independent_outcome": "Expected frame facts; no foreign or detached document leakage",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "research.missing",
+          "behavior": "Empty results, missing sources and redirects",
+          "independent_outcome": "Exact empty/error outcomes and redirect request history",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "research.stale",
+          "behavior": "Stale semantic references across navigation and refresh",
+          "independent_outcome": "Reject stale actions; reacquire current references without leaking old facts",
+          "recovery_sensitive": true
+        }
+      ]
+    },
+    {
+      "id": "forms",
+      "cells": [
+        {
+          "id": "forms.controls",
+          "behavior": "Multi-step native and custom controls with text, options, dates and numbers",
+          "independent_outcome": "Exact ordered receipt fields and Unicode values",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "forms.validation",
+          "behavior": "Asynchronous validation with required, invalid and disabled controls",
+          "independent_outcome": "No receipt on rejected input; successful corrected receipt",
+          "recovery_sensitive": true
+        },
+        {
+          "id": "forms.delivery",
+          "behavior": "GET, POST and multipart submission with real authorized file upload",
+          "independent_outcome": "Exact request method, body, field order and uploaded byte hashes",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "forms.submitters",
+          "behavior": "Submitter overrides and cancel behavior",
+          "independent_outcome": "Exact submitter action/method; no receipt for cancellation",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "forms.reentrancy",
+          "behavior": "Cancelled and reentrant submission, navigation and retry",
+          "independent_outcome": "One authorized receipt; no duplicate external write",
+          "recovery_sensitive": true
+        },
+        {
+          "id": "forms.confinement",
+          "behavior": "File and secret confinement across contexts",
+          "independent_outcome": "Only authorized upload bytes; no secret or file leakage",
+          "recovery_sensitive": false
+        }
+      ]
+    },
+    {
+      "id": "shopping",
+      "cells": [
+        {
+          "id": "shopping.discovery",
+          "behavior": "Hydrated or client-rendered search, filters, comparison and variants",
+          "independent_outcome": "Exact chosen variant and server quote",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "shopping.cart",
+          "behavior": "Persistent cart and quantities across route changes and reload",
+          "independent_outcome": "Exact persisted cart items and quantities",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "shopping.checkout",
+          "behavior": "Quote, review and controlled checkout",
+          "independent_outcome": "Exact persisted order, total and inventory; one accepted mutation",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "shopping.payment_frame",
+          "behavior": "Declared framed payment-style flow",
+          "independent_outcome": "Controlled payment receipt attributed to the correct cart and order",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "shopping.stale_quote",
+          "behavior": "Asynchronous stock/price changes and stale-quote recovery",
+          "independent_outcome": "Reject old quote; review and accept current price/stock exactly once",
+          "recovery_sensitive": true
+        },
+        {
+          "id": "shopping.duplicate",
+          "behavior": "Duplicate checkout and retry after interruption",
+          "independent_outcome": "One durable order and one inventory decrement",
+          "recovery_sensitive": true
+        }
+      ]
+    },
+    {
+      "id": "saas",
+      "cells": [
+        {
+          "id": "saas.pkce",
+          "behavior": "Authenticated SPA login/SSO through a controlled cross-origin identity provider",
+          "independent_outcome": "Real authorization-code/PKCE token exchange and exact authorization history",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "saas.mfa",
+          "behavior": "Authorized MFA handoff and resume",
+          "independent_outcome": "Authentication completes only after authorized challenge response",
+          "recovery_sensitive": true
+        },
+        {
+          "id": "saas.records",
+          "behavior": "Create, read, update and reload authenticated records",
+          "independent_outcome": "Exact persisted record, version and authorization history",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "saas.session",
+          "behavior": "Logout, session expiry and relogin",
+          "independent_outcome": "Correct session state; denied expired writes; restored authorized session",
+          "recovery_sensitive": true
+        },
+        {
+          "id": "saas.oauth_rejection",
+          "behavior": "State, redirect, verifier, replay and expiry validation",
+          "independent_outcome": "Reject each invalid exchange without issuing an authorized session",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "saas.save_recovery",
+          "behavior": "Stale and duplicate saves with interruption and retry",
+          "independent_outcome": "Exact version history and one accepted write",
+          "recovery_sensitive": true
+        },
+        {
+          "id": "saas.isolation",
+          "behavior": "Unauthorized writes, context isolation and redaction",
+          "independent_outcome": "No cross-context access or secret disclosure; exact denied-write history",
+          "recovery_sensitive": false
+        }
+      ]
+    },
+    {
+      "id": "booking",
+      "cells": [
+        {
+          "id": "booking.timezones",
+          "behavior": "Client datepicker and timezone conversion including DST fold and gap",
+          "independent_outcome": "Exact UTC instant and named timezone; explicit ambiguity/gap handling",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "booking.reserve",
+          "behavior": "Availability, options, review and controlled reservation",
+          "independent_outcome": "Exact slot ownership, options and durable reservation",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "booking.reload",
+          "behavior": "Confirmation reload and reservation retrieval",
+          "independent_outcome": "Same reservation identity and persisted confirmation",
+          "recovery_sensitive": false
+        },
+        {
+          "id": "booking.stale_slot",
+          "behavior": "Stale/unavailable slots and validation recovery",
+          "independent_outcome": "Rejected stale request; exact accepted replacement slot and request history",
+          "recovery_sensitive": true
+        },
+        {
+          "id": "booking.cancel_retry",
+          "behavior": "Cancellation, interruption, retry and duplicate requests",
+          "independent_outcome": "No reservation on cancellation; one durable reservation after accepted retry",
+          "recovery_sensitive": true
+        }
+      ]
+    }
+  ],
+  "regression_inputs": [
+    {
+      "path": "test-harness/workflows/research-cases.json",
+      "sha256": "c19448fc05813f770ef895c139d7e10b60fc549efecf92f87b9bb9d6604d0d65"
+    },
+    {
+      "path": "test-harness/workflows/forms-cases.json",
+      "sha256": "76a7a68fcbf1cf188da42e4c7df33947f4951358c79722d47a2ccac8072d66f5"
+    },
+    {
+      "path": "test-harness/workflows/shopping-cases.json",
+      "sha256": "fdca7bec76daf3aefe051b9c1ec0439898fac61e170379f31f7872cb5099f4db"
+    },
+    {
+      "path": "test-harness/workflows/saas-cases.json",
+      "sha256": "6aa1ab3e5e074c1f59131061d5252fce7eb538cbce756bba38a7c609075d465d"
+    },
+    {
+      "path": "test-harness/workflows/booking-cases.json",
+      "sha256": "0fb472f7fe49deaf6a695d575de35db14422b6a0d0499b319598652b64afc2d6"
+    },
+    {
+      "path": "scripts/run-oil-framework-outcomes.py",
+      "sha256": "5e73380ab8534b81097cb878c9668f96cfd1e9b41eeeb72df0b7bc3034e5fc00"
+    },
+    {
+      "path": "scripts/validate-auth-flows.sh",
+      "sha256": "f5205295dd60445d3f7582118989cc8cc37c40a4db606c0f0f9d20a085a2da05"
+    },
+    {
+      "path": "benchmarks/app-compatibility/oauth/existing-session-sso.oil",
+      "sha256": "fb3bc7dc3c4b734bd44e4f5ca4cc923ecd4d0e789e5d13cf99b4864903b4cc44"
+    },
+    {
+      "path": "benchmarks/app-compatibility/oauth/mfa-handoff.oil",
+      "sha256": "cd33d2f5ce13b81f0ac5534cf60e595c51ec903b2283573bae19daab0b372076"
+    },
+    {
+      "path": "benchmarks/app-compatibility/oauth/popup-close-recovery.oil",
+      "sha256": "8c7b78f3816e0ad75b13399c7349bf313f64159f20bb7de409821074deabc0a2"
+    },
+    {
+      "path": "benchmarks/app-compatibility/oauth/popup-pkce.oil",
+      "sha256": "007f29d3d0efc84e0332b3e99ea4aa6596bdc056bf1a9f2a2b5857c8679eb4df"
+    },
+    {
+      "path": "benchmarks/app-compatibility/oauth/redirect.oil",
+      "sha256": "3bc15f932894829932e126ffa9116b5cd34514733cbf59e3a9c8740cfbb73748"
+    }
+  ]
+}

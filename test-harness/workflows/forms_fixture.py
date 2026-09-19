@@ -90,6 +90,10 @@ class Fixture:
                 return json.loads(json.dumps(self.cases[case_id]))
             raise ValueError("unknown command or case")
 
+    def receipt_view(self, case_id):
+        """Called while the request handler holds the fixture mutation lock."""
+        self.cases[case_id]["receipt_views"] += 1
+
     def receive(self, case_id, content_type, body):
         with self.lock:
             case = self.cases.get(case_id)
@@ -155,8 +159,8 @@ class Fixture:
                 return 400
 
 
-def serve():
-    fixture = Fixture()
+def serve(fixture_type=Fixture, render_page=None, extra_get=None):
+    fixture = fixture_type()
 
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
@@ -169,7 +173,8 @@ def serve():
         def reply(self, status, body, headers=()):
             body = body.encode("utf-8")
             self.send_response(status)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            if not any(key.lower() == "content-type" for key, _ in headers):
+                self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             for key, value in headers:
@@ -178,6 +183,8 @@ def serve():
             self.wfile.write(body)
 
         def do_GET(self):
+            if extra_get is not None and extra_get(self, fixture):
+                return
             match = re.fullmatch(r"/(form|receipt)/([0-9a-f]{32})", urlsplit(self.path).path)
             if not match:
                 self.reply(404, "Not found")
@@ -189,12 +196,12 @@ def serve():
                     self.reply(404, "No receipt")
                     return
                 if kind == "receipt":
-                    case["receipt_views"] += 1
+                    fixture.receipt_view(case_id)
                     self.reply(
                         200,
                         '<h1 id="receipt">Application received</h1>'
                         f"<p>Receipt {html.escape(case_id)}</p>"
-                        f'<a href="/receipt/{case_id}">Reload receipt</a>',
+                        f'<a href="/receipt/{case_id}">Reload receipt</a>' + (fixture.repeat_form(case_id) if hasattr(fixture,"repeat_form") else ""),
                     )
                     return
                 upload = case["upload"]
@@ -210,7 +217,7 @@ def serve():
                 if upload
                 else "",
             )
-            self.reply(200, page)
+            self.reply(200, render_page(page, case_id) if render_page else page)
 
         def do_POST(self):
             match = re.fullmatch(r"/submit/([0-9a-f]{32})", urlsplit(self.path).path)
@@ -228,7 +235,7 @@ def serve():
                     raise ValueError("truncated body")
                 status = fixture.receive(match[1], self.headers.get("Content-Type", ""), body)
                 headers = [("Location", "/receipt/" + match[1])] if status == 303 else []
-                self.reply(status, "Submitted" if status == 303 else "Rejected", headers)
+                self.reply(status, "Submitted" if status == 303 else "Rejected" + (fixture.repeat_form(match[1]) if status == 409 and hasattr(fixture,"repeat_form") else ""), headers)
             except (ValueError, OSError):
                 self.reply(400, "Invalid request")
 

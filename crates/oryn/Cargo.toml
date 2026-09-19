@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
+# Separate historical reproduction binary; never enable for qualification.
+historical-test-input = ["oryn-native/historical-test-input"]
 # The default/macOS parent is a privileged broker/client and remains V8-free.
 # Linux production explicitly enables `native-v8` for its multicall ELF; V8 is
 # initialized only after re-exec into the sandboxed worker role.
 default = ["native", "core-full"]
 native = []
+webdriver-server = ["dep:axum", "dep:libc"]
 core-full = ["oryn-native/core-full"]
 core-lite = ["oryn-native/core-lite"]
 native-v8 = ["oryn-native/v8-host", "oryn-native/v8-sandbox"]
@@ -42,6 +45,11 @@ serde_json = "1.0.149"
 serde = { version = "1", features = ["derive"] }
 url = "2.5"
 dirs = "4.0"
+getrandom = "0.3"
+sha2 = "0.10"
+base64 = "0.22"
+axum = { version = "0.8", optional = true }
+libc = { version = "0.2", optional = true }
 
 [[example]]
 name = "rendering_probe"
@@ -51,3 +59,11 @@ required-features = ["render"]
 [[bin]]
 name = "oryn-mcp"
 path = "src/bin/oryn_mcp.rs"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
+[[bin]]
+name = "oryn-webdriver"
+path = "src/bin/oryn_webdriver.rs"
+required-features = ["webdriver-server"]

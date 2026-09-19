@@ -10,7 +10,10 @@ import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from native_protocol_versions import versions as native_protocol_versions
 from typing import Any
+
+from evidence_protocols import validate_protocols
 
 from evidence_assertions import assertion_bound_cases, verified_regressions
 
@@ -63,6 +66,7 @@ def main() -> int:
 
     production = load(raw / "production-gate.json")
     runtime = load(raw / "runtime.json")
+    validate_protocols(runtime, root)
     churn = load(raw / "churn.json")
     miniwob = load(raw / "miniwob/aggregate.json")
     differential = load(raw / "differential/chromium.json")
@@ -71,9 +75,9 @@ def main() -> int:
         raise ValueError("layout production gate did not pass")
     if (
         runtime.get("contract_version") != 4
-        or runtime.get("worker_protocol_version") != 10
+        or runtime.get("worker_protocol_version") != native_protocol_versions(root)["worker"]
     ):
-        raise ValueError("production runtime is not contract v4 / worker protocol v9")
+        raise ValueError("production runtime does not match contract v4 / current native worker source")
     if miniwob.get("native") != {"completed": 24, "passed": 24}:
         raise ValueError("native MiniWoB is not 24/24")
     if churn.get("false_preservation", {}).get("numerator") != 0:
@@ -196,6 +200,8 @@ def main() -> int:
                 "sha256": digest(worker),
                 "bytes": worker.stat().st_size,
                 "protocol_version": runtime["worker_protocol_version"],
+                "context_service_protocol_version": runtime["context_service_protocol_version"],
+                "agent_ipc_protocol_version": runtime["agent_ipc_protocol_version"],
                 "contract_version": runtime["contract_version"],
                 "native_v8": runtime["native_v8"],
                 "v8_version": runtime["v8_version"],

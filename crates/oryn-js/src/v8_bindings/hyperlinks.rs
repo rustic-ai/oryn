@@ -34,47 +34,26 @@ pub(super) fn document_encoding(
         .output_encoding())
 }
 
-fn encode_query<'a>(
-    input: &'a str,
-    encoding: &'static encoding_rs::Encoding,
-) -> std::borrow::Cow<'a, [u8]> {
-    let (encoded, _, errors) = encoding.encode(input);
-    if !errors {
-        return encoded;
-    }
-    // URL encoding escapes the numeric-reference fallback itself; form
-    // serialization instead percent-encodes the complete name/value pair.
-    let mut replaced = String::with_capacity(input.len());
-    for character in input.chars() {
-        let mut buffer = [0u8; 4];
-        let scalar = character.encode_utf8(&mut buffer);
-        if encoding.encode(scalar).2 {
-            let codepoint = if encoding == encoding_rs::ISO_2022_JP
-                && matches!(character, '\u{0e}' | '\u{0f}' | '\u{1b}')
-            {
-                0xfffd
-            } else {
-                character as u32
-            };
-            replaced.push_str(&format!("%26%23{codepoint}%3B"));
-        } else {
-            replaced.push(character);
-        }
-    }
-    std::borrow::Cow::Owned(encoding.encode(&replaced).0.into_owned())
-}
-
-fn parse(
+pub(super) fn parse(
     input: &str,
     base: Option<&Url>,
     encoding: &'static encoding_rs::Encoding,
 ) -> Result<Url, url::ParseError> {
-    let encode: url::form_urlencoded::EncodingOverride<'_> =
-        Some(&|text| encode_query(text, encoding));
-    Url::options()
-        .base_url(base)
-        .encoding_override(encode)
-        .parse(input)
+    oryn_dom::document_url::parse(input, base, encoding)
+}
+
+pub(super) fn document_base(
+    scope: &mut v8::PinScope,
+    state: &V8BindingState,
+    document: NodeId,
+) -> Result<(String, &'static encoding_rs::Encoding), V8BindingError> {
+    let encoding = document_encoding(state, document)?;
+    let base = if document == state.document_root() {
+        document_base_url(scope, state, true)?
+    } else {
+        retained_document_base_url(state, document)?
+    };
+    Ok((base, encoding))
 }
 
 fn resolved(
@@ -83,43 +62,7 @@ fn resolved(
     node: NodeId,
 ) -> Result<(Option<String>, Option<Url>, &'static encoding_rs::Encoding), V8BindingError> {
     let document = owner_document_for_node(state, node)?;
-    let encoding = document_encoding(state, document)?;
-    let base = if document == state.document {
-        document_base_url(scope, state, true)?
-    } else {
-        let dom = state.dom.borrow();
-        let fallback = dom
-            .arena()
-            .get(document)?
-            .document_metadata
-            .as_ref()
-            .and_then(|metadata| metadata.url.clone())
-            .unwrap_or_else(|| "about:blank".into());
-        let mut base = fallback.clone();
-        let mut pending = dom
-            .children(document)?
-            .iter()
-            .rev()
-            .copied()
-            .collect::<Vec<_>>();
-        while let Some(child) = pending.pop() {
-            if matches!(dom.arena().get(child)?.kind, NodeKind::Document) {
-                continue;
-            }
-            if dom.is_element(child, "http://www.w3.org/1999/xhtml", "base")
-                && let Some(value) = dom.attribute_in_null_namespace(child, "href")?
-            {
-                if let Ok(url) = parse(value, Url::parse(&fallback).ok().as_ref(), encoding)
-                    && !matches!(url.scheme(), "data" | "javascript")
-                {
-                    base = url.into();
-                }
-                break;
-            }
-            pending.extend(dom.children(child)?.iter().rev().copied());
-        }
-        base
-    };
+    let (base, encoding) = document_base(scope, state, document)?;
     let raw = state
         .dom
         .borrow()
@@ -258,6 +201,50 @@ mod tests {
     }
 
     #[test]
+    fn reflected_resource_urls_share_document_encoding_and_ping_remains_a_string() {
+        super::super::tests::initialize_v8();
+        let dom = Rc::new(RefCell::new(
+            oryn_dom::html::parse("<body>").into_runtime().unwrap(),
+        ));
+        let document = dom.borrow().document();
+        let mut isolate = v8::Isolate::new(Default::default());
+        v8::scope!(let scope,&mut isolate);
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
+        state.commit_location("https://example.test/path").unwrap();
+        for (encoding, suffix) in [
+            ("windows-1251", "%26%23255%3B"),
+            ("windows-1252", "%FF"),
+            ("UTF-8", "%C3%BF"),
+        ] {
+            state
+                .dom
+                .borrow_mut()
+                .arena_mut()
+                .get_mut(document)
+                .unwrap()
+                .document_metadata
+                .as_mut()
+                .unwrap()
+                .encoding = encoding.into();
+            let source = format!(
+                r#"(()=>{{const expected='?{suffix}';
+              for(const [tag,attribute,property] of [['iframe','src','src'],['a','href','href'],['area','href','href'],['base','href','href'],['link','href','href'],['img','src','src'],['embed','src','src'],['object','data','data'],['track','src','src'],['video','src','src'],['audio','src','src'],['input','src','src'],['form','action','action'],['input','formaction','formAction'],['button','formaction','formAction'],['script','src','src']]){{const element=document.createElement(tag);element.setAttribute(attribute,'?ÿ');if(!element[property].endsWith(expected))throw Error(tag+': '+element[property]);element[property]='?ÿ';if(element.getAttribute(attribute)!=='?ÿ')throw Error('setter '+tag);}}
+              for(const tag of ['a','area']){{const element=document.createElement(tag);element.ping='?ÿ ?ÿ';if(element.ping!=='?ÿ ?ÿ')throw Error('ping');}}
+              const base=document.createElement('base');base.href='?ÿ';document.head.appendChild(base);const image=document.createElement('img');image.src='#suffix';if(!image.src.includes(expected+'#suffix'))throw Error('encoded base');base.remove();return 'ok';}})()"#
+            );
+            v8::tc_scope!(let inner,scope);
+            let source = v8::String::new(inner, &source).unwrap();
+            let result = v8::Script::compile(inner, source, None).unwrap().run(inner);
+            if let Some(error) = inner.exception() {
+                panic!("{}", error.to_rust_string_lossy(inner));
+            }
+            assert_eq!(result.unwrap().to_rust_string_lossy(inner), "ok");
+        }
+    }
+
+    #[test]
     fn hyperlink_components_use_legacy_encoding_and_live_native_base() {
         super::super::tests::initialize_v8();
         let dom = Rc::new(RefCell::new(
@@ -277,7 +264,7 @@ mod tests {
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
         let state = install_generated_bindings(scope, context, dom, RealmId(0), 1).unwrap();
-        *state.location_url.borrow_mut() = Url::parse("https://example.test/start").unwrap();
+        state.commit_location("https://example.test/start").unwrap();
         v8::tc_scope!(let scope, scope);
         let source = v8::String::new(scope, r#"
           const eq=(a,b)=>{if(a!==b)throw Error(JSON.stringify([a,b]))};

@@ -1,0 +1,409 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oryn.dev/schemas/security-result-v3.json",
+  "title": "Oryn autonomous-runtime security production result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "run_id",
+    "recorded_at",
+    "fingerprint",
+    "corpus",
+    "regressions",
+    "metrics",
+    "benchmarks",
+    "artifact_ledger",
+    "case_ledger",
+    "criteria",
+    "outcome"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 3
+    },
+    "profile": {
+      "const": "security-production"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_commit",
+        "source_dirty",
+        "source_tree_sha256",
+        "manifest_sha256",
+        "v8_policy_sha256",
+        "dependency_exceptions_sha256",
+        "parent",
+        "worker"
+      ],
+      "properties": {
+        "source_commit": {
+          "$ref": "#/$defs/sha1"
+        },
+        "source_dirty": {
+          "const": false
+        },
+        "source_tree_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "v8_policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dependency_exceptions_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "parent": {
+          "$ref": "#/$defs/binary"
+        },
+        "worker": {
+          "$ref": "#/$defs/worker"
+        }
+      }
+    },
+    "corpus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_cases",
+        "required_cases"
+      ],
+      "properties": {
+        "manifest_cases": {
+          "const": 51
+        },
+        "required_cases": {
+          "const": 51
+        }
+      }
+    },
+    "regressions": {
+      "type": "object",
+      "additionalProperties": {
+        "enum": [
+          "passed",
+          "failed",
+          "unverified"
+        ]
+      },
+      "required": [
+        "g1",
+        "g2_controlled",
+        "g3",
+        "g4",
+        "native_miniwob_24",
+        "rust_workspace",
+        "strict_clippy",
+        "python_sdk",
+        "intentgym",
+        "scanner",
+        "extension",
+        "signed_production_boundary",
+        "reference_churn"
+      ]
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_passed",
+        "required_total",
+        "vulnerabilities",
+        "reviewed_dependency_warnings",
+        "fuzz_targets_passed",
+        "fuzz_targets_total",
+        "fuzz_crashes",
+        "false_semantic_reference_preservations"
+      ],
+      "properties": {
+        "required_passed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 51
+        },
+        "required_total": {
+          "const": 51
+        },
+        "vulnerabilities": {
+          "const": 0
+        },
+        "reviewed_dependency_warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fuzz_targets_passed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "fuzz_targets_total": {
+          "const": 4
+        },
+        "fuzz_crashes": {
+          "const": 0
+        },
+        "false_semantic_reference_preservations": {
+          "const": 0
+        }
+      }
+    },
+    "benchmarks": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "artifacts",
+        "measurements",
+        "outcome"
+      ]
+    },
+    "artifact_ledger": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "case_ledger": {
+      "type": "array",
+      "minItems": 51,
+      "maxItems": 51,
+      "items": {
+        "$ref": "#/$defs/case"
+      }
+    },
+    "criteria": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason_codes",
+        "diagnostics"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha1": {
+      "type": "string",
+      "pattern": "^[0-9A-Fa-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "bytes",
+        "build_profile"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "build_profile": {
+          "const": "release"
+        }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "bytes",
+        "protocol_version",
+        "contract_version",
+        "native_v8",
+        "v8_version",
+        "execution_mode",
+        "sandboxed",
+        "sandbox_state",
+        "bundle_id",
+        "team_id",
+        "signing_cert_sha1",
+        "entitlement_sha256",
+        "policy_sha256",
+        "limits"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "protocol_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "contract_version": {
+          "const": 4
+        },
+        "native_v8": {
+          "const": true
+        },
+        "v8_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution_mode": {
+          "const": "sandboxed_worker"
+        },
+        "sandboxed": {
+          "const": true
+        },
+        "sandbox_state": {
+          "const": "app_sandbox"
+        },
+        "bundle_id": {
+          "const": "ai.rustic.oryn.page-worker"
+        },
+        "team_id": {
+          "const": "5HVA9VFF8K"
+        },
+        "signing_cert_sha1": {
+          "$ref": "#/$defs/sha1"
+        },
+        "entitlement_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "context_service_protocol_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "agent_ipc_protocol_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "sha256",
+        "bytes",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^raw:"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind": {
+          "enum": [
+            "json_summary",
+            "runtime_metadata",
+            "benchmark",
+            "test_log"
+          ]
+        }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "assertion_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^raw:"
+          }
+        }
+      }
+    }
+  }
+}

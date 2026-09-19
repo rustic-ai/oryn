@@ -76,6 +76,12 @@ fn number(value: &str, strict: bool) -> Option<f64> {
         .filter(|n| n.is_finite())
 }
 
+/// The HTML floating-point attribute parser shared by native meter/progress
+/// layout and reflected numeric state. Nonfinite values are never returned.
+pub fn parse_html_floating_point(value: &str) -> Option<f64> {
+    number(value, false)
+}
+
 fn digits(value: &str, width: usize) -> Option<i64> {
     (value.len() == width && value.bytes().all(|b| b.is_ascii_digit()))
         .then(|| value.parse().ok())
@@ -110,7 +116,7 @@ fn year_days(y: i64) -> Option<i64> {
         .checked_sub(719_162)
 }
 
-fn date(value: &str) -> Option<i64> {
+pub(super) fn date(value: &str) -> Option<i64> {
     let (ym, d) = value.rsplit_once('-')?;
     let (y, m) = month(ym)?;
     let d = digits(d, 2)?;
@@ -160,7 +166,7 @@ fn time(value: &str) -> Option<i64> {
     Some(((h * 60 + m) * 60 + second) * 1000 + millis)
 }
 
-fn parse(kind: &str, value: &str) -> Option<f64> {
+pub(super) fn parse(kind: &str, value: &str) -> Option<f64> {
     match kind {
         "number" | "range" => number(value, false),
         "date" => date(value).map(|n| n as f64),
@@ -244,7 +250,7 @@ fn floor_div(n: BigInt, d: &BigInt) -> BigInt {
 
 // At most 29 iterations across the entire i64 millisecond calendar domain.
 // No timezone, locale, JavaScript callbacks or authored-size allocations.
-fn civil_date(days: i64) -> Option<(i64, i64, i64)> {
+pub(super) fn civil_date(days: i64) -> Option<(i64, i64, i64)> {
     if days < year_days(1)? || days >= year_days(300_000_000)? {
         return None;
     }
@@ -294,7 +300,7 @@ fn clock_string(milliseconds: i64) -> String {
     text
 }
 
-fn serialize(kind: &str, value: f64) -> Option<String> {
+pub(super) fn serialize(kind: &str, value: f64) -> Option<String> {
     if !value.is_finite() {
         return None;
     }
@@ -499,7 +505,40 @@ impl DomRuntime {
         Ok(true)
     }
 
+    /// Range selectors concern applicable range limits, independently of
+    /// constraint-validation candidacy (disabled/readonly or step mismatch).
+    pub fn element_range_state(&self, node: NodeId) -> Result<Option<bool>, DomError> {
+        if !self.is_element(node, HTML, "input") {
+            return Ok(None);
+        }
+        let kind = self
+            .attribute_in_null_namespace(node, "type")?
+            .unwrap_or("text")
+            .to_ascii_lowercase();
+        if !numeric_kind(&kind) {
+            return Ok(None);
+        }
+        let min = self
+            .attribute_in_null_namespace(node, "min")?
+            .and_then(|value| parse(&kind, value));
+        let max = self
+            .attribute_in_null_namespace(node, "max")?
+            .and_then(|value| parse(&kind, value));
+        if kind != "range" && min.is_none() && max.is_none() {
+            return Ok(None);
+        }
+        let validity = self.control_numeric_validity(node)?;
+        Ok(Some(!validity.range_underflow && !validity.range_overflow))
+    }
+
     pub fn control_numeric_validity(&self, node: NodeId) -> Result<NumericValidity, DomError> {
+        self.control_numeric_validity_for_value(node, &self.control_value(node)?)
+    }
+    pub fn control_numeric_validity_for_value(
+        &self,
+        node: NodeId,
+        candidate: &str,
+    ) -> Result<NumericValidity, DomError> {
         let mut result = NumericValidity::default();
         if !self.is_element(node, HTML, "input") {
             return Ok(result);
@@ -511,7 +550,7 @@ impl DomRuntime {
         if !numeric_kind(&kind) {
             return Ok(result);
         }
-        let Some(value) = parse(&kind, &self.control_value(node)?) else {
+        let Some(value) = parse(&kind, candidate) else {
             return Ok(result);
         };
         let attr = |name| self.attribute_in_null_namespace(node, name);
